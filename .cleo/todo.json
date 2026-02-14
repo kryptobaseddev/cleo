@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T07:15:38Z",
+  "lastUpdated": "2026-02-14T07:16:41Z",
   "_meta": {
-    "checksum": "8fcd9d75b9608627",
+    "checksum": "c72d7e485d62bedd",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -18436,6 +18436,159 @@
       ],
       "notes": [
         "2026-02-14 07:15:38 UTC: CONTEXT: During V2 prep cleanup (2026-02-14), discovered severe operation count drift. Capability matrix: 138 entries. Gateway registries: 63+60=123 deployed ops. Docs cite various: 93, 96, 107, 111, 115, 162. Key spec headers already fixed (MCP-SERVER-SPEC, PARITY-MATRIX). ~25 other files still stale."
+      ]
+    },
+    {
+      "id": "T4508",
+      "title": "Fix stale operation counts in README and user-facing docs",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:15:54Z",
+      "updatedAt": "2026-02-14T07:15:54Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update operation counts in user-facing documentation. Files: README.md:127 (says 8 domains/111 ops), docs/guides/mcp-usage-guide.mdx:308 (says 8 domains/111 ops), docs/getting-started/mcp-server.mdx:23 (says 111 ops/9 domains), docs/guides/mcp-quickstart.mdx:364 (says 107 ops). Correct: 10 domains, 123 operations (63 query + 60 mutate).",
+      "labels": [
+        "documentation",
+        "drift"
+      ]
+    },
+    {
+      "id": "T4509",
+      "title": "Fix stale operation counts in mcp-server internal docs",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:15:55Z",
+      "updatedAt": "2026-02-14T07:15:55Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update operation counts in MCP server documentation. Files: mcp-server/docs/INDEX.md:46 (says 107 ops/56q+51m), mcp-server/docs/USAGE-GUIDE.md:30 (says 96 ops/8 domains), mcp-server/docs/README.md:107-114 (per-domain counts sum to 93), mcp-server/server.json:46 (says 96 ops/8 domains), mcp-server/schemas/README.md:37-127 (per-domain counts sum to 93), mcp-server/schemas/IMPLEMENTATION-SUMMARY.md:20 (says 96 ops). Correct: 10 domains, 123 operations.",
+      "labels": [
+        "documentation",
+        "drift"
+      ]
+    },
+    {
+      "id": "T4510",
+      "title": "Fix stale gateway headers and test assertions",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:15:56Z",
+      "updatedAt": "2026-02-14T07:15:56Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update MCP gateway file headers and test count assertions. Files: mcp-server/src/gateways/query.ts:8 (header says Total: 56, expects 63), mcp-server/src/gateways/mutate.ts:8 (header says Total: 51, expects 60), mcp-server/src/gateways/__tests__/mutate.test.ts:22 (says exactly 60 ops), mcp-server/src/gateways/__tests__/query.test.ts:55-79 (stale per-domain count assertions), mcp-server/src/types/index.ts:5 (says 115 ops/10 domains). Also: docs/developer/specifications/MCP-SERVER.mdx:23 (says 98 ops).",
+      "labels": [
+        "documentation",
+        "drift",
+        "testing"
+      ]
+    },
+    {
+      "id": "T4511",
+      "title": "Update MCP-SERVER-SPECIFICATION.md per-domain operation counts",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:16:14Z",
+      "updatedAt": "2026-02-14T07:16:14Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update detailed per-domain operation count sections in MCP-SERVER-SPECIFICATION.md. Stale sections: Lines 120-200 (cleo_query per-domain, says 48 total with stale per-domain breakdowns), Lines 244-330 (cleo_mutate per-domain, says 48 total with stale breakdowns), Lines 879-881 (summary says Query:56/Mutate:51/Total:107), Lines 1170-1178 (appendix says 93 spec+3 bg ops=96). Needs full reconciliation with actual gateway registries.",
+      "labels": [
+        "documentation",
+        "drift"
+      ]
+    },
+    {
+      "id": "T4512",
+      "title": "Update stale operation counts in architecture and migration specs",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:16:15Z",
+      "updatedAt": "2026-02-14T07:16:15Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fix operation count references in strategy/architecture docs. Files: docs/specs/CLEO-WEB-DASHBOARD-SPEC.md:50 (says 10 domains/162 operations), docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md:46 (says 29 to ~130 operations), docs/specs/CLEO-MIGRATION-DOCTRINE.md:39,88 (says 29 to ~130 ops and 29 operations), docs/specs/CLEO-PATH-FORWARD-2026Q1.md:30 (says 29 operations -- already superseded, may not need update), docs/specs/MCP-AGENT-INTERACTION-SPEC.md:117 (says Total native: 29 operations).",
+      "labels": [
+        "documentation",
+        "drift"
+      ]
+    },
+    {
+      "id": "T4513",
+      "title": "Review partially-stale specs for Bash implementation references",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:16:16Z",
+      "updatedAt": "2026-02-14T07:16:16Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Review specs that have valid concepts but outdated Bash implementation references. Decide: update during TS conversion or add superseded notices. Files to review: docs/specs/CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md (lib/*.sh refs), docs/specs/DYNAMIC-OUTPUT-LIMITS-SPEC.md (lib/json-output.sh refs), docs/specs/MANIFEST-HIERARCHY-SCHEMA-SPEC.md (Bash/jq examples), docs/specs/METRICS-VALUE-PROOF-SPEC.md (Bash OTel approach), docs/specs/CLEO-WEB-DASHBOARD-SPEC.md (web.sh lifecycle management).",
+      "labels": [
+        "documentation",
+        "review"
+      ]
+    },
+    {
+      "id": "T4514",
+      "title": "Review claudedocs/specs/ for V2 relevance and Bash implementation refs",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:16:40Z",
+      "updatedAt": "2026-02-14T07:16:40Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Deep review of remaining claudedocs/specs/ files. Decide for each: keep as-is, update with TS refs, or archive. Files: (1) IMPORT-EXPORT-ALGORITHMS.md — Bash implementation guide for import/export algorithms. Algorithms may be reusable but code examples are Bash (associative arrays, declare -A). (2) IMPORT-EXPORT-SPEC.md — Feature spec for selective export/cross-project import/ID remapping. Implementation-neutral concepts still valid, check V2 priority. (3) IMPORT-LOGGING-INTEGRATION.md — Bash integration guide referencing lib/import-logging.sh, scripts/import-tasks.sh. (4) SETUP-CLAUDE-ALIASES-SPEC.md — Spec for setup-claude-aliases command, 100+ Bash refs. Cross-platform shell concepts may be relevant. (5) T1031-JSON-OUTPUT-SCHEMA.md — Epic-scoped analyze JSON schema. Schema design is implementation-neutral, analyze.sh refs stale. (6) T1032-WAVE-COMPUTATION-ALGORITHM.md — Wave computation algorithm. Algorithm is language-neutral but says 'Single jq pass for efficiency'. Already archived: CLEO-SKILLS-SYSTEM-SPEC.md (Bash dispatch refactoring, epic T1074).",
+      "labels": [
+        "documentation",
+        "review"
+      ]
+    },
+    {
+      "id": "T4515",
+      "title": "Reconcile capability-matrix.ts (138) vs gateway registries (123) operation count discrepancy",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4507",
+      "createdAt": "2026-02-14T07:16:41Z",
+      "updatedAt": "2026-02-14T07:16:41Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "The capability matrix (capability-matrix.ts) has 138 entries while the gateway registries (query.ts+mutate.ts) have 123. The 15-entry gap needs investigation — some capability matrix entries may not have gateway routes, or the skills domain (12 ops in gateways) may be missing from the matrix. Breakdown by domain in capability matrix: tasks:32, system:30, session:19, orchestrate:14, research:12, validate:11, lifecycle:10, release:7, issues:3. Gateway breakdown: query.ts expects 63, mutate.ts expects 60, across 10 domains (includes skills). Document which source is canonical for what purpose.",
+      "labels": [
+        "architecture",
+        "documentation"
       ]
     }
   ],

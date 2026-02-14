@@ -20,18 +20,20 @@ Implementation operation counts and live operation matrices MUST be sourced from
 - `mcp-server/src/gateways/query.ts`
 - `mcp-server/src/gateways/mutate.ts`
 
-As of v0.86.0 deployment (T4269), implementation expected counts are:
+As of v0.98.2 deployment (T4492), implementation expected counts are:
 
-- `cleo_query`: 56
-- `cleo_mutate`: 51
-- Total: 107
+- `cleo_query`: 63
+- `cleo_mutate`: 60
+- Total: 123 (across 10 domains)
 
-The original core contract matrix (96 operations) remains the baseline model; implementation may include documented parity extensions.
+The original core contract matrix (96 operations) remains the baseline model; implementation includes documented parity extensions and new domains (issues, skills).
+
+> **Note**: The capability matrix (`capability-matrix.ts`) tracks 138 entries including routing metadata. The gateway registries (63+60=123) are the canonical count for deployed operations.
 
 ### 1.1 Design Goals
 
 1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = 94% reduction
-2. **Full Capability Access**: All 93 operations accessible through domain routing (96 including implementation-only background job operations)
+2. **Full Capability Access**: All 123 operations accessible through domain routing across 10 domains
 3. **Safety by Design**: Read operations cannot mutate state
 4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
@@ -44,7 +46,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 │                                                                                  │
 │   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
 │   │         cleo_query              │    │         cleo_mutate             │    │
-│   │      (48 Read Operations)       │    │      (48 Write Operations)      │    │
+│   │      (63 Read Operations)       │    │      (60 Write Operations)      │    │
 │   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
 └────────────────────┼──────────────────────────────────────┼──────────────────────┘
                      │                                      │
