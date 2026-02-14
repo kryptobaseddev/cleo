@@ -17,6 +17,20 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.98.1" tags={["Fix"]}>
+## v0.98.1 Release
+
+
+**Bug Fixes**
+- Fix release ship to stage and commit version-bumped files (GH #31) (T4482)
+- Auto-detect version bump targets when no versionBump config exists (GH #32) (T4484)
+- Fix misleading epic completeness check in release ship (GH #34) (T4486)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.98.1)
+</Update>
+
 <Update label="February 2026" description="v0.98.0" tags={["Documentation", "CLI"]}>
 ## v0.98.0 Release
 
@@ -308,34 +322,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.92.0)
-</Update>
-
-<Update label="February 2026" description="v0.91.0" tags={["Feature", "Installer", "Sessions"]}>
-## v0.91.0 Release
-
-
-**Features (T4334)**
-- feat(mcp): Native TypeScript engine for cross-platform standalone mode
-  - Dual-mode execution: native/cli/auto via MCP_EXECUTION_MODE env
-  - 29 native + 1 hybrid + 105 CLI-only operations with capability matrix
-  - Atomic file I/O with cross-process locking (proper-lockfile)
-  - Numbered backup rotation matching bash Tier 1 behavior
-  - Anti-hallucination validation (title != description, no future timestamps)
-  - JSON Schema validation via Ajv against existing schemas
-  - Task ID generation (T#### format) with cross-file uniqueness
-  - Session lifecycle management (start/end/focus)
-  - Config engine with dot-notation navigation
-  - Explicit project initialization (no silent .cleo/ creation)
-  - E_CLI_REQUIRED graceful degradation for CLI-only operations
-  - Solves Windows installation failures (no bash/jq dependency)
-
-**Dependencies**
-- Added: ajv ^8.17.1, ajv-formats ^3.0.1, proper-lockfile ^4.1.2
-
-
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.91.0)
 </Update>
 
 ## Earlier Releases

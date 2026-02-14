@@ -4,6 +4,14 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.98.1] - 2026-02-13
+
+### Bug Fixes
+- Fix release ship to stage and commit version-bumped files (GH #31) (T4482)
+- Auto-detect version bump targets when no versionBump config exists (GH #32) (T4484)
+- Fix misleading epic completeness check in release ship (GH #34) (T4486)
+
+
 ## [0.98.0] - 2026-02-13
 
 ### Features
