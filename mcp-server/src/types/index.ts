@@ -2,7 +2,7 @@
  * CLEO MCP Server Type Definitions
  *
  * Central export file for all type definitions used across the MCP server.
- * Provides full type safety for all 111 operations across 9 domains.
+ * Provides full type safety for all 115 operations across 10 domains.
  *
  * @module types
  */
@@ -304,6 +304,24 @@ export type {
   SystemCleanupParams,
   SystemCleanupResult,
 } from './operations/system.js';
+
+// Issues domain (4 operations)
+export type {
+  IssueSeverity,
+  IssueArea,
+  IssueType,
+  Diagnostics,
+  // Query operations
+  IssuesDiagnosticsParams,
+  IssuesDiagnosticsResult,
+  // Mutate operations
+  IssuesCreateBugParams,
+  IssuesCreateBugResult,
+  IssuesCreateFeatureParams,
+  IssuesCreateFeatureResult,
+  IssuesCreateHelpParams,
+  IssuesCreateHelpResult,
+} from './operations/issues.js';
 
 // Skills domain (12 operations)
 export type {

@@ -116,6 +116,17 @@ export {
   caampGetInstructionFiles,
 } from './caamp-adapter.js';
 
+// Template parser engine
+export {
+  parseIssueTemplates,
+  getTemplateForSubcommand,
+  generateTemplateConfig,
+  validateLabels,
+  type IssueTemplate,
+  type TemplateConfig,
+  type TemplateSection,
+} from './template-parser.js';
+
 // Capability matrix
 export {
   getOperationMode,
