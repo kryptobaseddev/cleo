@@ -124,7 +124,7 @@ cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes"
 cleo_mutate domain=issues  operation=create_bug params={"title": "...", "body": "...", "dryRun": true}
 ```
 
-8 domains, 111 operations across tasks, sessions, issues, orchestration, lifecycle, validation, releases, and system management. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+10 domains, 123 operations (63 query + 60 mutate) across tasks, sessions, issues, orchestration, research, lifecycle, validation, releases, skills, and system management. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
 
 ### Source of Truth Hierarchy
 
@@ -1161,7 +1161,7 @@ Target metrics (optimized for 1000+ tasks):
 |----------|-----------|
 | **Start Here** | [Quick Start](docs/getting-started/quick-start.md) · [Design Philosophy](docs/guides/design-philosophy.md) |
 | **Installation** | [Installer Architecture](docs/guides/installer-architecture.md) · [Migration Guide](docs/guides/installer-migration.md) |
-| **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) · [Task Management](docs/TODO_Task_Management.md) |
+| **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) |
 | **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flows](docs/architecture/DATA-FLOWS.md) · [2-Tier Subagent](docs/architecture/CLEO-SUBAGENT.md) |
 | **Specifications** | [LLM-Agent-First Spec](docs/specs/LLM-AGENT-FIRST-SPEC.md) · [Task ID System](docs/specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) · [Hierarchy Spec](docs/specs/TASK-HIERARCHY-SPEC.md) |
 | **Integration** | [Claude Code Guide](docs/integration/CLAUDE-CODE.md) · [CI/CD Integration](docs/ci-cd-integration.md) · [Orchestrator Protocol](docs/guides/ORCHESTRATOR-PROTOCOL.md) |

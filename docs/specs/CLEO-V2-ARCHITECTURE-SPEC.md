@@ -43,7 +43,7 @@ Conflict resolution order:
 
 CLEO V2 is the full TypeScript rewrite of CLEO's 133K LOC Bash system, running two parallel tracks to convergence:
 
-- **Track MCP**: Expand the native TypeScript engine from 29 to ~130 operations within the existing MCP server
+- **Track MCP**: Expand the native TypeScript engine from 29 to 123 operations within the existing MCP server
 - **Track CLI**: Ungate T2021 and build a complete Commander.js CLI with LAFS-compliant output
 
 Both tracks share a common TypeScript core (`src/core/`). When both reach parity, they converge into a single system where CLI and MCP are thin wrappers over the same engine.

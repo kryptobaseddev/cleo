@@ -1,9 +1,9 @@
 # Dynamic Output Limits Specification
 
 **Version**: 1.0.0
-**Status**: ACTIVE
+**Status**: ACTIVE (Bash implementation references — concepts valid, code paths will be ported to TypeScript during V2 conversion)
 **Created**: 2026-02-10
-**Last Updated**: 2026-02-10
+**Last Updated**: 2026-02-14
 **Epic**: T1432 (JSON Output System with Smart Pagination)
 
 ---

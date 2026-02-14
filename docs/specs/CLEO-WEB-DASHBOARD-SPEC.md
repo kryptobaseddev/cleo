@@ -2,8 +2,8 @@
 
 **Epic**: T4284 (CLEO Nexus Command Center WebUI)
 **Version**: 1.0.0
-**Status**: Active Specification
-**Last Updated**: 2026-02-12
+**Status**: Active Specification (web.sh lifecycle management references will be ported to TypeScript during V2 conversion)
+**Last Updated**: 2026-02-14
 
 **Companion Document**: [CLEO-WEB-DASHBOARD-UI.md](./CLEO-WEB-DASHBOARD-UI.md) -- Visual design, layouts, components
 
@@ -47,7 +47,7 @@ The web server is part of the `@cleocode/mcp-server` package. It imports domain 
 
 ### 2.2 Why Inside mcp-server/
 
-- Domain handlers already have query/mutate for all 10 domains (162 operations)
+- Domain handlers already have query/mutate for all 10 domains (123 operations)
 - Native engine implementations avoid CLI exec overhead for critical paths
 - Single `npm run build` produces both MCP server and web server
 - Shared TypeScript types, validation, and error handling

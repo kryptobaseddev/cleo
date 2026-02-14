@@ -36,7 +36,7 @@ This doctrine remains authoritative for migration detail, convergence criteria, 
 
 **Core tenets (v2.0.0):**
 
-1. **Two parallel tracks converge to one system.** Track MCP expands the native engine (29 to ~130 ops). Track CLI (T2021, now ungated) builds a full Commander.js CLI. Both share a common TypeScript core.
+1. **Two parallel tracks converge to one system.** Track MCP expands the native engine (29 to 123 ops). Track CLI (T2021, now ungated) builds a full Commander.js CLI. Both share a common TypeScript core.
 2. **LAFS is foundational.** Every command across both tracks MUST return LAFS-compliant envelopes. Machine-readable by default, human-readable opt-in.
 3. **CAAMP is the canonical package manager.** Skills, MCP servers, and agent instructions are managed through @cleocode/caamp v0.3.0 (88 exports).
 4. **CLI Bash remains the behavior baseline during transition.** Golden parity tests validate TypeScript output matches Bash output. Authority transfers to TypeScript after convergence.

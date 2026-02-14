@@ -27,23 +27,25 @@
 
 | Gateway | Type | Operations | Documentation |
 |---------|------|------------|---------------|
-| [cleo_query](api/gateways/cleo_query.md) | Read-only | 56 | Query, analysis, validation |
-| [cleo_mutate](api/gateways/cleo_mutate.md) | Write | 51 | Create, update, delete |
+| [cleo_query](api/gateways/cleo_query.md) | Read-only | 63 | Query, analysis, validation |
+| [cleo_mutate](api/gateways/cleo_mutate.md) | Write | 60 | Create, update, delete |
 
 ### Domains
 
 | Domain | Query | Mutate | Documentation |
 |--------|-------|--------|---------------|
-| [tasks](api/domains/tasks.md) | 9 | 10 | Task management |
+| [tasks](api/domains/tasks.md) | 10 | 11 | Task management |
 | [session](api/domains/session.md) | 5 | 7 | Session management |
 | [orchestrate](api/domains/orchestrate.md) | 7 | 5 | Multi-agent orchestration |
 | [research](api/domains/research.md) | 6 | 4 | Research and manifest |
 | [lifecycle](api/domains/lifecycle.md) | 5 | 5 | RCSD-IVTR lifecycle |
 | [validate](api/domains/validate.md) | 9 | 2 | Validation and compliance |
 | [release](api/domains/release.md) | 0 | 7 | Release management |
-| [system](api/domains/system.md) | 5 | 7 | System operations |
+| [system](api/domains/system.md) | 14 | 10 | System operations |
+| [issues](api/domains/issues.md) | 1 | 3 | Issue management |
+| [skills](api/domains/skills.md) | 6 | 6 | Skill management |
 
-**Total**: 107 operations (56 query + 51 mutate)
+**Total**: 123 operations (63 query + 60 mutate)
 
 > **Source of truth**: `mcp-server/src/gateways/query.ts` and `mcp-server/src/gateways/mutate.ts` expected operation counts.
 >

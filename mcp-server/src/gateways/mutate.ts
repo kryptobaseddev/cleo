@@ -4,8 +4,8 @@
  * Handles all state-modifying operations with strict validation,
  * audit logging, and rollback support.
  *
- * Domains: tasks, session, orchestrate, research, lifecycle, validate, release, system
- * Total operations: 51
+ * Domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills
+ * Total operations: 60
  *
  * @task T2929
  */

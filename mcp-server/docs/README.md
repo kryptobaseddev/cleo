@@ -101,17 +101,19 @@ const newTask = await cleo_mutate({
 
 - **[API Overview](api/overview.md)** - Gateway concepts, domains, operations
 - **Gateways**
-  - [cleo_query](api/gateways/cleo_query.md) - Read operations (56)
-  - [cleo_mutate](api/gateways/cleo_mutate.md) - Write operations (51)
+  - [cleo_query](api/gateways/cleo_query.md) - Read operations (63)
+  - [cleo_mutate](api/gateways/cleo_mutate.md) - Write operations (60)
 - **Domains**
-  - [tasks](api/domains/tasks.md) - Task management (19 operations)
+  - [tasks](api/domains/tasks.md) - Task management (21 operations)
   - [session](api/domains/session.md) - Session management (12 operations)
   - [orchestrate](api/domains/orchestrate.md) - Multi-agent orchestration (12 operations)
   - [research](api/domains/research.md) - Research and manifest (10 operations)
   - [lifecycle](api/domains/lifecycle.md) - RCSD-IVTR lifecycle (10 operations)
   - [validate](api/domains/validate.md) - Validation and compliance (11 operations)
   - [release](api/domains/release.md) - Release management (7 operations)
-  - [system](api/domains/system.md) - System operations (12 operations)
+  - [system](api/domains/system.md) - System operations (24 operations)
+  - [issues](api/domains/issues.md) - Issue management (4 operations)
+  - [skills](api/domains/skills.md) - Skill management (12 operations)
 - **[Error Codes](api/errors.md)** - Complete error code reference
 - **[Protocols](api/protocols.md)** - Protocol enforcement (exit 60-70)
 - **[Lifecycle](api/lifecycle.md)** - RCSD-IVTR lifecycle gates

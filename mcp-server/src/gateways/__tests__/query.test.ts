@@ -2,7 +2,7 @@
  * Tests for cleo_query gateway
  *
  * Validates:
- * - All 56 query operations across 7 domains
+ * - All 63 query operations across 9 domains
  * - Parameter validation
  * - Error handling
  * - Read-only enforcement

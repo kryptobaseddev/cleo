@@ -48,6 +48,15 @@ export interface CapabilityReport {
 /**
  * The capability matrix - source of truth for operation routing.
  *
+ * This matrix is a SUPERSET of gateway operations (138 entries vs 123 gateway routes).
+ * The 15-entry gap consists of:
+ * - CLI-specific aliases (show/get, add/create, focus-set/focus.set, etc.)
+ * - CLI-only operations not exposed via MCP gateways (stats, export, import, etc.)
+ * - Legacy operations preserved for backward compatibility
+ *
+ * Gateway registries (query.ts + mutate.ts) define the canonical MCP API surface (123 ops).
+ * This matrix defines the full routing table including CLI-only paths.
+ *
  * native: TypeScript engine handles directly (cross-platform)
  * cli: Requires CLEO CLI (bash, Unix-only)
  * hybrid: Can use either path (prefers CLI when available for richer output)
@@ -150,58 +159,59 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
 
   // === Validate Domain ===
   { domain: 'validate', operation: 'schema', gateway: 'query', mode: 'native' },
-  { domain: 'validate', operation: 'protocol', gateway: 'query', mode: 'cli' },
-  { domain: 'validate', operation: 'task', gateway: 'query', mode: 'cli' },
-  { domain: 'validate', operation: 'manifest', gateway: 'query', mode: 'cli' },
-  { domain: 'validate', operation: 'output', gateway: 'query', mode: 'cli' },
-  { domain: 'validate', operation: 'compliance.summary', gateway: 'query', mode: 'cli' },
-  { domain: 'validate', operation: 'compliance.record', gateway: 'mutate', mode: 'cli' },
+  { domain: 'validate', operation: 'protocol', gateway: 'query', mode: 'native' },
+  { domain: 'validate', operation: 'task', gateway: 'query', mode: 'native' },
+  { domain: 'validate', operation: 'manifest', gateway: 'query', mode: 'native' },
+  { domain: 'validate', operation: 'output', gateway: 'query', mode: 'native' },
+  { domain: 'validate', operation: 'compliance.summary', gateway: 'query', mode: 'native' },
+  { domain: 'validate', operation: 'compliance.violations', gateway: 'query', mode: 'native' },
+  { domain: 'validate', operation: 'compliance.record', gateway: 'mutate', mode: 'native' },
   { domain: 'validate', operation: 'test.run', gateway: 'mutate', mode: 'cli' },
-  { domain: 'validate', operation: 'test.coverage', gateway: 'mutate', mode: 'cli' },
-  { domain: 'validate', operation: 'test.status', gateway: 'mutate', mode: 'cli' },
+  { domain: 'validate', operation: 'test.status', gateway: 'query', mode: 'native' },
+  { domain: 'validate', operation: 'test.coverage', gateway: 'query', mode: 'native' },
   { domain: 'validate', operation: 'batch-validate', gateway: 'mutate', mode: 'cli' },
 
-  // === Orchestrate Domain (all CLI) ===
-  { domain: 'orchestrate', operation: 'status', gateway: 'query', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'next', gateway: 'query', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'ready', gateway: 'query', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'analyze', gateway: 'query', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'context', gateway: 'query', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'waves', gateway: 'query', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'skill.list', gateway: 'query', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'startup', gateway: 'mutate', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'spawn', gateway: 'mutate', mode: 'cli' },
-  { domain: 'orchestrate', operation: 'validate', gateway: 'mutate', mode: 'cli' },
+  // === Orchestrate Domain ===
+  { domain: 'orchestrate', operation: 'status', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'next', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'ready', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'analyze', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'context', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'waves', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'skill.list', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'startup', gateway: 'mutate', mode: 'native' },
+  { domain: 'orchestrate', operation: 'spawn', gateway: 'mutate', mode: 'native' },
+  { domain: 'orchestrate', operation: 'validate', gateway: 'mutate', mode: 'native' },
   { domain: 'orchestrate', operation: 'parallel.start', gateway: 'mutate', mode: 'cli' },
   { domain: 'orchestrate', operation: 'parallel.end', gateway: 'mutate', mode: 'cli' },
   { domain: 'orchestrate', operation: 'check', gateway: 'mutate', mode: 'cli' },
   { domain: 'orchestrate', operation: 'skill.inject', gateway: 'mutate', mode: 'cli' },
 
-  // === Research Domain (all CLI) ===
-  { domain: 'research', operation: 'show', gateway: 'query', mode: 'cli' },
-  { domain: 'research', operation: 'list', gateway: 'query', mode: 'cli' },
-  { domain: 'research', operation: 'query', gateway: 'query', mode: 'cli' },
-  { domain: 'research', operation: 'pending', gateway: 'query', mode: 'cli' },
-  { domain: 'research', operation: 'stats', gateway: 'query', mode: 'cli' },
-  { domain: 'research', operation: 'manifest.read', gateway: 'query', mode: 'cli' },
+  // === Research Domain ===
+  { domain: 'research', operation: 'show', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'list', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'query', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'pending', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'stats', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'manifest.read', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'inject', gateway: 'mutate', mode: 'cli' },
-  { domain: 'research', operation: 'link', gateway: 'mutate', mode: 'cli' },
-  { domain: 'research', operation: 'manifest.append', gateway: 'mutate', mode: 'cli' },
-  { domain: 'research', operation: 'manifest.archive', gateway: 'mutate', mode: 'cli' },
+  { domain: 'research', operation: 'link', gateway: 'mutate', mode: 'native' },
+  { domain: 'research', operation: 'manifest.append', gateway: 'mutate', mode: 'native' },
+  { domain: 'research', operation: 'manifest.archive', gateway: 'mutate', mode: 'native' },
   { domain: 'research', operation: 'compact', gateway: 'mutate', mode: 'cli' },
   { domain: 'research', operation: 'validate', gateway: 'mutate', mode: 'cli' },
 
-  // === Lifecycle Domain (all CLI) ===
-  { domain: 'lifecycle', operation: 'check', gateway: 'query', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'status', gateway: 'query', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'history', gateway: 'query', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'gates', gateway: 'query', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'prerequisites', gateway: 'query', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'progress', gateway: 'mutate', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'skip', gateway: 'mutate', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'reset', gateway: 'mutate', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'gate.pass', gateway: 'mutate', mode: 'cli' },
-  { domain: 'lifecycle', operation: 'gate.fail', gateway: 'mutate', mode: 'cli' },
+  // === Lifecycle Domain ===
+  { domain: 'lifecycle', operation: 'check', gateway: 'query', mode: 'native' },
+  { domain: 'lifecycle', operation: 'status', gateway: 'query', mode: 'native' },
+  { domain: 'lifecycle', operation: 'history', gateway: 'query', mode: 'native' },
+  { domain: 'lifecycle', operation: 'gates', gateway: 'query', mode: 'native' },
+  { domain: 'lifecycle', operation: 'prerequisites', gateway: 'query', mode: 'native' },
+  { domain: 'lifecycle', operation: 'progress', gateway: 'mutate', mode: 'native' },
+  { domain: 'lifecycle', operation: 'skip', gateway: 'mutate', mode: 'native' },
+  { domain: 'lifecycle', operation: 'reset', gateway: 'mutate', mode: 'native' },
+  { domain: 'lifecycle', operation: 'gate.pass', gateway: 'mutate', mode: 'native' },
+  { domain: 'lifecycle', operation: 'gate.fail', gateway: 'mutate', mode: 'native' },
 
   // === Issues Domain ===
   // Native query operations (template parsing)
@@ -210,14 +220,14 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   // Native mutate operations (config generation)
   { domain: 'issues', operation: 'generate_config',  gateway: 'mutate', mode: 'native' },
 
-  // === Release Domain (all CLI) ===
-  { domain: 'release', operation: 'prepare', gateway: 'mutate', mode: 'cli' },
-  { domain: 'release', operation: 'changelog', gateway: 'mutate', mode: 'cli' },
-  { domain: 'release', operation: 'commit', gateway: 'mutate', mode: 'cli' },
-  { domain: 'release', operation: 'tag', gateway: 'mutate', mode: 'cli' },
+  // === Release Domain ===
+  { domain: 'release', operation: 'prepare', gateway: 'mutate', mode: 'native' },
+  { domain: 'release', operation: 'changelog', gateway: 'mutate', mode: 'native' },
+  { domain: 'release', operation: 'commit', gateway: 'mutate', mode: 'native' },
+  { domain: 'release', operation: 'tag', gateway: 'mutate', mode: 'native' },
   { domain: 'release', operation: 'push', gateway: 'mutate', mode: 'cli' },
-  { domain: 'release', operation: 'gates.run', gateway: 'mutate', mode: 'cli' },
-  { domain: 'release', operation: 'rollback', gateway: 'mutate', mode: 'cli' },
+  { domain: 'release', operation: 'gates.run', gateway: 'mutate', mode: 'native' },
+  { domain: 'release', operation: 'rollback', gateway: 'mutate', mode: 'native' },
 ];
 
 /**

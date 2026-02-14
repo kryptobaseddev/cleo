@@ -33,16 +33,18 @@ schemas/
 │   ├── meta.schema.json           # _meta envelope
 │   ├── error.schema.json          # Error structure
 │   └── pagination.schema.json     # Pagination
-├── requests/                       # Request schemas (93)
-│   ├── tasks/                     # 19 operations
+├── requests/                       # Request schemas (123)
+│   ├── tasks/                     # 21 operations
 │   ├── session/                   # 12 operations
 │   ├── orchestrate/               # 12 operations
 │   ├── research/                  # 10 operations
 │   ├── lifecycle/                 # 10 operations
 │   ├── validate/                  # 11 operations
 │   ├── release/                   # 7 operations
-│   └── system/                    # 12 operations
-└── responses/                      # Response schemas (95)
+│   ├── system/                    # 24 operations
+│   ├── issues/                    # 4 operations
+│   └── skills/                    # 12 operations
+└── responses/                      # Response schemas (123)
     ├── common-success.schema.json # Base success
     ├── common-error.schema.json   # Base error
     └── {domain}/                  # Domain-specific responses
@@ -52,22 +54,22 @@ schemas/
 
 | Gateway | Domains | Operations | Purpose |
 |---------|---------|------------|---------|
-| `cleo_query` | 7 | 48 | Read-only operations (46 spec + 2 job ops) |
-| `cleo_mutate` | 8 | 48 | State-modifying operations (47 spec + 1 job op) |
+| `cleo_query` | 9 | 63 | Read-only operations |
+| `cleo_mutate` | 10 | 60 | State-modifying operations |
 
 ---
 
 ## Domain Breakdown
 
-### tasks (19 operations)
+### tasks (21 operations)
 
-**Queries (9)**:
+**Queries (10)**:
 - get, list, find, exists, tree
-- blockers, deps, analyze, next
+- blockers, deps, analyze, next, relates
 
-**Mutations (10)**:
+**Mutations (11)**:
 - create, update, complete, delete, archive
-- unarchive, reparent, promote, reorder, reopen
+- unarchive, reparent, promote, reorder, reopen, relates.add
 
 ### session (12 operations)
 
@@ -124,15 +126,34 @@ schemas/
 - prepare, changelog, commit
 - tag, push, gates.run, rollback
 
-### system (12 operations)
+### system (24 operations)
 
-**Queries (5)**:
-- version, doctor, config.get
-- stats, context
+**Queries (14)**:
+- version, doctor, config.get, stats, context
+- job.status, job.list, dash, roadmap, labels
+- compliance, log, archive-stats, sequence
 
-**Mutations (7)**:
+**Mutations (10)**:
 - init, config.set, backup, restore
-- migrate, sync, cleanup
+- migrate, sync, cleanup, job.cancel, safestop, uncancel
+
+### issues (4 operations)
+
+**Queries (1)**:
+- diagnostics
+
+**Mutations (3)**:
+- create_bug, create_feature, create_help
+
+### skills (12 operations)
+
+**Queries (6)**:
+- list, show, search
+- dispatch, verify, dependencies
+
+**Mutations (6)**:
+- install, uninstall, enable
+- disable, configure, refresh
 
 ---
 

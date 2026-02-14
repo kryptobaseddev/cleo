@@ -13,25 +13,27 @@
 
 | Category | Count | Location |
 |----------|-------|----------|
-| **Request Schemas** | 93 | `schemas/requests/{domain}/` |
-| **Response Schemas** | 95 | `schemas/responses/{domain}/` |
+| **Request Schemas** | 123 | `schemas/requests/{domain}/` |
+| **Response Schemas** | 123 | `schemas/responses/{domain}/` |
 | **Common Schemas** | 3 | `schemas/common/` |
 | **Registry Index** | 1 | `schemas/index.json` |
-| **Total** | **191** | All 96 operations covered |
+| **Total** | **250** | All 123 operations covered |
 
 ### 2. Domain Coverage
 
 | Domain | Queries | Mutations | Total | Request Files | Response Files |
 |--------|---------|-----------|-------|---------------|----------------|
-| tasks | 9 | 10 | 19 | 19 | 19 |
+| tasks | 10 | 11 | 21 | 21 | 21 |
 | session | 5 | 7 | 12 | 12 | 12 |
 | orchestrate | 7 | 5 | 12 | 12 | 12 |
 | research | 6 | 4 | 10 | 10 | 10 |
 | lifecycle | 5 | 5 | 10 | 10 | 10 |
 | validate | 9 | 2 | 11 | 11 | 11 |
 | release | 0 | 7 | 7 | 7 | 7 |
-| system | 5 | 7 | 12 | 12 | 12 |
-| **Total** | **45** | **53** | **98** | **93** | **93** |
+| system | 14 | 10 | 24 | 24 | 24 |
+| issues | 1 | 3 | 4 | 4 | 4 |
+| skills | 6 | 6 | 12 | 12 | 12 |
+| **Total** | **63** | **60** | **123** | **123** | **123** |
 
 ### 3. Common Schemas
 
