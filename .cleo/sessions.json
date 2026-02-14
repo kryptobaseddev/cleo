@@ -4,7 +4,7 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-14T09:21:11Z",
+    "lastModified": "2026-02-14T09:26:49Z",
     "totalSessionsCreated": 625
   },
   "config": {
@@ -35181,9 +35181,9 @@
         ]
       },
       "focus": {
-        "currentTask": "T4500",
+        "currentTask": "T4506",
         "currentPhase": null,
-        "previousTask": "T4499",
+        "previousTask": "T4505",
         "sessionNote": null,
         "nextAction": null,
         "focusHistory": [
@@ -35201,15 +35201,45 @@
             "taskId": "T4500",
             "timestamp": "2026-02-14T09:21:11Z",
             "action": "focused"
+          },
+          {
+            "taskId": "T4501",
+            "timestamp": "2026-02-14T09:22:31Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4502",
+            "timestamp": "2026-02-14T09:23:15Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4503",
+            "timestamp": "2026-02-14T09:24:20Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4504",
+            "timestamp": "2026-02-14T09:24:59Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4505",
+            "timestamp": "2026-02-14T09:26:24Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4506",
+            "timestamp": "2026-02-14T09:26:49Z",
+            "action": "focused"
           }
         ]
       },
       "startedAt": "2026-02-14T09:16:39Z",
-      "lastActivity": "2026-02-14T09:21:11Z",
+      "lastActivity": "2026-02-14T09:26:49Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
-        "focusChanges": 3,
+        "focusChanges": 9,
         "suspendCount": 0,
         "resumeCount": 0
       },
