@@ -1061,9 +1061,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-15T03:05:18Z",
+  "lastUpdated": "2026-02-15T03:12:08Z",
   "_meta": {
-    "checksum": "a055362bb470b9df",
+    "checksum": "e9a0e7a132a27150",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1072,7 +1072,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3480
+    "generation": 3493
   },
   "focus": {
     "currentTask": "T4529",
@@ -20511,107 +20511,225 @@
     {
       "id": "T4523",
       "title": "Port validation.sh core engine to TypeScript",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T02:57:17Z",
-      "updatedAt": "2026-02-15T02:57:17Z",
+      "updatedAt": "2026-02-15T03:07:53Z",
       "size": "medium",
       "position": 30,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port the core validation engine from lib/validation/validation.sh including schema validation, task validation, field validators, status transitions, circular dependency detection, phase validation, and hierarchy validation"
+      "description": "Port the core validation engine from lib/validation/validation.sh including schema validation, task validation, field validators, status transitions, circular dependency detection, phase validation, and hierarchy validation",
+      "completedAt": "2026-02-15T03:07:53Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:07:53Z] Ported validation.sh core engine to TypeScript in src/core/validation/engine.ts"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:07:54Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4524",
       "title": "Port compliance-check.sh and gap-check.sh to TypeScript",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T02:57:18Z",
-      "updatedAt": "2026-02-15T02:57:18Z",
+      "updatedAt": "2026-02-15T03:07:59Z",
       "size": "medium",
       "position": 31,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port compliance checking from lib/validation/compliance-check.sh and gap analysis from lib/validation/gap-check.sh including manifest entry checking, compliance scoring, token metrics, and documentation gap analysis"
+      "description": "Port compliance checking from lib/validation/compliance-check.sh and gap analysis from lib/validation/gap-check.sh including manifest entry checking, compliance scoring, token metrics, and documentation gap analysis",
+      "completedAt": "2026-02-15T03:07:59Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:07:59Z] Ported compliance-check.sh and gap-check.sh to TypeScript"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:08:00Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4525",
       "title": "Port doctor-checks.sh, doctor-utils.sh, doctor-project-cache.sh to TypeScript",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T02:57:20Z",
-      "updatedAt": "2026-02-15T02:57:20Z",
+      "updatedAt": "2026-02-15T03:08:05Z",
       "size": "medium",
       "position": 32,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port doctor health check system from lib/validation/doctor-*.sh including global health checks, project validation caching, and utility functions for project categorization"
+      "description": "Port doctor health check system from lib/validation/doctor-*.sh including global health checks, project validation caching, and utility functions for project categorization",
+      "completedAt": "2026-02-15T03:08:05Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:08:05Z] Ported doctor-checks.sh, doctor-utils.sh, doctor-project-cache.sh to TypeScript"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:08:06Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4526",
       "title": "Port manifest-validation.sh and verification.sh to TypeScript",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T02:57:22Z",
-      "updatedAt": "2026-02-15T02:57:22Z",
+      "updatedAt": "2026-02-15T03:08:10Z",
       "size": "medium",
       "position": 33,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port manifest validation from lib/validation/manifest-validation.sh and verification gates from lib/validation/verification.sh including gate management, round tracking, and epic lifecycle transitions"
+      "description": "Port manifest validation from lib/validation/manifest-validation.sh and verification gates from lib/validation/verification.sh including gate management, round tracking, and epic lifecycle transitions",
+      "completedAt": "2026-02-15T03:08:10Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:08:10Z] Ported manifest-validation.sh and verification.sh to TypeScript"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:08:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4527",
       "title": "Port docs-sync.sh and protocol-validation-common.sh to TypeScript",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T02:57:24Z",
-      "updatedAt": "2026-02-15T02:57:24Z",
+      "updatedAt": "2026-02-15T03:08:15Z",
       "size": "medium",
       "position": 34,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port documentation drift detection from lib/validation/docs-sync.sh and protocol validation common utilities from lib/validation/protocol-validation-common.sh"
+      "description": "Port documentation drift detection from lib/validation/docs-sync.sh and protocol validation common utilities from lib/validation/protocol-validation-common.sh",
+      "completedAt": "2026-02-15T03:08:15Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:08:15Z] Ported docs-sync.sh and protocol-validation-common.sh to TypeScript"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:08:16Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4528",
       "title": "Write Vitest tests for validation system",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T02:57:25Z",
-      "updatedAt": "2026-02-15T02:57:25Z",
+      "updatedAt": "2026-02-15T03:08:22Z",
       "size": "medium",
       "position": 35,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Write comprehensive Vitest tests for all ported validation modules including engine, compliance, doctor, manifest, verification, docs-sync, and protocol-common"
+      "description": "Write comprehensive Vitest tests for all ported validation modules including engine, compliance, doctor, manifest, verification, docs-sync, and protocol-common",
+      "completedAt": "2026-02-15T03:08:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:08:22Z] 145 Vitest tests across 5 test files covering engine, verification, compliance, protocol-common, and doctor"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:08:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4529",
       "title": "Port lib/tasks/ remaining modules to TypeScript",
-      "status": "active",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T03:04:56Z",
-      "updatedAt": "2026-02-15T03:05:22Z",
+      "updatedAt": "2026-02-15T03:12:08Z",
       "size": "medium",
       "position": 36,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port cancel-ops, crossref-extract, delete-preview, deletion-strategy, dependency-check, graph-cache, graph-ops, graph-rag, hierarchy, phase-tracking, size-weighting, staleness, todowrite-integration from Bash to TypeScript in src/core/tasks/"
+      "description": "Port cancel-ops, crossref-extract, delete-preview, deletion-strategy, dependency-check, graph-cache, graph-ops, graph-rag, hierarchy, phase-tracking, size-weighting, staleness, todowrite-integration from Bash to TypeScript in src/core/tasks/",
+      "completedAt": "2026-02-15T03:12:08Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:12:08Z] Ported 13 lib/tasks/ bash modules to TypeScript: hierarchy, crossref-extract, dependency-check, staleness, cancel-ops, deletion-strategy, delete-preview, graph-ops, graph-cache, graph-rag, size-weighting, phase-tracking, todowrite-integration. All compile clean."
+      ]
     },
     {
       "id": "T4530",
