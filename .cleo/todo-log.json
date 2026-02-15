@@ -116537,11 +116537,295 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_8cf9cca69a1d",
+      "timestamp": "2026-02-15T02:56:32Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4327"
+      },
+      "after": {
+        "currentTask": "T4327"
+      },
+      "details": null
+    },
+    {
+      "id": "log-1771124199-d077ce",
+      "timestamp": "2026-02-15T02:56:39Z",
+      "action": "task_created",
+      "taskId": "T4516",
+      "actor": "system",
+      "details": {
+        "title": "Port skill-discovery.sh and skill-paths.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port skill-discovery.sh and skill-paths.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124201-ec1f59",
+      "timestamp": "2026-02-15T02:56:41Z",
+      "action": "task_created",
+      "taskId": "T4517",
+      "actor": "system",
+      "details": {
+        "title": "Port skill-dispatch.sh and skill-validate.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port skill-dispatch.sh and skill-validate.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124203-a26e15",
+      "timestamp": "2026-02-15T02:56:43Z",
+      "action": "task_created",
+      "taskId": "T4518",
+      "actor": "system",
+      "details": {
+        "title": "Port agent-config.sh, agent-registry.sh, agents-install.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port agent-config.sh, agent-registry.sh, agents-install.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124205-94b521",
+      "timestamp": "2026-02-15T02:56:45Z",
+      "action": "task_created",
+      "taskId": "T4519",
+      "actor": "system",
+      "details": {
+        "title": "Port orchestrator-spawn.sh, orchestrator-startup.sh, orchestrator-validator.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port orchestrator-spawn.sh, orchestrator-startup.sh, orchestrator-validator.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124206-5476ed",
+      "timestamp": "2026-02-15T02:56:46Z",
+      "action": "task_created",
+      "taskId": "T4520",
+      "actor": "system",
+      "details": {
+        "title": "Port research-manifest.sh, manifest-resolver.sh, contribution-protocol.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port research-manifest.sh, manifest-resolver.sh, contribution-protocol.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124208-73eb76",
+      "timestamp": "2026-02-15T02:56:48Z",
+      "action": "task_created",
+      "taskId": "T4521",
+      "actor": "system",
+      "details": {
+        "title": "Port subagent-inject.sh, token-inject.sh, skills-install.sh, skillsmp.sh, skills-version.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port subagent-inject.sh, token-inject.sh, skills-install.sh, skillsmp.sh, skills-version.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124210-479b3f",
+      "timestamp": "2026-02-15T02:56:50Z",
+      "action": "task_created",
+      "taskId": "T4522",
+      "actor": "system",
+      "details": {
+        "title": "Write Vitest tests for skills system",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Write Vitest tests for skills system",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124237-5d44f9",
+      "timestamp": "2026-02-15T02:57:17Z",
+      "action": "task_created",
+      "taskId": "T4523",
+      "actor": "system",
+      "details": {
+        "title": "Port validation.sh core engine to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port validation.sh core engine to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124238-647ae1",
+      "timestamp": "2026-02-15T02:57:18Z",
+      "action": "task_created",
+      "taskId": "T4524",
+      "actor": "system",
+      "details": {
+        "title": "Port compliance-check.sh and gap-check.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port compliance-check.sh and gap-check.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124240-3fcca3",
+      "timestamp": "2026-02-15T02:57:20Z",
+      "action": "task_created",
+      "taskId": "T4525",
+      "actor": "system",
+      "details": {
+        "title": "Port doctor-checks.sh, doctor-utils.sh, doctor-project-cache.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port doctor-checks.sh, doctor-utils.sh, doctor-project-cache.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124242-a739cc",
+      "timestamp": "2026-02-15T02:57:22Z",
+      "action": "task_created",
+      "taskId": "T4526",
+      "actor": "system",
+      "details": {
+        "title": "Port manifest-validation.sh and verification.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port manifest-validation.sh and verification.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124244-dad744",
+      "timestamp": "2026-02-15T02:57:24Z",
+      "action": "task_created",
+      "taskId": "T4527",
+      "actor": "system",
+      "details": {
+        "title": "Port docs-sync.sh and protocol-validation-common.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Port docs-sync.sh and protocol-validation-common.sh to TypeScript",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771124245-339558",
+      "timestamp": "2026-02-15T02:57:25Z",
+      "action": "task_created",
+      "taskId": "T4528",
+      "actor": "system",
+      "details": {
+        "title": "Write Vitest tests for validation system",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Write Vitest tests for validation system",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_2048025937a8",
+      "timestamp": "2026-02-15T02:58:58Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4327",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-15T02:58:56Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ff0b93ef9442",
+      "timestamp": "2026-02-15T02:59:18Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4327"
+      },
+      "after": {
+        "currentTask": "T4472"
+      },
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 6041,
-    "lastEntry": "2026-02-15T02:47:23Z",
+    "totalEntries": 6044,
+    "lastEntry": "2026-02-15T02:59:18Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
