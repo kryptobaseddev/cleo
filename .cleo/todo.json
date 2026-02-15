@@ -984,10 +984,19 @@
         "notes": null,
         "gitTag": "v0.98.4",
         "changelog": "## [0.98.4] - 2026-02-14\n\n### Other Changes\n- Set up parallel release infrastructure (T2055)\n- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)\n- V2-VAL: Changeset and release system review (T4505)"
+      },
+      {
+        "version": "v0.99.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-15T02:54:08Z",
+        "tasks": [],
+        "notes": "CLEO V2 TypeScript System - Full TS conversion of CLI and MCP engine"
       }
     ]
   },
-  "lastUpdated": "2026-02-15T02:47:22Z",
+  "lastUpdated": "2026-02-15T02:54:08Z",
   "_meta": {
     "checksum": "9d146bf573cbeddf",
     "configVersion": "2.1.0",
@@ -998,7 +1007,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3469
+    "generation": 3470
   },
   "focus": {
     "currentTask": null,
