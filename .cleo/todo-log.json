@@ -117487,11 +117487,949 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_e02ef9b46be6",
+      "timestamp": "2026-02-16T04:45:27Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4542",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-16T04:45:25Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_45fcd19ae7fa",
+      "timestamp": "2026-02-16T04:45:28Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4543",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-16T04:45:27Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_035bd71b83c9",
+      "timestamp": "2026-02-16T04:45:31Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4544",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-16T04:45:29Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1771217211-20e473",
+      "timestamp": "2026-02-16T04:46:51Z",
+      "action": "task_created",
+      "taskId": "T4551",
+      "actor": "system",
+      "details": {
+        "title": "Port 15 unported bash scripts to TypeScript",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Port 15 unported bash scripts to TypeScript",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217219-484e1d",
+      "timestamp": "2026-02-16T04:46:59Z",
+      "action": "task_created",
+      "taskId": "T4552",
+      "actor": "system",
+      "details": {
+        "title": "Port 13 unported bash library modules to TypeScript",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Port 13 unported bash library modules to TypeScript",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217223-1018c1",
+      "timestamp": "2026-02-16T04:47:03Z",
+      "action": "task_created",
+      "taskId": "T4553",
+      "actor": "system",
+      "details": {
+        "title": "Convert 41 CLI-only MCP operations to native TypeScript",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Convert 41 CLI-only MCP operations to native TypeScript",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217227-d6b7fb",
+      "timestamp": "2026-02-16T04:47:07Z",
+      "action": "task_created",
+      "taskId": "T4554",
+      "actor": "system",
+      "details": {
+        "title": "Port NEXUS subsystem to TypeScript (4 scripts + 4 libs)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Port NEXUS subsystem to TypeScript (4 scripts + 4 libs)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217237-2e2a58",
+      "timestamp": "2026-02-16T04:47:17Z",
+      "action": "task_created",
+      "taskId": "T4555",
+      "actor": "system",
+      "details": {
+        "title": "Fix 7 partially-ported scripts (missing CLI commands or native MCP)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix 7 partially-ported scripts (missing CLI commands or native MCP)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217241-b3f29b",
+      "timestamp": "2026-02-16T04:47:21Z",
+      "action": "task_created",
+      "taskId": "T4556",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Documentation Consolidation and GitBook Migration",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Documentation Consolidation and GitBook Migration",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217246-28a899",
+      "timestamp": "2026-02-16T04:47:26Z",
+      "action": "task_created",
+      "taskId": "T4557",
+      "actor": "system",
+      "details": {
+        "title": "Audit and archive superseded documentation (518 files)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Audit and archive superseded documentation (518 files)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217257-a95a5a",
+      "timestamp": "2026-02-16T04:47:37Z",
+      "action": "task_created",
+      "taskId": "T4558",
+      "actor": "system",
+      "details": {
+        "title": "Update canonical docs to reflect TS-native system state",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update canonical docs to reflect TS-native system state",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217261-ad6cef",
+      "timestamp": "2026-02-16T04:47:41Z",
+      "action": "task_created",
+      "taskId": "T4559",
+      "actor": "system",
+      "details": {
+        "title": "Create LLM-agent-optimized command reference for GitBook",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create LLM-agent-optimized command reference for GitBook",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217263-772af0",
+      "timestamp": "2026-02-16T04:47:43Z",
+      "action": "task_created",
+      "taskId": "T4560",
+      "actor": "system",
+      "details": {
+        "title": "Migrate documentation infrastructure from Mintlify to GitBook",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Migrate documentation infrastructure from Mintlify to GitBook",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217273-1e4278",
+      "timestamp": "2026-02-16T04:47:53Z",
+      "action": "task_created",
+      "taskId": "T4561",
+      "actor": "system",
+      "details": {
+        "title": "Sandbox test: Greenfield project (fresh init + full workflow)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Sandbox test: Greenfield project (fresh init + full workflow)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217275-5824de",
+      "timestamp": "2026-02-16T04:47:55Z",
+      "action": "task_created",
+      "taskId": "T4562",
+      "actor": "system",
+      "details": {
+        "title": "Sandbox test: Brownfield project (existing codebase adoption)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Sandbox test: Brownfield project (existing codebase adoption)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217280-bad956",
+      "timestamp": "2026-02-16T04:48:00Z",
+      "action": "task_created",
+      "taskId": "T4563",
+      "actor": "system",
+      "details": {
+        "title": "Sandbox test: CLEO self-hosting dogfood (manage own 674 tasks)",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Sandbox test: CLEO self-hosting dogfood (manage own 674 tasks)",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1771217283-cac58d",
+      "timestamp": "2026-02-16T04:48:03Z",
+      "action": "task_created",
+      "taskId": "T4564",
+      "actor": "system",
+      "details": {
+        "title": "Stress test: Performance benchmarks (TS vs bash baseline)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Stress test: Performance benchmarks (TS vs bash baseline)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217293-5e8c29",
+      "timestamp": "2026-02-16T04:48:13Z",
+      "action": "task_created",
+      "taskId": "T4565",
+      "actor": "system",
+      "details": {
+        "title": "Validate shared-core architecture: verify MCP and CLI both call src/core/",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Validate shared-core architecture: verify MCP and CLI both call src/core/",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217296-4187a5",
+      "timestamp": "2026-02-16T04:48:16Z",
+      "action": "task_created",
+      "taskId": "T4566",
+      "actor": "system",
+      "details": {
+        "title": "Verify no duplicate logic between MCP server and CLI",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Verify no duplicate logic between MCP server and CLI",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217300-653ba7",
+      "timestamp": "2026-02-16T04:48:20Z",
+      "action": "task_created",
+      "taskId": "T4567",
+      "actor": "system",
+      "details": {
+        "title": "Create bash deprecation plan with BATS test migration strategy",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create bash deprecation plan with BATS test migration strategy",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217304-7122dd",
+      "timestamp": "2026-02-16T04:48:24Z",
+      "action": "task_created",
+      "taskId": "T4568",
+      "actor": "system",
+      "details": {
+        "title": "Migrate critical BATS tests to vitest for TypeScript system",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Migrate critical BATS tests to vitest for TypeScript system",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217315-6fe793",
+      "timestamp": "2026-02-16T04:48:35Z",
+      "action": "task_created",
+      "taskId": "T4569",
+      "actor": "system",
+      "details": {
+        "title": "Reconcile Wave 1-5 implementation work with CLEO tasks",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Reconcile Wave 1-5 implementation work with CLEO tasks",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1771217321-cfbc2d",
+      "timestamp": "2026-02-16T04:48:41Z",
+      "action": "task_created",
+      "taskId": "T4570",
+      "actor": "system",
+      "details": {
+        "title": "Triage 21 pending bash-era epics (cancel or reparent)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Triage 21 pending bash-era epics (cancel or reparent)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217324-e350a8",
+      "timestamp": "2026-02-16T04:48:44Z",
+      "action": "task_created",
+      "taskId": "T4571",
+      "actor": "system",
+      "details": {
+        "title": "Fix 32 orphaned subtasks (reparent or archive)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix 32 orphaned subtasks (reparent or archive)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771217327-592c41",
+      "timestamp": "2026-02-16T04:48:47Z",
+      "action": "task_created",
+      "taskId": "T4572",
+      "actor": "system",
+      "details": {
+        "title": "Fix MCP priority validation inconsistency (numeric vs string)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix MCP priority validation inconsistency (numeric vs string)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217338-c4ba9c",
+      "timestamp": "2026-02-16T04:48:58Z",
+      "action": "task_created",
+      "taskId": "T4573",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: CLEO Vision and Spec Revision",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: CLEO Vision and Spec Revision",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217342-8ccbab",
+      "timestamp": "2026-02-16T04:49:02Z",
+      "action": "task_created",
+      "taskId": "T4574",
+      "actor": "system",
+      "details": {
+        "title": "Review and preserve NEXUS concepts from archived spec",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Review and preserve NEXUS concepts from archived spec",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771217345-e7a944",
+      "timestamp": "2026-02-16T04:49:05Z",
+      "action": "task_created",
+      "taskId": "T4575",
+      "actor": "system",
+      "details": {
+        "title": "End-to-end MCP operation validation (all 138 operations)",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "End-to-end MCP operation validation (all 138 operations)",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log_ef136307b6af",
+      "timestamp": "2026-02-16T04:49:29Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4551",
+      "before": {
+        "title": "Port 15 unported bash scripts to TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Port remaining unported scripts: checkpoint.sh, claude-migrate.sh, commands.sh, docs.sh, export-tasks.sh, extract.sh, import-tasks.sh, nexus.sh, nexus-discover.sh, nexus-query.sh, nexus-search.sh, safestop.sh, sync.sh, testing.sh, web.sh. Each needs: src/cli/commands/ entry, src/core/ implementation, MCP domain route, vitest tests.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Port 15 unported bash scripts to TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Port remaining unported scripts: checkpoint.sh, claude-migrate.sh, commands.sh, docs.sh, export-tasks.sh, extract.sh, import-tasks.sh, nexus.sh, nexus-discover.sh, nexus-query.sh, nexus-search.sh, safestop.sh, sync.sh, testing.sh, web.sh. Each needs: src/cli/commands/ entry, src/core/ implementation, MCP domain route, vitest tests.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4542"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_40570a64ddb4",
+      "timestamp": "2026-02-16T04:49:37Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4552",
+      "before": {
+        "title": "Port 13 unported bash library modules to TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Port remaining libs: git-checkpoint, import-logging, import-sort, nexus-deps, nexus-permissions, nexus-query, nexus-registry, project-registry (data/), release-artifacts (release/), skill-paths, test-utility (skills/), injection-registry, version-check (ui/). Each produces src/core/ or src/store/ module with vitest tests.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Port 13 unported bash library modules to TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Port remaining libs: git-checkpoint, import-logging, import-sort, nexus-deps, nexus-permissions, nexus-query, nexus-registry, project-registry (data/), release-artifacts (release/), skill-paths, test-utility (skills/), injection-registry, version-check (ui/). Each produces src/core/ or src/store/ module with vitest tests.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4542"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_1d549f3c3054",
+      "timestamp": "2026-02-16T04:49:39Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4553",
+      "before": {
+        "title": "Convert 41 CLI-only MCP operations to native TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Convert all 41 MCP operations marked cli-only in capability matrix to native TS. Domains: tasks(7 ops), session(3), system(17), validate(2), orchestrate(4), research(3), plus 1 hybrid. Each reimplemented in src/core/, capability matrix flipped to native. Zero bash subprocess dependency when complete.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Convert 41 CLI-only MCP operations to native TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Convert all 41 MCP operations marked cli-only in capability matrix to native TS. Domains: tasks(7 ops), session(3), system(17), validate(2), orchestrate(4), research(3), plus 1 hybrid. Each reimplemented in src/core/, capability matrix flipped to native. Zero bash subprocess dependency when complete.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4551"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_fb41e0267a41",
+      "timestamp": "2026-02-16T04:49:41Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4553",
+      "before": {
+        "title": "Convert 41 CLI-only MCP operations to native TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Convert all 41 MCP operations marked cli-only in capability matrix to native TS. Domains: tasks(7 ops), session(3), system(17), validate(2), orchestrate(4), research(3), plus 1 hybrid. Each reimplemented in src/core/, capability matrix flipped to native. Zero bash subprocess dependency when complete.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4551"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Convert 41 CLI-only MCP operations to native TypeScript",
+        "status": "pending",
+        "priority": "high",
+        "description": "Convert all 41 MCP operations marked cli-only in capability matrix to native TS. Domains: tasks(7 ops), session(3), system(17), validate(2), orchestrate(4), research(3), plus 1 hybrid. Each reimplemented in src/core/, capability matrix flipped to native. Zero bash subprocess dependency when complete.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4551",
+          "T4552"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_605226054616",
+      "timestamp": "2026-02-16T04:49:43Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4554",
+      "before": {
+        "title": "Port NEXUS subsystem to TypeScript (4 scripts + 4 libs)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Create src/core/nexus/ module with: registry (project discovery), query (cross-project), permissions (access control), deps (dependency tracking). Port nexus.sh, nexus-discover.sh, nexus-query.sh, nexus-search.sh to src/cli/commands/. Port nexus-deps.sh, nexus-permissions.sh, nexus-query.sh, nexus-registry.sh to src/core/nexus/. Add MCP domain routes. Preserve NEXUS vision concepts from CLEO-NEXUS.mdx spec.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Port NEXUS subsystem to TypeScript (4 scripts + 4 libs)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Create src/core/nexus/ module with: registry (project discovery), query (cross-project), permissions (access control), deps (dependency tracking). Port nexus.sh, nexus-discover.sh, nexus-query.sh, nexus-search.sh to src/cli/commands/. Port nexus-deps.sh, nexus-permissions.sh, nexus-query.sh, nexus-registry.sh to src/core/nexus/. Add MCP domain routes. Preserve NEXUS vision concepts from CLEO-NEXUS.mdx spec.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4574"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_ea5298aaaad2",
+      "timestamp": "2026-02-16T04:49:46Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4557",
+      "before": {
+        "title": "Audit and archive superseded documentation (518 files)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review all 518 docs. Tag each as: canonical (keep), supporting (keep with updates), superseded (archive), duplicate (merge or remove). Move superseded to archive/. Key targets: MCP-GATEWAY-SPECIFICATION.md (already superseded), CLEO-PATH-FORWARD-2026Q1.md (already marked), any bash-specific guides, duplicate migration docs. Preserve NEXUS concepts. Create DOCUMENTATION-STRUCTURE.md mapping.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Audit and archive superseded documentation (518 files)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review all 518 docs. Tag each as: canonical (keep), supporting (keep with updates), superseded (archive), duplicate (merge or remove). Move superseded to archive/. Key targets: MCP-GATEWAY-SPECIFICATION.md (already superseded), CLEO-PATH-FORWARD-2026Q1.md (already marked), any bash-specific guides, duplicate migration docs. Preserve NEXUS concepts. Create DOCUMENTATION-STRUCTURE.md mapping.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4543"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_7482d6228d39",
+      "timestamp": "2026-02-16T04:49:48Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4558",
+      "before": {
+        "title": "Update canonical docs to reflect TS-native system state",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update: CANONICAL-PLAN-SPEC.md (current state now 75% ported, not just started), STRATEGIC-ROADMAP-SPEC.md (gate evidence from Wave 0-5), PORTABLE-BRAIN-SPEC.md (shared-core sibling architecture confirmed), V2-ARCHITECTURE-DECISIONS.md (D1 status update). All docs must be LLM-agent-optimized with human-readable summaries.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update canonical docs to reflect TS-native system state",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update: CANONICAL-PLAN-SPEC.md (current state now 75% ported, not just started), STRATEGIC-ROADMAP-SPEC.md (gate evidence from Wave 0-5), PORTABLE-BRAIN-SPEC.md (shared-core sibling architecture confirmed), V2-ARCHITECTURE-DECISIONS.md (D1 status update). All docs must be LLM-agent-optimized with human-readable summaries.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4557"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_08eed76d864e",
+      "timestamp": "2026-02-16T04:49:50Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4559",
+      "before": {
+        "title": "Create LLM-agent-optimized command reference for GitBook",
+        "status": "pending",
+        "priority": "high",
+        "description": "Rewrite all 83 command docs in docs/commands/ for LLM-agent consumption. Each command doc needs: structured format with clear parameter/flag documentation, example invocations, MCP equivalent operations, expected output formats. Human summary section at top. GitBook-compatible MDX format. COMMANDS-INDEX.json must map both CLI and MCP entry points.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Create LLM-agent-optimized command reference for GitBook",
+        "status": "pending",
+        "priority": "high",
+        "description": "Rewrite all 83 command docs in docs/commands/ for LLM-agent consumption. Each command doc needs: structured format with clear parameter/flag documentation, example invocations, MCP equivalent operations, expected output formats. Human summary section at top. GitBook-compatible MDX format. COMMANDS-INDEX.json must map both CLI and MCP entry points.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4558"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_52ab88ebfa53",
+      "timestamp": "2026-02-16T04:49:53Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4560",
+      "before": {
+        "title": "Migrate documentation infrastructure from Mintlify to GitBook",
+        "status": "pending",
+        "priority": "high",
+        "description": "Replace Mintlify docs structure with GitBook. Set up GitBook site, configure Git Sync, migrate MDX files to GitBook-compatible format. Set up docs site with proper navigation, search, versioning. Preserve canonical hierarchy. Configure custom domain if applicable. Ensure llms.txt and MCP server integration for LLM-ready docs.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Migrate documentation infrastructure from Mintlify to GitBook",
+        "status": "pending",
+        "priority": "high",
+        "description": "Replace Mintlify docs structure with GitBook. Set up GitBook site, configure Git Sync, migrate MDX files to GitBook-compatible format. Set up docs site with proper navigation, search, versioning. Preserve canonical hierarchy. Configure custom domain if applicable. Ensure llms.txt and MCP server integration for LLM-ready docs.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4557"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_8be43039bb2c",
+      "timestamp": "2026-02-16T04:49:55Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4567",
+      "before": {
+        "title": "Create bash deprecation plan with BATS test migration strategy",
+        "status": "pending",
+        "priority": "high",
+        "description": "For each of 79 scripts and 106 libs: decide delete/keep/port. Create deprecation timeline. Plan BATS test migration: 273 BATS test files need vitest equivalents for core logic. Identify which BATS tests become integration tests for the TS CLI. Dev tooling scripts (dev/) assessment. Shell completions migration. Install script strategy.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Create bash deprecation plan with BATS test migration strategy",
+        "status": "pending",
+        "priority": "high",
+        "description": "For each of 79 scripts and 106 libs: decide delete/keep/port. Create deprecation timeline. Plan BATS test migration: 273 BATS test files need vitest equivalents for core logic. Identify which BATS tests become integration tests for the TS CLI. Dev tooling scripts (dev/) assessment. Shell completions migration. Install script strategy.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4542"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_3e524ccde96f",
+      "timestamp": "2026-02-16T04:49:57Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4568",
+      "before": {
+        "title": "Migrate critical BATS tests to vitest for TypeScript system",
+        "status": "pending",
+        "priority": "high",
+        "description": "Port the 273 BATS test files to vitest equivalents testing the TypeScript core modules. Priority order: task CRUD tests, session tests, validation tests, protocol tests, graph operation tests, phase/lifecycle tests. Each migrated test must cover the same scenarios. Current vitest coverage is only 6 files - needs to reach parity with BATS coverage. Integration tests for CLI commands using vitest+execa.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Migrate critical BATS tests to vitest for TypeScript system",
+        "status": "pending",
+        "priority": "high",
+        "description": "Port the 273 BATS test files to vitest equivalents testing the TypeScript core modules. Priority order: task CRUD tests, session tests, validation tests, protocol tests, graph operation tests, phase/lifecycle tests. Each migrated test must cover the same scenarios. Current vitest coverage is only 6 files - needs to reach parity with BATS coverage. Integration tests for CLI commands using vitest+execa.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4567"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1771217475-d5f28b",
+      "timestamp": "2026-02-16T04:51:15Z",
+      "action": "task_created",
+      "taskId": "T4576",
+      "actor": "system",
+      "details": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 6058,
-    "lastEntry": "2026-02-15T03:14:56Z",
+    "totalEntries": 6072,
+    "lastEntry": "2026-02-16T04:49:57Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
