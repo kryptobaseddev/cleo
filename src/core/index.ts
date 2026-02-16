@@ -7,6 +7,16 @@
 export { CleoError } from './errors.js';
 export { formatOutput, formatSuccess, formatError } from './output.js';
 export type { LafsSuccess, LafsError, LafsEnvelope } from './output.js';
+export type {
+  LafsAlternative,
+  LafsErrorDetail,
+  GatewayMeta,
+  GatewaySuccess,
+  GatewayError,
+  GatewayEnvelope,
+  CleoResponse,
+} from '../types/lafs.js';
+export { isLafsSuccess, isLafsError, isGatewayEnvelope } from '../types/lafs.js';
 export {
   getCleoHome,
   getCleoDir,
