@@ -33,6 +33,20 @@ import {
   systemContext as nativeSystemContext,
   systemSequence as nativeSystemSequence,
   systemInjectGenerate as nativeSystemInjectGenerate,
+  systemMetrics as nativeSystemMetrics,
+  systemHealth as nativeSystemHealth,
+  systemDiagnostics as nativeSystemDiagnostics,
+  systemHelp as nativeSystemHelp,
+  systemRoadmap as nativeSystemRoadmap,
+  systemCompliance as nativeSystemCompliance,
+  systemBackup as nativeSystemBackup,
+  systemRestore as nativeSystemRestore,
+  systemMigrate as nativeSystemMigrate,
+  systemCleanup as nativeSystemCleanup,
+  systemAudit as nativeSystemAudit,
+  systemSync as nativeSystemSync,
+  systemSafestop as nativeSystemSafestop,
+  systemUncancel as nativeSystemUncancel,
   // CAAMP adapter
   providerList,
   providerGet,
@@ -1404,6 +1418,49 @@ export class SystemHandler implements DomainHandler {
         }
         return this.wrapNativeResult(nativeSystemSequence(this.projectRoot), 'query', operation, startTime);
       }
+      case 'metrics': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
+        }
+        const mp = params as SystemMetricsParams;
+        return this.wrapNativeResult(nativeSystemMetrics(this.projectRoot, { scope: mp?.scope, since: mp?.since }), 'query', operation, startTime);
+      }
+      case 'health': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
+        }
+        const hp = params as SystemHealthParams;
+        return this.wrapNativeResult(nativeSystemHealth(this.projectRoot, { detailed: hp?.detailed }), 'query', operation, startTime);
+      }
+      case 'diagnostics': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
+        }
+        const dp = params as SystemDiagnosticsParams;
+        return this.wrapNativeResult(nativeSystemDiagnostics(this.projectRoot, { checks: dp?.checks }), 'query', operation, startTime);
+      }
+      case 'help': {
+        const helpp = params as SystemHelpParams;
+        return this.wrapNativeResult(nativeSystemHelp(this.projectRoot, { topic: helpp?.topic }), 'query', operation, startTime);
+      }
+      case 'roadmap': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
+        }
+        const rp = params as SystemRoadmapParams;
+        return this.wrapNativeResult(nativeSystemRoadmap(this.projectRoot, { includeHistory: rp?.includeHistory, upcomingOnly: rp?.upcomingOnly }), 'query', operation, startTime);
+      }
+      case 'compliance': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
+        }
+        const cp = params as SystemComplianceParams;
+        return this.wrapNativeResult(nativeSystemCompliance(this.projectRoot, { subcommand: cp?.subcommand, days: cp?.days, epic: cp?.epic }), 'query', operation, startTime);
+      }
+      case 'job.status':
+        return this.queryJobStatus(params, startTime);
+      case 'job.list':
+        return this.queryJobList(params, startTime);
       default:
         return this.createErrorResponse('query', 'system', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
     }
@@ -1440,6 +1497,72 @@ export class SystemHandler implements DomainHandler {
       case 'inject.generate': {
         const result = nativeSystemInjectGenerate(this.projectRoot);
         return this.wrapNativeResult(result, 'mutate', operation, startTime);
+      }
+      case 'backup': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'mutate', operation, startTime);
+        }
+        const bp = params as SystemBackupParams;
+        return this.wrapNativeResult(nativeSystemBackup(this.projectRoot, { type: bp?.type, note: bp?.note }), 'mutate', operation, startTime);
+      }
+      case 'restore': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'mutate', operation, startTime);
+        }
+        const rp = params as unknown as SystemRestoreParams;
+        if (!rp?.backupId) {
+          return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'backupId is required', startTime);
+        }
+        return this.wrapNativeResult(nativeSystemRestore(this.projectRoot, { backupId: rp.backupId, force: rp.force }), 'mutate', operation, startTime);
+      }
+      case 'migrate': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'mutate', operation, startTime);
+        }
+        const mp = params as SystemMigrateParams;
+        return this.wrapNativeResult(nativeSystemMigrate(this.projectRoot, { target: mp?.target, dryRun: mp?.dryRun }), 'mutate', operation, startTime);
+      }
+      case 'cleanup': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'mutate', operation, startTime);
+        }
+        const clp = params as unknown as SystemCleanupParams;
+        if (!clp?.target) {
+          return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'target is required', startTime);
+        }
+        return this.wrapNativeResult(nativeSystemCleanup(this.projectRoot, { target: clp.target, olderThan: clp.olderThan, dryRun: clp.dryRun }), 'mutate', operation, startTime);
+      }
+      case 'audit': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'mutate', operation, startTime);
+        }
+        const ap = params as SystemAuditParams;
+        return this.wrapNativeResult(nativeSystemAudit(this.projectRoot, { scope: ap?.scope, fix: ap?.fix }), 'mutate', operation, startTime);
+      }
+      case 'sync': {
+        const sp = params as SystemSyncParams;
+        return this.wrapNativeResult(nativeSystemSync(this.projectRoot, { direction: sp?.direction }), 'mutate', operation, startTime);
+      }
+      case 'job.cancel':
+        return this.mutateJobCancel(params, startTime);
+      case 'safestop': {
+        const sfp = params as SystemSafestopParams;
+        return this.wrapNativeResult(nativeSystemSafestop(this.projectRoot, {
+          reason: sfp?.reason, commit: sfp?.commit, handoff: sfp?.handoff,
+          noSessionEnd: sfp?.noSessionEnd, dryRun: sfp?.dryRun,
+        }), 'mutate', operation, startTime);
+      }
+      case 'uncancel': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'mutate', operation, startTime);
+        }
+        const ucp = params as unknown as SystemUncancelParams;
+        if (!ucp?.taskId) {
+          return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        return this.wrapNativeResult(nativeSystemUncancel(this.projectRoot, {
+          taskId: ucp.taskId, cascade: ucp.cascade, notes: ucp.notes, dryRun: ucp.dryRun,
+        }), 'mutate', operation, startTime);
       }
       default:
         return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);

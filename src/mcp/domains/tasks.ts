@@ -42,6 +42,13 @@ import {
   taskReopen as nativeTaskReopen,
   taskRelatesAdd as nativeTaskRelatesAdd,
   taskComplexityEstimate as nativeTaskComplexityEstimate,
+  taskDepends as nativeTaskDepends,
+  taskStats as nativeTaskStats,
+  taskExport as nativeTaskExport,
+  taskHistory as nativeTaskHistory,
+  taskLint as nativeTaskLint,
+  taskBatchValidate as nativeTaskBatchValidate,
+  taskImport as nativeTaskImport,
   resolveProjectRoot,
   isProjectInitialized,
 } from '../engine/index.js';
@@ -1365,6 +1372,61 @@ export class TasksHandler implements DomainHandler {
           'cleo_query', operation, startTime
         );
       }
+      case 'depends': {
+        const p = params as unknown as TasksDependsParams;
+        if (!p?.taskId) {
+          return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        return this.wrapNativeResult(
+          nativeTaskDepends(this.projectRoot, p.taskId, p.direction),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'stats': {
+        const p = params as unknown as TasksStatsParams;
+        return this.wrapNativeResult(
+          nativeTaskStats(this.projectRoot, p?.epicId),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'export': {
+        const p = params as unknown as TasksExportParams;
+        return this.wrapNativeResult(
+          nativeTaskExport(this.projectRoot, {
+            format: p?.format,
+            status: p?.filter?.status,
+            parent: p?.filter?.parent,
+          }),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'history': {
+        const p = params as unknown as TasksHistoryParams;
+        if (!p?.taskId) {
+          return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        return this.wrapNativeResult(
+          nativeTaskHistory(this.projectRoot, p.taskId, p.limit),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'lint': {
+        const p = params as unknown as TasksLintParams;
+        return this.wrapNativeResult(
+          nativeTaskLint(this.projectRoot, p?.taskId),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'batch-validate': {
+        const p = params as unknown as TasksBatchValidateParams;
+        if (!p?.taskIds || p.taskIds.length === 0) {
+          return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskIds array is required', startTime);
+        }
+        return this.wrapNativeResult(
+          nativeTaskBatchValidate(this.projectRoot, p.taskIds, p.checkMode),
+          'cleo_query', operation, startTime
+        );
+      }
       default:
         return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
     }
@@ -1496,6 +1558,14 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
         const result = await nativeTaskRestore(this.projectRoot, p.taskId, { cascade: p.cascade, notes: p.notes });
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'import': {
+        const p = params as unknown as TasksImportParams;
+        if (!p?.source) {
+          return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'source is required', startTime);
+        }
+        const result = await nativeTaskImport(this.projectRoot, p.source, p.overwrite);
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
       default:

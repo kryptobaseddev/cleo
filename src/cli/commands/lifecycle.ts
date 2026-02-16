@@ -61,6 +61,7 @@ export function registerLifecycleCommand(program: Command): void {
     .command('complete <epicId> <stage>')
     .description('Complete a lifecycle stage')
     .option('--artifacts <artifacts>', 'Comma-separated artifact paths')
+    .option('--notes <notes>', 'Completion notes')
     .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
       try {
         const artifacts = opts['artifacts']

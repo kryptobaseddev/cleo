@@ -33,6 +33,7 @@ export function registerAddCommand(program: Command): void {
     .option('--notes <note>', 'Initial note entry')
     .option('--position <pos>', 'Position within sibling group', parseInt)
     .option('--dry-run', 'Show what would be created without making changes')
+    .option('--json', 'Output in JSON format (default)')
     .action(async (title: string, opts: Record<string, unknown>) => {
       try {
         const result = await addTask({

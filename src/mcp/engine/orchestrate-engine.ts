@@ -8,8 +8,8 @@
  * @task T4478
  */
 
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import { join, resolve } from 'path';
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'fs';
+import { join, resolve, dirname } from 'path';
 import { resolveProjectRoot, readJsonFile, getDataPath } from './store.js';
 import type { TaskRecord } from './task-engine.js';
 import { taskNext, taskBlockers } from './task-engine.js';
@@ -1201,4 +1201,295 @@ export function orchestrateUnblockOpportunities(
       commonBlockers,
     },
   };
+}
+
+/**
+ * Get the parallel state file path
+ */
+function getParallelStatePath(projectRoot?: string): string {
+  const root = projectRoot || resolveProjectRoot();
+  return join(root, '.cleo', 'parallel-state.json');
+}
+
+/**
+ * Read parallel execution state
+ */
+function readParallelState(projectRoot?: string): {
+  active: boolean;
+  epicId?: string;
+  wave?: number;
+  startedAt?: string;
+  tasks?: string[];
+} {
+  const statePath = getParallelStatePath(projectRoot);
+  if (!existsSync(statePath)) {
+    return { active: false };
+  }
+  try {
+    const content = readFileSync(statePath, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return { active: false };
+  }
+}
+
+/**
+ * Write parallel execution state
+ */
+function writeParallelState(
+  state: { active: boolean; epicId?: string; wave?: number; startedAt?: string; tasks?: string[] },
+  projectRoot?: string
+): void {
+  const statePath = getParallelStatePath(projectRoot);
+  const dir = dirname(statePath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
+}
+
+/**
+ * orchestrate.parallel.start - Start parallel execution for a wave
+ * @task T4632
+ */
+export function orchestrateParallelStart(
+  epicId: string,
+  wave: number,
+  projectRoot?: string
+): EngineResult {
+  if (!epicId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
+  }
+  if (wave === undefined || wave === null) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'wave number is required' } };
+  }
+
+  const currentState = readParallelState(projectRoot);
+  if (currentState.active) {
+    return {
+      success: false,
+      error: {
+        code: 'E_PARALLEL_ACTIVE',
+        message: `Parallel execution already active for epic ${currentState.epicId}, wave ${currentState.wave}`,
+      },
+    };
+  }
+
+  // Get wave tasks
+  const tasks = loadTasks(projectRoot);
+  const epic = tasks.find((t) => t.id === epicId);
+  if (!epic) {
+    return { success: false, error: { code: 'E_NOT_FOUND', message: `Epic ${epicId} not found` } };
+  }
+
+  const children = getEpicChildren(epicId, tasks);
+  const waves = computeWaves(children);
+  const targetWave = waves.find((w) => w.waveNumber === wave);
+
+  if (!targetWave) {
+    return {
+      success: false,
+      error: { code: 'E_INVALID_WAVE', message: `Wave ${wave} not found for epic ${epicId}` },
+    };
+  }
+
+  const state = {
+    active: true,
+    epicId,
+    wave,
+    startedAt: new Date().toISOString(),
+    tasks: targetWave.tasks,
+  };
+
+  writeParallelState(state, projectRoot);
+
+  return {
+    success: true,
+    data: {
+      epicId,
+      wave,
+      tasks: targetWave.tasks,
+      taskCount: targetWave.tasks.length,
+      startedAt: state.startedAt,
+    },
+  };
+}
+
+/**
+ * orchestrate.parallel.end - End parallel execution for a wave
+ * @task T4632
+ */
+export function orchestrateParallelEnd(
+  epicId: string,
+  wave: number,
+  projectRoot?: string
+): EngineResult {
+  if (!epicId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
+  }
+
+  const currentState = readParallelState(projectRoot);
+  if (!currentState.active) {
+    return {
+      success: true,
+      data: {
+        epicId,
+        wave,
+        message: 'No parallel execution was active',
+        alreadyEnded: true,
+      },
+    };
+  }
+
+  if (currentState.epicId !== epicId || currentState.wave !== wave) {
+    return {
+      success: false,
+      error: {
+        code: 'E_WAVE_MISMATCH',
+        message: `Active parallel is for epic ${currentState.epicId} wave ${currentState.wave}, not epic ${epicId} wave ${wave}`,
+      },
+    };
+  }
+
+  const duration = currentState.startedAt
+    ? Date.now() - new Date(currentState.startedAt).getTime()
+    : 0;
+
+  writeParallelState({ active: false }, projectRoot);
+
+  return {
+    success: true,
+    data: {
+      epicId,
+      wave,
+      tasks: currentState.tasks,
+      taskCount: currentState.tasks?.length || 0,
+      startedAt: currentState.startedAt,
+      endedAt: new Date().toISOString(),
+      durationMs: duration,
+    },
+  };
+}
+
+/**
+ * orchestrate.check - Check current orchestration state
+ * @task T4632
+ */
+export function orchestrateCheck(
+  projectRoot?: string
+): EngineResult {
+  const parallelState = readParallelState(projectRoot);
+  const tasks = loadTasks(projectRoot);
+
+  // Active tasks (in-progress)
+  const activeTasks = tasks.filter((t) => t.status === 'active');
+
+  // Overall progress
+  const total = tasks.length;
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const pending = tasks.filter((t) => t.status === 'pending').length;
+  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+
+  return {
+    success: true,
+    data: {
+      parallelExecution: {
+        active: parallelState.active,
+        epicId: parallelState.epicId || null,
+        wave: parallelState.wave || null,
+        tasks: parallelState.tasks || [],
+        startedAt: parallelState.startedAt || null,
+      },
+      activeTasks: activeTasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+      })),
+      progress: {
+        total,
+        done,
+        pending,
+        blocked,
+        active: activeTasks.length,
+        percentComplete: total > 0 ? Math.round((done / total) * 100) : 0,
+      },
+    },
+  };
+}
+
+/**
+ * orchestrate.skill.inject - Read skill content for injection into agent context
+ * @task T4632
+ */
+export function orchestrateSkillInject(
+  skillName: string,
+  projectRoot?: string
+): EngineResult {
+  if (!skillName) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'skill name is required (params.skill)' } };
+  }
+
+  const root = projectRoot || resolveProjectRoot();
+  const skillDir = join(root, 'skills', skillName);
+
+  if (!existsSync(skillDir)) {
+    return {
+      success: false,
+      error: {
+        code: 'E_NOT_FOUND',
+        message: `Skill '${skillName}' not found at skills/${skillName}/`,
+      },
+    };
+  }
+
+  const skillFilePath = join(skillDir, 'SKILL.md');
+  if (!existsSync(skillFilePath)) {
+    return {
+      success: false,
+      error: {
+        code: 'E_NOT_FOUND',
+        message: `Skill file not found: skills/${skillName}/SKILL.md`,
+      },
+    };
+  }
+
+  try {
+    const content = readFileSync(skillFilePath, 'utf-8');
+
+    // Also check for reference files
+    const refsDir = join(skillDir, 'references');
+    let references: Array<{ name: string; path: string }> = [];
+    if (existsSync(refsDir)) {
+      try {
+        references = readdirSync(refsDir)
+          .filter((f) => f.endsWith('.md') || f.endsWith('.txt'))
+          .map((f) => ({
+            name: f,
+            path: `skills/${skillName}/references/${f}`,
+          }));
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        skill: skillName,
+        content,
+        contentLength: content.length,
+        estimatedTokens: Math.ceil(content.length / 4),
+        references,
+        path: `skills/${skillName}/SKILL.md`,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_SKILL_READ_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
 }

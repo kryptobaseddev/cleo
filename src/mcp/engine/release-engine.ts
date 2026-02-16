@@ -11,6 +11,7 @@
  */
 
 import { existsSync, mkdirSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { dirname } from 'path';
 import { resolveProjectRoot, readJsonFile, writeJsonFileAtomic, getDataPath } from './store.js';
 import type { TaskRecord } from './task-engine.js';
@@ -567,4 +568,68 @@ export function releaseRollback(
       reason: reason || 'No reason provided',
     },
   };
+}
+
+/**
+ * release.push - Push release to remote via git
+ * Uses execFileSync (no shell) for safety.
+ * @task T4632
+ */
+export function releasePush(
+  version: string,
+  remote?: string,
+  projectRoot?: string
+): EngineResult {
+  if (!version) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'version is required' } };
+  }
+
+  const normalizedVersion = normalizeVersion(version);
+  const root = projectRoot || resolveProjectRoot();
+  const index = readReleases(root);
+  const release = index.releases.find((r) => r.version === normalizedVersion);
+
+  if (!release) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Release ${normalizedVersion} not found` },
+    };
+  }
+
+  const targetRemote = remote || 'origin';
+
+  try {
+    // Push with follow-tags to include the release tag
+    execFileSync('git', ['push', targetRemote, '--follow-tags'], {
+      cwd: root,
+      timeout: 60000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // Update release status
+    release.status = 'pushed';
+    release.pushedAt = new Date().toISOString();
+    writeReleases(index, root);
+
+    return {
+      success: true,
+      data: {
+        version: normalizedVersion,
+        status: 'pushed',
+        remote: targetRemote,
+        pushedAt: release.pushedAt,
+      },
+    };
+  } catch (error: unknown) {
+    const execError = error as { status?: number; stderr?: string };
+    return {
+      success: false,
+      error: {
+        code: 'E_PUSH_FAILED',
+        message: `Git push failed: ${(execError.stderr || '').slice(0, 500)}`,
+        details: { exitCode: execError.status },
+      },
+    };
+  }
 }

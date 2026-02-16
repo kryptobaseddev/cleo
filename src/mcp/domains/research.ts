@@ -30,6 +30,9 @@ import {
   researchManifestArchive as nativeResearchManifestArchive,
   researchContradictions as nativeResearchContradictions,
   researchSuperseded as nativeResearchSuperseded,
+  researchInject as nativeResearchInject,
+  researchCompact as nativeResearchCompact,
+  researchValidateOp as nativeResearchValidate,
   resolveProjectRoot,
 } from '../engine/index.js';
 
@@ -314,6 +317,15 @@ export class ResearchHandler implements DomainHandler {
         return this.wrapNativeResult(nativeResearchManifestAppend(params?.entry as any, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'manifest.archive':
         return this.wrapNativeResult(nativeResearchManifestArchive(params?.beforeDate as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'inject':
+        return this.wrapNativeResult(
+          nativeResearchInject(params?.protocolType as string, params as { taskId?: string; variant?: string }, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      case 'compact':
+        return this.wrapNativeResult(nativeResearchCompact(this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'validate':
+        return this.wrapNativeResult(nativeResearchValidate(params?.taskId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       default:
         return this.createErrorResponse('cleo_mutate', 'research', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
     }
@@ -364,6 +376,10 @@ export class ResearchHandler implements DomainHandler {
           return await this.mutateManifestAppend(params as unknown as ResearchManifestAppendParams);
         case 'manifest.archive':
           return await this.mutateManifestArchive(params as unknown as ResearchManifestArchiveParams);
+        case 'compact':
+          return this.mutateNative('compact', params, startTime);
+        case 'validate':
+          return this.mutateNative('validate', params, startTime);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -385,7 +401,7 @@ export class ResearchHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'query', 'contradictions', 'superseded'],
-      mutate: ['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive'],
+      mutate: ['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive', 'compact', 'validate'],
     };
   }
 

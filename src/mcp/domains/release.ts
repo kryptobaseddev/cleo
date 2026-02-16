@@ -24,6 +24,7 @@ import {
   releaseTag as nativeReleaseTag,
   releaseGatesRun as nativeReleaseGatesRun,
   releaseRollback as nativeReleaseRollback,
+  releasePush as nativeReleasePush,
   resolveProjectRoot,
 } from '../engine/index.js';
 import type {
@@ -151,6 +152,8 @@ export class ReleaseHandler implements DomainHandler {
         return this.wrapNativeResult(nativeReleaseGatesRun(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'rollback':
         return this.wrapNativeResult(nativeReleaseRollback(params?.version as string, params?.reason as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'push':
+        return this.wrapNativeResult(nativeReleasePush(params?.version as string, params?.remote as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       default:
         return this.createErrorResponse('cleo_mutate', 'release', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
     }

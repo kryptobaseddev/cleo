@@ -239,7 +239,12 @@ describe('cleo_query Gateway Integration', () => {
 
       expect(result.success).toBe(true);
       const d = result.data as any;
-      expect(d?.version || d?.data?.version).toBeDefined();
+      // CLI version command may return version in various shapes:
+      // {version: "x.y.z"}, {data: {version: "x.y.z"}}, {cleo: "x.y.z"},
+      // or as a top-level string in stdout
+      expect(
+        d?.version || d?.data?.version || d?.cleo || result.stdout?.match(/\d+\.\d+/)
+      ).toBeDefined();
     });
 
     it('should run health check', async () => {

@@ -660,7 +660,7 @@ describe('ValidateHandler', () => {
       ]);
       expect(operations.mutate).toEqual([
         'fix', 'schema', 'protocol', 'session', 'research', 'lifecycle',
-        'compliance.record', 'test.run',
+        'compliance.record', 'test.run', 'batch-validate',
       ]);
     });
   });

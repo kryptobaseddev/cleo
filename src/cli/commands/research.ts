@@ -13,6 +13,9 @@ import {
   linkResearch,
   updateResearch,
   queryManifest,
+  statsResearch,
+  linksResearch,
+  archiveResearch,
 } from '../../core/research/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
@@ -72,12 +75,17 @@ export function registerResearchCommand(program: Command): void {
     .description('List research entries')
     .option('-t, --task <taskId>', 'Filter by task ID')
     .option('-s, --status <status>', 'Filter by status')
+    .option('-l, --limit <n>', 'Limit results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await listResearch({
+        let result = await listResearch({
           taskId: opts['task'] as string | undefined,
           status: opts['status'] as 'pending' | 'complete' | 'partial' | undefined,
         });
+        const limit = opts['limit'] as number | undefined;
+        if (limit && limit > 0) {
+          result = result.slice(0, limit);
+        }
         console.log(formatSuccess({ entries: result, count: result.length }));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -134,6 +142,54 @@ export function registerResearchCommand(program: Command): void {
           status: opts['status'] as 'pending' | 'complete' | 'partial' | undefined,
         });
         console.log(formatSuccess({ entry: result }));
+      } catch (err) {
+        if (err instanceof CleoError) {
+          console.error(formatError(err));
+          process.exit(err.code);
+        }
+        throw err;
+      }
+    });
+
+  research
+    .command('stats')
+    .description('Show research statistics')
+    .action(async () => {
+      try {
+        const result = await statsResearch();
+        console.log(formatSuccess(result));
+      } catch (err) {
+        if (err instanceof CleoError) {
+          console.error(formatError(err));
+          process.exit(err.code);
+        }
+        throw err;
+      }
+    });
+
+  research
+    .command('links <taskId>')
+    .description('Show research entries linked to a task')
+    .action(async (taskId: string) => {
+      try {
+        const result = await linksResearch(taskId);
+        console.log(formatSuccess({ entries: result, count: result.length }));
+      } catch (err) {
+        if (err instanceof CleoError) {
+          console.error(formatError(err));
+          process.exit(err.code);
+        }
+        throw err;
+      }
+    });
+
+  research
+    .command('archive')
+    .description('Archive completed research entries')
+    .action(async () => {
+      try {
+        const result = await archiveResearch();
+        console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

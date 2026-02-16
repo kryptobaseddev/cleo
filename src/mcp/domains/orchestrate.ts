@@ -28,6 +28,10 @@ import {
   orchestrateBootstrap as nativeOrchestrateBootstrap,
   orchestrateUnblockOpportunities as nativeOrchestrateUnblockOpportunities,
   orchestrateCriticalPath as nativeOrchestrateCriticalPath,
+  orchestrateParallelStart as nativeOrchestrateParallelStart,
+  orchestrateParallelEnd as nativeOrchestrateParallelEnd,
+  orchestrateCheck as nativeOrchestrateCheck,
+  orchestrateSkillInject as nativeOrchestrateSkillInject,
   resolveProjectRoot,
 } from '../engine/index.js';
 
@@ -259,6 +263,14 @@ export class OrchestrateHandler implements DomainHandler {
         return this.wrapNativeResult(nativeOrchestrateSpawn(params?.taskId as string, params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'validate':
         return this.wrapNativeResult(nativeOrchestrateValidate(params?.taskId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'parallel.start':
+        return this.wrapNativeResult(nativeOrchestrateParallelStart(params?.epicId as string, params?.wave as number, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'parallel.end':
+        return this.wrapNativeResult(nativeOrchestrateParallelEnd(params?.epicId as string, params?.wave as number, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'check':
+        return this.wrapNativeResult(nativeOrchestrateCheck(this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'skill.inject':
+        return this.wrapNativeResult(nativeOrchestrateSkillInject(params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       default:
         return this.createErrorResponse('cleo_mutate', 'orchestrate', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
     }
@@ -378,6 +390,10 @@ export class OrchestrateHandler implements DomainHandler {
           return await this.mutateParallelEnd(params as unknown as OrchestrateParallelEndParams);
         case 'startup':
           return await this.mutateStart(params as unknown as OrchestrateStartParams);
+        case 'check':
+          return this.mutateNative('check', params, startTime);
+        case 'skill.inject':
+          return this.mutateNative('skill.inject', params, startTime);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -399,7 +415,7 @@ export class OrchestrateHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['status', 'ready', 'next', 'waves', 'context', 'progress', 'skill.list', 'analyze', 'bootstrap', 'critical-path', 'unblock-opportunities'],
-      mutate: ['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'startup'],
+      mutate: ['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'startup', 'check', 'skill.inject'],
     };
   }
 

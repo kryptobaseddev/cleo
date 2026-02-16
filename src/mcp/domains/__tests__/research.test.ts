@@ -529,7 +529,7 @@ describe('ResearchHandler', () => {
       const operations = handler.getSupportedOperations();
 
       expect(operations.query).toEqual(['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'query', 'contradictions', 'superseded']);
-      expect(operations.mutate).toEqual(['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive']);
+      expect(operations.mutate).toEqual(['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive', 'compact', 'validate']);
     });
   });
 

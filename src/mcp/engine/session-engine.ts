@@ -1433,3 +1433,342 @@ export function sessionRecordAssumption(
     },
   };
 }
+
+// ===== Session Statistics =====
+
+/**
+ * Compute session statistics, optionally for a specific session.
+ */
+export function sessionStats(
+  projectRoot: string,
+  sessionId?: string
+): EngineResult<{
+  totalSessions: number;
+  activeSessions: number;
+  suspendedSessions: number;
+  endedSessions: number;
+  archivedSessions: number;
+  totalTasksCompleted: number;
+  totalFocusChanges: number;
+  averageResumeCount: number;
+  session?: {
+    id: string;
+    status: string;
+    tasksCompleted: number;
+    focusChanges: number;
+    resumeCount: number;
+    durationMinutes: number;
+  };
+}> {
+  const todoPath = getDataPath(projectRoot, 'todo.json');
+  const todo = readJsonFile<TodoFile>(todoPath);
+
+  if (!todo) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
+
+  const multiSession = todo._meta?.multiSessionEnabled === true;
+
+  if (!multiSession) {
+    // Single-session mode: return basic stats
+    return {
+      success: true,
+      data: {
+        totalSessions: todo.focus?.currentTask ? 1 : 0,
+        activeSessions: todo.focus?.currentTask ? 1 : 0,
+        suspendedSessions: 0,
+        endedSessions: 0,
+        archivedSessions: 0,
+        totalTasksCompleted: 0,
+        totalFocusChanges: 0,
+        averageResumeCount: 0,
+      },
+    };
+  }
+
+  const sessionsPath = getDataPath(projectRoot, todo._meta?.sessionsFile || 'sessions.json');
+  const sessionsFile = readJsonFile<SessionsFile>(sessionsPath);
+
+  if (!sessionsFile) {
+    return {
+      success: true,
+      data: {
+        totalSessions: 0,
+        activeSessions: 0,
+        suspendedSessions: 0,
+        endedSessions: 0,
+        archivedSessions: 0,
+        totalTasksCompleted: 0,
+        totalFocusChanges: 0,
+        averageResumeCount: 0,
+      },
+    };
+  }
+
+  const allSessions = [
+    ...(sessionsFile.sessions || []),
+    ...(sessionsFile.sessionHistory || []),
+  ];
+
+  // If specific session requested
+  if (sessionId) {
+    const session = allSessions.find((s) => s.id === sessionId);
+    if (!session) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
+      };
+    }
+
+    const startedAt = new Date(session.startedAt).getTime();
+    const endedAt = session.endedAt ? new Date(session.endedAt).getTime() : Date.now();
+    const durationMinutes = Math.round((endedAt - startedAt) / (1000 * 60));
+
+    return {
+      success: true,
+      data: {
+        totalSessions: allSessions.length,
+        activeSessions: allSessions.filter((s) => s.status === 'active').length,
+        suspendedSessions: allSessions.filter((s) => s.status === 'suspended').length,
+        endedSessions: allSessions.filter((s) => s.status === 'ended').length,
+        archivedSessions: allSessions.filter((s) => s.status === 'archived').length,
+        totalTasksCompleted: allSessions.reduce((sum, s) => sum + (s.stats?.tasksCompleted ?? 0), 0),
+        totalFocusChanges: allSessions.reduce((sum, s) => sum + (s.stats?.focusChanges ?? 0), 0),
+        averageResumeCount: allSessions.length > 0
+          ? Math.round((allSessions.reduce((sum, s) => sum + (s.resumeCount ?? 0), 0) / allSessions.length) * 100) / 100
+          : 0,
+        session: {
+          id: session.id,
+          status: session.status,
+          tasksCompleted: session.stats?.tasksCompleted ?? 0,
+          focusChanges: session.stats?.focusChanges ?? 0,
+          resumeCount: session.resumeCount ?? 0,
+          durationMinutes,
+        },
+      },
+    };
+  }
+
+  const activeSessions = allSessions.filter((s) => s.status === 'active').length;
+  const suspendedSessions = allSessions.filter((s) => s.status === 'suspended').length;
+  const endedSessions = allSessions.filter((s) => s.status === 'ended').length;
+  const archivedSessions = allSessions.filter((s) => s.status === 'archived').length;
+  const totalTasksCompleted = allSessions.reduce((sum, s) => sum + (s.stats?.tasksCompleted ?? 0), 0);
+  const totalFocusChanges = allSessions.reduce((sum, s) => sum + (s.stats?.focusChanges ?? 0), 0);
+  const averageResumeCount = allSessions.length > 0
+    ? Math.round((allSessions.reduce((sum, s) => sum + (s.resumeCount ?? 0), 0) / allSessions.length) * 100) / 100
+    : 0;
+
+  return {
+    success: true,
+    data: {
+      totalSessions: allSessions.length,
+      activeSessions,
+      suspendedSessions,
+      endedSessions,
+      archivedSessions,
+      totalTasksCompleted,
+      totalFocusChanges,
+      averageResumeCount,
+    },
+  };
+}
+
+// ===== Session Switch =====
+
+/**
+ * Switch to a different session.
+ * Ends/suspends the current active session and activates the target.
+ */
+export async function sessionSwitch(
+  projectRoot: string,
+  sessionId: string
+): Promise<EngineResult<SessionRecord>> {
+  const todoPath = getDataPath(projectRoot, 'todo.json');
+
+  return await withFileLock<EngineResult<SessionRecord>>(todoPath, () => {
+    const current = readJsonFile<TodoFile>(todoPath);
+    if (!current) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      };
+    }
+
+    const multiSession = current._meta?.multiSessionEnabled === true;
+    if (!multiSession) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_SUPPORTED', message: 'Session switch requires multi-session mode' },
+      };
+    }
+
+    const sessionsPath = getDataPath(projectRoot, current._meta?.sessionsFile || 'sessions.json');
+    const sessions = readJsonFile<SessionsFile>(sessionsPath);
+
+    if (!sessions) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
+      };
+    }
+
+    // Find target session
+    let targetSession = sessions.sessions.find((s) => s.id === sessionId);
+    let fromHistory = false;
+
+    if (!targetSession && sessions.sessionHistory) {
+      const histIndex = sessions.sessionHistory.findIndex((s) => s.id === sessionId);
+      if (histIndex !== -1) {
+        targetSession = sessions.sessionHistory[histIndex];
+        sessions.sessionHistory.splice(histIndex, 1);
+        fromHistory = true;
+      }
+    }
+
+    if (!targetSession) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
+      };
+    }
+
+    if (targetSession.status === 'archived') {
+      return {
+        success: false,
+        error: { code: 'E_INVALID_STATE', message: `Session '${sessionId}' is archived and cannot be switched to` },
+      };
+    }
+
+    const now = new Date().toISOString();
+
+    // Suspend the current active session (if different from target)
+    const currentActiveId = current._meta?.activeSession;
+    if (currentActiveId && currentActiveId !== sessionId) {
+      const currentSession = sessions.sessions.find((s) => s.id === currentActiveId);
+      if (currentSession && currentSession.status === 'active') {
+        currentSession.status = 'suspended';
+        currentSession.suspendedAt = now;
+        currentSession.lastActivity = now;
+        if (currentSession.stats) {
+          currentSession.stats.suspendCount = (currentSession.stats.suspendCount || 0) + 1;
+        }
+      }
+    }
+
+    // Activate the target session
+    targetSession.status = 'active';
+    targetSession.lastActivity = now;
+    targetSession.suspendedAt = null;
+    targetSession.endedAt = null;
+    targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
+
+    if (fromHistory) {
+      sessions.sessions.push(targetSession);
+    }
+
+    // Update todo.json
+    if (current._meta) {
+      current._meta.activeSession = sessionId;
+      current._meta.generation = (current._meta.generation || 0) + 1;
+    }
+
+    if (targetSession.focus?.currentTask && current.focus) {
+      current.focus.currentTask = targetSession.focus.currentTask;
+    }
+
+    current.lastUpdated = now;
+
+    if (sessions._meta) {
+      sessions._meta.lastModified = now;
+    }
+
+    writeJsonFileAtomic(todoPath, current);
+    writeJsonFileAtomic(sessionsPath, sessions);
+
+    return { success: true, data: targetSession };
+  }) as EngineResult<SessionRecord>;
+}
+
+// ===== Session Archive =====
+
+/**
+ * Archive old/ended sessions.
+ * Moves ended and suspended sessions older than the threshold to archived status.
+ */
+export async function sessionArchive(
+  projectRoot: string,
+  olderThan?: string
+): Promise<EngineResult<{ archived: string[]; count: number }>> {
+  const todoPath = getDataPath(projectRoot, 'todo.json');
+
+  return await withFileLock<EngineResult<{ archived: string[]; count: number }>>(
+    todoPath,
+    () => {
+      const current = readJsonFile<TodoFile>(todoPath);
+      if (!current) {
+        return {
+          success: false,
+          error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+        };
+      }
+
+      const multiSession = current._meta?.multiSessionEnabled === true;
+      if (!multiSession) {
+        return { success: true, data: { archived: [], count: 0 } };
+      }
+
+      const sessionsPath = getDataPath(projectRoot, current._meta?.sessionsFile || 'sessions.json');
+      const sessions = readJsonFile<SessionsFile>(sessionsPath);
+
+      if (!sessions) {
+        return { success: true, data: { archived: [], count: 0 } };
+      }
+
+      const now = new Date();
+      const archivedIds: string[] = [];
+
+      // Process both active sessions list and history
+      const allSessionLists = [sessions.sessions, sessions.sessionHistory || []];
+
+      for (const list of allSessionLists) {
+        for (const session of list) {
+          if (session.status === 'active' || session.status === 'archived') continue;
+
+          // Check age threshold
+          if (olderThan) {
+            const sessionDate = session.endedAt || session.suspendedAt || session.lastActivity || session.startedAt;
+            if (sessionDate && new Date(sessionDate) > new Date(olderThan)) {
+              continue;
+            }
+          }
+
+          session.status = 'archived';
+          session.archivedAt = now.toISOString();
+          archivedIds.push(session.id);
+        }
+      }
+
+      if (archivedIds.length > 0) {
+        // Move archived sessions from active list to history
+        const toMove = sessions.sessions.filter((s) => s.status === 'archived');
+        if (!sessions.sessionHistory) sessions.sessionHistory = [];
+        sessions.sessionHistory.push(...toMove);
+        sessions.sessions = sessions.sessions.filter((s) => s.status !== 'archived');
+
+        if (sessions._meta) {
+          sessions._meta.lastModified = now.toISOString();
+        }
+        writeJsonFileAtomic(sessionsPath, sessions);
+      }
+
+      return {
+        success: true,
+        data: { archived: archivedIds, count: archivedIds.length },
+      };
+    }
+  ) as EngineResult<{ archived: string[]; count: number }>;
+}

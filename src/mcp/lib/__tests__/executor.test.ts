@@ -141,7 +141,8 @@ describe('executor', () => {
 
       expect(attempts).toBe(3);
       expect(result.success).toBe(true);
-      expect(result.data).toEqual({ result: 'ok' });
+      // Executor unwraps single-key payloads: {result:'ok'} → 'ok'
+      expect(result.data).toBe('ok');
     });
 
     it('should not retry on non-retryable errors', async () => {

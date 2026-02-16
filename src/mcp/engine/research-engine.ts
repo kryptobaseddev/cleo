@@ -742,3 +742,224 @@ export function researchSuperseded(
     data: { superseded },
   };
 }
+
+/**
+ * research.inject - Read protocol injection content for a given protocol type
+ * Returns the protocol file content for use in agent context injection.
+ * @task T4632
+ */
+export function researchInject(
+  protocolType: string,
+  params?: { taskId?: string; variant?: string },
+  projectRoot?: string
+): EngineResult {
+  if (!protocolType) {
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'protocolType is required' },
+    };
+  }
+
+  const root = projectRoot || resolveProjectRoot();
+
+  // Look for protocol files in standard locations
+  const protocolLocations = [
+    resolve(root, 'protocols', `${protocolType}.md`),
+    resolve(root, 'skills', '_shared', `${protocolType}.md`),
+    resolve(root, 'agents', 'cleo-subagent', 'protocols', `${protocolType}.md`),
+  ];
+
+  let protocolContent: string | null = null;
+  let protocolPath: string | null = null;
+
+  for (const loc of protocolLocations) {
+    if (existsSync(loc)) {
+      try {
+        protocolContent = readFileSync(loc, 'utf-8');
+        protocolPath = loc.replace(root + '/', '');
+        break;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  if (!protocolContent) {
+    return {
+      success: false,
+      error: {
+        code: 'E_NOT_FOUND',
+        message: `Protocol '${protocolType}' not found in protocols/, skills/_shared/, or agents/cleo-subagent/protocols/`,
+      },
+    };
+  }
+
+  return {
+    success: true,
+    data: {
+      protocolType,
+      content: protocolContent,
+      path: protocolPath,
+      contentLength: protocolContent.length,
+      estimatedTokens: Math.ceil(protocolContent.length / 4),
+      taskId: params?.taskId || null,
+      variant: params?.variant || null,
+    },
+  };
+}
+
+/**
+ * research.compact - Compact MANIFEST.jsonl by removing duplicate/stale entries
+ * Keeps only the latest entry per ID and removes malformed lines.
+ * @task T4632
+ */
+export function researchCompact(
+  projectRoot?: string
+): EngineResult {
+  const manifestPath = getManifestPath(projectRoot);
+
+  if (!existsSync(manifestPath)) {
+    return {
+      success: true,
+      data: {
+        compacted: false,
+        message: 'No manifest file found',
+      },
+    };
+  }
+
+  try {
+    const content = readFileSync(manifestPath, 'utf-8');
+    const lines = content.split('\n');
+
+    const entries: ManifestEntry[] = [];
+    let malformedCount = 0;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      try {
+        entries.push(JSON.parse(trimmed) as ManifestEntry);
+      } catch {
+        malformedCount++;
+      }
+    }
+
+    const originalCount = entries.length + malformedCount;
+
+    // Keep only the latest entry per ID (last occurrence wins)
+    const idMap = new Map<string, ManifestEntry>();
+    for (const entry of entries) {
+      idMap.set(entry.id, entry);
+    }
+
+    const compacted = Array.from(idMap.values());
+    const duplicatesRemoved = entries.length - compacted.length;
+
+    // Write back compacted entries
+    const compactedContent = compacted.length > 0
+      ? compacted.map((e) => JSON.stringify(e)).join('\n') + '\n'
+      : '';
+    writeFileSync(manifestPath, compactedContent, 'utf-8');
+
+    return {
+      success: true,
+      data: {
+        compacted: true,
+        originalLines: originalCount,
+        malformedRemoved: malformedCount,
+        duplicatesRemoved,
+        remainingEntries: compacted.length,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_COMPACT_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
+ * research.validate - Validate research entries for a task
+ * Checks manifest entries linked to the task for completeness and correctness.
+ * @task T4632
+ */
+export function researchValidate(
+  taskId: string,
+  projectRoot?: string
+): EngineResult {
+  if (!taskId) {
+    return {
+      success: false,
+      error: { code: 'E_INVALID_INPUT', message: 'taskId is required' },
+    };
+  }
+
+  const root = projectRoot || resolveProjectRoot();
+  const entries = readManifestEntries(root);
+
+  // Find entries linked to the task
+  const linked = entries.filter(
+    (e) => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId)
+  );
+
+  if (linked.length === 0) {
+    return {
+      success: true,
+      data: {
+        taskId,
+        valid: true,
+        entriesFound: 0,
+        message: `No research entries found for task ${taskId}`,
+        issues: [],
+      },
+    };
+  }
+
+  const issues: Array<{ entryId: string; issue: string; severity: 'error' | 'warning' }> = [];
+
+  for (const entry of linked) {
+    // Required fields check
+    if (!entry.id) issues.push({ entryId: entry.id || '(unknown)', issue: 'Missing id', severity: 'error' });
+    if (!entry.file) issues.push({ entryId: entry.id, issue: 'Missing file path', severity: 'error' });
+    if (!entry.title) issues.push({ entryId: entry.id, issue: 'Missing title', severity: 'error' });
+    if (!entry.date) issues.push({ entryId: entry.id, issue: 'Missing date', severity: 'error' });
+    if (!entry.status) issues.push({ entryId: entry.id, issue: 'Missing status', severity: 'error' });
+    if (!entry.agent_type) issues.push({ entryId: entry.id, issue: 'Missing agent_type', severity: 'error' });
+
+    // Check status enum
+    if (entry.status && !['complete', 'partial', 'blocked'].includes(entry.status)) {
+      issues.push({ entryId: entry.id, issue: `Invalid status: ${entry.status}`, severity: 'error' });
+    }
+
+    // Check if output file exists
+    if (entry.file) {
+      const filePath = resolve(root, entry.file);
+      if (!existsSync(filePath)) {
+        issues.push({ entryId: entry.id, issue: `Output file not found: ${entry.file}`, severity: 'warning' });
+      }
+    }
+
+    // Check key_findings for research entries
+    if (entry.agent_type === 'research' && (!entry.key_findings || entry.key_findings.length === 0)) {
+      issues.push({ entryId: entry.id, issue: 'Research entry missing key_findings', severity: 'warning' });
+    }
+  }
+
+  return {
+    success: true,
+    data: {
+      taskId,
+      valid: issues.filter((i) => i.severity === 'error').length === 0,
+      entriesFound: linked.length,
+      issues,
+      errorCount: issues.filter((i) => i.severity === 'error').length,
+      warningCount: issues.filter((i) => i.severity === 'warning').length,
+    },
+  };
+}

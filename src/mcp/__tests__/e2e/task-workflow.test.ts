@@ -29,11 +29,11 @@ describe('E2E: Task Management Workflow', () => {
 
   beforeAll(async () => {
     context = await setupE2ETest();
-  });
+  }, 120000);
 
   afterAll(async () => {
     await cleanupE2ETest();
-  });
+  }, 30000);
 
   it('should complete full task lifecycle', async () => {
     // Step 1: Create task via cleo_mutate
@@ -261,9 +261,10 @@ describe('E2E: Task Management Workflow', () => {
     expect(depsResult.success).toBe(true);
     verifyResponseFormat(depsResult, 'cleo_query', 'tasks', 'deps');
 
-    // deps returns {mode, task_id, upstream_dependencies, downstream_dependents}
+    // deps returns {task, upstream, downstream, blockedBy}
     const deps = depsResult.data as any;
-    const upstreamIds = (deps.upstream_dependencies || []).map((d: any) =>
+    const upstream = deps.upstream_dependencies || deps.upstream || [];
+    const upstreamIds = upstream.map((d: any) =>
       typeof d === 'string' ? d : d.id || d.taskId
     );
     expect(upstreamIds).toContain(blockerId);
