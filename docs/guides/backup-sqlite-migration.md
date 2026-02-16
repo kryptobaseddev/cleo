@@ -1,0 +1,154 @@
+# Backup System: SQLite Migration Guide
+
+**Task**: T4649
+**Epic**: T4638
+**Date**: 2026-02-16
+
+---
+
+## Current Architecture (JSON Mode)
+
+The backup system uses two tiers:
+
+### Tier 1: Operational Backups (`src/store/backup.ts`)
+
+- **Location**: `.cleo/backups/operational/`
+- **Format**: Numbered files (`todo.json.1`, `todo.json.2`, etc.)
+- **Trigger**: Automatic on every `saveJson()` call via `createBackup()`
+- **Retention**: Last 5 backups per file (configurable)
+- **Mechanism**: File copy + rotation
+
+### Tier 2: CLI Backup Command (`src/cli/commands/backup.ts`)
+
+- **Subcommands**: `backup create`, `backup list`
+- **Scope**: All four data files:
+  - `todo.json`
+  - `config.json`
+  - `todo-archive.json`
+  - `todo-log.jsonl`
+
+---
+
+## SQLite Changes Required
+
+### Storage Architecture
+
+CLEO uses `sql.js` (WASM-based SQLite) with an in-memory database.
+The database is serialized to disk at `.cleo/tasks.db` via
+`_nativeDb.export()` which produces a raw binary buffer. This is
+fundamentally different from native SQLite (no WAL file, no journal).
+
+Key code in `src/store/sqlite.ts`:
+
+```typescript
+export function saveToFile(): void {
+  if (!_nativeDb || !_dbPath) return;
+  const data = _nativeDb.export();
+  const buffer = Buffer.from(data);
+  writeFileSync(_dbPath, buffer);
+}
+```
+
+### Tier 1: Operational Backup Changes
+
+**No changes needed.** The existing `createBackup()` in `src/store/backup.ts`
+operates on any file path. It uses `copyFile()` which works identically
+for binary files:
+
+```typescript
+// This already works for both JSON and SQLite files:
+await createBackup('.cleo/tasks.db', backupDir);
+```
+
+The `StoreProvider` write path should call `createBackup` before
+`saveToFile()`. This is handled by the provider's write methods.
+
+Backup files will be: `tasks.db.1`, `tasks.db.2`, etc.
+
+### Tier 2: CLI Backup Command Changes
+
+The backup command needs to support both modes:
+
+```typescript
+// Current (JSON mode)
+const files = [getTodoPath(), getConfigPath(), getArchivePath(), getLogPath()];
+
+// SQLite mode
+const files = [getDbPath(), getConfigPath()];
+// Note: archive and log are tables within tasks.db, not separate files
+```
+
+**Required changes to `src/cli/commands/backup.ts`**:
+
+1. Import `getDbPath` and `dbExists` from `src/store/sqlite.js`
+2. Check active storage mode (JSON vs SQLite)
+3. Adjust file list based on mode:
+   - JSON: `todo.json`, `config.json`, `todo-archive.json`, `todo-log.jsonl`
+   - SQLite: `tasks.db`, `config.json`
+
+### Backup File List (by mode)
+
+| File | JSON Mode | SQLite Mode | Notes |
+|------|-----------|-------------|-------|
+| `todo.json` | Backed up | N/A | Tasks stored in `tasks.db` |
+| `config.json` | Backed up | Backed up | Config stays as JSON |
+| `todo-archive.json` | Backed up | N/A | Archived tasks in `tasks.db` |
+| `todo-log.jsonl` | Backed up | N/A | Log entries in `tasks.db` |
+| `tasks.db` | N/A | Backed up | Complete database |
+
+### Restore Changes
+
+The `restoreFromBackup()` function in `src/store/backup.ts` already copies
+the backup file to the target path. For SQLite mode:
+
+1. Close the current database connection (`closeDb()`)
+2. Restore the file (`restoreFromBackup()`)
+3. Re-initialize the database (`getDb()` with fresh singleton)
+
+```typescript
+// SQLite restore flow
+closeDb();
+await restoreFromBackup('tasks.db', backupDir, getDbPath());
+// Next getDb() call will re-read from disk
+```
+
+### Native SQLite `.backup()` API
+
+If CLEO migrates from sql.js to `better-sqlite3` (native bindings) in the
+future, the backup can use SQLite's built-in online backup API:
+
+```typescript
+// better-sqlite3 backup API (not available with sql.js)
+db.backup(destinationPath);
+```
+
+This is more efficient for large databases since it operates at the page
+level. However, since sql.js exports the entire database as a single
+buffer, file-level copy is equivalent and sufficient.
+
+### Dual-Mode Support
+
+During the migration period where both JSON and SQLite may be active,
+the backup command should detect and backup both:
+
+```typescript
+const files: string[] = [];
+if (await fileExists(getTodoPath())) {
+  files.push(getTodoPath(), getArchivePath(), getLogPath());
+}
+if (dbExists()) {
+  files.push(getDbPath());
+}
+files.push(getConfigPath()); // Always present
+```
+
+---
+
+## Migration Checklist
+
+- [ ] Update `backup create` to detect storage mode
+- [ ] Add `tasks.db` to backed-up file list for SQLite mode
+- [ ] Add `backup list` support for `.db` files
+- [ ] Add `closeDb()` call before restore operations
+- [ ] Test backup/restore cycle with SQLite database
+- [ ] Update backup size display (binary vs JSON)

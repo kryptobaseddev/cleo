@@ -4,33 +4,16 @@
  * LAFS (LLM-Agent-First Schema) ensures all CLI output is
  * machine-parseable JSON by default, with optional human-readable modes.
  *
+ * Types are re-exported from the canonical source in src/types/lafs.ts.
+ *
  * @epic T4454
- * @task T4456
+ * @task T4649
  */
 
 import { CleoError } from './errors.js';
+import type { LafsSuccess, LafsError, LafsEnvelope } from '../types/lafs.js';
 
-/** LAFS envelope for successful responses. */
-export interface LafsSuccess<T = unknown> {
-  success: true;
-  data: T;
-  message?: string;
-  noChange?: boolean;
-}
-
-/** LAFS envelope for error responses. */
-export interface LafsError {
-  success: false;
-  error: {
-    code: number;
-    name: string;
-    message: string;
-    fix?: string;
-    alternatives?: Array<{ action: string; command: string }>;
-  };
-}
-
-export type LafsEnvelope<T = unknown> = LafsSuccess<T> | LafsError;
+export type { LafsSuccess, LafsError, LafsEnvelope };
 
 /** Format a successful result as LAFS JSON. */
 export function formatSuccess<T>(data: T, message?: string): string {
