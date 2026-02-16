@@ -27,6 +27,29 @@ import { registerMigrateCommand } from './commands/migrate.js';
 import { registerEnvCommand } from './commands/env.js';
 import { registerMcpInstallCommand } from './commands/mcp-install.js';
 
+// Wave 1: Ported scripts (T4551)
+import { registerCheckpointCommand } from './commands/checkpoint.js';
+import { registerClaudeMigrateCommand } from './commands/claude-migrate.js';
+import { registerCommandsCommand } from './commands/commands.js';
+import { registerDocsCommand } from './commands/docs.js';
+import { registerExportTasksCommand } from './commands/export-tasks.js';
+import { registerExtractCommand } from './commands/extract.js';
+import { registerImportTasksCommand } from './commands/import-tasks.js';
+import { registerSafestopCommand } from './commands/safestop.js';
+import { registerSyncCommand } from './commands/sync.js';
+import { registerTestingCommand } from './commands/testing.js';
+import { registerWebCommand } from './commands/web.js';
+import { registerNexusCommand } from './commands/nexus.js';
+
+// Wave 1: Partial port fixes (T4555)
+import { registerArchiveStatsCommand } from './commands/archive-stats.js';
+import { registerGenerateChangelogCommand } from './commands/generate-changelog.js';
+import { registerIssueCommand } from './commands/issue.js';
+import { registerSkillsCommand } from './commands/skills.js';
+
+// Wave 1: Utility commands
+import { registerExistsCommand } from './commands/exists.js';
+
 /** Read version from package.json (single source of truth). */
 function getPackageVersion(): string {
   try {
@@ -98,5 +121,28 @@ registerEnvCommand(program);
 
 // T4584: MCP install command
 registerMcpInstallCommand(program);
+
+// T4551: Wave 1 - Ported scripts
+registerCheckpointCommand(program);
+registerClaudeMigrateCommand(program);
+registerCommandsCommand(program);
+registerDocsCommand(program);
+registerExportTasksCommand(program);
+registerExtractCommand(program);
+registerImportTasksCommand(program);
+registerSafestopCommand(program);
+registerSyncCommand(program);
+registerTestingCommand(program);
+registerWebCommand(program);
+registerNexusCommand(program);
+
+// T4555: Wave 1 - Partial port fixes
+registerArchiveStatsCommand(program);
+registerGenerateChangelogCommand(program);
+registerIssueCommand(program);
+registerSkillsCommand(program);
+
+// T4454: Utility commands
+registerExistsCommand(program);
 
 program.parse();

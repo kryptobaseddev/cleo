@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # commit-msg - CLEO task ID enforcement hook
-# @task T2693
+# @task T4541
 #
 # Per COMMIT-TASK-ENFORCEMENT-SPEC.md
-# Validates commit messages contain (T####) task references
-# Part of Epic T2679: Protocol Enforcement
+# Validates commit messages contain T#### task references
+# Part of Epic T4541: V2 Migration
+#
+# Supports both conventional commit scopes feat(T####): and suffix (T####) patterns.
+# Works with both bash cleo and TypeScript cleo-v2 CLIs.
 #
 # Installation: Automatically installed via `cleo init`
 # Manual: cp .cleo/templates/git-hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
@@ -22,6 +25,10 @@ COMMIT_MSG=$(cat "$MSG_FILE")
 log_bypass() {
     local justification="$1"
     local note="$2"
+
+    if ! command -v jq &>/dev/null; then
+        return 0
+    fi
 
     local bypass_entry
     bypass_entry=$(jq -n \
@@ -58,13 +65,36 @@ if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" || -n "${GITLAB_CI:-}" ]]; then
     exit 0
 fi
 
+# Auto-bypass for chore(cleo) checkpoints
+if echo "$COMMIT_MSG" | grep -qE '^chore\(cleo\)'; then
+    log_bypass "automated" "CLEO auto-checkpoint commit"
+    exit 0
+fi
+
 # ============================================================================
 # TASK ID EXTRACTION
 # Per COMMIT-TASK-ENFORCEMENT-SPEC.md Part 3.2
+# Supports two patterns:
+#   1. Conventional commit scope: feat(T4541): description
+#   2. Suffix reference: description (T4541)
 # ============================================================================
 
-# Extract task ID using pattern: (T####)
-TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\(T[0-9]+\)' | head -1 | grep -oE 'T[0-9]+' || true)
+TASK_ID=""
+
+# Pattern 1: Conventional commit scope - type(T####):
+if [[ -z "$TASK_ID" ]]; then
+    TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '^[a-z]+\(T[0-9]+\)' | head -1 | grep -oE 'T[0-9]+' || true)
+fi
+
+# Pattern 2: Parenthesized suffix - (T####) anywhere in message
+if [[ -z "$TASK_ID" ]]; then
+    TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\(T[0-9]+\)' | head -1 | grep -oE 'T[0-9]+' || true)
+fi
+
+# Pattern 3: Bare T#### reference anywhere in message (fallback)
+if [[ -z "$TASK_ID" ]]; then
+    TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\bT[0-9]{3,}\b' | head -1 || true)
+fi
 
 # ============================================================================
 # VALIDATION
@@ -72,11 +102,9 @@ TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\(T[0-9]+\)' | head -1 | grep -oE 'T[0-
 
 if [[ -z "$TASK_ID" ]]; then
     # No task ID found - try to suggest from focus
-    CLEO_CMD="cleo"
+    FOCUSED_TASK=""
     if command -v cleo &>/dev/null; then
-        FOCUSED_TASK=$($CLEO_CMD focus show --format json 2>/dev/null | jq -r '.task.id // empty' || true)
-    else
-        FOCUSED_TASK=""
+        FOCUSED_TASK=$(cleo focus show --format json 2>/dev/null | jq -r '.task.id // .data.focus.current.currentTask // empty' 2>/dev/null || true)
     fi
 
     if [[ -n "$FOCUSED_TASK" ]]; then
@@ -84,7 +112,8 @@ if [[ -z "$TASK_ID" ]]; then
         echo ""
         echo "Current focus: $FOCUSED_TASK"
         echo ""
-        echo "Suggested format:"
+        echo "Suggested formats:"
+        echo "  feat($FOCUSED_TASK): $COMMIT_MSG"
         echo "  $COMMIT_MSG ($FOCUSED_TASK)"
         echo ""
         echo "Add task ID or bypass with: git commit --no-verify"
@@ -92,17 +121,59 @@ if [[ -z "$TASK_ID" ]]; then
     else
         echo "ERROR: No task ID in commit message"
         echo ""
-        echo "Convention: Include (T####) in commit message"
-        echo "Example: feat(validation): Add protocol checks (T2692)"
+        echo "Convention: Include T#### in commit message"
+        echo "Examples:"
+        echo "  feat(T2692): Add protocol checks"
+        echo "  fix(T1234): Resolve validation bug"
+        echo "  chore: Update deps (T5678)"
         echo ""
         echo "Bypass with: git commit --no-verify"
         exit 1
     fi
 fi
 
-# Validate task exists
-if command -v cleo &>/dev/null; then
-    if ! cleo exists "$TASK_ID" >/dev/null 2>&1; then
+# ============================================================================
+# TASK EXISTENCE CHECK
+# Tries TS CLI first (cleo exists --include-archive), then bash CLI (cleo show).
+# Falls back to direct JSON file check if no CLI is available.
+# ============================================================================
+
+validate_task() {
+    local task_id="$1"
+
+    # Try 1: TS CLI exists command (searches active + archive)
+    if cleo exists "$task_id" --include-archive >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Try 2: cleo show (works in both bash and TS CLIs)
+    local show_output
+    show_output=$(cleo show "$task_id" 2>&1) || true
+    if echo "$show_output" | grep -q '"success":true'; then
+        return 0
+    fi
+
+    # Try 3: Direct JSON file check (no CLI dependency at all)
+    local todo_file=".cleo/todo.json"
+    local archive_file=".cleo/todo-archive.json"
+
+    if [[ -f "$todo_file" ]] && command -v jq &>/dev/null; then
+        if jq -e --arg id "$task_id" '.tasks[] | select(.id == $id)' "$todo_file" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    if [[ -f "$archive_file" ]] && command -v jq &>/dev/null; then
+        if jq -e --arg id "$task_id" '.archivedTasks[] | select(.id == $id)' "$archive_file" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+if command -v cleo &>/dev/null || command -v jq &>/dev/null; then
+    if ! validate_task "$TASK_ID"; then
         echo "ERROR: Task $TASK_ID not found in CLEO database"
         echo ""
         echo "Use: cleo find <query> to discover valid task IDs"
