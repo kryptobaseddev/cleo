@@ -11,6 +11,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TodoFile } from '../../types/task.js';
 import { getTodoPath, getLogPath, getArchivePath, getBackupDir } from '../paths.js';
 import { saveJson, appendJsonl, computeChecksum } from '../../store/json.js';
+import { loadConfig } from '../config.js';
 
 /** Options for creating a task. */
 export interface AddTaskOptions {
@@ -461,7 +462,11 @@ export async function addTask(options: AddTaskOptions, cwd?: string): Promise<Ad
     if (!/^T\d{3,}$/.test(parentId)) {
       throw new CleoError(ExitCode.INVALID_INPUT, `Invalid parent ID format: ${parentId}`);
     }
-    validateParent(parentId, data.tasks);
+    // Read hierarchy limits from config
+    const config = await loadConfig(cwd);
+    const maxDepth = (config as any).hierarchy?.maxDepth ?? 3;
+    const maxSiblings = (config as any).hierarchy?.maxSiblings ?? 7;
+    validateParent(parentId, data.tasks, maxDepth, maxSiblings);
 
     // Validate type constraints
     if (taskType === 'epic') {

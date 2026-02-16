@@ -168576,6 +168576,27 @@
       "phase": "core",
       "description": "Perf test",
       "archivedAt": "2026-02-16T19:28:21.707Z"
+    },
+    {
+      "id": "T4620",
+      "title": "Write dogfood test task",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "position": 897,
+      "positionVersion": 0,
+      "size": "medium",
+      "createdAt": "2026-02-16T20:24:58.422Z",
+      "updatedAt": "2026-02-16T20:25:18.458Z",
+      "phase": "core",
+      "description": "Updated via TS CLI dogfood test",
+      "notes": [
+        "2026-02-16 20:25:18 UTC: Note added via TS CLI update command",
+        "2026-02-16 20:25:18 UTC: Completed via TS CLI dogfood test"
+      ],
+      "completedAt": "2026-02-16T20:25:18.458Z",
+      "archivedAt": "2026-02-16T20:25:18.824Z"
     }
   ],
   "statistics": {

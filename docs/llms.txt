@@ -1,0 +1,246 @@
+# CLEO
+
+> Task management protocol for solo developers and their AI coding agents. LLM-agent-first design with anti-hallucination validation, structured JSON output, and atomic operations.
+
+## Docs
+
+- [Command Reference](docs/api/command-reference.md): Full CLI and MCP reference
+- [Exit Codes](docs/api/exit-codes.mdx): All 72 exit codes with ranges
+- [Configuration](docs/api/configuration.mdx): Config system and options
+- [Getting Started](docs/getting-started/): Setup and initialization
+- [Session Guide](docs/guides/sessions.mdx): Work session management
+- [Orchestrator Guide](docs/guides/orchestrator.mdx): Multi-agent coordination
+- [MCP Quickstart](docs/guides/mcp-quickstart.mdx): MCP server integration
+
+## Key Concepts
+
+- **Tasks**: Structured units of work with ID (T###), status, priority, type, dependencies, labels, and phases
+- **Sessions**: Scoped work contexts that track focus, decisions, and progress
+- **Focus**: Single active task pointer for agent attention management
+- **Phases**: Project-level milestones that group tasks
+- **Epics**: Parent tasks that contain child tasks (max depth: 3)
+- **RCSD Pipeline**: Research -> Consensus -> Specification -> Decomposition lifecycle
+- **Orchestration**: Multi-agent coordination via spawn/validate protocol
+- **MCP Gateway**: Two tools (cleo_query, cleo_mutate) with domain/operation routing
+
+## Output Format
+
+All commands output JSON:
+```json
+{"success": true, "data": {...}, "message": "optional"}
+{"success": false, "error": {"code": "E_NOT_FOUND", "message": "...", "fix": "cleo find ..."}}
+```
+
+## Exit Code Ranges
+
+- 0: Success
+- 1-9: General errors (2=invalid input, 4=not found, 6=validation)
+- 10-19: Hierarchy errors (11=depth exceeded, 12=sibling limit)
+- 20-29: Concurrency errors (20=checksum mismatch)
+- 30-39: Session errors (38=focus required)
+- 50-54: Context safeguard thresholds
+- 60-67: Orchestrator/protocol errors
+- 80-84: Lifecycle gate errors
+- 100+: Special non-error states (100=no data, 102=no change)
+
+## Task Statuses
+
+pending | active | blocked | done | cancelled
+
+## Task Priorities
+
+low | medium | high | critical
+
+## Task Types
+
+epic | task | subtask
+
+## Task Sizes
+
+small | medium | large
+
+## CLI Commands by Category
+
+### Task CRUD
+```
+cleo add <title> [-p priority] [--parent id] [--depends ids]
+cleo show <taskId>
+cleo list [--status s] [--parent id] [--phase p]
+cleo find [query] [--id n] [--exact] [--status s]
+cleo update <taskId> [--status s] [--notes note] [--add-labels l]
+cleo complete <taskId> [--notes note]
+cleo delete <taskId> [--force] [--cascade]
+```
+
+### Task Operations
+```
+cleo archive [--before date] [--tasks ids]
+cleo unarchive <taskId> [--status s] [--preserve-status]
+cleo reopen <taskId> [--status s] [--reason r]
+cleo uncancel <taskId> [--cascade] [--notes n]
+cleo promote <taskId>
+cleo reparent <taskId> --to <parentId>
+cleo reorder <taskId> --position N | --before id | --after id | --top | --bottom
+```
+
+### Session & Focus
+```
+cleo session start --scope epic:T### --name "name" --auto-focus
+cleo session end [--note "progress"]
+cleo session status
+cleo session list [--status active|ended]
+cleo session resume <sessionId>
+cleo focus show
+cleo focus set <taskId>
+cleo focus clear
+```
+
+### Analysis
+```
+cleo next [--explain] [-n count]
+cleo analyze [--auto-focus]
+cleo blockers [--analyze]
+cleo stats [-p period]
+cleo history [--days n] [--since date]
+cleo dash [-c] [--period days]
+```
+
+### Dependencies
+```
+cleo deps overview
+cleo deps show <taskId>
+cleo deps waves [epicId]
+cleo deps critical-path <taskId>
+cleo deps impact <taskId> [--depth n]
+cleo deps cycles
+cleo tree [rootId]
+```
+
+### Phases
+```
+cleo phase show [slug]
+cleo phase list
+cleo phase set <slug> [--rollback] [--force]
+cleo phase start <slug>
+cleo phase complete <slug>
+cleo phase advance [--force]
+```
+
+### Research
+```
+cleo research add -t <taskId> --topic <topic> [--findings f] [--sources s]
+cleo research show <id>
+cleo research list [-t taskId] [-s status]
+cleo research link <researchId> <taskId>
+cleo research pending
+cleo research manifest [-s status] [-a agentType] [-t taskId]
+```
+
+### Orchestration
+```
+cleo orchestrate start <epicId>
+cleo orchestrate analyze <epicId>
+cleo orchestrate ready <epicId>
+cleo orchestrate next <epicId>
+cleo orchestrate spawn <taskId>
+cleo orchestrate validate <taskId> [--file path]
+cleo orchestrate context <epicId>
+```
+
+### Lifecycle (RCSD)
+```
+cleo lifecycle show <epicId>
+cleo lifecycle start <epicId> <stage>
+cleo lifecycle complete <epicId> <stage> [--artifacts paths]
+cleo lifecycle skip <epicId> <stage> --reason "why"
+cleo lifecycle gate <epicId> <stage>
+```
+
+### Release
+```
+cleo release create <version> [--tasks ids] [--notes n]
+cleo release plan <version> [--tasks ids] [--remove ids]
+cleo release ship <version> [--bump-version] [--create-tag] [--push] [--dry-run]
+cleo release list
+cleo release show <version>
+cleo release changelog <version>
+```
+
+### System
+```
+cleo version
+cleo init [name] [--force] [--detect]
+cleo doctor
+cleo validate [--strict] [--fix]
+cleo config get <key>
+cleo config set <key> <value> [--global]
+cleo config list
+cleo context status
+cleo context check
+cleo log [--limit n] [--operation op] [--task id]
+cleo labels list | show <label> | stats
+cleo exists <taskId> [--include-archive]
+cleo roadmap [--include-history]
+```
+
+## MCP Tools
+
+CLEO provides two MCP tools for programmatic access:
+
+### cleo_query (read-only)
+
+Domains: tasks, session, system, orchestrate, research, lifecycle, validate, issues, skills
+
+Key operations:
+- tasks: show, list, find, exists, next, deps, tree, blockers, analyze, stats, history
+- session: status, list, focus-show, history, stats
+- system: version, doctor, dash, config, context, log, labels, roadmap
+- orchestrate: status, analyze, ready, next, context, waves
+- research: show, list, pending, stats, manifest.read
+- lifecycle: status, check, history, gates
+- validate: schema, protocol, task, manifest
+
+### cleo_mutate (writes)
+
+Domains: tasks, session, system, orchestrate, research, lifecycle, validate, release, issues, skills
+
+Key operations:
+- tasks: add, update, complete, delete, archive, unarchive, reopen, reparent, promote, reorder
+- session: start, end, resume, focus-set, focus-clear, gc
+- system: init, config.set, backup, restore, migrate, sync, safestop
+- orchestrate: startup, spawn, validate, skill.inject
+- research: inject, link, manifest.append, manifest.archive
+- lifecycle: progress, skip, reset, gate.pass
+- release: prepare, changelog, commit, tag, push
+
+## Common Workflow
+
+```bash
+# 1. Initialize
+cleo init "My Project"
+
+# 2. Start session
+cleo session start --scope global --auto-focus --name "Sprint 1"
+
+# 3. Create tasks
+cleo add "Build API" -p high --type epic
+cleo add "Auth endpoint" --parent T001 --depends T002
+
+# 4. Work loop
+cleo next --explain           # What to work on
+cleo focus set T003           # Set focus
+cleo complete T003            # Mark done
+
+# 5. End session
+cleo session end --note "Completed auth work"
+```
+
+## Agent Best Practices
+
+- Use `find` not `list` for discovery (99% less context)
+- Always check exit codes after every command
+- Start sessions before doing work
+- Set focus before starting a task
+- Escape `$` as `\$` in notes and descriptions
+- Use `--dry-run` to preview destructive operations
+- Check `session list` before creating new sessions
