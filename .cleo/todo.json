@@ -1061,21 +1061,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-15T03:12:08Z",
+  "lastUpdated": "2026-02-16T04:45:25Z",
   "_meta": {
-    "checksum": "e9a0e7a132a27150",
+    "checksum": "682521c3e619e846",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-15T03:05:22Z",
+    "lastModified": "2026-02-15T03:12:21Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3493
+    "generation": 3504
   },
   "focus": {
-    "currentTask": "T4529",
+    "currentTask": "T4530",
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -20729,17 +20729,32 @@
       "completedAt": "2026-02-15T03:12:08Z",
       "notes": [
         "[COMPLETED 2026-02-15T03:12:08Z] Ported 13 lib/tasks/ bash modules to TypeScript: hierarchy, crossref-extract, dependency-check, staleness, cancel-ops, deletion-strategy, delete-preview, graph-ops, graph-cache, graph-rag, size-weighting, phase-tracking, todowrite-integration. All compile clean."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:12:10Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4530",
       "title": "Port lib/data/ remaining modules to TypeScript",
-      "status": "pending",
+      "status": "active",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T03:04:58Z",
-      "updatedAt": "2026-02-15T03:04:58Z",
+      "updatedAt": "2026-02-15T03:12:21Z",
       "size": "medium",
       "position": 37,
       "positionVersion": 0,
@@ -20809,17 +20824,36 @@
     {
       "id": "T4535",
       "title": "Port analytics commands to TS",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T03:05:11Z",
-      "updatedAt": "2026-02-15T03:05:11Z",
+      "updatedAt": "2026-02-15T03:14:41Z",
       "size": "medium",
       "position": 42,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port stats, dash, compliance, otel, context commands from bash to TypeScript Commander.js"
+      "description": "Port stats, dash, compliance, otel, context commands from bash to TypeScript Commander.js",
+      "completedAt": "2026-02-15T03:14:41Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:14:41Z] Ported stats, dash, compliance, otel, context commands to TypeScript with core modules"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:14:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4536",
@@ -20839,47 +20873,285 @@
     {
       "id": "T4537",
       "title": "Port protocol commands to TS",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T03:05:13Z",
-      "updatedAt": "2026-02-15T03:05:13Z",
+      "updatedAt": "2026-02-15T03:14:45Z",
       "size": "medium",
       "position": 44,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port consensus, contribution, decomposition, implementation, specification commands from bash to TypeScript"
+      "description": "Port consensus, contribution, decomposition, implementation, specification commands from bash to TypeScript",
+      "completedAt": "2026-02-15T03:14:45Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:14:45Z] Ported consensus, contribution, decomposition, implementation, specification protocol commands to TypeScript"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:14:46Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4538",
       "title": "Port advanced feature commands to TS",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T03:05:16Z",
-      "updatedAt": "2026-02-15T03:05:16Z",
+      "updatedAt": "2026-02-15T03:14:50Z",
       "size": "medium",
       "position": 45,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port labels, relates, roadmap, history, log, sequence, analyze, phases commands from bash to TypeScript"
+      "description": "Port labels, relates, roadmap, history, log, sequence, analyze, phases commands from bash to TypeScript",
+      "completedAt": "2026-02-15T03:14:50Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:14:50Z] Ported labels, relates, roadmap, history, log, sequence, analyze, phases commands to TypeScript"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:14:51Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4539",
       "title": "Port infrastructure commands to TS",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
       "createdAt": "2026-02-15T03:05:18Z",
-      "updatedAt": "2026-02-15T03:05:18Z",
+      "updatedAt": "2026-02-15T03:14:54Z",
       "size": "medium",
       "position": 46,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Port inject, mcp-install commands from bash to TypeScript"
+      "description": "Port inject, mcp-install commands from bash to TypeScript",
+      "completedAt": "2026-02-15T03:14:54Z",
+      "notes": [
+        "[COMPLETED 2026-02-15T03:14:54Z] Ported inject and mcp-install commands to TypeScript with core modules"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-15T03:14:55Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4540",
+      "title": "EPIC: Portable Agent-to-Agent Communication & NEXUS Integration",
+      "status": "pending",
+      "priority": "medium",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-15T17:13:38Z",
+      "updatedAt": "2026-02-15T17:13:38Z",
+      "size": "medium",
+      "position": 886,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Design and implement CLEO's own A2A messaging protocol that is provider-agnostic (works across Claude Code, OpenCode, Codex, Gemini CLI). Key components: (1) A2A message protocol stored in .cleo/ for portability, replacing provider-specific teammate messages. (2) Orchestrator hierarchy: Main Orchestrator → Lead Agents → Subagents, all using CLEO tasks + A2A messages. (3) Move agent outputs from claudedocs/agent-outputs/ into .cleo/ structure for provenance and portability. (4) NEXUS system-level integration linking multiple project brains. (5) Memory graph where manifests and agent outputs form knowledge node edges. (6) BrainState as the grounding mechanism preventing hallucinations across agent swarms. Research needed: reverse-engineer Claude Code agent teams, study A2A protocol standards, evaluate how to make .cleo/ the universal portable brain that any AI coding tool can use."
+    },
+    {
+      "id": "T4541",
+      "title": "EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration",
+      "status": "pending",
+      "priority": "medium",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-16T03:50:40Z",
+      "updatedAt": "2026-02-16T03:50:40Z",
+      "size": "medium",
+      "position": 887,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Comprehensive audit of the entire CLEO system after V2 TypeScript migration. Key objectives: (1) AUDIT all 79 bash scripts and 106 lib files to verify every feature was converted and IMPROVED in TypeScript — not just ported but enhanced. (2) AUDIT all documentation — consolidate canonical docs, archive superseded ones, eliminate competing/legacy docs. Canonical hierarchy: vision.mdx → PORTABLE-BRAIN-SPEC → CANONICAL-PLAN-SPEC → supporting specs → superseded/archived. Review NEXUS-SPEC in archive for valuable concepts to preserve. (3) VALIDATE MCP-first architecture — MCP as sole entry point for agents, CLI as backbone. Research modern MCP+CLI patterns. (4) SANDBOX TESTING — full end-to-end stress tests with expected outcomes, real-world scenarios, greenfield and brownfield project simulations. (5) VISION ALIGNMENT — review and revise the overall vision, ensure CLEO works as the Portable Project Brain for ANY LLM agent. (6) DOC CONSOLIDATION — no competing docs, single source of truth per topic, docs support current state and path forward. (7) USE CLEO TO BUILD CLEO — treat CLEO as the brain/memory system it claims to be, validate it works as such. Must decompose into research, consensus, specification, and execution phases following RCSD protocol."
+    },
+    {
+      "id": "T4542",
+      "title": "RESEARCH: Bash-to-TS feature gap analysis",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:55:34Z",
+      "updatedAt": "2026-02-16T04:45:25Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "21 gaps identified in bash-to-TS conversion. Critical: NEXUS system (deferred to T4540). High: archive-stats, cross-project export/import, protocol validators, skills management. Medium: checkpoint, commands discovery, issue filing, project sync, changelog. Low: claude-migrate, docs, extract, safestop, web. Plus 21 lib gaps. Full audit in agent-outputs. Action: prioritize gaps, decide which to port vs deprecate vs defer.",
+      "completedAt": "2026-02-16T04:45:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T04:45:25Z] Research completed: 21 gaps identified across 76 scripts and 96 lib files. 75% overall conversion rate. Full gap matrix documented in agent-outputs."
+      ]
+    },
+    {
+      "id": "T4543",
+      "title": "RESEARCH: Documentation inventory and consolidation plan",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:55:35Z",
+      "updatedAt": "2026-02-16T03:55:35Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "1629 docs audited. Canonical hierarchy verified and healthy. Actions needed: (1) Move superseded specs to archive/ (PATH-FORWARD, MCP-GATEWAY). (2) Fix incomplete v2-api-reference.md. (3) Consolidate 8 migration guides across 4 directories into single entry point. (4) Create DOCUMENTATION-STRUCTURE.md for audience paths. (5) Create current-state.mdx. (6) Decide NEXUS spec fate (active/gated/deprecated). NEXUS key concepts preserved for T4540."
+    },
+    {
+      "id": "T4544",
+      "title": "RESEARCH: MCP-first architecture validation",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:55:36Z",
+      "updatedAt": "2026-02-16T03:55:36Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Industry has converged on shared-core-with-dual-interface pattern. Neither CLI wraps MCP nor MCP wraps CLI — both call src/core/ domain logic. CLEO already positioned for this. Key findings: (1) Shared core library pattern (Salesforce DX model). (2) Progressive tool disclosure reduces tokens 98.7%. (3) .cleo/ git-tracked state is industry standard. (4) MCP for agent-to-tool, A2A for agent-to-agent (Google protocol). (5) CLI serves as independent implementation + operational backbone + agent fallback. Full report at claudedocs/agent-outputs/RESEARCH-mcp-first-architecture-patterns.md"
+    },
+    {
+      "id": "T4545",
+      "title": "Port high-priority bash gaps to TypeScript",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:55:59Z",
+      "updatedAt": "2026-02-16T03:55:59Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port the high-priority feature gaps identified in T4542: (1) archive-stats — cycle time analysis, trend reporting, phase/label breakdown. (2) Cross-project export with subtree support, filtering, dependency inclusion. (3) Extend import.ts with full bash import feature set. (4) Protocol validators for CLI validation/testing. (5) Skills management CLI — discovery, validation, installation. These are features that existed in bash and are needed for feature parity.",
+      "depends": [
+        "T4542"
+      ]
+    },
+    {
+      "id": "T4546",
+      "title": "Consolidate and clean up documentation",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:56:01Z",
+      "updatedAt": "2026-02-16T03:56:01Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Execute documentation consolidation from T4543: (1) Move superseded specs to archive/specs/deprecated/. (2) Complete or archive v2-api-reference.md. (3) Create docs/guides/migration-overview.mdx as single migration entry point. (4) Create docs/DOCUMENTATION-STRUCTURE.md with audience paths. (5) Create docs/concepts/current-state.mdx. (6) Mark canonical docs with explicit headers. (7) Decide NEXUS spec fate and document decision in Canonical Plan.",
+      "depends": [
+        "T4543"
+      ]
+    },
+    {
+      "id": "T4547",
+      "title": "Validate shared-core architecture (MCP + CLI sibling pattern)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:56:02Z",
+      "updatedAt": "2026-02-16T03:56:02Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Based on T4544 research: verify and refactor if needed so both CLI and MCP server call into src/core/ as shared domain logic, neither wrapping the other. Audit current MCP engine functions — do they duplicate src/core/ logic or share it? Ensure the architecture matches the Salesforce DX pattern: shared core library, CLI as independent implementation, MCP as agent interface. Document the architecture decision.",
+      "depends": [
+        "T4544"
+      ]
+    },
+    {
+      "id": "T4548",
+      "title": "Full sandbox testing with expected outcomes",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:56:03Z",
+      "updatedAt": "2026-02-16T03:56:03Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "End-to-end stress testing of CLEO V2 TypeScript system: (1) Greenfield project simulation — init, add tasks, sessions, phases, complete lifecycle. (2) Brownfield project simulation — import existing tasks, migrate, validate. (3) Multi-session concurrent access stress test. (4) Brain operations validation — bootstrap all tiers, coherence check, critical path, unblock opportunities. (5) MCP server integration — all 11 domains respond correctly. (6) SQLite store layer — migration, CRUD, graph queries. (7) Error handling — all exit codes produce correct error.fix suggestions. Define expected outcomes for each test scenario."
+    },
+    {
+      "id": "T4549",
+      "title": "Deprecation plan for legacy bash system",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T03:56:04Z",
+      "updatedAt": "2026-02-16T03:56:04Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Based on audit results, create formal deprecation plan for the 279 bash files: (1) Which scripts can be safely deleted (TS equivalent verified). (2) Which scripts must be kept temporarily (no TS equivalent yet). (3) Which lib functions are still called by anything. (4) Timeline for removing bash wrapper. (5) BATS test migration plan — which BATS tests have Vitest equivalents, which need porting. (6) Update CLAUDE.md and AGENT-INJECTION.md to remove bash references.",
+      "depends": [
+        "T4542"
+      ]
+    },
+    {
+      "id": "T4550",
+      "title": "Reconcile Wave 1-5 implementation work with CLEO task system",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T04:25:13Z",
+      "updatedAt": "2026-02-16T04:25:13Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "This session implemented Waves 1-5 of the Brain Architecture plan (SQLite store layer, 25 native engine ports, 8 brain operations, bootstrap/unblock/critical-path, MVI injection, production packaging to 2026.2.0, 31 integration tests) but used Claude Code's internal TeamCreate/TaskCreate instead of CLEO tasks. The work exists in code but has NO CLEO task provenance. Need to: (1) Map completed work to T4454 children and mark appropriate tasks done. (2) Create CLEO tasks for new work that had no pre-existing task (brain ops, bootstrap, MVI). (3) Update T4454 epic status. (4) Add manifest entries for agent outputs. (5) This is proof that CLEO must be easier for agents to use — if our own build process bypasses CLEO, other agents will too."
     }
   ],
   "labels": {}
