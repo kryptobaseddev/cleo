@@ -1,9 +1,9 @@
 ---
 title: "CLEO Portable Brain Specification"
-version: "1.0.0"
+version: "1.1.0"
 status: "stable"
 created: "2026-02-09"
-updated: "2026-02-09"
+updated: "2026-02-16"
 authors: ["CLEO Development Team"]
 ---
 
@@ -98,13 +98,23 @@ CLEO MUST treat research manifests and agent outputs as first-class memory artif
 
 ### 7.1 CLI
 
-The Bash CLI is the authoritative runtime baseline and MUST remain fully supported while migration work is validated.
+The CLI is transitioning from Bash to TypeScript. The TypeScript CLI (`src/cli/`) is 100% compliant with the shared-core architecture pattern, delegating all business logic to `src/core/` modules (validated 2026-02-16, T4565). During transition, the Bash CLI remains the authoritative runtime baseline.
 
 ### 7.2 MCP
 
-MCP is the strategic interface for provider-neutral integration. MCP implementations MUST preserve CLI semantics, invariants, and exit-code intent.
+MCP is the strategic interface for provider-neutral integration. The MCP server (v0.91.0) operates with a native TypeScript engine (`mcp-server/src/engine/`) that currently runs as a parallel implementation separate from the shared `src/core/` layer. This parallel engine was an intentional pragmatic decision to enable cross-platform MCP operation without Bash CLI dependency.
 
-### 7.3 Adapters
+**Architecture finding (2026-02-16)**: The MCP engine duplicates task CRUD (8 ops) and session management (4 ops) independently from `src/core/`. Unification of `mcp-server/src/engine/` with `src/core/` is a tracked remediation priority. See `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md`.
+
+MCP implementations MUST preserve CLI semantics, invariants, and exit-code intent.
+
+### 7.3 Shared-Core Architecture (Salesforce DX Pattern)
+
+Both CLI and MCP interfaces SHOULD delegate to a shared core (`src/core/`). Current compliance:
+- **CLI**: 100% compliant (all 16 registered commands route through `src/core/`)
+- **MCP**: 0% compliant (routes through parallel `mcp-server/src/engine/`; unification pending)
+
+### 7.4 Adapters
 
 Provider/tool adapters MAY optimize UX but MUST NOT fork core memory semantics.
 
@@ -144,6 +154,9 @@ Documentation and implementation MUST use the same canonical terms for:
 
 - `docs/concepts/vision.mdx`
 - `README.md`
+- `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md` (canonical strategy and decisions)
 - `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md`
 - `docs/specs/MCP-SERVER-SPECIFICATION.md`
+- `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit)
+- `claudedocs/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)

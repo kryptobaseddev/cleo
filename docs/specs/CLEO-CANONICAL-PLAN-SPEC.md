@@ -1,9 +1,9 @@
 ---
 title: "CLEO Canonical Plan and Decision Spec"
-version: "1.1.0"
+version: "1.2.0"
 status: "stable"
 created: "2026-02-13"
-updated: "2026-02-13"
+updated: "2026-02-16"
 epic: "T4454"
 authors: ["CLEO Development Team"]
 supersedes:
@@ -12,9 +12,9 @@ supersedes:
 
 # CLEO Canonical Plan and Decision Spec
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Status**: STABLE
-**Date**: 2026-02-13
+**Date**: 2026-02-16
 **Authority**: This is the single canonical planning and decision document for CLEO going forward. It unifies strategy, architecture decisions, migration doctrine, and execution epics while preserving source context through traceability.
 
 ---
@@ -42,25 +42,63 @@ This document does not redefine product identity. It defines one unified executi
 
 ## 2. Current Reality Baseline (Code-Verified)
 
-### 2.1 Engine and Operations
+> **Last verified**: 2026-02-16 via architecture validation (T4565/T4566), documentation audit (T4557), and bash deprecation analysis (T4567). Evidence: `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md`, `claudedocs/agent-outputs/T4557-documentation-audit-report.md`.
+
+### 2.1 TypeScript Migration Status (~75% Complete)
+
+The Bash-to-TypeScript migration is substantially progressed:
+
+| Component | Status | Evidence |
+|-----------|--------|----------|
+| **SQLite store layer** | Complete (6 tables) | `src/store/sqlite.ts`, `src/store/schema.ts` |
+| **Task engine** | Complete (13 operations) | `src/core/tasks/` -- add, show, list, find, complete, update, delete, archive, deps, analyze, labels, hierarchy, relates |
+| **Session engine** | Complete (5 operations) | `src/core/sessions/` -- start, end, resume, status, list |
+| **System engine** | Complete (7 operations) | `mcp-server/src/engine/system-engine.ts` |
+| **8 brain operations** | Complete | MCP native engine operational |
+| **CLI commands** | 76 exist, 50 unregistered | `src/cli/commands/` -- registration in `src/cli/index.ts` pending |
+| **All 79 Bash scripts** | TS equivalents exist | T4567 confirmed full porting |
+| **All 106 Bash libs** | TS equivalents exist | T4567 confirmed full porting |
+
+### 2.2 Architecture: Shared-Core Sibling Pattern
+
+The V2 architecture follows a "Salesforce DX sibling" pattern with two interface layers:
+
+```
+src/cli/commands/*.ts  -->  src/core/*  -->  src/store/*   (CLI path: 100% compliant)
+                                ^
+mcp-server/src/domains/ -->  mcp-server/src/engine/*        (MCP path: parallel engine)
+```
+
+**CLI layer**: 100% shared-core compliant. All 16 registered commands properly delegate to `src/core/` modules (T4565 verified).
+
+**MCP server layer**: Operates via independent engine at `mcp-server/src/engine/`. This creates duplicate implementations for task CRUD (8 ops), session management (4 ops), and separate data access layers. The engine was intentionally created to allow MCP to function without the Bash CLI, but future unification with `src/core/` is needed (see Remediation in T4565/T4566 report).
+
+### 2.3 Engine and Operations
 
 - Capability matrix currently defines **135 routed operations**.
 - Mode split: **29 native**, **105 CLI**, **1 hybrid**.
 - Native-capable operations today: **30 total** (29 native + 1 hybrid).
 
-### 2.2 Platform and Dependencies
+### 2.4 Platform and Dependencies
 
 - MCP server requires **Node >=20**.
 - `@cleocode/caamp` is installed and integrated.
 - `@cleocode/lafs-protocol` is installed and available for conformance integration.
 - `@cleocode/ct-skills` is installed and actively used in skills-domain operations.
 
-### 2.3 Domain Surface
+### 2.5 Domain Surface
 
 - Gateway matrices currently expose **9 query domains** and **10 mutate domains** (union: 10 domains, including `skills` and `issues`) with **63 query** and **60 mutate** operations.
 - CAAMP provider/MCP/injection handling exists in system-domain code paths and remains part of canonical integration direction.
 
-### 2.4 Scale Tier Vocabulary
+### 2.6 Documentation Landscape
+
+- **1,778 documentation files** total (1,527 `.md` + 263 `.mdx`) -- T4557 audit
+- ~310 canonical, ~210 supporting, ~330 superseded, ~915 agent outputs
+- 81 `.mdx` command docs describe Bash CLI (will need TS updates)
+- Dual `.md`/`.mdx` format exists in several areas
+
+### 2.7 Scale Tier Vocabulary
 
 | Tier | Projects | Agents | Storage | Target Phase |
 |------|----------|--------|---------|-------------|
@@ -77,7 +115,7 @@ Current state: Tier S (fully mature). Target: S to M foundation (Phase 0-1), M t
 
 | Decision | Canonical Status | Canonical Interpretation |
 |----------|------------------|--------------------------|
-| D1: TypeScript Port | **FULL GO** | Execute via parallel CLI + MCP tracks; converge on shared TypeScript core |
+| D1: TypeScript Port | **FULL GO (~75% COMPLETE)** | CLI and MCP tracks operational in parallel; CLI 100% shared-core compliant; MCP has parallel engine pending unification; all 79 Bash scripts and 106 libs have TS equivalents; 50 of 76 CLI commands await registration |
 | D2: JSON/JSONL Storage | **UNCHANGED** | JSON/JSONL remains system of record; optimize algorithms, not storage engine |
 | D3: Manifest Validation | **UNCHANGED** | Four-gate model remains mandatory; Ajv schema gate preserved |
 | D4: Technical Debt Tracking | **UNCHANGED** | JSONL debt ledger strategy remains valid |
@@ -159,11 +197,12 @@ The Strategic Roadmap (Section 3.2.3) defined a decision gate requiring explicit
 
 ## 6. Main Epics and Execution Map
 
-| Epic/Task | Canonical Role | Status Snapshot |
-|----------|----------------|-----------------|
+| Epic/Task | Canonical Role | Status Snapshot (2026-02-16) |
+|----------|----------------|-------------------------------|
 | T4454 | V2 master epic (parallel tracks, LAFS-native) | Active |
-| T4455-T4472 | CLI track phases 1-4 | Pending/active by phase |
-| T4474-T4478 | MCP native expansion track | Pending (parallel) |
+| T4540 | Wave 2 audit/cleanup epic | Active -- doc audit (T4557) complete, arch validation (T4565/T4566) complete, bash deprecation plan (T4567) complete, canonical doc updates (T4558) in progress |
+| T4455-T4472 | CLI track phases 1-4 | Pending/active by phase; 50 unregistered commands identified |
+| T4474-T4478 | MCP native expansion track | Pending (parallel); MCP engine operational with parallel engine gap identified |
 | T4334 | MCP native engine foundation | P0-P2 done; P3-P4 pending |
 | T4338 | Golden parity + CI gate | Pending |
 | T4339 | Feature-flag rollout to GA | Pending |
@@ -220,6 +259,9 @@ These are now supporting references under this canonical layer.
 | Parallel-tracks migration authority and convergence criteria | `docs/specs/CLEO-MIGRATION-DOCTRINE.md` |
 | LAFS-native architecture design and conformance rules | `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` |
 | Code-verified operation counts and engine status | `mcp-server/src/engine/capability-matrix.ts`, `mcp-server/src/gateways/query.ts`, `mcp-server/src/gateways/mutate.ts`, `mcp-server/package.json` |
+| Shared-core compliance audit (CLI 100%, MCP 0%) | `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` |
+| Documentation inventory (1,778 files) | `claudedocs/agent-outputs/T4557-documentation-audit-report.md` |
+| Bash deprecation status (all 79+106 ported to TS) | T4567 bash deprecation analysis |
 
 ---
 
@@ -234,4 +276,5 @@ These are now supporting references under this canonical layer.
 
 **Document Status**: STABLE
 **Canonical Use**: Single source of truth for CLEO strategic direction, architecture decision state, migration approach, and epic alignment.
+**Last Updated**: 2026-02-16 (T4558 -- Wave 2.1 canonical doc refresh incorporating T4557 doc audit, T4565/T4566 architecture validation, T4567 bash deprecation analysis)
 **Next Review**: After T4454 Phase 1 completion or any new architectural decision.

@@ -1,9 +1,9 @@
 ---
 title: "CLEO Strategic Roadmap"
-version: "1.2.0"
+version: "1.3.0"
 status: "stable"
 created: "2026-02-03"
-updated: "2026-02-13"
+updated: "2026-02-16"
 epic: "T2968"
 authors: ["Claude Opus 4.5", "CLEO Development Team"]
 ---
@@ -21,7 +21,7 @@ authors: ["Claude Opus 4.5", "CLEO Development Team"]
 
 ---
 
-## Canonical Consolidation Notice (2026-02-13)
+## Canonical Consolidation Notice (2026-02-13, updated 2026-02-16)
 
 This roadmap remains the detailed phase and evidence-gate reference, but canonical strategy and decision authority now live in:
 
@@ -30,6 +30,19 @@ This roadmap remains the detailed phase and evidence-gate reference, but canonic
 If wording in this roadmap differs from newer migration/architecture language, follow the canonical plan document. Historical context in this roadmap is intentionally preserved.
 
 Reconciliation rule: the strategic branch logic in this roadmap (for example, simplification fallback and TypeScript expansion gating) is historical context after 2026-02-13. Active execution authority is the canonical parallel-tracks plan.
+
+## Wave 2 Audit/Cleanup Progress (2026-02-16)
+
+Wave 2 (T4540 epic) has completed audit and validation tasks that provide gate evidence for Phase 0-1 progression:
+
+| Wave 2 Task | Status | Key Finding |
+|-------------|--------|-------------|
+| T4557 -- Documentation Audit | Complete | 1,778 doc files inventoried; 310 canonical, 915 agent outputs, 330 superseded |
+| T4565/T4566 -- Architecture Validation | Complete | CLI 100% shared-core compliant; MCP 0% (parallel engine); overall ~17% compliance |
+| T4567 -- Bash Deprecation Plan | Complete | All 79 scripts + 106 libs have TS equivalents; 50 of 76 CLI commands unregistered |
+| T4558 -- Canonical Doc Update | Complete | This update |
+
+**Gate evidence**: These findings establish that Phase 0 (Foundation) TypeScript work is ~75% complete. The remaining gaps are: (1) register 50 CLI commands, (2) unify MCP engine with `src/core/`, and (3) update 81 `.mdx` command docs for TS CLI. See `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` and `claudedocs/agent-outputs/T4557-documentation-audit-report.md` for full evidence.
 
 ## 1. Executive Summary
 
@@ -95,13 +108,15 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 - Nexus premature complexity (5 files, zero usage data)
 - 22% protocol enforcement (orphaned code)
 
-### 2.2 Unvalidated Assets
+### 2.2 Validated and Unvalidated Assets (Updated 2026-02-16)
 
-| Asset | Status | Evidence Gap |
-|-------|--------|--------------|
-| **Nexus** | Shipped v0.80.0 (8 days ago) | Zero real-world multi-project usage |
+| Asset | Status | Evidence |
+|-------|--------|----------|
+| **TypeScript CLI** | ~75% ported; 76 commands exist, 50 unregistered | T4567 bash deprecation analysis (2026-02-16) |
+| **Shared-Core Architecture** | CLI 100% compliant; MCP 0% (parallel engine) | T4565/T4566 architecture validation (2026-02-16) |
 | **MCP Server** | v0.91.0 shipped (native TypeScript engine, 29 ops) | Adoption metrics pending (Phase 1 validation) |
-| **TypeScript Rewrite** | MCP-first strategy validated (T4334) | Hotspot migration scope TBD pending adoption data |
+| **SQLite Store** | Complete (6 tables) | `src/store/sqlite.ts` operational |
+| **Nexus** | Shipped v0.80.0 | Zero real-world multi-project usage |
 
 ---
 
@@ -162,7 +177,7 @@ The following cleanup **MUST** occur:
 
 #### 3.1.3 MCP Server Implementation (Epic 2)
 
-##### Status Update (2026-02-11)
+##### Status Update (2026-02-16)
 
 T4334 (MCP Server Native TypeScript Engine) completed and shipped as v0.91.0. Key outcomes:
 
@@ -170,6 +185,8 @@ T4334 (MCP Server Native TypeScript Engine) completed and shipped as v0.91.0. Ke
 - **29 native operations**: Core CLEO operations (task CRUD, sessions, orchestration, research, lifecycle, validation, release, system) run natively in TypeScript
 - **Cross-platform standalone mode**: The MCP server can operate independently on any platform with Node.js, removing the Bash/jq dependency for MCP consumers
 - **MCP-first migration validated**: This delivery validates the incremental "MCP-first then hotspots" migration strategy as canonical doctrine. The MCP server provides the foundation for further TypeScript expansion, independent of the T2112 Bash stabilization gate
+
+**Architecture validation finding (2026-02-16, T4565/T4566)**: The MCP engine at `mcp-server/src/engine/` operates as a **parallel implementation** separate from the `src/core/` shared-core layer. Task operations (8 ops), session operations (4 ops), and data access layers are independently implemented. The CLI layer is 100% compliant with shared-core, but MCP domains route to `mcp-server/src/engine/` instead of `src/core/`. Unification of these layers is a priority remediation item. See `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` for the full audit.
 
 **Architecture** (TypeScript + FastMCP)
 
@@ -1254,8 +1271,15 @@ BRAIN Certification
 ---
 
 **Specification Status**: STABLE
-**Last Updated**: 2026-02-13
-**Version**: 1.2.0
+**Last Updated**: 2026-02-16
+**Version**: 1.3.0
+
+**Changes from v1.2.0** (2026-02-16, T4558):
+1. Added Wave 2 audit/cleanup progress section with gate evidence from T4557, T4565/T4566, T4567
+2. Updated Unvalidated Assets table to reflect architecture validation and bash deprecation findings
+3. Added architecture validation finding to MCP Server status (parallel engine discovery)
+4. Incorporated documentation audit inventory (1,778 files) as supporting evidence
+
 **Reconciliation Update (2026-02-13)**:
 1. Added canonical consolidation notice and conflict-resolution pointer to `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`
 2. Clarified that strategic branch fallback language is preserved as historical context after parallel-tracks activation
