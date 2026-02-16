@@ -464,14 +464,14 @@ export function validateReleaseProtocol(
   const violations: ProtocolViolation[] = [];
   let score = 100;
 
-  // REL-001: MUST have valid semver
+  // REL-001: MUST have valid version format (X.Y.Z or YYYY.M.patch)
   if (options.version) {
     if (!/^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$/.test(options.version)) {
       violations.push({
         requirement: 'REL-001',
         severity: 'error',
-        message: `Invalid semver: ${options.version}`,
-        fix: 'Use valid semver format: MAJOR.MINOR.PATCH',
+        message: `Invalid version format: ${options.version}`,
+        fix: 'Use valid version format: X.Y.Z or YYYY.M.patch (CalVer)',
       });
       score -= 30;
     }

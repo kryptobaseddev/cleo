@@ -9,6 +9,8 @@ export {
   validateTitle,
   validateStatus,
   validatePriority,
+  normalizePriority,
+  VALID_PRIORITIES,
   validateTaskType,
   validateSize,
   validateLabels,

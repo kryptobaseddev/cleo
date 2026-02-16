@@ -67,17 +67,69 @@ export function validateStatus(status: string): asserts status is TaskStatus {
 }
 
 /**
+ * Mapping from numeric priority (1-9) to string priority names.
+ * 1-2 = critical, 3-4 = high, 5-6 = medium, 7-9 = low.
+ * @task T4572
+ */
+const NUMERIC_PRIORITY_MAP: Record<number, TaskPriority> = {
+  1: 'critical',
+  2: 'critical',
+  3: 'high',
+  4: 'high',
+  5: 'medium',
+  6: 'medium',
+  7: 'low',
+  8: 'low',
+  9: 'low',
+};
+
+/** Valid string priority values. */
+export const VALID_PRIORITIES: readonly TaskPriority[] = ['critical', 'high', 'medium', 'low'] as const;
+
+/**
+ * Normalize priority to canonical string format.
+ * Accepts both string names ("critical","high","medium","low") and numeric (1-9).
+ * Returns the canonical string format per todo.schema.json.
+ * @task T4572
+ */
+export function normalizePriority(priority: string | number): TaskPriority {
+  // Handle numeric input
+  if (typeof priority === 'number') {
+    const mapped = NUMERIC_PRIORITY_MAP[priority];
+    if (!mapped) {
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Invalid numeric priority: ${priority} (must be 1-9)`,
+      );
+    }
+    return mapped;
+  }
+
+  // Handle string input - check for numeric string first
+  const asNumber = Number(priority);
+  if (!Number.isNaN(asNumber) && Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= 9) {
+    return NUMERIC_PRIORITY_MAP[asNumber]!;
+  }
+
+  // Canonical string validation
+  const lower = priority.toLowerCase().trim();
+  if (VALID_PRIORITIES.includes(lower as TaskPriority)) {
+    return lower as TaskPriority;
+  }
+
+  throw new CleoError(
+    ExitCode.VALIDATION_ERROR,
+    `Invalid priority: ${priority} (must be ${VALID_PRIORITIES.join('|')} or numeric 1-9)`,
+  );
+}
+
+/**
  * Validate task priority.
  * @task T4460
+ * @task T4572
  */
 export function validatePriority(priority: string): asserts priority is TaskPriority {
-  const valid: TaskPriority[] = ['critical', 'high', 'medium', 'low'];
-  if (!valid.includes(priority as TaskPriority)) {
-    throw new CleoError(
-      ExitCode.VALIDATION_ERROR,
-      `Invalid priority: ${priority} (must be ${valid.join('|')})`,
-    );
-  }
+  normalizePriority(priority);
 }
 
 /**
@@ -362,14 +414,14 @@ export async function addTask(options: AddTaskOptions, cwd?: string): Promise<Ad
 
   // Resolve defaults
   const status = options.status ?? 'pending';
-  const priority = options.priority ?? 'medium';
+  const priority = normalizePriority(options.priority ?? 'medium');
   const size = options.size ?? 'medium';
   let taskType = options.type;
   const parentId = options.parentId ?? null;
 
   // Validate inputs
   validateStatus(status);
-  validatePriority(priority);
+  // priority is already normalized above
   validateSize(size);
   if (options.labels?.length) validateLabels(options.labels);
   if (options.depends?.length) validateDepends(options.depends, data.tasks);

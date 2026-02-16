@@ -79,11 +79,14 @@ function writeReleases(index: ReleasesIndex, projectRoot?: string): void {
 }
 
 /**
- * Validate semver format
+ * Validate version format (X.Y.Z or CalVer YYYY.M.patch, with optional pre-release/build).
  */
-function isValidSemver(version: string): boolean {
+function isValidVersion(version: string): boolean {
   return /^v?\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/.test(version);
 }
+
+/** @deprecated Use isValidVersion instead. */
+const isValidSemver = isValidVersion;
 
 /**
  * Normalize version (ensure v prefix)
@@ -116,10 +119,10 @@ export function releasePrepare(
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'version is required' } };
   }
 
-  if (!isValidSemver(version)) {
+  if (!isValidVersion(version)) {
     return {
       success: false,
-      error: { code: 'E_INVALID_VERSION', message: `Invalid semver: ${version}` },
+      error: { code: 'E_INVALID_VERSION', message: `Invalid version format: ${version} (expected X.Y.Z or YYYY.M.patch)` },
     };
   }
 
@@ -469,11 +472,11 @@ export function releaseGatesRun(
 
   const gates: Array<{ name: string; status: 'passed' | 'failed'; message: string }> = [];
 
-  // Gate 1: Version is valid semver
+  // Gate 1: Version is valid format (X.Y.Z or CalVer)
   gates.push({
-    name: 'semver_valid',
-    status: isValidSemver(normalizedVersion) ? 'passed' : 'failed',
-    message: isValidSemver(normalizedVersion) ? 'Version is valid semver' : 'Invalid semver format',
+    name: 'version_valid',
+    status: isValidVersion(normalizedVersion) ? 'passed' : 'failed',
+    message: isValidVersion(normalizedVersion) ? 'Version format is valid' : 'Invalid version format',
   });
 
   // Gate 2: Has tasks

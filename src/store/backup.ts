@@ -5,7 +5,7 @@
  * @task T4457
  */
 
-import { copyFile, readdir, unlink, stat, mkdir } from 'node:fs/promises';
+import { copyFile, rename as fsRename, readdir, unlink, stat, mkdir } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { CleoError } from '../core/errors.js';
 import { ExitCode } from '../types/exit-codes.js';
@@ -50,8 +50,7 @@ export async function createBackup(
         const next = join(backupDir, `${fileName}.${i + 1}`);
         try {
           await stat(current);
-          const { copyFile: cp } = await import('node:fs/promises');
-          await cp(current, next);
+          await fsRename(current, next);
         } catch {
           // File may not exist
         }

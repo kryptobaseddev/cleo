@@ -50,14 +50,15 @@ async function writeTodo() {
   await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile()));
 }
 
-describe('validateSemver', () => {
-  it('accepts valid semver', () => {
+describe('validateSemver (validateVersion)', () => {
+  it('accepts valid version formats', () => {
     expect(() => validateSemver('1.0.0')).not.toThrow();
     expect(() => validateSemver('v2.3.4')).not.toThrow();
     expect(() => validateSemver('1.0.0-alpha.1')).not.toThrow();
+    expect(() => validateSemver('2026.2.0')).not.toThrow();
   });
 
-  it('rejects invalid semver', () => {
+  it('rejects invalid version formats', () => {
     expect(() => validateSemver('abc')).toThrow();
     expect(() => validateSemver('1.0')).toThrow();
   });

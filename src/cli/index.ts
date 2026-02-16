@@ -5,6 +5,8 @@
  */
 
 import { Command } from 'commander';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { registerAddCommand } from './commands/add.js';
 import { registerListCommand } from './commands/list.js';
 import { registerShowCommand } from './commands/show.js';
@@ -22,13 +24,28 @@ import { registerOrchestrateCommand } from './commands/orchestrate.js';
 import { registerLifecycleCommand } from './commands/lifecycle.js';
 import { registerReleaseCommand } from './commands/release.js';
 import { registerMigrateCommand } from './commands/migrate.js';
+import { registerEnvCommand } from './commands/env.js';
+import { registerMcpInstallCommand } from './commands/mcp-install.js';
 
+/** Read version from package.json (single source of truth). */
+function getPackageVersion(): string {
+  try {
+    // Resolve from module location: dist/cli/index.js -> project root
+    const moduleRoot = join(import.meta.dirname ?? '', '..', '..');
+    const pkg = JSON.parse(readFileSync(join(moduleRoot, 'package.json'), 'utf-8'));
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const CLI_VERSION = getPackageVersion();
 const program = new Command();
 
 program
   .name('cleo')
   .description('CLEO V2 - Task management for AI coding agents')
-  .version('2.0.0-alpha.0');
+  .version(CLI_VERSION);
 
 program
   .command('version')
@@ -36,7 +53,7 @@ program
   .action(() => {
     console.log(JSON.stringify({
       success: true,
-      data: { version: '2.0.0-alpha.0' },
+      data: { version: CLI_VERSION },
     }));
   });
 
@@ -75,5 +92,11 @@ registerReleaseCommand(program);
 
 // T4468: Migration commands
 registerMigrateCommand(program);
+
+// T4581: Environment command
+registerEnvCommand(program);
+
+// T4584: MCP install command
+registerMcpInstallCommand(program);
 
 program.parse();

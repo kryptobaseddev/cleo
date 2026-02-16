@@ -33,39 +33,34 @@
 set -euo pipefail
 
 # ============================================
-# EARLY BASH VERSION CHECK
+# EARLY NODE.JS CHECK
 # ============================================
-# Try to find and use Bash 4+ on macOS if current bash is too old
-if [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
-    # Check if we haven't already tried to re-exec (prevent infinite loop)
-    if [[ -z "${_CLEO_REEXEC:-}" ]]; then
-        # Look for Bash 4+ in common locations (Homebrew paths)
-        BASH4_PATHS=(
-            "/opt/homebrew/bin/bash"  # macOS Apple Silicon
-            "/usr/local/bin/bash"     # macOS Intel / Linux Homebrew
-            "/home/linuxbrew/.linuxbrew/bin/bash"  # Linux Homebrew
-        )
+# CLEO is a TypeScript/Node.js package. Node.js >= 20 is required.
+if ! command -v node >/dev/null 2>&1; then
+    echo "ERROR: Node.js is required but not found." >&2
+    echo "" >&2
+    echo "Install Node.js >= 20:" >&2
+    echo "  nvm:      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && nvm install 20" >&2
+    echo "  Homebrew:  brew install node@20" >&2
+    echo "  Official:  https://nodejs.org/" >&2
+    exit 1
+fi
 
-        for bash_path in "${BASH4_PATHS[@]}"; do
-            if [[ -x "$bash_path" ]]; then
-                # Check version of this bash
-                bash_ver=$("$bash_path" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)
-                if [[ "$bash_ver" -ge 4 ]]; then
-                    echo "Found Bash $bash_ver at $bash_path, re-executing installer..." >&2
-                    export _CLEO_REEXEC=1
-                    exec "$bash_path" "$0" "$@"
-                fi
-            fi
-        done
+NODE_MAJOR=$(node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)
+if [[ "${NODE_MAJOR:-0}" -lt 20 ]]; then
+    echo "ERROR: Node.js v$(node -v) is too old. CLEO requires Node.js >= 20." >&2
+    echo "" >&2
+    echo "Update Node.js:" >&2
+    echo "  nvm:      nvm install 20 && nvm use 20" >&2
+    echo "  Homebrew:  brew install node@20" >&2
+    echo "  Official:  https://nodejs.org/" >&2
+    exit 1
+fi
 
-        # No Bash 4+ found, warn and continue
-        echo "WARNING: CLEO requires Bash 4.0+ to run commands." >&2
-        echo "Your version: ${BASH_VERSION:-unknown}" >&2
-        echo "" >&2
-        echo "Installation will proceed, but you'll need Bash 4+ to use CLEO." >&2
-        echo "On macOS: brew install bash" >&2
-        echo "" >&2
-    fi
+if ! command -v npm >/dev/null 2>&1; then
+    echo "ERROR: npm is required but not found." >&2
+    echo "npm is normally included with Node.js. Reinstall Node.js." >&2
+    exit 1
 fi
 
 # ============================================
@@ -368,47 +363,86 @@ do_state_install() {
     local data_backup_dir=""
     data_backup_dir=$(installer_source_preserve_data_files "$INSTALL_DIR")
 
-    # Dev mode with symlinks: install directly to INSTALL_DIR (no staging)
-    if [[ "$mode" == "dev" && "$OPT_NO_SYMLINKS" != "true" ]]; then
-        installer_log_info "Installing in dev mode with symlinks..."
+    # Dev mode: build TypeScript and create symlinks
+    if [[ "$mode" == "dev" ]]; then
+        installer_log_info "Installing in dev mode (TypeScript build + symlinks)..."
+
+        local repo_dir
+        repo_dir="$(dirname "$INSTALLER_DIR")"
 
         # Ensure install directory exists
         mkdir -p "$INSTALL_DIR"
 
-        # Fetch with symlinks directly to install dir
-        installer_source_fetch_local "$INSTALL_DIR" "true" || return $EXIT_STAGING_FAILED
+        # Install npm dependencies if needed
+        if [[ ! -d "$repo_dir/node_modules" ]]; then
+            installer_log_info "Installing npm dependencies..."
+            (cd "$repo_dir" && npm install) || return $EXIT_STAGING_FAILED
+        fi
+
+        # Build TypeScript
+        installer_log_info "Building TypeScript..."
+        (cd "$repo_dir" && npm run build) || return $EXIT_STAGING_FAILED
+
+        # Verify build output
+        if [[ ! -f "$repo_dir/dist/cli/index.js" ]] || [[ ! -f "$repo_dir/dist/mcp/index.js" ]]; then
+            installer_log_error "Build failed: dist/ output not found"
+            return $EXIT_STAGING_FAILED
+        fi
+
+        # Create bin directory and symlinks to built output
+        mkdir -p "$INSTALL_DIR/bin"
+        ln -sf "$repo_dir/dist/cli/index.js" "$INSTALL_DIR/bin/cleo"
+        ln -sf "$repo_dir/dist/mcp/index.js" "$INSTALL_DIR/bin/cleo-mcp"
+        chmod +x "$INSTALL_DIR/bin/cleo" "$INSTALL_DIR/bin/cleo-mcp"
+
+        # Symlink supporting directories
+        for dir in schemas templates skills; do
+            if [[ -d "$repo_dir/$dir" ]]; then
+                ln -sfn "$repo_dir/$dir" "$INSTALL_DIR/$dir"
+            fi
+        done
+
+        # Write VERSION
+        local version
+        version=$(node -e "import('$repo_dir/package.json', { with: { type: 'json' } }).then(m => console.log(m.default.version))" 2>/dev/null || \
+                  node -e "console.log(require('$repo_dir/package.json').version)" 2>/dev/null || \
+                  echo "unknown")
+        cat > "$INSTALL_DIR/VERSION" << VEOF
+${version}
+mode=dev-ts
+source=${repo_dir}
+installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+VEOF
 
         # Restore preserved data files
         [[ -n "$data_backup_dir" ]] && installer_source_restore_data_files "$INSTALL_DIR" "$data_backup_dir"
 
-        installer_log_info "Dev mode installation complete (symlinks)"
+        installer_log_info "Dev mode installation complete (TypeScript build + symlinks)"
         return 0
     fi
 
-    # Standard installation: stage to temp, then swap
-    local temp_dir
-    temp_dir=$(installer_get_temp_dir)
+    # Release mode: install via npm
+    installer_log_info "Installing via npm..."
 
-    # Fetch source files (copy mode for dev, or remote for release)
-    if [[ "$mode" == "dev" ]]; then
-        # Dev mode with --no-symlinks: copy files
-        installer_source_fetch_local "$temp_dir" "false" || return $EXIT_STAGING_FAILED
-    else
-        # Release mode: fetch from remote (or fallback to local)
-        installer_source_fetch "latest" "$temp_dir" || return $EXIT_STAGING_FAILED
+    local npm_package="@cleocode/cleo"
+    local npm_cmd="npm install -g ${npm_package}"
+
+    if [[ -n "${OPT_CLEO_VERSION:-}" ]]; then
+        npm_cmd="npm install -g ${npm_package}@${OPT_CLEO_VERSION}"
     fi
 
-    # Verify staging
-    installer_source_verify_staging "$temp_dir" || return $EXIT_VALIDATION_FAILED
+    installer_log_info "Running: $npm_cmd"
 
-    # Atomic swap to installation directory
-    if [[ -d "$INSTALL_DIR" ]]; then
-        installer_atomic_swap "$temp_dir" "$INSTALL_DIR" || return $EXIT_INSTALL_FAILED
-    else
-        mv "$temp_dir" "$INSTALL_DIR" || return $EXIT_INSTALL_FAILED
+    if ! eval "$npm_cmd"; then
+        installer_log_error "npm install failed"
+        installer_log_info ""
+        installer_log_info "Common fixes:"
+        installer_log_info "  Permission error: npm install -g ${npm_package} --prefix ~/.local"
+        installer_log_info "  Or use nvm:       https://github.com/nvm-sh/nvm"
+        return $EXIT_INSTALL_FAILED
     fi
 
-    # Restore preserved data files after swap
+    # Restore preserved data files
     [[ -n "$data_backup_dir" ]] && installer_source_restore_data_files "$INSTALL_DIR" "$data_backup_dir"
 
     return 0
@@ -417,8 +451,44 @@ do_state_install() {
 do_state_link() {
     installer_log_step "Creating symlinks..."
 
-    # Setup CLI symlinks
-    installer_link_setup_bin "$INSTALL_DIR" || return $EXIT_INSTALL_FAILED
+    local mode
+    mode=$(installer_source_detect_mode)
+
+    if [[ "$mode" == "dev" ]]; then
+        # Dev mode: setup PATH symlinks for the built binaries
+        local bin_dir="${CLEO_BIN_DIR:-$HOME/.local/bin}"
+        mkdir -p "$bin_dir"
+
+        # Symlink cleo and ct
+        if [[ -f "$INSTALL_DIR/bin/cleo" ]]; then
+            ln -sf "$INSTALL_DIR/bin/cleo" "$bin_dir/cleo"
+            ln -sf "$INSTALL_DIR/bin/cleo" "$bin_dir/ct"
+            installer_log_info "Created symlinks: cleo, ct -> $INSTALL_DIR/bin/cleo"
+        fi
+
+        # Symlink cleo-mcp
+        if [[ -f "$INSTALL_DIR/bin/cleo-mcp" ]]; then
+            ln -sf "$INSTALL_DIR/bin/cleo-mcp" "$bin_dir/cleo-mcp"
+            installer_log_info "Created symlink: cleo-mcp -> $INSTALL_DIR/bin/cleo-mcp"
+        fi
+
+        # Check PATH
+        if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+            installer_log_warn "Bin directory not in PATH: $bin_dir"
+            installer_log_warn "Add to your shell profile: export PATH=\"\$HOME/.local/bin:\$PATH\""
+        fi
+    else
+        # npm mode: npm install -g handles binary linking.
+        # Just create ct alias if missing.
+        local cleo_bin
+        cleo_bin=$(command -v cleo 2>/dev/null || true)
+        if [[ -n "$cleo_bin" ]] && ! command -v ct >/dev/null 2>&1; then
+            local bin_dir
+            bin_dir=$(dirname "$cleo_bin")
+            ln -sf "$cleo_bin" "$bin_dir/ct" 2>/dev/null || true
+            installer_log_info "Created ct alias"
+        fi
+    fi
 
     # Setup skills symlinks (unless skipped)
     if [[ "$OPT_SKIP_SKILLS" != "true" ]]; then
@@ -431,7 +501,6 @@ do_state_link() {
     fi
 
     # Setup global agent configurations (claude, gemini, codex, kimi)
-    # This ensures LLM agents know about CLEO without requiring separate setup
     installer_link_setup_all_agents || true  # Non-critical
 
     # Install agents to ~/.claude/agents/ (hybrid: symlink or copy)
@@ -439,7 +508,6 @@ do_state_link() {
         local agent_mode="symlink"
         [[ "$OPT_COPY_AGENTS" == "true" ]] && agent_mode="copy"
 
-        # Set CLEO_REPO_ROOT for agents-install.sh
         export CLEO_REPO_ROOT="$INSTALL_DIR"
 
         install_agents "$agent_mode" "installer_log_info" || \
@@ -517,16 +585,29 @@ do_state_cleanup() {
 }
 
 do_state_complete() {
+    local mode
+    mode=$(installer_source_detect_mode)
+
     installer_log_info ""
     installer_log_info "========================================"
     installer_log_info "  CLEO installation complete!"
     installer_log_info "========================================"
     installer_log_info ""
-    installer_log_info "Installed to: $INSTALL_DIR"
+
+    if [[ "$mode" == "dev" ]]; then
+        installer_log_info "Installed to: $INSTALL_DIR (dev mode)"
+        installer_log_info "Source: $(dirname "$INSTALLER_DIR")"
+    else
+        installer_log_info "Installed via: npm install -g @cleocode/cleo"
+    fi
+
     installer_log_info ""
     installer_log_info "To start using CLEO:"
     installer_log_info "  1. Restart your shell or run: source $(installer_profile_detect_config_file)"
-    installer_log_info "  2. Run: cleo --help"
+    installer_log_info "  2. Run: cleo version"
+    installer_log_info "  3. Run: cleo init    (in a project directory)"
+    installer_log_info ""
+    installer_log_info "Available commands: cleo, cleo-mcp, ct (alias)"
     installer_log_info ""
     return 0
 }

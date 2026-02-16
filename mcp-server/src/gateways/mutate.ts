@@ -798,7 +798,7 @@ function validateReleaseParams(
               code: 'E_VALIDATION_FAILED',
               exitCode: 6,
               message: 'Missing required parameter: version',
-              fix: 'Provide version parameter (semver format)',
+              fix: 'Provide version parameter (X.Y.Z or YYYY.M.patch format)',
             },
           },
         };

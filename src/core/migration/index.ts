@@ -146,7 +146,7 @@ export function detectVersion(data: unknown): string {
 }
 
 /**
- * Compare two semver strings.
+ * Compare two version strings (X.Y.Z format, works for both semver and CalVer).
  * Returns -1 if a < b, 0 if equal, 1 if a > b.
  * @task T4468
  */

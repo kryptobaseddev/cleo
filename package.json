@@ -1,21 +1,24 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2.0.0-alpha.0",
+  "version": "2026.2.0",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "bin": {
-    "cleo-v2": "dist/cli/index.js"
+    "cleo": "dist/cli/index.js",
+    "cleo-mcp": "dist/mcp/index.js"
   },
   "scripts": {
     "build": "node build.mjs",
     "build:check": "tsc --noEmit",
     "dev": "tsc --noEmit --watch",
+    "dev:setup": "bash dev/setup-ts-dev.sh",
+    "dev:watch": "node build.mjs --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepare": "npm run build",
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -29,17 +32,36 @@
   ],
   "author": "CLEO Development Team",
   "license": "MIT",
+  "files": [
+    "dist",
+    "schemas",
+    "templates",
+    "skills",
+    "completions"
+  ],
   "dependencies": {
+    "@cleocode/caamp": "^1.0.0",
+    "@cleocode/ct-skills": "^2.0.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "commander": "^12.1.0",
+    "drizzle-orm": "^0.45.1",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "proper-lockfile": "^4.1.2",
-    "write-file-atomic": "^6.0.0"
+    "sql.js": "^1.14.0",
+    "write-file-atomic": "^6.0.0",
+    "yaml": "^2.8.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/sql.js": "^1.4.9",
     "@types/write-file-atomic": "^4.0.3",
+    "drizzle-kit": "^0.31.9",
     "esbuild": "^0.24.0",
     "typescript": "^5.5.2",
     "vitest": "^2.1.0"

@@ -11,7 +11,7 @@ import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TodoFile } fro
 import { getTodoPath, getLogPath, getBackupDir } from '../paths.js';
 import {
   validateStatus,
-  validatePriority,
+  normalizePriority,
   validateTaskType,
   validateSize,
   validateLabels,
@@ -94,8 +94,8 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string): Prom
   }
 
   if (options.priority !== undefined) {
-    validatePriority(options.priority);
-    task.priority = options.priority;
+    const normalizedPriority = normalizePriority(options.priority);
+    task.priority = normalizedPriority;
     changes.push('priority');
   }
 

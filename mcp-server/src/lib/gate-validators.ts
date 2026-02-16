@@ -166,19 +166,40 @@ export async function validateLayer1Schema(
     }
   }
 
-  // Priority validation
+  // Priority validation - accepts both string names and numeric 1-9
+  // @task T4572 - Fixed to accept canonical string format per todo.schema.json
   if (context.params?.priority !== undefined) {
     const priority = context.params.priority;
-    if (typeof priority !== 'number' || priority < 1 || priority > 9) {
+    const validStringPriorities = ['critical', 'high', 'medium', 'low'];
+    let isValid = false;
+
+    if (typeof priority === 'string') {
+      // Accept canonical string values
+      if (validStringPriorities.includes(priority.toLowerCase())) {
+        isValid = true;
+      }
+      // Accept numeric strings "1"-"9"
+      const asNum = Number(priority);
+      if (!Number.isNaN(asNum) && Number.isInteger(asNum) && asNum >= 1 && asNum <= 9) {
+        isValid = true;
+      }
+    } else if (typeof priority === 'number') {
+      // Accept numeric 1-9
+      if (Number.isInteger(priority) && priority >= 1 && priority <= 9) {
+        isValid = true;
+      }
+    }
+
+    if (!isValid) {
       violations.push({
         layer: GateLayer.SCHEMA,
         severity: ErrorSeverity.ERROR,
         code: 'E_INVALID_PRIORITY',
-        message: 'Priority must be 1-9',
+        message: `Invalid priority: ${priority}. Must be critical|high|medium|low or numeric 1-9`,
         field: 'priority',
         value: priority,
-        constraint: 'range: 1-9',
-        fix: 'Set priority between 1 (highest) and 9 (lowest)',
+        constraint: 'critical|high|medium|low or 1-9',
+        fix: 'Set priority to critical, high, medium, low, or a number 1-9',
       });
     }
   }
@@ -620,8 +641,9 @@ export const VALIDATION_RULES = {
     'research', 'analysis', 'specification', 'implementation',
     'testing', 'validation', 'documentation', 'release',
   ] as const,
-  PRIORITY_MIN: 1,
-  PRIORITY_MAX: 9,
+  VALID_PRIORITIES: ['critical', 'high', 'medium', 'low'] as const,
+  PRIORITY_NUMERIC_MIN: 1,
+  PRIORITY_NUMERIC_MAX: 9,
   MAX_DEPTH: 3,
   MAX_SIBLINGS: 7,
   KEY_FINDINGS_MIN: 3,

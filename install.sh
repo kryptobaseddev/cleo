@@ -2,53 +2,27 @@
 #
 # CLEO Installer - Universal entry point
 #
-# Works in two modes:
-#   1. Local repo:  ./install.sh (delegates to installer/install.sh)
-#   2. Remote:      curl ... | bash (downloads release from GitHub)
+# CLEO is a TypeScript/Node.js package published as @cleocode/cleo.
+#
+# Install methods:
+#   1. npm (recommended): npm install -g @cleocode/cleo
+#   2. Local repo:        ./install.sh (delegates to installer/install.sh)
+#   3. Remote:            curl ... | bash (installs via npm)
+#   4. Dev mode:          ./install.sh --dev (builds + symlinks for development)
 #
 # Usage:
-#   curl -fsSL https://cleo.sh/install | bash     # End user install
-#   ./install.sh                                   # Interactive (from repo)
-#   ./install.sh --dev                             # Developer mode
+#   npm install -g @cleocode/cleo               # End user install (recommended)
+#   curl -fsSL https://cleo.sh/install | bash    # End user install (curl pipe)
+#   ./install.sh                                  # Interactive (from repo)
+#   ./install.sh --dev                            # Developer mode
 #
 
 set -euo pipefail
 
-# Early Bash version check - try to find and use Bash 4+ on macOS
-if [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
-    # Check if we haven't already tried to re-exec (prevent infinite loop)
-    if [[ -z "${_CLEO_REEXEC:-}" ]]; then
-        # Look for Bash 4+ in common locations (Homebrew paths)
-        BASH4_PATHS=(
-            "/opt/homebrew/bin/bash"  # macOS Apple Silicon
-            "/usr/local/bin/bash"     # macOS Intel / Linux Homebrew
-            "/home/linuxbrew/.linuxbrew/bin/bash"  # Linux Homebrew
-        )
-
-        for bash_path in "${BASH4_PATHS[@]}"; do
-            if [[ -x "$bash_path" ]]; then
-                # Check version of this bash
-                bash_ver=$("$bash_path" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)
-                if [[ "$bash_ver" -ge 4 ]]; then
-                    echo "Found Bash $bash_ver at $bash_path, re-executing installer..." >&2
-                    export _CLEO_REEXEC=1
-                    exec "$bash_path" "$0" "$@"
-                fi
-            fi
-        done
-
-        # No Bash 4+ found, warn and continue
-        echo "WARNING: CLEO requires Bash 4.0+ to run commands." >&2
-        echo "Your version: ${BASH_VERSION:-unknown}" >&2
-        echo "" >&2
-        echo "Installation will proceed, but you'll need Bash 4+ to use CLEO." >&2
-        echo "On macOS: brew install bash" >&2
-        echo "" >&2
-    fi
-fi
-
 # Configuration
 GITHUB_REPO="kryptobaseddev/cleo"
+NPM_PACKAGE="@cleocode/cleo"
+NODE_MIN_VERSION=20
 INSTALL_DIR="${CLEO_HOME:-$HOME/.cleo}"
 
 # Detect script location (empty if piped)
@@ -96,18 +70,23 @@ show_help() {
 CLEO Installer
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/install.sh | bash
-  ./install.sh [OPTIONS]
+  npm install -g @cleocode/cleo                      # Recommended
+  curl -fsSL https://cleo.sh/install | bash           # Via curl pipe
+  ./install.sh [OPTIONS]                              # From cloned repo
+
+Prerequisites:
+  Node.js >= 20       https://nodejs.org/
+  npm                 (included with Node.js)
 
 Installation Modes:
-  (default)         Standard installation from GitHub release
-  --dev             Development mode (symlinks to local repo)
+  (default)         Install via npm (recommended)
+  --dev             Development mode (builds + symlinks to local repo)
 
 Options:
   --force           Overwrite existing installation
   --skip-profile    Skip shell profile updates
   --skip-skills     Skip skills installation
-  --version VER     Install specific version (e.g., 0.56.0)
+  --version VER     Install specific version (e.g., 2026.2.0)
 
 Information:
   --check-deps      Check dependencies only
@@ -119,11 +98,17 @@ Recovery:
   --rollback        Rollback to previous backup
   --uninstall       Remove CLEO installation
 
+Dev Install:
+  git clone https://github.com/cleocode/cleo.git
+  cd cleo
+  npm install
+  npm run dev:setup
+
 Examples:
-  curl ... | bash                 # Quick install (end user)
-  ./install.sh                    # Interactive (from cloned repo)
-  ./install.sh --dev              # Developer mode with symlinks
-  ./install.sh --version 0.56.0   # Install specific version
+  npm install -g @cleocode/cleo      # Quick install (recommended)
+  curl ... | bash                     # Quick install (curl pipe)
+  ./install.sh                        # Interactive (from cloned repo)
+  ./install.sh --dev                  # Developer mode
 
 EOF
 }
@@ -166,247 +151,191 @@ auto_install_deps() {
     fi
 }
 
+# Check Node.js version meets minimum requirement
+# Returns: 0 if meets requirements, 1 otherwise
+check_node_version() {
+    if ! command -v node >/dev/null 2>&1; then
+        return 1
+    fi
+
+    local node_version
+    node_version=$(node -v 2>/dev/null | sed 's/^v//')
+    local node_major
+    node_major=$(echo "$node_version" | cut -d. -f1)
+
+    if [[ "$node_major" -ge "$NODE_MIN_VERSION" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Check for required commands
 check_deps() {
     local missing=()
+    local node_too_old=false
 
-    command -v bash >/dev/null || missing+=("bash")
-    command -v jq >/dev/null || missing+=("jq")
+    # Node.js is required
+    if ! command -v node >/dev/null 2>&1; then
+        missing+=("node")
+    elif ! check_node_version; then
+        node_too_old=true
+        local current_ver
+        current_ver=$(node -v 2>/dev/null || echo "unknown")
+        error "Node.js ${current_ver} is too old. CLEO requires Node.js >= ${NODE_MIN_VERSION}."
+        echo ""
+        echo "Update Node.js:"
+        echo "  nvm:     nvm install ${NODE_MIN_VERSION} && nvm use ${NODE_MIN_VERSION}"
+        echo "  Homebrew: brew install node@${NODE_MIN_VERSION}"
+        echo "  Official: https://nodejs.org/"
+        exit 1
+    fi
 
-    # Need either curl or wget for remote install
-    if ! command -v curl >/dev/null && ! command -v wget >/dev/null; then
-        missing+=("curl or wget")
+    # npm is required
+    if ! command -v npm >/dev/null 2>&1; then
+        missing+=("npm")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
-        warn "Missing required dependencies: ${missing[*]}"
-
-        local pkg_manager
-        pkg_manager=$(detect_pkg_manager)
-
-        if [[ "$pkg_manager" != "unknown" ]]; then
-            # Ask user if they want auto-install (only if interactive)
-            if [[ -t 0 ]]; then
-                echo ""
-                read -p "Would you like to install them automatically? [Y/n]: " confirm
-                if [[ ! "${confirm,,}" =~ ^(n|no)$ ]]; then
-                    if auto_install_deps "$pkg_manager" "${missing[@]}"; then
-                        return 0
-                    fi
-                fi
-            fi
-        fi
-
-        # Manual instructions if auto-install not used or failed
         error "Missing required dependencies: ${missing[*]}"
         echo ""
-        echo "Install them with:"
-        echo "  Ubuntu/Debian: sudo apt install ${missing[*]}"
-        echo "  macOS:         brew install ${missing[*]}"
-        echo "  Fedora:        sudo dnf install ${missing[*]}"
+        echo "CLEO requires Node.js >= ${NODE_MIN_VERSION} and npm."
+        echo ""
+        echo "Install Node.js:"
+        echo "  nvm (recommended): curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
+        echo "                     nvm install ${NODE_MIN_VERSION}"
+        echo "  Homebrew:          brew install node@${NODE_MIN_VERSION}"
+        echo "  Official:          https://nodejs.org/"
         exit 1
     fi
 }
 
-# Download a file using curl or wget
-download() {
-    local url="$1"
-    local dest="$2"
-
-    if command -v curl >/dev/null; then
-        curl -fsSL "$url" -o "$dest"
-    elif command -v wget >/dev/null; then
-        wget -q "$url" -O "$dest"
-    else
-        error "No download tool available (need curl or wget)"
-        exit 1
+# Detect old bash-based CLEO installation
+detect_legacy_install() {
+    # Check for the old bash-based wrapper
+    if [[ -f "$INSTALL_DIR/cleo" ]]; then
+        # Old bash version has scripts/ directory with .sh files
+        if [[ -d "$INSTALL_DIR/scripts" ]] && ls "$INSTALL_DIR/scripts/"*.sh >/dev/null 2>&1; then
+            return 0  # Legacy bash installation found
+        fi
     fi
+    return 1  # No legacy installation
 }
 
-# Get latest release version from GitHub
-get_latest_version() {
-    local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-    local version=""
+# Back up legacy bash installation before migration
+migrate_legacy_install() {
+    info "Detected legacy bash-based CLEO installation"
 
-    if command -v curl >/dev/null; then
-        version=$(curl -fsSL "$api_url" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null || true)
-    elif command -v wget >/dev/null; then
-        version=$(wget -qO- "$api_url" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null || true)
+    # Preserve user data files
+    local data_files=(
+        "todo.json"
+        "todo-archive.json"
+        "todo-log.json"
+        "config.json"
+        ".context-state.json"
+    )
+
+    local backup_dir="$INSTALL_DIR/.legacy-backup-$(date +%Y%m%d%H%M%S)"
+    mkdir -p "$backup_dir"
+
+    info "Backing up user data to $backup_dir..."
+    for f in "${data_files[@]}"; do
+        if [[ -f "$INSTALL_DIR/$f" ]]; then
+            cp "$INSTALL_DIR/$f" "$backup_dir/$f"
+            success "  Backed up $f"
+        fi
+    done
+
+    # Also back up metrics
+    if [[ -d "$INSTALL_DIR/metrics" ]]; then
+        cp -r "$INSTALL_DIR/metrics" "$backup_dir/metrics"
+        success "  Backed up metrics/"
     fi
 
-    # Strip 'v' prefix if present
-    version="${version#v}"
-    echo "$version"
+    # Remove old bash-specific directories (but NOT user data)
+    local old_dirs=("scripts" "lib" "bin")
+    for d in "${old_dirs[@]}"; do
+        if [[ -d "$INSTALL_DIR/$d" ]]; then
+            rm -rf "$INSTALL_DIR/$d"
+        fi
+    done
+
+    # Remove old bash wrapper
+    [[ -f "$INSTALL_DIR/cleo" ]] && rm -f "$INSTALL_DIR/cleo"
+
+    success "Legacy installation backed up and cleaned"
+    echo ""
 }
 
-# Install from GitHub release (for end users)
-remote_install() {
+# Install CLEO via npm (for end users)
+npm_install() {
     local version="${1:-}"
     local force="${2:-false}"
 
     show_banner
-    info "Installing CLEO from GitHub..."
+    info "Installing CLEO via npm..."
     echo ""
 
     check_deps
 
-    # Get version
-    if [[ -z "$version" ]]; then
-        info "Fetching latest version..."
-        version=$(get_latest_version)
-        if [[ -z "$version" ]]; then
-            error "Could not determine latest version"
-            echo "Try specifying a version: ./install.sh --version 0.56.0"
-            exit 1
-        fi
+    # Check for legacy bash installation
+    if detect_legacy_install; then
+        migrate_legacy_install
     fi
 
-    info "Installing CLEO v${version}"
-
-    # Check existing installation
-    if [[ -d "$INSTALL_DIR" ]] && [[ "$force" != "true" ]]; then
-        local current=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | head -1 || echo "unknown")
-        warn "Existing installation found: v${current}"
-
-        if [[ -t 0 ]]; then
-            read -p "Overwrite? [y/N]: " confirm
-            if [[ ! "${confirm,,}" =~ ^(y|yes)$ ]]; then
-                echo "Installation cancelled."
-                exit 0
-            fi
-        else
-            error "Use --force to overwrite existing installation"
-            exit 1
-        fi
+    # Build npm install command
+    local npm_cmd="npm install -g ${NPM_PACKAGE}"
+    if [[ -n "$version" ]]; then
+        npm_cmd="npm install -g ${NPM_PACKAGE}@${version}"
     fi
 
-    # Create temp directory
-    local tmp_dir=$(mktemp -d)
-    trap "rm -rf '$tmp_dir'" EXIT
+    info "Running: $npm_cmd"
+    echo ""
 
-    # Download release tarball (from release assets, not source archive)
-    local tarball_url="https://github.com/${GITHUB_REPO}/releases/download/v${version}/cleo-${version}.tar.gz"
-    local tarball="$tmp_dir/cleo.tar.gz"
-
-    info "Downloading v${version}..."
-    if ! download "$tarball_url" "$tarball"; then
-        error "Failed to download release"
-        echo "Check if version exists: https://github.com/${GITHUB_REPO}/releases"
-        exit 1
-    fi
-
-    # Verify checksum
-    local checksums_url="https://github.com/${GITHUB_REPO}/releases/download/v${version}/SHA256SUMS"
-    local checksums="$tmp_dir/SHA256SUMS"
-    if download "$checksums_url" "$checksums" 2>/dev/null; then
-        info "Verifying checksum..."
-        local expected=$(grep "cleo-${version}.tar.gz" "$checksums" | cut -d' ' -f1)
-        local actual=$(sha256sum "$tarball" | cut -d' ' -f1)
-        if [[ "$expected" != "$actual" ]]; then
-            error "Checksum verification failed!"
-            echo "Expected: $expected"
-            echo "Got:      $actual"
-            exit 1
-        fi
-        success "Checksum verified"
-    fi
-
-    # Extract
-    info "Extracting..."
-    tar -xzf "$tarball" -C "$tmp_dir"
-
-    # Find extracted directory
-    local src_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "cleo-*" | head -1)
-    if [[ -z "$src_dir" ]] || [[ ! -d "$src_dir" ]]; then
-        error "Failed to extract release"
-        exit 1
-    fi
-
-    # Run the modular installer from extracted source
-    local installer="$src_dir/installer/install.sh"
-    if [[ -f "$installer" ]]; then
-        info "Running installer..."
-        chmod +x "$installer"
-        exec "$installer" --force
+    if eval "$npm_cmd"; then
+        success "CLEO installed successfully!"
     else
-        # Fallback: manual copy if modular installer not in release
-        info "Installing files..."
-        mkdir -p "$INSTALL_DIR"
-        cp -r "$src_dir/scripts" "$INSTALL_DIR/"
-        cp -r "$src_dir/lib" "$INSTALL_DIR/"
-        cp -r "$src_dir/schemas" "$INSTALL_DIR/"
-        cp -r "$src_dir/templates" "$INSTALL_DIR/"
-        [[ -d "$src_dir/skills" ]] && cp -r "$src_dir/skills" "$INSTALL_DIR/"
-        [[ -d "$src_dir/docs" ]] && cp -r "$src_dir/docs" "$INSTALL_DIR/"
-        cp "$src_dir/VERSION" "$INSTALL_DIR/"
-
-        # Create CLI wrapper
-        create_cli_wrapper
-
-        # Setup symlinks
-        setup_bin_links
-
-        success "CLEO v${version} installed successfully!"
-
-        # Update global agent configuration files
+        error "npm install failed"
         echo ""
-        info "Updating global agent configurations..."
-        if [[ -x "$INSTALL_DIR/dev/setup-agents.sh" ]]; then
-            "$INSTALL_DIR/dev/setup-agents.sh" --force >/dev/null 2>&1 || true
-            success "Agent configurations updated"
+        echo "Common fixes:"
+        echo "  Permission error: npm install -g ${NPM_PACKAGE} --prefix ~/.local"
+        echo "  Or use nvm:       https://github.com/nvm-sh/nvm"
+        exit 1
+    fi
+
+    # Verify installation
+    echo ""
+    info "Verifying installation..."
+
+    if command -v cleo >/dev/null 2>&1; then
+        local installed_ver
+        installed_ver=$(cleo --version 2>/dev/null || echo "unknown")
+        success "cleo is available (v${installed_ver})"
+    else
+        warn "cleo not found in PATH. You may need to restart your shell."
+    fi
+
+    if command -v cleo-mcp >/dev/null 2>&1; then
+        success "cleo-mcp is available"
+    else
+        warn "cleo-mcp not found in PATH. You may need to restart your shell."
+    fi
+
+    # Create ct alias symlink if npm didn't create it
+    local cleo_bin
+    cleo_bin=$(command -v cleo 2>/dev/null || true)
+    if [[ -n "$cleo_bin" ]] && ! command -v ct >/dev/null 2>&1; then
+        local bin_dir
+        bin_dir=$(dirname "$cleo_bin")
+        ln -sf "$cleo_bin" "$bin_dir/ct" 2>/dev/null || true
+        if command -v ct >/dev/null 2>&1; then
+            success "Created ct alias"
         fi
-
-        echo ""
-        echo "Run 'cleo version' to verify installation."
-        echo "Run 'cleo init' in a project directory to get started."
     fi
-}
 
-# Create the CLI wrapper script
-create_cli_wrapper() {
-    cat > "$INSTALL_DIR/cleo" << 'WRAPPER'
-#!/usr/bin/env bash
-set -euo pipefail
-CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
-export CLEO_HOME
-
-cmd="${1:-}"
-[[ -z "$cmd" ]] && { "$CLEO_HOME/scripts/help.sh"; exit 0; }
-
-case "$cmd" in
-    --help|-h) "$CLEO_HOME/scripts/help.sh"; exit 0 ;;
-    --version|-v) cat "$CLEO_HOME/VERSION" | head -1; exit 0 ;;
-    --validate) "$CLEO_HOME/scripts/validate-install.sh"; exit $? ;;
-    --list-commands) "$CLEO_HOME/scripts/commands.sh"; exit $? ;;
-esac
-
-script="$CLEO_HOME/scripts/${cmd}.sh"
-[[ -f "$script" ]] || script="$CLEO_HOME/scripts/${cmd}-task.sh"
-[[ -f "$script" ]] || { echo "Unknown command: $cmd" >&2; exit 1; }
-
-shift
-exec "$script" "$@"
-WRAPPER
-    chmod +x "$INSTALL_DIR/cleo"
-}
-
-# Setup bin symlinks
-setup_bin_links() {
-    local bin_dir="$HOME/.local/bin"
-    mkdir -p "$bin_dir"
-
-    ln -sf "$INSTALL_DIR/cleo" "$bin_dir/cleo"
-    ln -sf "$INSTALL_DIR/cleo" "$bin_dir/ct"
-
-    # Check if bin_dir is in PATH
-    if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
-        warn "$bin_dir is not in your PATH"
-        echo ""
-        echo "Add this to your shell profile (~/.bashrc or ~/.zshrc):"
-        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-        echo ""
-        echo "Then run: source ~/.bashrc"
-    fi
+    echo ""
+    echo "Run 'cleo version' to verify installation."
+    echo "Run 'cleo init' in a project directory to get started."
 }
 
 # Interactive install for local repo
@@ -416,29 +345,40 @@ interactive_install() {
     echo -e "${CYAN}Welcome to the CLEO installer!${RESET}"
     echo ""
 
-    # Check if this looks like a git repo
-    local is_git_repo=false
-    [[ -d "$SCRIPT_DIR/.git" ]] && is_git_repo=true
+    # Check prerequisites
+    check_deps
+
+    # Check if this looks like a git repo with package.json
+    local is_repo=false
+    [[ -d "$SCRIPT_DIR/.git" ]] && [[ -f "$SCRIPT_DIR/package.json" ]] && is_repo=true
 
     # Detect existing installation
-    if [[ -d "$INSTALL_DIR" ]]; then
-        local current_version=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | head -1 || echo "unknown")
+    if command -v cleo >/dev/null 2>&1; then
+        local current_version
+        current_version=$(cleo --version 2>/dev/null || echo "unknown")
         echo -e "${YELLOW}Existing installation detected: v${current_version}${RESET}"
+        echo ""
+    fi
+
+    # Check for legacy bash installation
+    if detect_legacy_install; then
+        echo -e "${YELLOW}Legacy bash-based installation detected at ${INSTALL_DIR}${RESET}"
+        echo -e "${YELLOW}It will be migrated (user data preserved).${RESET}"
         echo ""
     fi
 
     # Mode selection
     echo -e "${BOLD}Select installation mode:${RESET}"
     echo ""
-    if $is_git_repo; then
+    if $is_repo; then
         echo -e "  ${GREEN}1)${RESET} Development mode ${DIM}(recommended for contributors)${RESET}"
-        echo "     Creates symlinks to this repository"
+        echo "     Builds TypeScript and creates symlinks to this repository"
         echo ""
-        echo -e "  ${GREEN}2)${RESET} Release mode"
-        echo "     Copies files to ~/.cleo"
+        echo -e "  ${GREEN}2)${RESET} npm install ${DIM}(recommended for users)${RESET}"
+        echo "     Installs globally via: npm install -g ${NPM_PACKAGE}"
     else
-        echo -e "  ${GREEN}1)${RESET} Standard installation ${DIM}(recommended)${RESET}"
-        echo "     Downloads latest release from GitHub"
+        echo -e "  ${GREEN}1)${RESET} npm install ${DIM}(recommended)${RESET}"
+        echo "     Installs globally via: npm install -g ${NPM_PACKAGE}"
         echo ""
         echo -e "  ${GREEN}2)${RESET} Development mode"
         echo "     Requires cloning the repository first"
@@ -450,29 +390,29 @@ interactive_install() {
 
     case "$choice" in
         1)
-            if $is_git_repo; then
+            if $is_repo; then
                 exec "$SCRIPT_DIR/installer/install.sh" --dev
             else
-                remote_install "" "true"
+                npm_install "" "true"
             fi
             ;;
         2)
-            if $is_git_repo; then
-                exec "$SCRIPT_DIR/installer/install.sh" --force
+            if $is_repo; then
+                npm_install "" "true"
             else
                 error "Development mode requires cloning the repository first:"
                 echo ""
-                echo "  git clone https://github.com/${GITHUB_REPO}.git"
-                echo "  cd cleo && ./install.sh --dev"
+                echo "  git clone https://github.com/cleocode/cleo.git"
+                echo "  cd cleo && npm install && npm run dev:setup"
                 exit 1
             fi
             ;;
         *)
             warn "Invalid choice, using default"
-            if $is_git_repo; then
+            if $is_repo; then
                 exec "$SCRIPT_DIR/installer/install.sh" --dev
             else
-                remote_install "" "true"
+                npm_install "" "true"
             fi
             ;;
     esac
@@ -511,6 +451,8 @@ while [[ $# -gt 0 ]]; do
         --check-deps)
             check_deps
             success "All required dependencies are installed"
+            info "  Node.js: $(node -v 2>/dev/null || echo 'not found')"
+            info "  npm:     $(npm -v 2>/dev/null || echo 'not found')"
             exit 0
             ;;
         *)
@@ -537,14 +479,14 @@ if [[ -n "$LOCAL_INSTALLER" ]]; then
         interactive_install
     fi
 else
-    # Remote install - download from GitHub
+    # Remote install via npm
     if $DEV_MODE; then
         error "Development mode requires cloning the repository:"
         echo ""
-        echo "  git clone https://github.com/${GITHUB_REPO}.git"
-        echo "  cd cleo && ./install.sh --dev"
+        echo "  git clone https://github.com/cleocode/cleo.git"
+        echo "  cd cleo && npm install && npm run dev:setup"
         exit 1
     fi
 
-    remote_install "$VERSION" "$FORCE"
+    npm_install "$VERSION" "$FORCE"
 fi

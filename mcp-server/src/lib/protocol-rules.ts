@@ -554,8 +554,8 @@ const RELEASE_RULES: ProtocolRule[] = [
   {
     id: 'RLSE-001',
     level: 'MUST',
-    message: 'Must follow semver (major.minor.patch)',
-    fix: 'Use format X.Y.Z (e.g., 0.74.5)',
+    message: 'Must follow version format (X.Y.Z or YYYY.M.patch)',
+    fix: 'Use format X.Y.Z or YYYY.M.patch (e.g., 2026.2.0)',
     validate: (entry, data) => {
       const version = data?.version as string | undefined;
       if (!version) return false;

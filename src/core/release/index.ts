@@ -50,14 +50,21 @@ export interface ReleaseShowResult {
 }
 
 /**
- * Validate semver format.
+ * Validate version format (X.Y.Z, CalVer YYYY.M.patch, with optional pre-release/build metadata).
  * @task T4467
  */
-export function validateSemver(version: string): void {
+export function validateVersion(version: string): void {
   if (!/^v?\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$/.test(version)) {
-    throw new CleoError(ExitCode.VALIDATION_ERROR, `Invalid semver: ${version}`);
+    throw new CleoError(ExitCode.VALIDATION_ERROR, `Invalid version format: ${version} (expected X.Y.Z or YYYY.M.patch)`);
   }
 }
+
+/**
+ * Validate version format (legacy alias).
+ * @deprecated Use validateVersion instead.
+ * @task T4467
+ */
+export const validateSemver = validateVersion;
 
 /**
  * Normalize version string (strip leading v).
@@ -72,7 +79,7 @@ function normalizeVersion(version: string): string {
  * @task T4467
  */
 export async function createRelease(options: CreateReleaseOptions, cwd?: string): Promise<Release> {
-  validateSemver(options.version);
+  validateVersion(options.version);
   const version = normalizeVersion(options.version);
 
   const todoPath = getTodoPath(cwd);
