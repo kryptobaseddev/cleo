@@ -118751,11 +118751,433 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_d24a7cf94ae5",
+      "timestamp": "2026-02-16T16:15:59Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4579",
+      "before": {
+        "title": "Update build.mjs for dual-binary esbuild output",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Update esbuild config for two entry points producing dist/cli.js and dist/mcp-server.js. Both get shebang. Update package.json bin field: { cleo: dist/cli.js, cleo-mcp: dist/mcp-server.js }. Verify: npx @cleocode/cleo runs CLI, npx --package=@cleocode/cleo cleo-mcp starts MCP server. Add prepare script so npm install from git works. Set type:module, files:[dist]. Cross-platform: chmod via shx.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update build.mjs for dual-binary esbuild output",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Update esbuild config for two entry points producing dist/cli.js and dist/mcp-server.js. Both get shebang. Update package.json bin field: { cleo: dist/cli.js, cleo-mcp: dist/mcp-server.js }. Verify: npx @cleocode/cleo runs CLI, npx --package=@cleocode/cleo cleo-mcp starts MCP server. Add prepare script so npm install from git works. Set type:module, files:[dist]. Cross-platform: chmod via shx.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4578"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_6c9c55d93cd8",
+      "timestamp": "2026-02-16T16:16:02Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4580",
+      "before": {
+        "title": "Implement local dev mode for TypeScript system",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Create dev setup that: (1) Runs npm run build to produce dist/. (2) Creates symlinks ~/.cleo/bin/cleo -> repo/dist/cli.js and ~/.cleo/bin/cleo-mcp -> repo/dist/mcp-server.js. (3) Links ~/.local/bin/cleo -> ~/.cleo/bin/cleo. (4) Updates VERSION with mode=dev-ts,source=path. (5) Updates MCP config to point to local cleo-mcp. (6) Supports watch mode via npm run dev:watch for rebuild-on-change. Non-interactive, fully scriptable for LLM agents. Must coexist with bash dev mode during transition.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Implement local dev mode for TypeScript system",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Create dev setup that: (1) Runs npm run build to produce dist/. (2) Creates symlinks ~/.cleo/bin/cleo -> repo/dist/cli.js and ~/.cleo/bin/cleo-mcp -> repo/dist/mcp-server.js. (3) Links ~/.local/bin/cleo -> ~/.cleo/bin/cleo. (4) Updates VERSION with mode=dev-ts,source=path. (5) Updates MCP config to point to local cleo-mcp. (6) Supports watch mode via npm run dev:watch for rebuild-on-change. Non-interactive, fully scriptable for LLM agents. Must coexist with bash dev mode during transition.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4579"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_b33246244eb7",
+      "timestamp": "2026-02-16T16:16:04Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4581",
+      "before": {
+        "title": "Implement cleo env command for dev/prod mode switching",
+        "status": "pending",
+        "priority": "high",
+        "description": "New CLI command: cleo env [status|switch]. Subcommands: status (show current mode: bash-dev, ts-dev, ts-beta, ts-prod), switch dev (local TS build), switch beta (npm @cleocode/cleo@beta), switch prod (npm @cleocode/cleo@latest), switch bash (fallback to old system). Updates both CLI binary path AND MCP server config. JSON output support. No interactive prompts. Updates ~/.cleo/VERSION mode field. Validates target exists before switching.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Implement cleo env command for dev/prod mode switching",
+        "status": "pending",
+        "priority": "high",
+        "description": "New CLI command: cleo env [status|switch]. Subcommands: status (show current mode: bash-dev, ts-dev, ts-beta, ts-prod), switch dev (local TS build), switch beta (npm @cleocode/cleo@beta), switch prod (npm @cleocode/cleo@latest), switch bash (fallback to old system). Updates both CLI binary path AND MCP server config. JSON output support. No interactive prompts. Updates ~/.cleo/VERSION mode field. Validates target exists before switching.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4580"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_93d73bd5c51a",
+      "timestamp": "2026-02-16T16:16:06Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4582",
+      "before": {
+        "title": "Set up npm publish workflows with dist-tags (dev/beta/latest)",
+        "status": "pending",
+        "priority": "high",
+        "description": "CI/CD workflows: (1) npm-publish.yml on tag v* push: build, test (vitest+jest), publish @cleocode/cleo to npm @latest. (2) npm-publish-dev.yml on develop push: publish with --tag dev, version suffix -dev.{sha}. (3) npm-publish-beta.yml on release/* push: publish with --tag beta, version suffix -beta.{n}. All run full test suite. prepublishOnly validates build. Include MCP Registry publication step. Deprecate @cleocode/mcp-server package with notice.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Set up npm publish workflows with dist-tags (dev/beta/latest)",
+        "status": "pending",
+        "priority": "high",
+        "description": "CI/CD workflows: (1) npm-publish.yml on tag v* push: build, test (vitest+jest), publish @cleocode/cleo to npm @latest. (2) npm-publish-dev.yml on develop push: publish with --tag dev, version suffix -dev.{sha}. (3) npm-publish-beta.yml on release/* push: publish with --tag beta, version suffix -beta.{n}. All run full test suite. prepublishOnly validates build. Include MCP Registry publication step. Deprecate @cleocode/mcp-server package with notice.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4579"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_c5e302cf87e7",
+      "timestamp": "2026-02-16T16:16:08Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4583",
+      "before": {
+        "title": "Update installer for TypeScript package system",
+        "status": "pending",
+        "priority": "high",
+        "description": "Extend installer/install.sh: (1) --dev mode: build from source, symlink dist/ binaries. (2) --release mode: npm install -g @cleocode/cleo (replaces tarball). (3) --beta mode: npm install -g @cleocode/cleo@beta. (4) Remove bash scripts/ symlink logic. (5) Keep skills, agents, CLAUDE.md injection, completions. (6) Detect Node.js >= 18 prerequisite. (7) Cross-platform: detect Windows, use appropriate npm paths. (8) Non-interactive: no prompts, exit codes for all failures. LLM agent safe.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update installer for TypeScript package system",
+        "status": "pending",
+        "priority": "high",
+        "description": "Extend installer/install.sh: (1) --dev mode: build from source, symlink dist/ binaries. (2) --release mode: npm install -g @cleocode/cleo (replaces tarball). (3) --beta mode: npm install -g @cleocode/cleo@beta. (4) Remove bash scripts/ symlink logic. (5) Keep skills, agents, CLAUDE.md injection, completions. (6) Detect Node.js >= 18 prerequisite. (7) Cross-platform: detect Windows, use appropriate npm paths. (8) Non-interactive: no prompts, exit codes for all failures. LLM agent safe.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4580"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_5ff0b7905d1c",
+      "timestamp": "2026-02-16T16:16:11Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4584",
+      "before": {
+        "title": "Update mcp-install for .agents/mcp/servers.json + env-aware config",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update cleo mcp-install to: (1) Write to .agents/mcp/servers.json (CAAMP standard) in addition to .mcp.json (backward compat). (2) Generate correct config based on current env mode: dev points to local dist/, beta uses @cleocode/cleo@beta, prod uses @cleocode/cleo. (3) Support all 12 AI tools (Claude Code, Cursor, VS Code, etc). (4) For global install: command is cleo-mcp directly. For npx: command is npx --package=@cleocode/cleo cleo-mcp. (5) Detect and migrate legacy @cleocode/mcp-server references.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update mcp-install for .agents/mcp/servers.json + env-aware config",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update cleo mcp-install to: (1) Write to .agents/mcp/servers.json (CAAMP standard) in addition to .mcp.json (backward compat). (2) Generate correct config based on current env mode: dev points to local dist/, beta uses @cleocode/cleo@beta, prod uses @cleocode/cleo. (3) Support all 12 AI tools (Claude Code, Cursor, VS Code, etc). (4) For global install: command is cleo-mcp directly. For npx: command is npx --package=@cleocode/cleo cleo-mcp. (5) Detect and migrate legacy @cleocode/mcp-server references.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4581"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_c11b429f0534",
+      "timestamp": "2026-02-16T16:16:22Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4561",
+      "before": {
+        "title": "Sandbox test: Greenfield project (fresh init + full workflow)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Test CLEO against a brand new empty project. Full workflow: cleo init, add tasks, create epics, set phases, run sessions, focus management, dependency tracking, research protocol, consensus, specification, implementation, validation, release cycle. Verify MCP operations work end-to-end. Verify CLI operations work end-to-end. Document expected vs actual outcomes. This proves CLEO works for new project onboarding.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Sandbox test: Greenfield project (fresh init + full workflow)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Test CLEO against a brand new empty project. Full workflow: cleo init, add tasks, create epics, set phases, run sessions, focus management, dependency tracking, research protocol, consensus, specification, implementation, validation, release cycle. Verify MCP operations work end-to-end. Verify CLI operations work end-to-end. Document expected vs actual outcomes. This proves CLEO works for new project onboarding.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4580"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_cc4e02e08d23",
+      "timestamp": "2026-02-16T16:16:25Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4562",
+      "before": {
+        "title": "Sandbox test: Brownfield project (existing codebase adoption)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Test CLEO adoption on an existing project with history. Simulate: importing existing tasks, migrating from another tool, handling pre-existing git history, managing complex dependency graphs, multi-phase projects. Verify CLEO can be dropped into an existing workflow without disruption. Test migration paths and data import.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Sandbox test: Brownfield project (existing codebase adoption)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Test CLEO adoption on an existing project with history. Simulate: importing existing tasks, migrating from another tool, handling pre-existing git history, managing complex dependency graphs, multi-phase projects. Verify CLEO can be dropped into an existing workflow without disruption. Test migration paths and data import.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4580"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_80ae0d8f2323",
+      "timestamp": "2026-02-16T16:16:27Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4563",
+      "before": {
+        "title": "Sandbox test: CLEO self-hosting dogfood (manage own 674 tasks)",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Ultimate dogfood test: use the NEW TypeScript CLEO to manage CLEO's own 674 tasks, 55 epics, 12 protocols. Test: task CRUD at scale, epic hierarchy, dependency graph performance, session management, RCSD pipeline, validation, doctor, backup/restore, metrics. Verify the TS system handles the same workload the bash system managed. Performance benchmarks. This is the definitive proof the conversion works.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Sandbox test: CLEO self-hosting dogfood (manage own 674 tasks)",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Ultimate dogfood test: use the NEW TypeScript CLEO to manage CLEO's own 674 tasks, 55 epics, 12 protocols. Test: task CRUD at scale, epic hierarchy, dependency graph performance, session management, RCSD pipeline, validation, doctor, backup/restore, metrics. Verify the TS system handles the same workload the bash system managed. Performance benchmarks. This is the definitive proof the conversion works.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4580"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_51499e93e4d2",
+      "timestamp": "2026-02-16T16:16:29Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4564",
+      "before": {
+        "title": "Stress test: Performance benchmarks (TS vs bash baseline)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Benchmark TypeScript system against bash baseline. Metrics: task add latency, list performance at 674 tasks, dependency graph traversal, search/find speed, JSON read/write throughput, MCP operation round-trip time, SQLite store vs JSON store performance. The TS system must match or exceed bash performance. Document results in .cleo/metrics/.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Stress test: Performance benchmarks (TS vs bash baseline)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Benchmark TypeScript system against bash baseline. Metrics: task add latency, list performance at 674 tasks, dependency graph traversal, search/find speed, JSON read/write throughput, MCP operation round-trip time, SQLite store vs JSON store performance. The TS system must match or exceed bash performance. Document results in .cleo/metrics/.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4580"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_6572beaa69ec",
+      "timestamp": "2026-02-16T16:16:31Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4575",
+      "before": {
+        "title": "End-to-end MCP operation validation (all 138 operations)",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Systematically test all 138 MCP operations through the MCP server. For each operation: invoke via cleo_query or cleo_mutate, verify response format matches schema, verify data integrity, verify error handling. This is the definitive proof that the MCP interface works. Must cover all 11 domains: tasks, session, system, validate, orchestrate, research, lifecycle, issues, release, skills, providers.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "End-to-end MCP operation validation (all 138 operations)",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Systematically test all 138 MCP operations through the MCP server. For each operation: invoke via cleo_query or cleo_mutate, verify response format matches schema, verify data integrity, verify error handling. This is the definitive proof that the MCP interface works. Must cover all 11 domains: tasks, session, system, validate, orchestrate, research, lifecycle, issues, release, skills, providers.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4580"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_6f8a649ee89f",
+      "timestamp": "2026-02-16T16:42:27Z",
+      "sessionId": "session_20260216_084227_2a614a",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4578",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4577"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 6076,
-    "lastEntry": "2026-02-16T04:53:04Z",
+    "totalEntries": 6088,
+    "lastEntry": "2026-02-16T16:42:27Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
