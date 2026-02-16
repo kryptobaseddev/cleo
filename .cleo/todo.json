@@ -1061,9 +1061,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-16T16:16:31Z",
+  "lastUpdated": "2026-02-16T17:17:09Z",
   "_meta": {
-    "checksum": "52eeeeb2928c3f55",
+    "checksum": "05f44f0ed12a7bc5",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1072,7 +1072,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 31,
-    "generation": 3535
+    "generation": 3536
   },
   "focus": {
     "currentTask": "T4578",
@@ -21675,17 +21675,21 @@
     {
       "id": "T4578",
       "title": "Physical merge: move mcp-server/src/ into src/mcp/ unified tree",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:30Z",
-      "updatedAt": "2026-02-16T16:42:36Z",
+      "updatedAt": "2026-02-16T17:17:09Z",
       "size": "large",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Move all mcp-server/src/ code into src/mcp/ in the main source tree. Consolidate: (1) Move domains/, engine/, gateways/, lib/, types/, web/ under src/mcp/. (2) Create src/mcp/index.ts as MCP server entry point. (3) Migrate 44 jest tests to vitest under src/mcp/__tests__/. (4) Merge mcp-server/tsconfig.json into root tsconfig.json. (5) Merge mcp-server/package.json dependencies into root package.json. (6) Update all import paths. (7) Ensure both src/cli/ and src/mcp/ import from src/core/ as shared siblings. (8) Update build.mjs for dual entry points: dist/cli.js + dist/mcp-server.js. (9) Delete mcp-server/ directory. One tsconfig, one vitest config, one dependency tree."
+      "description": "Move all mcp-server/src/ code into src/mcp/ in the main source tree. Consolidate: (1) Move domains/, engine/, gateways/, lib/, types/, web/ under src/mcp/. (2) Create src/mcp/index.ts as MCP server entry point. (3) Migrate 44 jest tests to vitest under src/mcp/__tests__/. (4) Merge mcp-server/tsconfig.json into root tsconfig.json. (5) Merge mcp-server/package.json dependencies into root package.json. (6) Update all import paths. (7) Ensure both src/cli/ and src/mcp/ import from src/core/ as shared siblings. (8) Update build.mjs for dual entry points: dist/cli.js + dist/mcp-server.js. (9) Delete mcp-server/ directory. One tsconfig, one vitest config, one dependency tree.",
+      "completedAt": "2026-02-16T17:17:09Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T17:17:09Z] Physical merge complete: moved mcp-server/src/ to src/mcp/, migrated 43 Jest tests to Vitest, fixed 170+ TS strict mode violations, added MCP SDK + yaml deps. tsc 0 errors, 92/93 tests pass (1 pre-existing timeout)."
+      ]
     },
     {
       "id": "T4579",
