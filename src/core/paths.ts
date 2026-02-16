@@ -45,7 +45,10 @@ export function getCleoDocsDir(): string {
  * Get the project CLEO data directory (relative).
  * Respects CLEO_DIR env var, defaults to ".cleo".
  */
-export function getCleoDir(): string {
+export function getCleoDir(cwd?: string): string {
+  if (cwd) {
+    return getCleoDirAbsolute(cwd);
+  }
   return process.env['CLEO_DIR'] ?? '.cleo';
 }
 

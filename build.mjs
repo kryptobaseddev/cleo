@@ -13,12 +13,15 @@ const isWatch = process.argv.includes('--watch');
 
 /** @type {esbuild.BuildOptions} */
 const buildOptions = {
-  entryPoints: ['src/cli/index.ts'],
+  entryPoints: [
+    { in: 'src/cli/index.ts', out: 'cli/index' },
+    { in: 'src/mcp/index.ts', out: 'mcp/index' },
+  ],
   bundle: true,
   platform: 'node',
   target: 'node20',
   format: 'esm',
-  outfile: 'dist/cli/index.js',
+  outdir: 'dist',
   sourcemap: true,
   banner: {
     js: '#!/usr/bin/env node',
@@ -27,6 +30,7 @@ const buildOptions = {
     // Keep native modules external
     'proper-lockfile',
     'write-file-atomic',
+    '@modelcontextprotocol/sdk',
   ],
   packages: 'external',
 };

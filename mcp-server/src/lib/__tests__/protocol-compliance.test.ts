@@ -408,8 +408,8 @@ describe('Protocol Compliance Test Suite', () => {
    * Release Protocol (Exit Code 66) - Full Coverage
    */
   describe('Release Protocol (Exit Code 66)', () => {
-    describe('RLSE-001: Semver Validation', () => {
-      it('should enforce semver format (X.Y.Z)', async () => {
+    describe('RLSE-001: Version Format Validation', () => {
+      it('should enforce version format (X.Y.Z or YYYY.M.patch)', async () => {
         const { manifestEntry, additionalData } = protocolFixtures.release.invalidSemver;
         const result = await enforcer.validateProtocol(
           ProtocolType.RELEASE,
@@ -422,12 +422,12 @@ describe('Protocol Compliance Test Suite', () => {
           expect.objectContaining({
             requirement: 'RLSE-001',
             severity: 'error',
-            message: expect.stringContaining('semver'),
+            message: expect.stringContaining('version format'),
           })
         );
       });
 
-      it('should accept valid semver versions', async () => {
+      it('should accept valid version formats', async () => {
         const { manifestEntry, additionalData } = protocolFixtures.release.valid;
         const result = await enforcer.validateProtocol(
           ProtocolType.RELEASE,

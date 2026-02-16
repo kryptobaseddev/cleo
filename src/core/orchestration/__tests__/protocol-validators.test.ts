@@ -388,7 +388,7 @@ describe('Release Protocol', () => {
     expect(result.protocol).toBe('release');
   });
 
-  it('fails with invalid semver', () => {
+  it('fails with invalid version format', () => {
     const result = validateReleaseProtocol(
       validEntry('release'),
       { version: 'not-valid' },
@@ -399,7 +399,7 @@ describe('Release Protocol', () => {
     );
   });
 
-  it('accepts semver with pre-release', () => {
+  it('accepts version with pre-release', () => {
     const result = validateReleaseProtocol(
       validEntry('release'),
       { version: '1.0.0-alpha.1', hasChangelog: true },

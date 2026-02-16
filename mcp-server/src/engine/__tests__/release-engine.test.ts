@@ -70,7 +70,7 @@ describe('Release Engine', () => {
       expect(result.error?.code).toBe('E_VERSION_EXISTS');
     });
 
-    it('should reject invalid semver', () => {
+    it('should reject invalid version format', () => {
       const result = releasePrepare('not-a-version', ['T001'], undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_VERSION');

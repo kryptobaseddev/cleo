@@ -176,7 +176,7 @@ describe('ProtocolEnforcer', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('should fail with invalid semver', async () => {
+    it('should fail with invalid version format', async () => {
       const manifest = {
         id: 'T2918-release',
         file: 'CHANGELOG.md',
