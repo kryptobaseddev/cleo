@@ -81,10 +81,10 @@ CLEO provides a structured protocol that:
 
 ### Command System Architecture
 
-CLEO uses an interface-layer architecture with a single semantic contract:
+CLEO uses a shared-core architecture with a single semantic contract:
 
-- **CLI (Bash baseline)**: authoritative runtime behavior and deterministic enforcement
-- **MCP (strategic interface)**: provider-neutral integration surface for AI tooling
+- **CLI (TypeScript)**: authoritative runtime behavior and deterministic enforcement via Commander.js
+- **MCP (TypeScript)**: provider-neutral integration surface for AI tooling, sharing the same core logic
 - **Adapters (optional)**: tool-specific UX optimizations without changing core semantics
 
 All interfaces MUST preserve the same memory model, lifecycle guarantees, and provenance invariants.
@@ -253,10 +253,10 @@ cleo session end --note "Completed auth flow, tests passing"
 
 <CardGroup cols={2}>
   <Card title="Current State (Shipped)" icon="check">
-    Bash-native CLI, deterministic validation, atomic operations, audit logs, hierarchy lifecycle, and project-local memory are production baseline.
+    TypeScript-native CLI and MCP server sharing a common core, deterministic validation, atomic operations, audit logs, hierarchy lifecycle, and project-local memory are production baseline.
   </Card>
   <Card title="Strategic Direction (Gated)" icon="road">
-    MCP maturity, Nexus validation, and Tier M/L cognitive infrastructure expansion follow evidence-gated roadmap progression.
+    Nexus validation, hybrid storage (ADR-002), and Tier M/L cognitive infrastructure expansion follow evidence-gated roadmap progression.
   </Card>
 </CardGroup>
 

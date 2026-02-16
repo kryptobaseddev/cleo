@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "node",
+      "args": [
+        "/mnt/projects/claude-todo/dist/mcp/index.js"
+      ]
+    }
+  }
+}
