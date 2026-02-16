@@ -1061,9 +1061,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-16T04:45:25Z",
+  "lastUpdated": "2026-02-16T04:51:24Z",
   "_meta": {
-    "checksum": "682521c3e619e846",
+    "checksum": "090d40f804421070",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1072,7 +1072,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3504
+    "generation": 3521
   },
   "focus": {
     "currentTask": "T4530",
@@ -21019,37 +21019,90 @@
       "completedAt": "2026-02-16T04:45:25Z",
       "notes": [
         "[COMPLETED 2026-02-16T04:45:25Z] Research completed: 21 gaps identified across 76 scripts and 96 lib files. 75% overall conversion rate. Full gap matrix documented in agent-outputs."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T04:45:26Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4543",
       "title": "RESEARCH: Documentation inventory and consolidation plan",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4541",
       "createdAt": "2026-02-16T03:55:35Z",
-      "updatedAt": "2026-02-16T03:55:35Z",
+      "updatedAt": "2026-02-16T04:45:27Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "1629 docs audited. Canonical hierarchy verified and healthy. Actions needed: (1) Move superseded specs to archive/ (PATH-FORWARD, MCP-GATEWAY). (2) Fix incomplete v2-api-reference.md. (3) Consolidate 8 migration guides across 4 directories into single entry point. (4) Create DOCUMENTATION-STRUCTURE.md for audience paths. (5) Create current-state.mdx. (6) Decide NEXUS spec fate (active/gated/deprecated). NEXUS key concepts preserved for T4540."
+      "description": "1629 docs audited. Canonical hierarchy verified and healthy. Actions needed: (1) Move superseded specs to archive/ (PATH-FORWARD, MCP-GATEWAY). (2) Fix incomplete v2-api-reference.md. (3) Consolidate 8 migration guides across 4 directories into single entry point. (4) Create DOCUMENTATION-STRUCTURE.md for audience paths. (5) Create current-state.mdx. (6) Decide NEXUS spec fate (active/gated/deprecated). NEXUS key concepts preserved for T4540.",
+      "completedAt": "2026-02-16T04:45:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T04:45:27Z] Research completed: 518 docs audited. Canonical hierarchy verified. GitBook migration path identified. Consolidation plan ready for T4546 execution."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T04:45:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4544",
       "title": "RESEARCH: MCP-first architecture validation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4541",
       "createdAt": "2026-02-16T03:55:36Z",
-      "updatedAt": "2026-02-16T03:55:36Z",
+      "updatedAt": "2026-02-16T04:45:29Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Industry has converged on shared-core-with-dual-interface pattern. Neither CLI wraps MCP nor MCP wraps CLI — both call src/core/ domain logic. CLEO already positioned for this. Key findings: (1) Shared core library pattern (Salesforce DX model). (2) Progressive tool disclosure reduces tokens 98.7%. (3) .cleo/ git-tracked state is industry standard. (4) MCP for agent-to-tool, A2A for agent-to-agent (Google protocol). (5) CLI serves as independent implementation + operational backbone + agent fallback. Full report at claudedocs/agent-outputs/RESEARCH-mcp-first-architecture-patterns.md"
+      "description": "Industry has converged on shared-core-with-dual-interface pattern. Neither CLI wraps MCP nor MCP wraps CLI — both call src/core/ domain logic. CLEO already positioned for this. Key findings: (1) Shared core library pattern (Salesforce DX model). (2) Progressive tool disclosure reduces tokens 98.7%. (3) .cleo/ git-tracked state is industry standard. (4) MCP for agent-to-tool, A2A for agent-to-agent (Google protocol). (5) CLI serves as independent implementation + operational backbone + agent fallback. Full report at claudedocs/agent-outputs/RESEARCH-mcp-first-architecture-patterns.md",
+      "completedAt": "2026-02-16T04:45:29Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T04:45:29Z] Research completed: Shared-core sibling pattern validated. Both MCP and CLI should call src/core/ as equal interfaces. Matches Salesforce DX production pattern. Decision confirmed by user."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T04:45:30Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4545",
@@ -21152,6 +21205,436 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "This session implemented Waves 1-5 of the Brain Architecture plan (SQLite store layer, 25 native engine ports, 8 brain operations, bootstrap/unblock/critical-path, MVI injection, production packaging to 2026.2.0, 31 integration tests) but used Claude Code's internal TeamCreate/TaskCreate instead of CLEO tasks. The work exists in code but has NO CLEO task provenance. Need to: (1) Map completed work to T4454 children and mark appropriate tasks done. (2) Create CLEO tasks for new work that had no pre-existing task (brain ops, bootstrap, MVI). (3) Update T4454 epic status. (4) Add manifest entries for agent outputs. (5) This is proof that CLEO must be easier for agents to use — if our own build process bypasses CLEO, other agents will too."
+    },
+    {
+      "id": "T4551",
+      "title": "Port 15 unported bash scripts to TypeScript",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4545",
+      "createdAt": "2026-02-16T04:46:51Z",
+      "updatedAt": "2026-02-16T04:49:28Z",
+      "size": "large",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port remaining unported scripts: checkpoint.sh, claude-migrate.sh, commands.sh, docs.sh, export-tasks.sh, extract.sh, import-tasks.sh, nexus.sh, nexus-discover.sh, nexus-query.sh, nexus-search.sh, safestop.sh, sync.sh, testing.sh, web.sh. Each needs: src/cli/commands/ entry, src/core/ implementation, MCP domain route, vitest tests.",
+      "depends": [
+        "T4542"
+      ]
+    },
+    {
+      "id": "T4552",
+      "title": "Port 13 unported bash library modules to TypeScript",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4545",
+      "createdAt": "2026-02-16T04:46:59Z",
+      "updatedAt": "2026-02-16T04:49:36Z",
+      "size": "large",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port remaining libs: git-checkpoint, import-logging, import-sort, nexus-deps, nexus-permissions, nexus-query, nexus-registry, project-registry (data/), release-artifacts (release/), skill-paths, test-utility (skills/), injection-registry, version-check (ui/). Each produces src/core/ or src/store/ module with vitest tests.",
+      "depends": [
+        "T4542"
+      ]
+    },
+    {
+      "id": "T4553",
+      "title": "Convert 41 CLI-only MCP operations to native TypeScript",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4545",
+      "createdAt": "2026-02-16T04:47:03Z",
+      "updatedAt": "2026-02-16T04:49:40Z",
+      "size": "large",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Convert all 41 MCP operations marked cli-only in capability matrix to native TS. Domains: tasks(7 ops), session(3), system(17), validate(2), orchestrate(4), research(3), plus 1 hybrid. Each reimplemented in src/core/, capability matrix flipped to native. Zero bash subprocess dependency when complete.",
+      "depends": [
+        "T4551",
+        "T4552"
+      ]
+    },
+    {
+      "id": "T4554",
+      "title": "Port NEXUS subsystem to TypeScript (4 scripts + 4 libs)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4545",
+      "createdAt": "2026-02-16T04:47:07Z",
+      "updatedAt": "2026-02-16T04:49:43Z",
+      "size": "large",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create src/core/nexus/ module with: registry (project discovery), query (cross-project), permissions (access control), deps (dependency tracking). Port nexus.sh, nexus-discover.sh, nexus-query.sh, nexus-search.sh to src/cli/commands/. Port nexus-deps.sh, nexus-permissions.sh, nexus-query.sh, nexus-registry.sh to src/core/nexus/. Add MCP domain routes. Preserve NEXUS vision concepts from CLEO-NEXUS.mdx spec.",
+      "depends": [
+        "T4574"
+      ]
+    },
+    {
+      "id": "T4555",
+      "title": "Fix 7 partially-ported scripts (missing CLI commands or native MCP)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4545",
+      "createdAt": "2026-02-16T04:47:16Z",
+      "updatedAt": "2026-02-16T04:47:16Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Complete partial ports: archive-stats (needs CLI command), generate-changelog (needs CLI command), history (needs native MCP, not cli-only), issue (needs CLI command), skills (needs CLI command), uncancel (needs native MCP), validation (verify covered by validate.ts or add distinct command)."
+    },
+    {
+      "id": "T4556",
+      "title": "EPIC: Documentation Consolidation and GitBook Migration",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-16T04:47:21Z",
+      "updatedAt": "2026-02-16T04:47:21Z",
+      "size": "large",
+      "position": 888,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Aggressive consolidation of 518 docs. Canonical hierarchy: vision.mdx (L1), PORTABLE-BRAIN-SPEC (L2), CANONICAL-PLAN-SPEC (L3), plus supporting specs. Archive superseded docs. Consolidate migration guides. Create LLM-agent-optimized documentation with human summaries. Migrate from Mintlify to GitBook. All docs must support the current TS-native system state. Command reference, MCP usage, and CLI guides are primary. NEXUS concepts preserved."
+    },
+    {
+      "id": "T4557",
+      "title": "Audit and archive superseded documentation (518 files)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4546",
+      "createdAt": "2026-02-16T04:47:26Z",
+      "updatedAt": "2026-02-16T04:49:45Z",
+      "size": "large",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Review all 518 docs. Tag each as: canonical (keep), supporting (keep with updates), superseded (archive), duplicate (merge or remove). Move superseded to archive/. Key targets: MCP-GATEWAY-SPECIFICATION.md (already superseded), CLEO-PATH-FORWARD-2026Q1.md (already marked), any bash-specific guides, duplicate migration docs. Preserve NEXUS concepts. Create DOCUMENTATION-STRUCTURE.md mapping.",
+      "depends": [
+        "T4543"
+      ]
+    },
+    {
+      "id": "T4558",
+      "title": "Update canonical docs to reflect TS-native system state",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4546",
+      "createdAt": "2026-02-16T04:47:37Z",
+      "updatedAt": "2026-02-16T04:49:47Z",
+      "size": "large",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update: CANONICAL-PLAN-SPEC.md (current state now 75% ported, not just started), STRATEGIC-ROADMAP-SPEC.md (gate evidence from Wave 0-5), PORTABLE-BRAIN-SPEC.md (shared-core sibling architecture confirmed), V2-ARCHITECTURE-DECISIONS.md (D1 status update). All docs must be LLM-agent-optimized with human-readable summaries.",
+      "depends": [
+        "T4557"
+      ]
+    },
+    {
+      "id": "T4559",
+      "title": "Create LLM-agent-optimized command reference for GitBook",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4556",
+      "createdAt": "2026-02-16T04:47:40Z",
+      "updatedAt": "2026-02-16T04:49:50Z",
+      "size": "large",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Rewrite all 83 command docs in docs/commands/ for LLM-agent consumption. Each command doc needs: structured format with clear parameter/flag documentation, example invocations, MCP equivalent operations, expected output formats. Human summary section at top. GitBook-compatible MDX format. COMMANDS-INDEX.json must map both CLI and MCP entry points.",
+      "depends": [
+        "T4558"
+      ]
+    },
+    {
+      "id": "T4560",
+      "title": "Migrate documentation infrastructure from Mintlify to GitBook",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4556",
+      "createdAt": "2026-02-16T04:47:43Z",
+      "updatedAt": "2026-02-16T04:49:52Z",
+      "size": "large",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Replace Mintlify docs structure with GitBook. Set up GitBook site, configure Git Sync, migrate MDX files to GitBook-compatible format. Set up docs site with proper navigation, search, versioning. Preserve canonical hierarchy. Configure custom domain if applicable. Ensure llms.txt and MCP server integration for LLM-ready docs.",
+      "depends": [
+        "T4557"
+      ]
+    },
+    {
+      "id": "T4561",
+      "title": "Sandbox test: Greenfield project (fresh init + full workflow)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4548",
+      "createdAt": "2026-02-16T04:47:52Z",
+      "updatedAt": "2026-02-16T04:47:52Z",
+      "size": "large",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Test CLEO against a brand new empty project. Full workflow: cleo init, add tasks, create epics, set phases, run sessions, focus management, dependency tracking, research protocol, consensus, specification, implementation, validation, release cycle. Verify MCP operations work end-to-end. Verify CLI operations work end-to-end. Document expected vs actual outcomes. This proves CLEO works for new project onboarding."
+    },
+    {
+      "id": "T4562",
+      "title": "Sandbox test: Brownfield project (existing codebase adoption)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4548",
+      "createdAt": "2026-02-16T04:47:55Z",
+      "updatedAt": "2026-02-16T04:47:55Z",
+      "size": "large",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Test CLEO adoption on an existing project with history. Simulate: importing existing tasks, migrating from another tool, handling pre-existing git history, managing complex dependency graphs, multi-phase projects. Verify CLEO can be dropped into an existing workflow without disruption. Test migration paths and data import."
+    },
+    {
+      "id": "T4563",
+      "title": "Sandbox test: CLEO self-hosting dogfood (manage own 674 tasks)",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4548",
+      "createdAt": "2026-02-16T04:47:59Z",
+      "updatedAt": "2026-02-16T04:47:59Z",
+      "size": "large",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Ultimate dogfood test: use the NEW TypeScript CLEO to manage CLEO's own 674 tasks, 55 epics, 12 protocols. Test: task CRUD at scale, epic hierarchy, dependency graph performance, session management, RCSD pipeline, validation, doctor, backup/restore, metrics. Verify the TS system handles the same workload the bash system managed. Performance benchmarks. This is the definitive proof the conversion works."
+    },
+    {
+      "id": "T4564",
+      "title": "Stress test: Performance benchmarks (TS vs bash baseline)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4548",
+      "createdAt": "2026-02-16T04:48:03Z",
+      "updatedAt": "2026-02-16T04:48:03Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Benchmark TypeScript system against bash baseline. Metrics: task add latency, list performance at 674 tasks, dependency graph traversal, search/find speed, JSON read/write throughput, MCP operation round-trip time, SQLite store vs JSON store performance. The TS system must match or exceed bash performance. Document results in .cleo/metrics/."
+    },
+    {
+      "id": "T4565",
+      "title": "Validate shared-core architecture: verify MCP and CLI both call src/core/",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4547",
+      "createdAt": "2026-02-16T04:48:13Z",
+      "updatedAt": "2026-02-16T04:48:13Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Audit every MCP domain handler and every CLI command to verify they both route through src/core/ modules. No operation logic should live in the interface layer. Identify any violations where: MCP domain has logic not in core, CLI command has logic not in core, duplicate implementations exist. Create compliance report. This validates the Salesforce DX sibling pattern."
+    },
+    {
+      "id": "T4566",
+      "title": "Verify no duplicate logic between MCP server and CLI",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4547",
+      "createdAt": "2026-02-16T04:48:16Z",
+      "updatedAt": "2026-02-16T04:48:16Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Systematic code review: compare mcp-server/src/domains/ against src/cli/commands/ for each operation. Both must delegate to shared src/core/ or src/store/. Flag any inline implementations, divergent parameter handling, or output formatting differences. The goal is zero logic duplication between interfaces."
+    },
+    {
+      "id": "T4567",
+      "title": "Create bash deprecation plan with BATS test migration strategy",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4549",
+      "createdAt": "2026-02-16T04:48:20Z",
+      "updatedAt": "2026-02-16T04:49:54Z",
+      "size": "large",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "For each of 79 scripts and 106 libs: decide delete/keep/port. Create deprecation timeline. Plan BATS test migration: 273 BATS test files need vitest equivalents for core logic. Identify which BATS tests become integration tests for the TS CLI. Dev tooling scripts (dev/) assessment. Shell completions migration. Install script strategy.",
+      "depends": [
+        "T4542"
+      ]
+    },
+    {
+      "id": "T4568",
+      "title": "Migrate critical BATS tests to vitest for TypeScript system",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4549",
+      "createdAt": "2026-02-16T04:48:24Z",
+      "updatedAt": "2026-02-16T04:49:56Z",
+      "size": "large",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port the 273 BATS test files to vitest equivalents testing the TypeScript core modules. Priority order: task CRUD tests, session tests, validation tests, protocol tests, graph operation tests, phase/lifecycle tests. Each migrated test must cover the same scenarios. Current vitest coverage is only 6 files - needs to reach parity with BATS coverage. Integration tests for CLI commands using vitest+execa.",
+      "depends": [
+        "T4567"
+      ]
+    },
+    {
+      "id": "T4569",
+      "title": "Reconcile Wave 1-5 implementation work with CLEO tasks",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T04:48:34Z",
+      "updatedAt": "2026-02-16T04:48:34Z",
+      "size": "medium",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Wave 1-5 (SQLite store, 25 native engine ports, 8 brain ops, bootstrap, MVI, packaging) was implemented but tracked in Claude Code internal system, not CLEO tasks. Create retroactive task records for: SQLite store layer (6 tables), task engine (13 ops), session engine (5 ops), system engine (7 ops), brain operations (8 ops), bootstrap/unblock/critical-path (3 ops), MVI injection, production packaging. Link to T4454 children. This is the dogfooding gap fix."
+    },
+    {
+      "id": "T4570",
+      "title": "Triage 21 pending bash-era epics (cancel or reparent)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T04:48:41Z",
+      "updatedAt": "2026-02-16T04:48:41Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Review 21 pending epics from bash era. For each: decide if obsolete (cancel), still relevant (reparent under audit), or needs TS equivalent. Key epics: T998 (Session Docs), T1362 (Work Loop), T2089 (CLI Aliases), T2199 (Release Mgmt), T2286 (Protocol Unification), T2308 (Contribution v2), T2348 (Cross-Agent Comm - may overlap T4540), T2419 (Backup Assessment), T2483 (Skills Docs), T4246 (Checkpoint conflict), T4284 (Nexus WebUI), T4334 (MCP Native Engine - may be done), T4491 (Issue refactor)."
+    },
+    {
+      "id": "T4571",
+      "title": "Fix 32 orphaned subtasks (reparent or archive)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T04:48:44Z",
+      "updatedAt": "2026-02-16T04:48:44Z",
+      "size": "small",
+      "position": 12,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "32 subtasks have type=subtask but no parentId. These include RCSD pipeline tasks (T726-T749) and others that lost parent references. For each: identify correct parent or archive if obsolete. Fix data integrity."
+    },
+    {
+      "id": "T4572",
+      "title": "Fix MCP priority validation inconsistency (numeric vs string)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T04:48:47Z",
+      "updatedAt": "2026-02-16T04:48:47Z",
+      "size": "small",
+      "position": 13,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "MCP verification gate expects priority 1-9 (numeric) but CLI add command expects critical/high/medium/low (string). The MCP add operation fails with E_INVALID_PRIORITY for string values, then the CLI fallback fails for numeric values. Both paths must accept the same format. This is a real bug discovered during audit task creation."
+    },
+    {
+      "id": "T4573",
+      "title": "EPIC: CLEO Vision and Spec Revision",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-16T04:48:58Z",
+      "updatedAt": "2026-02-16T04:48:58Z",
+      "size": "medium",
+      "position": 889,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Review and revise CLEO vision and specifications to reflect current state and path forward. The Portable Brain concept, NEXUS cross-project discovery, and LLM-agent-first design must be validated against the actual TS implementation. Update vision.mdx if needed (with user approval - it is marked immutable). Ensure NEXUS concepts from archived spec are preserved in active planning."
+    },
+    {
+      "id": "T4574",
+      "title": "Review and preserve NEXUS concepts from archived spec",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4540",
+      "createdAt": "2026-02-16T04:49:01Z",
+      "updatedAt": "2026-02-16T04:49:01Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "The CLEO-NEXUS.mdx spec at docs/developer/specifications/ contains valuable concepts: neural discovery abstraction, cross-project registry, permission model, query language, exit codes 70-73. These concepts must be preserved and integrated into the A2A communication planning. Extract key mental model ideas, validate against current architecture, and ensure nothing valuable is lost in the archive. NEXUS is part of the Portable Brain vision."
+    },
+    {
+      "id": "T4575",
+      "title": "End-to-end MCP operation validation (all 138 operations)",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4548",
+      "createdAt": "2026-02-16T04:49:05Z",
+      "updatedAt": "2026-02-16T04:49:05Z",
+      "size": "large",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Systematically test all 138 MCP operations through the MCP server. For each operation: invoke via cleo_query or cleo_mutate, verify response format matches schema, verify data integrity, verify error handling. This is the definitive proof that the MCP interface works. Must cover all 11 domains: tasks, session, system, validate, orchestrate, research, lifecycle, issues, release, skills, providers."
+    },
+    {
+      "id": "T4576",
+      "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-16T04:51:15Z",
+      "updatedAt": "2026-02-16T04:51:24Z",
+      "size": "medium",
+      "position": 890,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+      "labels": [
+        "adr",
+        "architecture",
+        "review",
+        "storage"
+      ],
+      "notes": [
+        "2026-02-16 04:51:24 UTC: Linked research: storage-landscape-analysis (CLEO Data Storage Landscape Analysis)"
+      ]
     }
   ],
   "labels": {}
