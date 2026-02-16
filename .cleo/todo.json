@@ -1061,9 +1061,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-16T18:07:14.582Z",
+  "lastUpdated": "2026-02-16T19:16:54Z",
   "_meta": {
-    "checksum": "6d010ed6a15f3c15",
+    "checksum": "612b1a0d348dc1b9",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1072,7 +1072,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 31,
-    "generation": 3538
+    "generation": 3539
   },
   "focus": {
     "currentTask": "T4558",
@@ -7286,6 +7286,130 @@
       "files": [
         "docs/adrs/ADR-002-hybrid-storage-strategy.md"
       ]
+    },
+    {
+      "id": "T4585",
+      "title": "Register 38 unregistered CLI commands in src/cli/index.ts",
+      "status": "done",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T19:14:39Z",
+      "updatedAt": "2026-02-16T19:16:54Z",
+      "size": "medium",
+      "position": 13,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add imports and program.addCommand() registrations for all 38 unregistered command files: analyze, backup, blockers, compliance, config, consensus, context, contribution, dash, decomposition, doctor, export, history, implementation, import, init, inject, labels, log, next, otel, phases, promote, relates, reopen, reorder, reparent, restore, roadmap, self-update, sequence, specification, stats, unarchive, uncancel, upgrade, validate, verify. Build and verify all 76 commands respond to --help.",
+      "completedAt": "2026-02-16T19:16:54Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:16:54Z] Registered all 38 commands in src/cli/index.ts. Build passes. tsc --noEmit passes with 0 errors. 126 help lines."
+      ]
+    },
+    {
+      "id": "T4586",
+      "title": "Reconcile 21 missing CLEO tasks from Waves 0-2",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T19:14:41Z",
+      "updatedAt": "2026-02-16T19:14:41Z",
+      "size": "medium",
+      "position": 14,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create retroactive CLEO tasks for work completed in Waves 0-2 that was not tracked. Wave 0 (ac01c2b): T4577 epic, T4578-T4584. Wave 1 (06266e4): T4551, T4552, T4554, T4555, T4574. Wave 2 (49b44a6): T4557, T4565, T4566, T4567, T4569, T4570, T4572. Create each task then immediately complete with commit reference."
+    },
+    {
+      "id": "T4587",
+      "title": "Validate TS CLI system baseline",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T19:14:43Z",
+      "updatedAt": "2026-02-16T19:14:43Z",
+      "size": "small",
+      "position": 15,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Verify the complete system works before testing: npm run build succeeds, node dist/cli/index.js --version prints 2026.2.0, task CRUD works (add, list, delete), npx tsc --noEmit has 0 errors, npx vitest run passes. Fix any failures before proceeding."
+    },
+    {
+      "id": "T4588",
+      "title": "Commit hook validation with TS CLI",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T19:14:45Z",
+      "updatedAt": "2026-02-16T19:14:45Z",
+      "size": "small",
+      "position": 16,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Verify the commit-msg hook (.git/hooks/commit-msg) works with the TS system. Test valid task ID commits pass, commits without task IDs fail, commits with nonexistent task IDs fail. Document results."
+    },
+    {
+      "id": "T4589",
+      "title": "EPIC: Unified package infrastructure with MCP merge (Wave 0)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T19:16:35Z",
+      "updatedAt": "2026-02-16T19:16:35Z",
+      "size": "small",
+      "position": 17,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Wave 0 epic: unified package infrastructure with MCP merge. Committed in ac01c2b."
+    },
+    {
+      "id": "T4590",
+      "title": "Merge MCP server into unified package",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4589",
+      "createdAt": "2026-02-16T19:16:49Z",
+      "updatedAt": "2026-02-16T19:16:49Z",
+      "size": "small",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Merged MCP server codebase into unified package structure for single npm package distribution."
+    },
+    {
+      "id": "T4591",
+      "title": "Configure esbuild for CLI and MCP dual entry points",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4589",
+      "createdAt": "2026-02-16T19:16:52Z",
+      "updatedAt": "2026-02-16T19:16:52Z",
+      "size": "small",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Set up esbuild configuration with separate entry points for CLI (bin/cleo.js) and MCP server (bin/cleo-mcp.js)."
+    },
+    {
+      "id": "T4592",
+      "title": "Set up package.json with bin entries for cleo and cleo-mcp",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4589",
+      "createdAt": "2026-02-16T19:16:54Z",
+      "updatedAt": "2026-02-16T19:16:54Z",
+      "size": "small",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Configured package.json bin field with dual entry points: cleo for CLI and cleo-mcp for MCP server."
     }
   ],
   "labels": {}
