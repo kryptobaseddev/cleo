@@ -118425,11 +118425,337 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_9cd8706f63dc",
+      "timestamp": "2026-02-16T04:51:25Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4576",
+      "before": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_0585d3872019",
+      "timestamp": "2026-02-16T04:51:28Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4576",
+      "before": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_8961f4b5d934",
+      "timestamp": "2026-02-16T04:51:32Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4576",
+      "before": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_0aaad11b47a2",
+      "timestamp": "2026-02-16T04:53:04Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4576",
+      "before": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Review ADR-002 Hybrid Storage Decision and approve migration plan",
+        "status": "pending",
+        "priority": "high",
+        "description": "Review the hybrid storage ADR (ADR-002) and its 3 supporting research deliverables. Decide whether to approve the targeted hybrid approach (SQLite for tasks domain only, JSON for config, JSONL for logs). If approved, plan Phase 1 (fix JSONL append), Phase 2 (introduce tasks.db with drizzle-orm + sql.js), Phase 3 (deprecate todo.json/archive/sessions.json in favor of tasks.db). Key deliverables to review: (1) storage-landscape-analysis.md - full inventory of 30+ data files, (2) sqlite-cli-research.md - SQLite prior art and TS library comparison, (3) storage-competitive-analysis.md - competitive analysis with challenge matrix. ADR location: docs/adrs/ADR-002-hybrid-storage-strategy.md",
+        "phase": "core",
+        "labels": [
+          "adr",
+          "architecture",
+          "review",
+          "storage"
+        ],
+        "files": [
+          "docs/adrs/ADR-002-hybrid-storage-strategy.md"
+        ],
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1771258520-e9d2a6",
+      "timestamp": "2026-02-16T16:15:20Z",
+      "action": "task_created",
+      "taskId": "T4577",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Dev Mode + Package Infrastructure (Wave 0 Prerequisite)",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Dev Mode + Package Infrastructure (Wave 0 Prerequisite)",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1771258530-ccfba6",
+      "timestamp": "2026-02-16T16:15:30Z",
+      "action": "task_created",
+      "taskId": "T4578",
+      "actor": "system",
+      "details": {
+        "title": "Physical merge: move mcp-server/src/ into src/mcp/ unified tree",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Physical merge: move mcp-server/src/ into src/mcp/ unified tree",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1771258534-08bc75",
+      "timestamp": "2026-02-16T16:15:34Z",
+      "action": "task_created",
+      "taskId": "T4579",
+      "actor": "system",
+      "details": {
+        "title": "Update build.mjs for dual-binary esbuild output",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Update build.mjs for dual-binary esbuild output",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1771258537-166d7e",
+      "timestamp": "2026-02-16T16:15:37Z",
+      "action": "task_created",
+      "taskId": "T4580",
+      "actor": "system",
+      "details": {
+        "title": "Implement local dev mode for TypeScript system",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement local dev mode for TypeScript system",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1771258540-df823d",
+      "timestamp": "2026-02-16T16:15:40Z",
+      "action": "task_created",
+      "taskId": "T4581",
+      "actor": "system",
+      "details": {
+        "title": "Implement cleo env command for dev/prod mode switching",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement cleo env command for dev/prod mode switching",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771258544-199862",
+      "timestamp": "2026-02-16T16:15:44Z",
+      "action": "task_created",
+      "taskId": "T4582",
+      "actor": "system",
+      "details": {
+        "title": "Set up npm publish workflows with dist-tags (dev/beta/latest)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Set up npm publish workflows with dist-tags (dev/beta/latest)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771258546-7b2e47",
+      "timestamp": "2026-02-16T16:15:46Z",
+      "action": "task_created",
+      "taskId": "T4583",
+      "actor": "system",
+      "details": {
+        "title": "Update installer for TypeScript package system",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update installer for TypeScript package system",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771258550-990f13",
+      "timestamp": "2026-02-16T16:15:50Z",
+      "action": "task_created",
+      "taskId": "T4584",
+      "actor": "system",
+      "details": {
+        "title": "Update mcp-install for .agents/mcp/servers.json + env-aware config",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update mcp-install for .agents/mcp/servers.json + env-aware config",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 6072,
-    "lastEntry": "2026-02-16T04:49:57Z",
+    "totalEntries": 6076,
+    "lastEntry": "2026-02-16T04:53:04Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
