@@ -1061,9 +1061,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-16T04:51:24Z",
+  "lastUpdated": "2026-02-16T16:15:58Z",
   "_meta": {
-    "checksum": "090d40f804421070",
+    "checksum": "8f0f65640459324a",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1072,7 +1072,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3521
+    "generation": 3525
   },
   "focus": {
     "currentTask": "T4530",
@@ -21620,7 +21620,7 @@
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-16T04:51:15Z",
-      "updatedAt": "2026-02-16T04:51:24Z",
+      "updatedAt": "2026-02-16T04:53:03Z",
       "size": "medium",
       "position": 890,
       "positionVersion": 0,
@@ -21633,8 +21633,137 @@
         "storage"
       ],
       "notes": [
-        "2026-02-16 04:51:24 UTC: Linked research: storage-landscape-analysis (CLEO Data Storage Landscape Analysis)"
+        "2026-02-16 04:51:24 UTC: Linked research: storage-landscape-analysis (CLEO Data Storage Landscape Analysis)",
+        "2026-02-16 04:51:28 UTC: Linked research: sqlite-cli-research (SQLite for CLI Tools - Research Analysis)",
+        "2026-02-16 04:51:31 UTC: Linked research: storage-competitive-analysis (CLEO V2 Storage Strategy: Competitive Analysis)",
+        "2026-02-16 04:53:03 UTC: Research deliverables linked: (1) storage-landscape-analysis - 30+ files inventoried, (2) sqlite-cli-research - 7 tools analyzed, 5 TS libraries compared, (3) storage-competitive-analysis - 3-option challenge matrix. ADR: docs/adrs/ADR-002-hybrid-storage-strategy.md. Supersedes ADR-001."
+      ],
+      "files": [
+        "docs/adrs/ADR-002-hybrid-storage-strategy.md"
       ]
+    },
+    {
+      "id": "T4577",
+      "title": "EPIC: Dev Mode + Package Infrastructure (Wave 0 Prerequisite)",
+      "status": "pending",
+      "priority": "critical",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-16T16:15:20Z",
+      "updatedAt": "2026-02-16T16:15:20Z",
+      "size": "large",
+      "position": 891,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Prerequisite for ALL testing. Merge mcp-server/ into unified single package @cleocode/cleo with two binaries (cleo CLI + cleo-mcp server). Implement local dev mode, dist-tag publishing (dev/beta/rc/latest), env switching, installer updates, .agents/mcp/servers.json support. Must be complete before any sandbox testing is real. 7 subtasks."
+    },
+    {
+      "id": "T4578",
+      "title": "Physical merge: move mcp-server/src/ into src/mcp/ unified tree",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4577",
+      "createdAt": "2026-02-16T16:15:30Z",
+      "updatedAt": "2026-02-16T16:15:30Z",
+      "size": "large",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Move all mcp-server/src/ code into src/mcp/ in the main source tree. Consolidate: (1) Move domains/, engine/, gateways/, lib/, types/, web/ under src/mcp/. (2) Create src/mcp/index.ts as MCP server entry point. (3) Migrate 44 jest tests to vitest under src/mcp/__tests__/. (4) Merge mcp-server/tsconfig.json into root tsconfig.json. (5) Merge mcp-server/package.json dependencies into root package.json. (6) Update all import paths. (7) Ensure both src/cli/ and src/mcp/ import from src/core/ as shared siblings. (8) Update build.mjs for dual entry points: dist/cli.js + dist/mcp-server.js. (9) Delete mcp-server/ directory. One tsconfig, one vitest config, one dependency tree."
+    },
+    {
+      "id": "T4579",
+      "title": "Update build.mjs for dual-binary esbuild output",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4577",
+      "createdAt": "2026-02-16T16:15:34Z",
+      "updatedAt": "2026-02-16T16:15:58Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update esbuild config for two entry points producing dist/cli.js and dist/mcp-server.js. Both get shebang. Update package.json bin field: { cleo: dist/cli.js, cleo-mcp: dist/mcp-server.js }. Verify: npx @cleocode/cleo runs CLI, npx --package=@cleocode/cleo cleo-mcp starts MCP server. Add prepare script so npm install from git works. Set type:module, files:[dist]. Cross-platform: chmod via shx.",
+      "depends": [
+        "T4578"
+      ]
+    },
+    {
+      "id": "T4580",
+      "title": "Implement local dev mode for TypeScript system",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4577",
+      "createdAt": "2026-02-16T16:15:37Z",
+      "updatedAt": "2026-02-16T16:15:37Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create dev setup that: (1) Runs npm run build to produce dist/. (2) Creates symlinks ~/.cleo/bin/cleo -> repo/dist/cli.js and ~/.cleo/bin/cleo-mcp -> repo/dist/mcp-server.js. (3) Links ~/.local/bin/cleo -> ~/.cleo/bin/cleo. (4) Updates VERSION with mode=dev-ts,source=path. (5) Updates MCP config to point to local cleo-mcp. (6) Supports watch mode via npm run dev:watch for rebuild-on-change. Non-interactive, fully scriptable for LLM agents. Must coexist with bash dev mode during transition."
+    },
+    {
+      "id": "T4581",
+      "title": "Implement cleo env command for dev/prod mode switching",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4577",
+      "createdAt": "2026-02-16T16:15:40Z",
+      "updatedAt": "2026-02-16T16:15:40Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "New CLI command: cleo env [status|switch]. Subcommands: status (show current mode: bash-dev, ts-dev, ts-beta, ts-prod), switch dev (local TS build), switch beta (npm @cleocode/cleo@beta), switch prod (npm @cleocode/cleo@latest), switch bash (fallback to old system). Updates both CLI binary path AND MCP server config. JSON output support. No interactive prompts. Updates ~/.cleo/VERSION mode field. Validates target exists before switching."
+    },
+    {
+      "id": "T4582",
+      "title": "Set up npm publish workflows with dist-tags (dev/beta/latest)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4577",
+      "createdAt": "2026-02-16T16:15:44Z",
+      "updatedAt": "2026-02-16T16:15:44Z",
+      "size": "large",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "CI/CD workflows: (1) npm-publish.yml on tag v* push: build, test (vitest+jest), publish @cleocode/cleo to npm @latest. (2) npm-publish-dev.yml on develop push: publish with --tag dev, version suffix -dev.{sha}. (3) npm-publish-beta.yml on release/* push: publish with --tag beta, version suffix -beta.{n}. All run full test suite. prepublishOnly validates build. Include MCP Registry publication step. Deprecate @cleocode/mcp-server package with notice."
+    },
+    {
+      "id": "T4583",
+      "title": "Update installer for TypeScript package system",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4577",
+      "createdAt": "2026-02-16T16:15:46Z",
+      "updatedAt": "2026-02-16T16:15:46Z",
+      "size": "large",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Extend installer/install.sh: (1) --dev mode: build from source, symlink dist/ binaries. (2) --release mode: npm install -g @cleocode/cleo (replaces tarball). (3) --beta mode: npm install -g @cleocode/cleo@beta. (4) Remove bash scripts/ symlink logic. (5) Keep skills, agents, CLAUDE.md injection, completions. (6) Detect Node.js >= 18 prerequisite. (7) Cross-platform: detect Windows, use appropriate npm paths. (8) Non-interactive: no prompts, exit codes for all failures. LLM agent safe."
+    },
+    {
+      "id": "T4584",
+      "title": "Update mcp-install for .agents/mcp/servers.json + env-aware config",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4577",
+      "createdAt": "2026-02-16T16:15:50Z",
+      "updatedAt": "2026-02-16T16:15:50Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update cleo mcp-install to: (1) Write to .agents/mcp/servers.json (CAAMP standard) in addition to .mcp.json (backward compat). (2) Generate correct config based on current env mode: dev points to local dist/, beta uses @cleocode/cleo@beta, prod uses @cleocode/cleo. (3) Support all 12 AI tools (Claude Code, Cursor, VS Code, etc). (4) For global install: command is cleo-mcp directly. For npx: command is npx --package=@cleocode/cleo cleo-mcp. (5) Detect and migrate legacy @cleocode/mcp-server references."
     }
   ],
   "labels": {}
