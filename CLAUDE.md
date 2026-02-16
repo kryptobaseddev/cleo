@@ -79,75 +79,83 @@ jq 'select(.linkedTask != null and (.linkedTask | startswith("T")))' .cleo/metri
 ## Project Structure & Module Organization
 
 ```
-scripts/          # CLI command entrypoints (user-facing commands ONLY)
-lib/              # Shared Bash helpers organized into semantic subdirectories
-  lib/core/       #   Foundation: exit codes, error handling, logging, config, paths
-  lib/validation/ #   Schema validation, protocol enforcement, compliance, doctor
-  lib/session/    #   Session lifecycle, context monitoring, lock detection
-  lib/tasks/      #   Task mutations, dependency graphs, hierarchy, lifecycle
-  lib/skills/     #   Skill discovery/dispatch, agent registry, orchestrator
-  lib/data/       #   Atomic writes, file ops, backup, cache, migration, nexus
-  lib/ui/         #   CLI flags, command registry, injection system, changelog
-  lib/metrics/    #   Token estimation, metrics aggregation, OpenTelemetry
-  lib/release/    #   Release lifecycle, artifacts, CI, provenance
-  lib/rcsd/       #   RCSD pipeline stages
-schemas/          # JSON Schema definitions for validation
-templates/        # Starter templates for new projects
-tests/            # BATS test suite with unit/, integration/, golden/, fixtures/
-docs/             # User-facing documentation
-claudedocs/       # Internal research and specifications
-archive/          # Historical data and early designs
-dev/              # Development scripts (bump-version, benchmark, validation)
-dev/migrations/   # Internal one-time migration scripts (NOT user commands)
+src/                # TypeScript source (primary codebase)
+  src/cli/          #   CLI entry point (Commander.js) and command registrations
+  src/cli/commands/ #   74 command handlers (parse args -> core -> format output)
+  src/core/         #   Shared business logic (tasks, sessions, lifecycle, etc.)
+  src/mcp/          #   MCP server (domains, engine adapters)
+  src/mcp/domains/  #     MCP tool definitions and routing
+  src/mcp/engine/   #     Adapters from MCP protocol to src/core/
+  src/store/        #   Data access layer (JSON, atomic ops, backup, lock)
+  src/types/        #   Shared TypeScript type definitions
+  src/validation/   #   Schema validation and anti-hallucination checks
+schemas/            # JSON Schema definitions for validation
+docs/               # User-facing documentation
+docs/adrs/          #   Architecture Decision Records
+claudedocs/         # Internal research and specifications
+tests/              # Test suite (Vitest + legacy BATS)
+dev/                # Development scripts (bump-version, benchmark, validation)
+dev/migrations/     # Internal one-time migration scripts (NOT user commands)
+scripts/            # Legacy Bash CLI (deprecated, pending removal)
+lib/                # Legacy Bash helpers (deprecated, pending removal)
 ```
 
 ### Key Architecture Principles
-- **Scripts/** contains ONLY user-facing commands (checked by drift detection)
-- **Dev/migrations/** contains internal one-time scripts (NOT user commands)
-- **Lib/** contains shared functions in 9 semantic subdirectories (see `lib/README.md`)
+- **src/core/** is the single source of truth for all business logic
+- **Both CLI and MCP** delegate to `src/core/` (shared-core pattern, verified by T4565/T4566 audit)
+- **src/cli/commands/** contains thin handlers: parse args -> call core -> format output
+- **src/mcp/engine/** contains thin adapters: translate MCP params -> call core -> format response
 - **Atomic file operations** are mandatory for all write operations
 - **JSON Schema validation** runs on every data modification
 - **Append-only logging** to todo-log.json for audit trails
+- **scripts/ and lib/** are deprecated Bash code pending removal (see ADR-004)
 
 ## Build, Test, and Development Commands
 
 ### Installation & Setup
 ```bash
-./install.sh --check-deps           # Verify Bash/jq prerequisites
-./install.sh                        # Install symlinks for local development
-git submodule update --init --recursive  # Pull BATS helper libraries
+npm install                          # Install dependencies
+npm run build                        # Compile TypeScript to dist/
+node dist/cli/index.js version       # Verify CLI
 ```
 
 ### Validation & Testing
 ```bash
-cleo version                 # Verify CLI installation
-cleo --validate              # Validate installation and data integrity
-./tests/run-all-tests.sh            # Run full BATS test suite
-bats tests/unit/*.bats              # Run specific unit tests
-bats tests/integration/*.bats       # Run integration tests
-bash -n scripts/*.sh lib/*.sh       # Quick syntax check on shell changes
+npx tsc --noEmit                     # Type-check without emitting
+npm test                             # Run Vitest test suite
+npx vitest run                       # Run tests (explicit)
+npx vitest run --coverage            # Run tests with coverage
+```
+
+### Legacy Testing (BATS - being migrated to Vitest)
+```bash
+./tests/run-all-tests.sh             # Run legacy BATS test suite
+bats tests/unit/*.bats               # Run specific BATS unit tests
 ```
 
 ### Development Tools
 ```bash
+npm run dev                          # Watch mode type-checking
+npm run dev:watch                    # Watch mode build
 cleo release ship <ver> --bump-version  # Bump version via config-driven system
-./dev/validate-version.sh              # Verify version consistency
-./dev/benchmark-performance.sh      # Performance testing
 ```
 
 ## Coding Style & Naming Conventions
 
-### Shell Script Standards
-- **Bash only**: `#!/usr/bin/env bash` shebang required
-- **Error handling**: `set -euo pipefail` where appropriate
-- **Indentation**: 4 spaces (no tabs)
+### TypeScript Standards
+- **Module format**: ESM (`import`/`export`, `"type": "module"` in package.json)
+- **Strict mode**: `strict: true` in tsconfig.json
+- **Indentation**: 2 spaces
 - **Naming conventions**:
-  - Functions/variables: `snake_case`
+  - Functions/variables: `camelCase`
+  - Types/interfaces: `PascalCase`
   - Constants: `UPPER_SNAKE_CASE`
+  - File names: `kebab-case.ts`
 - **Best practices**:
-  - Always quote variable expansions
-  - Prefer `[[ ... ]]` over `[ ... ]` for conditionals
-  - Use `$()` for command substitution (not backticks)
+  - Explicit return types on exported functions
+  - Use `node:` prefix for built-in modules (`import { readFileSync } from 'node:fs'`)
+  - Prefer `.js` extensions in import paths (ESM resolution)
+  - Use Commander.js for CLI argument parsing
 
 ### JSON Standards
 - **Indentation**: 2 spaces
@@ -222,18 +230,31 @@ Format: `<type>: <summary>`
 
 ## Key Files & Entry Points
 
-### Core Scripts
-- `scripts/add.sh` - Task creation
-- `scripts/update.sh` - Task updates
-- `scripts/complete.sh` - Task completion
-- `scripts/phase.sh` - Phase management
-- `scripts/phases.sh` - Phase listing
+### CLI Entry Points
+- `src/cli/index.ts` - CLI entry point (Commander.js program)
+- `src/cli/commands/add.ts` - Task creation
+- `src/cli/commands/update.ts` - Task updates
+- `src/cli/commands/complete.ts` - Task completion
+- `src/cli/commands/session.ts` - Session management
+- `src/cli/commands/focus.ts` - Focus management
 
-### Library Functions
-- `lib/validation.sh` - JSON Schema validation
-- `lib/file-ops.sh` - Atomic file operations
-- `lib/logging.sh` - Audit trail logging
-- `lib/phase-tracking.sh` - Phase management
+### Core Business Logic
+- `src/core/tasks/` - Task CRUD, hierarchy, dependencies
+- `src/core/sessions/` - Session lifecycle, focus tracking
+- `src/core/lifecycle/` - RCSD-IVTR lifecycle gates
+- `src/core/release/` - Release management
+- `src/core/config.ts` - Configuration management
+
+### MCP Server
+- `src/mcp/index.ts` - MCP server entry point
+- `src/mcp/domains/` - MCP tool domain definitions
+- `src/mcp/engine/` - Engine adapters (MCP params -> core calls)
+
+### Store Layer
+- `src/store/json.ts` - JSON file read/write
+- `src/store/atomic.ts` - Atomic file operations
+- `src/store/backup.ts` - Backup management
+- `src/store/lock.ts` - File locking
 
 ### Schema Definitions
 - `schemas/todo.schema.json` - Main task schema
@@ -243,30 +264,19 @@ Format: `<type>: <summary>`
 The backup system implements a **two-tier design**:
 
 ### Tier 1: Operational Backups (Atomic Write Safety)
-- **Location**: `lib/file-ops.sh`
+- **Location**: `src/store/atomic.ts`
 - **Directory**: `.cleo/.backups/` (numbered: `todo.json.1`, `todo.json.2`, etc.)
 - **Purpose**: Automatic rollback protection for every write operation
-- **Trigger**: Automatic on `atomic_write()` / `save_json()`
+- **Trigger**: Automatic on atomic write operations
 - **Retention**: Last 10 backups per file (configurable)
 
 ### Tier 2: Recovery Backups (Point-in-Time Snapshots)
-- **Location**: `lib/backup.sh`
+- **Location**: `src/store/backup.ts`
 - **Directory**: `.cleo/backups/{type}/`
 - **Types**: `snapshot`, `safety`, `archive`, `migration`
 - **Purpose**: User-initiated and pre-destructive operation backups
 - **Trigger**: Manual (`backup` command) or automatic (before destructive ops)
 - **Features**: Metadata, checksums, retention policies
-
-### Key Functions
-| Function | File | Purpose |
-|----------|------|---------|
-| `atomic_write()` | file-ops.sh | Tier 1 write with backup |
-| `backup_file()` | file-ops.sh | Tier 1 numbered backup |
-| `create_snapshot_backup()` | backup.sh | Tier 2 full snapshot |
-| `create_safety_backup()` | backup.sh | Tier 2 pre-operation backup |
-| `rotate_backups()` | backup.sh | Tier 2 retention enforcement |
-| `list_typed_backups()` | backup.sh | Tier 2 backup listing |
-| `restore_typed_backup()` | backup.sh | Tier 2 recovery |
 
 ## Validation & Error Handling
 
@@ -301,7 +311,7 @@ CLEO enforces protocol compliance for agent-generated outputs:
 | 66 | Release | Invalid semver or missing changelog |
 | 67 | Generic | Unknown protocol or generic violation |
 
-**Validation functions**: `lib/protocol-validation.sh`
+**Validation functions**: `src/validation/` and `src/core/compliance/`
 
 **Guides**:
 - Protocol enforcement: `docs/guides/protocol-enforcement.md`
@@ -340,15 +350,7 @@ CLEO uses a **single source of truth** architecture for schema versions:
 - No SCHEMA_VERSION_* constants - deleted in v0.48.x
 
 ### Reading Versions
-```bash
-source lib/migrate.sh
-
-# Get current schema version for a file type
-version=$(get_schema_version_from_file "todo")  # Returns "2.6.0"
-
-# Discover available migrations
-versions=$(discover_migration_versions "todo")  # Returns "2.2.0 2.3.0 2.4.0..."
-```
+Schema versions are read from JSON Schema files at runtime. The TypeScript migration system in `src/core/migration/` handles version detection and migration execution.
 
 ### Template Placeholders
 Templates use dynamic placeholders replaced during initialization:
@@ -358,10 +360,6 @@ Templates use dynamic placeholders replaced during initialization:
 - `{{SCHEMA_VERSION_LOG}}` → current log.json schema version
 
 ### Migration Conventions
-**Function naming:**
-- Semver pattern: `migrate_<type>_to_<major>_<minor>_<patch>`
-  - Example: `migrate_todo_to_2_6_0`
-- Timestamp pattern (future): `migrate_<type>_<YYYYMMDDHHMMSS>_<description>`
-  - Example: `migrate_todo_20260103120000_add_field`
+Migrations are implemented in `src/core/migration/` as TypeScript functions. Legacy Bash migrations remain in `lib/migrate.sh` for backward compatibility.
 
 **See:** [docs/MIGRATION-SYSTEM.md](docs/MIGRATION-SYSTEM.md) for complete architecture documentation

@@ -40,13 +40,21 @@ These properties must **ALWAYS** be true:
 ## Directory Structure
 
 ```
-~/.cleo/                    # Global installation
-├── schemas/                # JSON Schema definitions
-├── templates/              # Template files
-├── scripts/                # Executable scripts
-├── lib/                    # Shared libraries
-├── docs/                   # Documentation
-└── completions/            # Shell completions
+src/                        # TypeScript source
+├── cli/                    # CLI entry point (Commander.js)
+│   └── commands/           # 74 command handlers (parse args -> core -> output)
+├── core/                   # Shared business logic
+│   ├── tasks/              # Task CRUD, hierarchy, dependencies
+│   ├── sessions/           # Session lifecycle, focus tracking
+│   ├── lifecycle/          # RCSD-IVTR lifecycle gates
+│   ├── release/            # Release management
+│   └── ...                 # validation, metrics, skills, etc.
+├── mcp/                    # MCP server
+│   ├── domains/            # MCP tool definitions and routing
+│   └── engine/             # Adapters from MCP protocol to core
+├── store/                  # Data access layer (JSON, atomic ops, backup)
+├── types/                  # Shared TypeScript type definitions
+└── validation/             # Schema validation
 
 .cleo/                      # Project-level data
 ├── todo.json              # Active tasks
@@ -199,9 +207,9 @@ CLEO provides several extension mechanisms:
 | Extension | Purpose | Location |
 |-----------|---------|----------|
 | Hooks | Pre/post operation callbacks | `hooks/` |
-| Validators | Custom validation rules | `lib/validators/` |
-| Formatters | Custom output formats | `lib/formatters/` |
-| Commands | New CLI commands | `scripts/` |
+| Validators | Custom validation rules | `src/validation/` |
+| MCP Domains | New MCP tool domains | `src/mcp/domains/` |
+| Commands | New CLI commands | `src/cli/commands/` |
 
 ## Performance Considerations
 
@@ -210,7 +218,7 @@ CLEO is optimized for 1000+ tasks:
 - **File locking** prevents race conditions
 - **Indexed operations** for fast lookups
 - **Lazy loading** for archive access
-- **Efficient JSON parsing** with jq streaming
+- **Native JSON parsing** via Node.js (no external dependencies)
 
 ## Next Steps
 

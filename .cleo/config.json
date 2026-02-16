@@ -43,7 +43,6 @@
           "optional": true,
           "description": "README version badge"
         },
-
         {
           "path": "plugin/plugin.json",
           "strategy": "json",
@@ -81,5 +80,8 @@
   },
   "sessionEnforcement": {
     "mode": "advisory"
+  },
+  "hierarchy": {
+    "maxSiblings": 15
   }
 }

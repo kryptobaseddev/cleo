@@ -6,7 +6,7 @@
     "checksum": "",
     "lastModified": "2026-02-16T19:29:51Z",
     "totalSessionsCreated": 629,
-    "lastUpdated": "2026-02-16T18:12:00.504Z"
+    "lastUpdated": "2026-02-16T22:20:09.413Z"
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35547,6 +35547,45 @@
         "max_tokens": 200000
       },
       "endedAt": "2026-02-16T19:29:51Z"
+    },
+    {
+      "id": "session-1771274562988-ecbe88",
+      "name": "Wave 4 Orchestration",
+      "status": "ended",
+      "scope": {
+        "type": "epic",
+        "epicId": "T4624"
+      },
+      "focus": {
+        "taskId": null,
+        "setAt": null
+      },
+      "startedAt": "2026-02-16T20:42:42.989Z",
+      "agent": null,
+      "notes": [
+        "Wave 4 complete. All sub-waves done: 4.1 MCP unification (0 CLI ops), 4.2 Docs (command-reference + llms.txt), 4.3 BATS migration (271 new vitest tests), 4.4 Vision (ADR-003, ADR-004, CLAUDE.md updated)."
+      ],
+      "tasksCompleted": [],
+      "tasksCreated": [],
+      "endedAt": "2026-02-16T21:38:35.233Z"
+    },
+    {
+      "id": "session-1771280409413-bebab9",
+      "name": "Wave 4-5 Orchestration",
+      "status": "active",
+      "scope": {
+        "type": "epic",
+        "epicId": "T4637"
+      },
+      "focus": {
+        "taskId": null,
+        "setAt": null
+      },
+      "startedAt": "2026-02-16T22:20:09.413Z",
+      "agent": null,
+      "notes": [],
+      "tasksCompleted": [],
+      "tasksCreated": []
     }
   ],
   "sessionHistory": [
