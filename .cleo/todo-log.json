@@ -119173,11 +119173,41 @@
         "type": "epic",
         "rootTaskId": "T4577"
       }
+    },
+    {
+      "id": "log_ad5594008f80",
+      "timestamp": "2026-02-16T16:42:36Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4578"
+      },
+      "after": {
+        "currentTask": "T4578"
+      },
+      "details": null
+    },
+    {
+      "id": "log_13a716f837c6",
+      "timestamp": "2026-02-16T17:01:52Z",
+      "sessionId": "session_20260216_090151_931d4c",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4551",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4545"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 6088,
-    "lastEntry": "2026-02-16T16:42:27Z",
+    "totalEntries": 6090,
+    "lastEntry": "2026-02-16T17:01:52Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
