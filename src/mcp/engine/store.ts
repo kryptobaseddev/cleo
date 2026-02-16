@@ -39,7 +39,7 @@ const LOCK_ORDER: Record<string, number> = {
   'todo.json': 1,
   'sessions.json': 2,
   'todo-archive.json': 3,
-  'todo-log.json': 4,
+  'todo-log.jsonl': 4,
   'config.json': 5,
 };
 

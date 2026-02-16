@@ -158,14 +158,14 @@ export async function destroyTestEnvironment(env: TestEnvironment): Promise<void
 
 /**
  * Get the path to the CLEO log file in the test environment.
- * CLEO stores audit logs in .cleo/todo-log.json (not audit-trail.jsonl).
+ * CLEO stores audit logs in .cleo/todo-log.jsonl (not audit-trail.jsonl).
  */
 export function getLogFilePath(projectRoot: string): string {
-  return path.join(projectRoot, '.cleo', 'todo-log.json');
+  return path.join(projectRoot, '.cleo', 'todo-log.jsonl');
 }
 
 /**
- * Read audit log entries from the test environment's todo-log.json.
+ * Read audit log entries from the test environment's todo-log.jsonl.
  * CLEO stores logs as a JSON object with an "entries" array, not JSONL.
  */
 export async function readAuditEntries(

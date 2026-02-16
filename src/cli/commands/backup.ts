@@ -74,7 +74,7 @@ export function registerBackupCommand(program: Command): void {
     .action(async () => {
       try {
         const backupDir = getBackupDir();
-        const dataFiles = ['todo.json', 'config.json', 'todo-archive.json', 'todo-log.json'];
+        const dataFiles = ['todo.json', 'config.json', 'todo-archive.json', 'todo-log.jsonl'];
 
         const allBackups: Array<{ file: string; backups: string[] }> = [];
 

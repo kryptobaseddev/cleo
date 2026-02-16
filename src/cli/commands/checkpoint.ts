@@ -20,7 +20,7 @@ import { readJson } from '../../store/json.js';
  */
 const CHECKPOINT_FILES = [
   'todo.json',
-  'todo-log.json',
+  'todo-log.jsonl',
   'todo-archive.json',
   'config.json',
   'sessions.json',

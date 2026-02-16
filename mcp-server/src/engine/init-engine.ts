@@ -153,8 +153,8 @@ export function initProject(
     filesCreated.push('todo-archive.json');
   }
 
-  // Create todo-log.json
-  const logPath = join(cleoDir, 'todo-log.json');
+  // Create todo-log.jsonl
+  const logPath = join(cleoDir, 'todo-log.jsonl');
   if (!existsSync(logPath) || options?.force) {
     const logData = {
       project: projectName,
@@ -169,7 +169,7 @@ export function initProject(
       entries: [],
     };
     writeFileSync(logPath, JSON.stringify(logData, null, 2) + '\n', 'utf-8');
-    filesCreated.push('todo-log.json');
+    filesCreated.push('todo-log.jsonl');
   }
 
   return {

@@ -11,6 +11,7 @@
 
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import { existsSync, renameSync } from 'node:fs';
 
 /**
  * Get the global CLEO home directory.
@@ -119,9 +120,25 @@ export function getArchivePath(cwd?: string): string {
 
 /**
  * Get the path to the project's log file.
+ * Auto-migrates legacy todo-log.json to todo-log.jsonl if needed.
+ * @task T4644
  */
 export function getLogPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'todo-log.json');
+  const cleoDir = getCleoDirAbsolute(cwd);
+  const newPath = join(cleoDir, 'todo-log.jsonl');
+  const legacyPath = join(cleoDir, 'todo-log.json');
+
+  // Auto-migrate: rename legacy file if new file doesn't exist
+  if (!existsSync(newPath) && existsSync(legacyPath)) {
+    try {
+      renameSync(legacyPath, newPath);
+    } catch {
+      // If rename fails (e.g. permissions), fall back to legacy path
+      return legacyPath;
+    }
+  }
+
+  return newPath;
 }
 
 /**

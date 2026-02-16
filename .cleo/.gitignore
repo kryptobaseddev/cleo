@@ -4,7 +4,7 @@
 #
 # TRACKED (not listed here, so git picks them up):
 #   todo.json, todo-archive.json, config.json, sessions.json,
-#   project-context.json, todo-log.json, .sequence,
+#   project-context.json, todo-log.jsonl, .sequence,
 #   templates/, schemas/
 #
 # IGNORED (listed below):

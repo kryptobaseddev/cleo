@@ -15,7 +15,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome, getCleoDir } from '../../core/paths.js';
 
 /** Legacy CLEO file names migrated from .claude/ */
-const CLEO_FILES = ['todo.json', 'todo-config.json', 'todo-log.json', 'todo-archive.json'];
+const CLEO_FILES = ['todo.json', 'todo-config.json', 'todo-log.json', 'todo-log.jsonl', 'todo-archive.json'];
 
 /** Detection result for a legacy path. */
 interface DetectionResult {

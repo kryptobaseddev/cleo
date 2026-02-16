@@ -8,7 +8,7 @@
  * silently create .cleo/ directories on first write.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import { readJsonFile } from './store.js';
 
@@ -153,23 +153,21 @@ export function initProject(
     filesCreated.push('todo-archive.json');
   }
 
-  // Create todo-log.json
-  const logPath = join(cleoDir, 'todo-log.json');
-  if (!existsSync(logPath) || options?.force) {
-    const logData = {
-      project: projectName,
-      _meta: {
-        schemaVersion: DEFAULT_VERSIONS.log,
-        totalEntries: 0,
-        firstEntry: null,
-        lastEntry: null,
-        formatVersion: '1',
-        entriesPruned: 0,
-      },
-      entries: [],
-    };
-    writeFileSync(logPath, JSON.stringify(logData, null, 2) + '\n', 'utf-8');
-    filesCreated.push('todo-log.json');
+  // Create todo-log.jsonl (migrate from legacy todo-log.json if present)
+  const logPath = join(cleoDir, 'todo-log.jsonl');
+  const legacyLogPath = join(cleoDir, 'todo-log.json');
+  if (!existsSync(logPath)) {
+    if (existsSync(legacyLogPath) && !options?.force) {
+      // Migrate legacy file
+      renameSync(legacyLogPath, logPath);
+      filesCreated.push('todo-log.jsonl (migrated from todo-log.json)');
+    } else {
+      writeFileSync(logPath, '', 'utf-8');
+      filesCreated.push('todo-log.jsonl');
+    }
+  } else if (options?.force) {
+    writeFileSync(logPath, '', 'utf-8');
+    filesCreated.push('todo-log.jsonl');
   }
 
   return {

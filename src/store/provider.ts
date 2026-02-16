@@ -129,7 +129,7 @@ export async function createStoreProvider(
     };
   }
 
-  // JSON store - delegates to existing store functions
-  // These will be wired up when the existing JSON store implements StoreProvider
-  throw new Error('JSON StoreProvider not yet implemented — use existing store/json.ts directly');
+  // JSON store - delegates to existing core module functions
+  const { createJsonStoreProvider } = await import('./json-provider.js');
+  return createJsonStoreProvider(cwd);
 }

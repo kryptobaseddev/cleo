@@ -44,7 +44,7 @@ describe('archiveTasks', () => {
       { id: 'T002', title: 'Pending task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({}, tempDir);
     expect(result.archived).toContain('T001');
@@ -64,7 +64,7 @@ describe('archiveTasks', () => {
       { id: 'T001', title: 'Cancelled', status: 'cancelled', priority: 'medium', createdAt: '2025-01-01T00:00:00Z', cancelledAt: '2025-01-02T00:00:00Z' },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({}, tempDir);
     expect(result.archived).toContain('T001');
@@ -86,7 +86,7 @@ describe('archiveTasks', () => {
       { id: 'T002', title: 'Recent', status: 'done', priority: 'medium', createdAt: '2025-12-01T00:00:00Z', completedAt: '2025-12-15T00:00:00Z' },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({ before: '2025-01-01T00:00:00Z' }, tempDir);
     expect(result.archived).toContain('T001');
@@ -99,7 +99,7 @@ describe('archiveTasks', () => {
       { id: 'T002', title: 'Done 2', status: 'done', priority: 'medium', createdAt: '2025-01-01T00:00:00Z' },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({ taskIds: ['T001'] }, tempDir);
     expect(result.archived).toEqual(['T001']);
@@ -151,7 +151,7 @@ describe('archiveTasks', () => {
       archivedTasks: [{ id: 'T001', title: 'Already archived', status: 'done', priority: 'medium', createdAt: '2024-01-01T00:00:00Z' }],
       version: '1.0.0',
     }));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     await archiveTasks({}, tempDir);
 

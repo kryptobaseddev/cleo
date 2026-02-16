@@ -44,7 +44,7 @@ describe('deleteTask', () => {
       { id: 'T002', title: 'Other task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await deleteTask({ taskId: 'T001' }, tempDir);
     expect(result.deletedTask.id).toBe('T001');
@@ -89,7 +89,7 @@ describe('deleteTask', () => {
       { id: 'T003', title: 'Grandchild', status: 'pending', priority: 'medium', parentId: 'T002', createdAt: new Date().toISOString() },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await deleteTask({ taskId: 'T001', cascade: true }, tempDir);
     expect(result.deletedTask.id).toBe('T001');
@@ -105,7 +105,7 @@ describe('deleteTask', () => {
       { id: 'T002', title: 'Child', status: 'pending', priority: 'medium', parentId: 'T001', type: 'subtask', createdAt: new Date().toISOString() },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await deleteTask({ taskId: 'T001', force: true }, tempDir);
     expect(result.deletedTask.id).toBe('T001');
@@ -135,7 +135,7 @@ describe('deleteTask', () => {
       { id: 'T003', title: 'Third', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
     await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-log.json'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
+    await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     await deleteTask({ taskId: 'T001', force: true }, tempDir);
 
