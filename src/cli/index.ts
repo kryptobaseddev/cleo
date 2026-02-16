@@ -90,6 +90,9 @@ import { registerUpgradeCommand } from './commands/upgrade.js';
 import { registerValidateCommand } from './commands/validate.js';
 import { registerVerifyCommand } from './commands/verify.js';
 
+// Wave 5: Storage migration (T4647, T4648)
+import { registerMigrateStorageCommand } from './commands/migrate-storage.js';
+
 /** Read version from package.json (single source of truth). */
 function getPackageVersion(): string {
   try {
@@ -225,5 +228,8 @@ registerUncancelCommand(program);
 registerUpgradeCommand(program);
 registerValidateCommand(program);
 registerVerifyCommand(program);
+
+// T4647, T4648: Storage migration
+registerMigrateStorageCommand(program);
 
 program.parse();
