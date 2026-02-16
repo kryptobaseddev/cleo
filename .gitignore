@@ -1,40 +1,6 @@
 # CLEO System .gitignore
 # This file is for the claude-todo system repository itself.
-
-# ============================================================
-# Per-Project Task Data
-# ============================================================
-# Task files (.cleo/todo*.json, .cleo/todo*.json) ARE tracked for version control benefits:
-# - Task history preserved in git
-# - Team visibility into work
-# - Backup via version control
-#
-# Only exclude backups and temp files (noise):
-.cleo/backups/
-.cleo/.backups/
-.cleo/*.tmp
-.cleo/*.lock
-.cleo/.cache/
-.cleo/backup-metadata.json
-.cleo/.git-checkpoint-state
-.cleo/.current-session
-.cleo/.context-state-session_*.json
-.cleo/context-states/
-.cleo/metrics/*.lock
-.cleo/metrics/COMPLIANCE.jsonl
-.cleo/rcsd/T*/
-.cleo/todo.json.backup-*
-.cleo/todo.json.corrupted
-.cleo/todo.json.bak*
-
-# CLEO state directory - TRACKED for data integrity
-# Core task files (todo.json, todo-archive.json, config.json, sessions.json) are tracked
-# Only backups, temp files, and caches are ignored (above)
-#
-# CRITICAL: Never ignore .cleo/todo*.json - they contain all task data!
-
-# Metrics data - OTel exports (large, session-specific)
-.cleo/metrics/otel/
+# .cleo/ file management is handled by .cleo/.gitignore
 
 # ============================================================
 # Claude Session Working Documents
@@ -192,7 +158,6 @@ docs/node_modules/
 # !lib/
 # !docs/
 # !tests/
-.cleo/research/
 
 # Project registry (user data, stored in ~/.cleo/, NOT in repo)
 projects-registry.json
