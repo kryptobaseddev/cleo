@@ -2,8 +2,13 @@
 
 **Task**: T4576
 **Date**: 2026-02-14
-**Status**: proposed
+**Decision Date**: 2026-02-16
+**Status**: accepted
 **Supersedes**: ADR-001 (partially — retains JSON for config/logs, introduces SQLite for task domain)
+
+> **Note**: Approved as part of Wave 5 kickoff (T4644). The hybrid storage strategy was accepted
+> after comprehensive review of all three research deliverables and validation of the
+> drizzle-orm + sql.js technology choice.
 
 ## Context
 

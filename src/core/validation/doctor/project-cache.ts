@@ -28,7 +28,7 @@ export interface FileHashes {
   'todo.json'?: string;
   'config.json'?: string;
   'todo-archive.json'?: string;
-  'todo-log.json'?: string;
+  'todo-log.jsonl'?: string;
 }
 
 export interface ProjectCacheEntry {
@@ -176,7 +176,7 @@ export function cacheValidationResult(
   const todoHash = getFileHash(join(projectPath, '.cleo', 'todo.json'));
   const configHash = getFileHash(join(projectPath, '.cleo', 'config.json'));
   const archiveHash = getFileHash(join(projectPath, '.cleo', 'todo-archive.json'));
-  const logHash = getFileHash(join(projectPath, '.cleo', 'todo-log.json'));
+  const logHash = getFileHash(join(projectPath, '.cleo', 'todo-log.jsonl'));
 
   const timestamp = new Date().toISOString();
 
@@ -189,7 +189,7 @@ export function cacheValidationResult(
       'todo.json': todoHash,
       'config.json': configHash,
       'todo-archive.json': archiveHash,
-      'todo-log.json': logHash,
+      'todo-log.jsonl': logHash,
     },
     issues,
     ttl: CACHE_TTL_SECONDS,

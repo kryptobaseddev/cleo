@@ -72,7 +72,7 @@ export function validateSchemaOp(
       todo: '.cleo/todo.json',
       config: '.cleo/config.json',
       archive: '.cleo/todo-archive.json',
-      log: '.cleo/todo-log.json',
+      log: '.cleo/todo-log.jsonl',
     };
 
     const filePath = fileMap[type];

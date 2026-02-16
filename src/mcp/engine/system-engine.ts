@@ -309,7 +309,7 @@ export function systemStats(
   }
 
   // Log-based metrics (handles hybrid JSON/JSONL format)
-  const logPath = getDataPath(projectRoot, 'todo-log.json');
+  const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
   const logEntries = readLogFileEntries(logPath) as Array<{ action?: string; operation?: string; timestamp: string; taskId?: string; after?: Record<string, unknown>; [key: string]: unknown }>;
 
   // Match both legacy action names and any future operation field
@@ -512,7 +512,7 @@ export interface LogQueryData {
 }
 
 /**
- * Query todo-log.json with optional filters.
+ * Query todo-log.jsonl with optional filters.
  */
 export function systemLog(
   projectRoot: string,
@@ -525,7 +525,7 @@ export function systemLog(
     offset?: number;
   }
 ): EngineResult<LogQueryData> {
-  const logPath = getDataPath(projectRoot, 'todo-log.json');
+  const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
   const raw = readLogFileEntries(logPath) as Array<{ operation: string; timestamp: string; taskId?: string; [key: string]: unknown }>;
   let entries = raw;
 
@@ -1034,11 +1034,11 @@ export function systemHealth(
 
   if (params?.detailed) {
     // Check log file
-    const logPath = join(cleoDir, 'todo-log.json');
+    const logPath = join(cleoDir, 'todo-log.jsonl');
     if (existsSync(logPath)) {
-      checks.push({ name: 'log_file', status: 'pass', message: 'todo-log.json exists' });
+      checks.push({ name: 'log_file', status: 'pass', message: 'todo-log.jsonl exists' });
     } else {
-      checks.push({ name: 'log_file', status: 'warn', message: 'todo-log.json not found' });
+      checks.push({ name: 'log_file', status: 'warn', message: 'todo-log.jsonl not found' });
     }
 
     // Check backups directory
@@ -1526,7 +1526,7 @@ export function systemBackup(
     mkdirSync(backupDir, { recursive: true });
   }
 
-  const filesToBackup = ['todo.json', 'todo-archive.json', 'sessions.json', 'config.json', 'todo-log.json'];
+  const filesToBackup = ['todo.json', 'todo-archive.json', 'sessions.json', 'config.json', 'todo-log.jsonl'];
   const backedUp: string[] = [];
 
   for (const file of filesToBackup) {

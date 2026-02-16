@@ -310,7 +310,7 @@ export async function waitForCondition(
 
 /**
  * Capture audit log entries from the isolated test environment.
- * CLEO stores audit logs in .cleo/todo-log.json as a JSON object with an "entries" array.
+ * CLEO stores audit logs in .cleo/todo-log.jsonl as a JSON object with an "entries" array.
  */
 export async function getAuditLogEntries(
   projectRootOrTestDataDir: string,
@@ -323,8 +323,8 @@ export async function getAuditLogEntries(
 ): Promise<any[]> {
   // Try the given path directly, then try parent (in case testDataDir was passed)
   const candidates = [
-    path.join(projectRootOrTestDataDir, '.cleo', 'todo-log.json'),
-    path.join(projectRootOrTestDataDir, '..', '.cleo', 'todo-log.json'),
+    path.join(projectRootOrTestDataDir, '.cleo', 'todo-log.jsonl'),
+    path.join(projectRootOrTestDataDir, '..', '.cleo', 'todo-log.jsonl'),
   ];
 
   for (const logPath of candidates) {

@@ -2264,7 +2264,7 @@ export function taskHistory(
   taskId: string,
   limit?: number
 ): EngineResult<Array<Record<string, unknown>>> {
-  const logPath = getDataPath(projectRoot, 'todo-log.json');
+  const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
   const entries = readLogFileEntries(logPath);
 
   // Filter entries that reference this task

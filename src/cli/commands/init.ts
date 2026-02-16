@@ -83,7 +83,7 @@ const CLEO_GITIGNORE_CONTENT = `# CLEO Project Data - Selective Git Tracking
 #
 # TRACKED (not listed here, so git picks them up):
 #   todo.json, todo-archive.json, config.json, sessions.json,
-#   project-context.json, todo-log.json, .sequence,
+#   project-context.json, todo-log.jsonl, .sequence,
 #   templates/, schemas/
 #
 # IGNORED (listed below):
@@ -228,10 +228,18 @@ export function registerInitCommand(program: Command): void {
         await mkdir(`${backupDir}/safety`, { recursive: true });
 
         // Create log file if not exists
-        const logPath = `${cleoDir}/todo-log.json`;
+        const logPath = `${cleoDir}/todo-log.jsonl`;
         if (!(await fileExists(logPath))) {
-          await writeFile(logPath, '[]');
-          created.push('todo-log.json');
+          // Migrate legacy todo-log.json if it exists
+          const legacyLogPath = `${cleoDir}/todo-log.json`;
+          if (await fileExists(legacyLogPath)) {
+            const { rename: renameFile } = await import('node:fs/promises');
+            await renameFile(legacyLogPath, logPath);
+            created.push('todo-log.jsonl (migrated from todo-log.json)');
+          } else {
+            await writeFile(logPath, '');
+            created.push('todo-log.jsonl');
+          }
         }
 
         // Create archive file if not exists

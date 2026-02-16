@@ -23,7 +23,7 @@ const execFileAsync = promisify(execFile);
 /** State files eligible for checkpointing (relative to .cleo/). */
 const STATE_FILES = [
   'todo.json',
-  'todo-log.json',
+  'todo-log.jsonl',
   'sessions.json',
   'todo-archive.json',
   'config.json',
