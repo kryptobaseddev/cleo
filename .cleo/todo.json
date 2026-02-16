@@ -1061,9 +1061,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-16T17:17:09Z",
+  "lastUpdated": "2026-02-16T17:26:13Z",
   "_meta": {
-    "checksum": "05f44f0ed12a7bc5",
+    "checksum": "86cd17a0954a3524",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1072,7 +1072,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 31,
-    "generation": 3536
+    "generation": 3537
   },
   "focus": {
     "currentTask": "T4578",
@@ -21694,12 +21694,12 @@
     {
       "id": "T4579",
       "title": "Update build.mjs for dual-binary esbuild output",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:34Z",
-      "updatedAt": "2026-02-16T16:15:58Z",
+      "updatedAt": "2026-02-16T17:26:13Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -21707,6 +21707,10 @@
       "description": "Update esbuild config for two entry points producing dist/cli.js and dist/mcp-server.js. Both get shebang. Update package.json bin field: { cleo: dist/cli.js, cleo-mcp: dist/mcp-server.js }. Verify: npx @cleocode/cleo runs CLI, npx --package=@cleocode/cleo cleo-mcp starts MCP server. Add prepare script so npm install from git works. Set type:module, files:[dist]. Cross-platform: chmod via shx.",
       "depends": [
         "T4578"
+      ],
+      "completedAt": "2026-02-16T17:26:13Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T17:26:13Z] Dual-binary build complete: build.mjs updated for multi-entry (cli + mcp), package.json bin field updated (cleo + cleo-mcp), prepare/prepack scripts added, npm pack succeeds (543.6 kB). Both binaries build with shebangs and execute correctly."
       ]
     },
     {
