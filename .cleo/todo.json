@@ -1061,9 +1061,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-16T19:16:54Z",
+  "lastUpdated": "2026-02-16T19:23:47Z",
   "_meta": {
-    "checksum": "612b1a0d348dc1b9",
+    "checksum": "8e6cc4410fba84ed",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1072,7 +1072,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 31,
-    "generation": 3539
+    "generation": 3583
   },
   "focus": {
     "currentTask": "T4558",
@@ -7304,37 +7304,75 @@
       "completedAt": "2026-02-16T19:16:54Z",
       "notes": [
         "[COMPLETED 2026-02-16T19:16:54Z] Registered all 38 commands in src/cli/index.ts. Build passes. tsc --noEmit passes with 0 errors. 126 help lines."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:16:55Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4586",
       "title": "Reconcile 21 missing CLEO tasks from Waves 0-2",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4541",
       "createdAt": "2026-02-16T19:14:41Z",
-      "updatedAt": "2026-02-16T19:14:41Z",
+      "updatedAt": "2026-02-16T19:20:05Z",
       "size": "medium",
       "position": 14,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Create retroactive CLEO tasks for work completed in Waves 0-2 that was not tracked. Wave 0 (ac01c2b): T4577 epic, T4578-T4584. Wave 1 (06266e4): T4551, T4552, T4554, T4555, T4574. Wave 2 (49b44a6): T4557, T4565, T4566, T4567, T4569, T4570, T4572. Create each task then immediately complete with commit reference."
+      "description": "Create retroactive CLEO tasks for work completed in Waves 0-2 that was not tracked. Wave 0 (ac01c2b): T4577 epic, T4578-T4584. Wave 1 (06266e4): T4551, T4552, T4554, T4555, T4574. Wave 2 (49b44a6): T4557, T4565, T4566, T4567, T4569, T4570, T4572. Create each task then immediately complete with commit reference.",
+      "completedAt": "2026-02-16T19:20:05Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:20:05Z] Created and completed 21 retroactive tasks for Waves 0-2. Wave 0 (T4589-T4596, 8 tasks, commit ac01c2b), Wave 1 (T4597-T4601, 5 tasks, commit 06266e4), Wave 2 (T4603-T4609, 7 tasks, commit 49b44a6). Total: 20 new tasks created (T4602 was skipped by ID auto-increment)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:20:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4587",
       "title": "Validate TS CLI system baseline",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4541",
       "createdAt": "2026-02-16T19:14:43Z",
-      "updatedAt": "2026-02-16T19:14:43Z",
+      "updatedAt": "2026-02-16T19:23:47Z",
       "size": "small",
       "position": 15,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify the complete system works before testing: npm run build succeeds, node dist/cli/index.js --version prints 2026.2.0, task CRUD works (add, list, delete), npx tsc --noEmit has 0 errors, npx vitest run passes. Fix any failures before proceeding."
+      "description": "Verify the complete system works before testing: npm run build succeeds, node dist/cli/index.js --version prints 2026.2.0, task CRUD works (add, list, delete), npx tsc --noEmit has 0 errors, npx vitest run passes. Fix any failures before proceeding.",
+      "completedAt": "2026-02-16T19:23:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:23:47Z] System baseline validated: build passes, tsc 0 errors, 1971/1971 tests pass (100 skipped E2E), CRUD works, 126 commands registered. Fixed init/config/add --json flags and test-environment LAFS envelope parsing."
+      ]
     },
     {
       "id": "T4588",
@@ -7354,62 +7392,682 @@
     {
       "id": "T4589",
       "title": "EPIC: Unified package infrastructure with MCP merge (Wave 0)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4541",
       "createdAt": "2026-02-16T19:16:35Z",
-      "updatedAt": "2026-02-16T19:16:35Z",
+      "updatedAt": "2026-02-16T19:17:43Z",
       "size": "small",
       "position": 17,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Wave 0 epic: unified package infrastructure with MCP merge. Committed in ac01c2b."
+      "description": "Wave 0 epic: unified package infrastructure with MCP merge. Committed in ac01c2b.",
+      "completedAt": "2026-02-16T19:17:43Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:43Z] Retroactive: completed in commit ac01c2b. Wave 0 epic - unified package infrastructure with MCP merge."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:44Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4590",
       "title": "Merge MCP server into unified package",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4589",
       "createdAt": "2026-02-16T19:16:49Z",
-      "updatedAt": "2026-02-16T19:16:49Z",
+      "updatedAt": "2026-02-16T19:17:16Z",
       "size": "small",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Merged MCP server codebase into unified package structure for single npm package distribution."
+      "description": "Merged MCP server codebase into unified package structure for single npm package distribution.",
+      "completedAt": "2026-02-16T19:17:16Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:16Z] Retroactive: completed in commit ac01c2b. Wave 0 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:16Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4591",
       "title": "Configure esbuild for CLI and MCP dual entry points",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4589",
       "createdAt": "2026-02-16T19:16:52Z",
-      "updatedAt": "2026-02-16T19:16:52Z",
+      "updatedAt": "2026-02-16T19:17:20Z",
       "size": "small",
       "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Set up esbuild configuration with separate entry points for CLI (bin/cleo.js) and MCP server (bin/cleo-mcp.js)."
+      "description": "Set up esbuild configuration with separate entry points for CLI (bin/cleo.js) and MCP server (bin/cleo-mcp.js).",
+      "completedAt": "2026-02-16T19:17:20Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:20Z] Retroactive: completed in commit ac01c2b. Wave 0 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:20Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4592",
       "title": "Set up package.json with bin entries for cleo and cleo-mcp",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4589",
       "createdAt": "2026-02-16T19:16:54Z",
-      "updatedAt": "2026-02-16T19:16:54Z",
+      "updatedAt": "2026-02-16T19:17:23Z",
       "size": "small",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Configured package.json bin field with dual entry points: cleo for CLI and cleo-mcp for MCP server."
+      "description": "Configured package.json bin field with dual entry points: cleo for CLI and cleo-mcp for MCP server.",
+      "completedAt": "2026-02-16T19:17:23Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:23Z] Retroactive: completed in commit ac01c2b. Wave 0 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:24Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4593",
+      "title": "Implement CalVer versioning (2026.2.0)",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4589",
+      "createdAt": "2026-02-16T19:16:56Z",
+      "updatedAt": "2026-02-16T19:17:27Z",
+      "size": "small",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implemented calendar versioning scheme with initial version 2026.2.0 for the unified package.",
+      "completedAt": "2026-02-16T19:17:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:27Z] Retroactive: completed in commit ac01c2b. Wave 0 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:28Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4594",
+      "title": "Add npm publish configuration",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4589",
+      "createdAt": "2026-02-16T19:16:59Z",
+      "updatedAt": "2026-02-16T19:17:31Z",
+      "size": "small",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Added npm publish configuration including .npmignore, publish scripts, and registry settings.",
+      "completedAt": "2026-02-16T19:17:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:31Z] Retroactive: completed in commit ac01c2b. Wave 0 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:32Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4595",
+      "title": "Create development setup scripts",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4589",
+      "createdAt": "2026-02-16T19:17:01Z",
+      "updatedAt": "2026-02-16T19:17:35Z",
+      "size": "small",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Created development setup scripts for local installation, dependency checking, and dev environment bootstrap.",
+      "completedAt": "2026-02-16T19:17:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:35Z] Retroactive: completed in commit ac01c2b. Wave 0 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:36Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4596",
+      "title": "Set up completions directory structure",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4589",
+      "createdAt": "2026-02-16T19:17:04Z",
+      "updatedAt": "2026-02-16T19:17:39Z",
+      "size": "small",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Set up shell completions directory structure for bash and zsh completion support.",
+      "completedAt": "2026-02-16T19:17:39Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:17:39Z] Retroactive: completed in commit ac01c2b. Wave 0 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:17:40Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4597",
+      "title": "Port bash scripts to TypeScript CLI commands (Wave 1)",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T19:17:55Z",
+      "updatedAt": "2026-02-16T19:18:39Z",
+      "size": "small",
+      "position": 18,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Wave 1: ported remaining bash scripts and libs to TypeScript. Committed in 06266e4.",
+      "completedAt": "2026-02-16T19:18:39Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:18:39Z] Retroactive: completed in commit 06266e4. Wave 1 - port remaining bash scripts and libs to TypeScript."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:18:39Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4598",
+      "title": "Port checkpoint, claude-migrate, commands, docs scripts",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4597",
+      "createdAt": "2026-02-16T19:18:05Z",
+      "updatedAt": "2026-02-16T19:18:21Z",
+      "size": "small",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Ported checkpoint, claude-migrate, commands, and docs bash scripts to TypeScript CLI commands.",
+      "completedAt": "2026-02-16T19:18:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:18:21Z] Retroactive: completed in commit 06266e4. Wave 1 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:18:22Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4599",
+      "title": "Port export-tasks, extract, import-tasks, safestop scripts",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4597",
+      "createdAt": "2026-02-16T19:18:08Z",
+      "updatedAt": "2026-02-16T19:18:26Z",
+      "size": "small",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Ported export-tasks, extract, import-tasks, and safestop bash scripts to TypeScript CLI commands.",
+      "completedAt": "2026-02-16T19:18:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:18:26Z] Retroactive: completed in commit 06266e4. Wave 1 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:18:27Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4600",
+      "title": "Fix partial port issues (archive-stats, changelog, issue, skills)",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4597",
+      "createdAt": "2026-02-16T19:18:10Z",
+      "updatedAt": "2026-02-16T19:18:30Z",
+      "size": "small",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed partial port issues in archive-stats, changelog, issue, and skills TypeScript commands.",
+      "completedAt": "2026-02-16T19:18:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:18:30Z] Retroactive: completed in commit 06266e4. Wave 1 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:18:31Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4601",
+      "title": "Add exists command for task ID validation",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4597",
+      "createdAt": "2026-02-16T19:18:12Z",
+      "updatedAt": "2026-02-16T19:18:35Z",
+      "size": "small",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Added new exists CLI command for validating task IDs exist in the system.",
+      "completedAt": "2026-02-16T19:18:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:18:35Z] Retroactive: completed in commit 06266e4. Wave 1 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:18:35Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4603",
+      "title": "Architecture audit and documentation cleanup (Wave 2)",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4541",
+      "createdAt": "2026-02-16T19:18:49Z",
+      "updatedAt": "2026-02-16T19:19:53Z",
+      "size": "small",
+      "position": 19,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Wave 2: architecture audit, doc cleanup, and priority validation fix. Committed in 49b44a6.",
+      "completedAt": "2026-02-16T19:19:53Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:19:53Z] Retroactive: completed in commit 49b44a6. Wave 2 - architecture audit, doc cleanup, and priority validation fix."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:19:53Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4604",
+      "title": "Run full architecture audit on TS codebase",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4603",
+      "createdAt": "2026-02-16T19:19:01Z",
+      "updatedAt": "2026-02-16T19:19:26Z",
+      "size": "small",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Ran comprehensive architecture audit on the TypeScript codebase to identify structural issues and improvement areas.",
+      "completedAt": "2026-02-16T19:19:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:19:26Z] Retroactive: completed in commit 49b44a6. Wave 2 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:19:26Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4605",
+      "title": "Clean up and update canonical documentation",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4603",
+      "createdAt": "2026-02-16T19:19:03Z",
+      "updatedAt": "2026-02-16T19:19:30Z",
+      "size": "small",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Cleaned up and updated canonical documentation to reflect the current TS-native system state.",
+      "completedAt": "2026-02-16T19:19:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:19:30Z] Retroactive: completed in commit 49b44a6. Wave 2 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:19:30Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4606",
+      "title": "Fix priority validation in add command",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4603",
+      "createdAt": "2026-02-16T19:19:05Z",
+      "updatedAt": "2026-02-16T19:19:35Z",
+      "size": "small",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed priority validation bug in the add command to properly validate priority values.",
+      "completedAt": "2026-02-16T19:19:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:19:35Z] Retroactive: completed in commit 49b44a6. Wave 2 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:19:35Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4607",
+      "title": "Remove stale documentation references",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4603",
+      "createdAt": "2026-02-16T19:19:08Z",
+      "updatedAt": "2026-02-16T19:19:39Z",
+      "size": "small",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Removed stale and outdated documentation references that no longer apply to the TS-native system.",
+      "completedAt": "2026-02-16T19:19:39Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:19:39Z] Retroactive: completed in commit 49b44a6. Wave 2 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:19:40Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4608",
+      "title": "Add priority validation tests",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4603",
+      "createdAt": "2026-02-16T19:19:11Z",
+      "updatedAt": "2026-02-16T19:19:44Z",
+      "size": "small",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Added test coverage for priority validation logic in the add command.",
+      "completedAt": "2026-02-16T19:19:44Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:19:44Z] Retroactive: completed in commit 49b44a6. Wave 2 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:19:45Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4609",
+      "title": "Update CLAUDE.md with TS-specific guidelines",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4603",
+      "createdAt": "2026-02-16T19:19:14Z",
+      "updatedAt": "2026-02-16T19:19:49Z",
+      "size": "small",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Updated CLAUDE.md with TypeScript-specific guidelines reflecting the new TS-native architecture.",
+      "completedAt": "2026-02-16T19:19:49Z",
+      "notes": [
+        "[COMPLETED 2026-02-16T19:19:49Z] Retroactive: completed in commit 49b44a6. Wave 2 work."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-16T19:19:49Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
