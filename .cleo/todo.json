@@ -1061,18 +1061,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-16T16:15:58Z",
+  "lastUpdated": "2026-02-16T16:16:31Z",
   "_meta": {
-    "checksum": "8f0f65640459324a",
+    "checksum": "52eeeeb2928c3f55",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-15T03:12:21Z",
+    "lastModified": "2026-02-16T16:42:27Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 29,
-    "generation": 3525
+    "activeSessionCount": 30,
+    "generation": 3535
   },
   "focus": {
     "currentTask": "T4530",
@@ -20749,7 +20749,7 @@
     {
       "id": "T4530",
       "title": "Port lib/data/ remaining modules to TypeScript",
-      "status": "active",
+      "status": "pending",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4454",
@@ -21389,12 +21389,15 @@
       "type": "task",
       "parentId": "T4548",
       "createdAt": "2026-02-16T04:47:52Z",
-      "updatedAt": "2026-02-16T04:47:52Z",
+      "updatedAt": "2026-02-16T16:16:22Z",
       "size": "large",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Test CLEO against a brand new empty project. Full workflow: cleo init, add tasks, create epics, set phases, run sessions, focus management, dependency tracking, research protocol, consensus, specification, implementation, validation, release cycle. Verify MCP operations work end-to-end. Verify CLI operations work end-to-end. Document expected vs actual outcomes. This proves CLEO works for new project onboarding."
+      "description": "Test CLEO against a brand new empty project. Full workflow: cleo init, add tasks, create epics, set phases, run sessions, focus management, dependency tracking, research protocol, consensus, specification, implementation, validation, release cycle. Verify MCP operations work end-to-end. Verify CLI operations work end-to-end. Document expected vs actual outcomes. This proves CLEO works for new project onboarding.",
+      "depends": [
+        "T4580"
+      ]
     },
     {
       "id": "T4562",
@@ -21404,12 +21407,15 @@
       "type": "task",
       "parentId": "T4548",
       "createdAt": "2026-02-16T04:47:55Z",
-      "updatedAt": "2026-02-16T04:47:55Z",
+      "updatedAt": "2026-02-16T16:16:24Z",
       "size": "large",
       "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Test CLEO adoption on an existing project with history. Simulate: importing existing tasks, migrating from another tool, handling pre-existing git history, managing complex dependency graphs, multi-phase projects. Verify CLEO can be dropped into an existing workflow without disruption. Test migration paths and data import."
+      "description": "Test CLEO adoption on an existing project with history. Simulate: importing existing tasks, migrating from another tool, handling pre-existing git history, managing complex dependency graphs, multi-phase projects. Verify CLEO can be dropped into an existing workflow without disruption. Test migration paths and data import.",
+      "depends": [
+        "T4580"
+      ]
     },
     {
       "id": "T4563",
@@ -21419,12 +21425,15 @@
       "type": "task",
       "parentId": "T4548",
       "createdAt": "2026-02-16T04:47:59Z",
-      "updatedAt": "2026-02-16T04:47:59Z",
+      "updatedAt": "2026-02-16T16:16:26Z",
       "size": "large",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Ultimate dogfood test: use the NEW TypeScript CLEO to manage CLEO's own 674 tasks, 55 epics, 12 protocols. Test: task CRUD at scale, epic hierarchy, dependency graph performance, session management, RCSD pipeline, validation, doctor, backup/restore, metrics. Verify the TS system handles the same workload the bash system managed. Performance benchmarks. This is the definitive proof the conversion works."
+      "description": "Ultimate dogfood test: use the NEW TypeScript CLEO to manage CLEO's own 674 tasks, 55 epics, 12 protocols. Test: task CRUD at scale, epic hierarchy, dependency graph performance, session management, RCSD pipeline, validation, doctor, backup/restore, metrics. Verify the TS system handles the same workload the bash system managed. Performance benchmarks. This is the definitive proof the conversion works.",
+      "depends": [
+        "T4580"
+      ]
     },
     {
       "id": "T4564",
@@ -21434,12 +21443,15 @@
       "type": "task",
       "parentId": "T4548",
       "createdAt": "2026-02-16T04:48:03Z",
-      "updatedAt": "2026-02-16T04:48:03Z",
+      "updatedAt": "2026-02-16T16:16:28Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Benchmark TypeScript system against bash baseline. Metrics: task add latency, list performance at 674 tasks, dependency graph traversal, search/find speed, JSON read/write throughput, MCP operation round-trip time, SQLite store vs JSON store performance. The TS system must match or exceed bash performance. Document results in .cleo/metrics/."
+      "description": "Benchmark TypeScript system against bash baseline. Metrics: task add latency, list performance at 674 tasks, dependency graph traversal, search/find speed, JSON read/write throughput, MCP operation round-trip time, SQLite store vs JSON store performance. The TS system must match or exceed bash performance. Document results in .cleo/metrics/.",
+      "depends": [
+        "T4580"
+      ]
     },
     {
       "id": "T4565",
@@ -21605,12 +21617,15 @@
       "type": "task",
       "parentId": "T4548",
       "createdAt": "2026-02-16T04:49:05Z",
-      "updatedAt": "2026-02-16T04:49:05Z",
+      "updatedAt": "2026-02-16T16:16:31Z",
       "size": "large",
       "position": 5,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Systematically test all 138 MCP operations through the MCP server. For each operation: invoke via cleo_query or cleo_mutate, verify response format matches schema, verify data integrity, verify error handling. This is the definitive proof that the MCP interface works. Must cover all 11 domains: tasks, session, system, validate, orchestrate, research, lifecycle, issues, release, skills, providers."
+      "description": "Systematically test all 138 MCP operations through the MCP server. For each operation: invoke via cleo_query or cleo_mutate, verify response format matches schema, verify data integrity, verify error handling. This is the definitive proof that the MCP interface works. Must cover all 11 domains: tasks, session, system, validate, orchestrate, research, lifecycle, issues, release, skills, providers.",
+      "depends": [
+        "T4580"
+      ]
     },
     {
       "id": "T4576",
@@ -21660,12 +21675,12 @@
     {
       "id": "T4578",
       "title": "Physical merge: move mcp-server/src/ into src/mcp/ unified tree",
-      "status": "pending",
+      "status": "active",
       "priority": "critical",
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:30Z",
-      "updatedAt": "2026-02-16T16:15:30Z",
+      "updatedAt": "2026-02-16T16:42:27Z",
       "size": "large",
       "position": 1,
       "positionVersion": 0,
@@ -21698,12 +21713,15 @@
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:37Z",
-      "updatedAt": "2026-02-16T16:15:37Z",
+      "updatedAt": "2026-02-16T16:16:01Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Create dev setup that: (1) Runs npm run build to produce dist/. (2) Creates symlinks ~/.cleo/bin/cleo -> repo/dist/cli.js and ~/.cleo/bin/cleo-mcp -> repo/dist/mcp-server.js. (3) Links ~/.local/bin/cleo -> ~/.cleo/bin/cleo. (4) Updates VERSION with mode=dev-ts,source=path. (5) Updates MCP config to point to local cleo-mcp. (6) Supports watch mode via npm run dev:watch for rebuild-on-change. Non-interactive, fully scriptable for LLM agents. Must coexist with bash dev mode during transition."
+      "description": "Create dev setup that: (1) Runs npm run build to produce dist/. (2) Creates symlinks ~/.cleo/bin/cleo -> repo/dist/cli.js and ~/.cleo/bin/cleo-mcp -> repo/dist/mcp-server.js. (3) Links ~/.local/bin/cleo -> ~/.cleo/bin/cleo. (4) Updates VERSION with mode=dev-ts,source=path. (5) Updates MCP config to point to local cleo-mcp. (6) Supports watch mode via npm run dev:watch for rebuild-on-change. Non-interactive, fully scriptable for LLM agents. Must coexist with bash dev mode during transition.",
+      "depends": [
+        "T4579"
+      ]
     },
     {
       "id": "T4581",
@@ -21713,12 +21731,15 @@
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:40Z",
-      "updatedAt": "2026-02-16T16:15:40Z",
+      "updatedAt": "2026-02-16T16:16:03Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
       "phase": "core",
-      "description": "New CLI command: cleo env [status|switch]. Subcommands: status (show current mode: bash-dev, ts-dev, ts-beta, ts-prod), switch dev (local TS build), switch beta (npm @cleocode/cleo@beta), switch prod (npm @cleocode/cleo@latest), switch bash (fallback to old system). Updates both CLI binary path AND MCP server config. JSON output support. No interactive prompts. Updates ~/.cleo/VERSION mode field. Validates target exists before switching."
+      "description": "New CLI command: cleo env [status|switch]. Subcommands: status (show current mode: bash-dev, ts-dev, ts-beta, ts-prod), switch dev (local TS build), switch beta (npm @cleocode/cleo@beta), switch prod (npm @cleocode/cleo@latest), switch bash (fallback to old system). Updates both CLI binary path AND MCP server config. JSON output support. No interactive prompts. Updates ~/.cleo/VERSION mode field. Validates target exists before switching.",
+      "depends": [
+        "T4580"
+      ]
     },
     {
       "id": "T4582",
@@ -21728,12 +21749,15 @@
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:44Z",
-      "updatedAt": "2026-02-16T16:15:44Z",
+      "updatedAt": "2026-02-16T16:16:05Z",
       "size": "large",
       "position": 5,
       "positionVersion": 0,
       "phase": "core",
-      "description": "CI/CD workflows: (1) npm-publish.yml on tag v* push: build, test (vitest+jest), publish @cleocode/cleo to npm @latest. (2) npm-publish-dev.yml on develop push: publish with --tag dev, version suffix -dev.{sha}. (3) npm-publish-beta.yml on release/* push: publish with --tag beta, version suffix -beta.{n}. All run full test suite. prepublishOnly validates build. Include MCP Registry publication step. Deprecate @cleocode/mcp-server package with notice."
+      "description": "CI/CD workflows: (1) npm-publish.yml on tag v* push: build, test (vitest+jest), publish @cleocode/cleo to npm @latest. (2) npm-publish-dev.yml on develop push: publish with --tag dev, version suffix -dev.{sha}. (3) npm-publish-beta.yml on release/* push: publish with --tag beta, version suffix -beta.{n}. All run full test suite. prepublishOnly validates build. Include MCP Registry publication step. Deprecate @cleocode/mcp-server package with notice.",
+      "depends": [
+        "T4579"
+      ]
     },
     {
       "id": "T4583",
@@ -21743,12 +21767,15 @@
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:46Z",
-      "updatedAt": "2026-02-16T16:15:46Z",
+      "updatedAt": "2026-02-16T16:16:08Z",
       "size": "large",
       "position": 6,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Extend installer/install.sh: (1) --dev mode: build from source, symlink dist/ binaries. (2) --release mode: npm install -g @cleocode/cleo (replaces tarball). (3) --beta mode: npm install -g @cleocode/cleo@beta. (4) Remove bash scripts/ symlink logic. (5) Keep skills, agents, CLAUDE.md injection, completions. (6) Detect Node.js >= 18 prerequisite. (7) Cross-platform: detect Windows, use appropriate npm paths. (8) Non-interactive: no prompts, exit codes for all failures. LLM agent safe."
+      "description": "Extend installer/install.sh: (1) --dev mode: build from source, symlink dist/ binaries. (2) --release mode: npm install -g @cleocode/cleo (replaces tarball). (3) --beta mode: npm install -g @cleocode/cleo@beta. (4) Remove bash scripts/ symlink logic. (5) Keep skills, agents, CLAUDE.md injection, completions. (6) Detect Node.js >= 18 prerequisite. (7) Cross-platform: detect Windows, use appropriate npm paths. (8) Non-interactive: no prompts, exit codes for all failures. LLM agent safe.",
+      "depends": [
+        "T4580"
+      ]
     },
     {
       "id": "T4584",
@@ -21758,12 +21785,15 @@
       "type": "task",
       "parentId": "T4577",
       "createdAt": "2026-02-16T16:15:50Z",
-      "updatedAt": "2026-02-16T16:15:50Z",
+      "updatedAt": "2026-02-16T16:16:10Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Update cleo mcp-install to: (1) Write to .agents/mcp/servers.json (CAAMP standard) in addition to .mcp.json (backward compat). (2) Generate correct config based on current env mode: dev points to local dist/, beta uses @cleocode/cleo@beta, prod uses @cleocode/cleo. (3) Support all 12 AI tools (Claude Code, Cursor, VS Code, etc). (4) For global install: command is cleo-mcp directly. For npx: command is npx --package=@cleocode/cleo cleo-mcp. (5) Detect and migrate legacy @cleocode/mcp-server references."
+      "description": "Update cleo mcp-install to: (1) Write to .agents/mcp/servers.json (CAAMP standard) in addition to .mcp.json (backward compat). (2) Generate correct config based on current env mode: dev points to local dist/, beta uses @cleocode/cleo@beta, prod uses @cleocode/cleo. (3) Support all 12 AI tools (Claude Code, Cursor, VS Code, etc). (4) For global install: command is cleo-mcp directly. For npx: command is npx --package=@cleocode/cleo cleo-mcp. (5) Detect and migrate legacy @cleocode/mcp-server references.",
+      "depends": [
+        "T4581"
+      ]
     }
   ],
   "labels": {}
