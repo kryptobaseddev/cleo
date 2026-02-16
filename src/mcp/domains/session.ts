@@ -33,6 +33,9 @@ import {
   sessionDecisionLog as nativeSessionDecisionLog,
   sessionContextDrift as nativeSessionContextDrift,
   sessionRecordAssumption as nativeSessionRecordAssumption,
+  sessionStats as nativeSessionStats,
+  sessionSwitch as nativeSessionSwitch,
+  sessionArchive as nativeSessionArchive,
   resolveProjectRoot,
   isProjectInitialized,
 } from '../engine/index.js';
@@ -243,6 +246,13 @@ export class SessionHandler implements DomainHandler {
           'cleo_query', operation, startTime
         );
       }
+      case 'stats': {
+        const p = params as unknown as SessionStatsParams;
+        return this.wrapNativeResult(
+          nativeSessionStats(this.projectRoot, p?.sessionId),
+          'cleo_query', operation, startTime
+        );
+      }
       default:
         return this.createErrorResponse('cleo_query', 'session', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
     }
@@ -415,6 +425,19 @@ export class SessionHandler implements DomainHandler {
           assumption: p.assumption as string,
           confidence: p.confidence as 'high' | 'medium' | 'low',
         });
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'switch': {
+        const p = params as unknown as SessionSwitchParams;
+        if (!p?.sessionId) {
+          return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+        }
+        const result = await nativeSessionSwitch(this.projectRoot, p.sessionId);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'archive': {
+        const p = params as unknown as SessionGcParams;
+        const result = await nativeSessionArchive(this.projectRoot, p?.olderThan as string | undefined);
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
       default:

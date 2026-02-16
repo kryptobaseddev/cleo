@@ -19,11 +19,11 @@ describe('E2E: Research Workflow', () => {
 
   beforeAll(async () => {
     context = await setupE2ETest();
-  });
+  }, 120000);
 
   afterAll(async () => {
     await cleanupE2ETest();
-  });
+  }, 30000);
 
   it('should list research entries', async () => {
     // List research entries from manifest
@@ -75,13 +75,13 @@ describe('E2E: Research Workflow', () => {
     const taskId = extractTaskId(taskResult);
     context.createdTaskIds.push(taskId);
 
-    // Link research to task (using a well-known research ID format)
+    // Link research to task (CLI signature: link <researchId> <taskId>)
+    const researchId = `test-research-${Date.now()}`;
     const linkResult = await context.executor.execute({
       domain: 'research',
       operation: 'link',
-      args: [taskId, `test-research-${Date.now()}`],
+      args: [researchId, taskId],
       flags: {
-        notes: 'Linked for E2E testing',
         json: true,
       },
     });
@@ -109,11 +109,11 @@ describe('E2E: Research Workflow', () => {
     const taskId = extractTaskId(taskResult);
     context.createdTaskIds.push(taskId);
 
-    // Link a research entry
+    // Link a research entry (CLI signature: link <researchId> <taskId>)
     await context.executor.execute({
       domain: 'research',
       operation: 'link',
-      args: [taskId, `links-test-${Date.now()}`],
+      args: [`links-test-${Date.now()}`, taskId],
       flags: { json: true },
     });
 

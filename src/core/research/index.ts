@@ -230,6 +230,68 @@ export async function updateResearch(
   return entry;
 }
 
+/**
+ * Get research statistics.
+ * @task T4474
+ */
+export async function statsResearch(cwd?: string): Promise<{
+  total: number;
+  byStatus: Record<string, number>;
+  byTopic: Record<string, number>;
+}> {
+  const research = await readResearch(cwd);
+  const byStatus: Record<string, number> = {};
+  const byTopic: Record<string, number> = {};
+
+  for (const entry of research.entries) {
+    byStatus[entry.status] = (byStatus[entry.status] || 0) + 1;
+    byTopic[entry.topic] = (byTopic[entry.topic] || 0) + 1;
+  }
+
+  return {
+    total: research.entries.length,
+    byStatus,
+    byTopic,
+  };
+}
+
+/**
+ * Get research entries linked to a specific task.
+ * @task T4474
+ */
+export async function linksResearch(taskId: string, cwd?: string): Promise<ResearchEntry[]> {
+  if (!taskId) {
+    throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
+  }
+  const research = await readResearch(cwd);
+  return research.entries.filter(e => e.taskId === taskId);
+}
+
+/**
+ * Archive old research entries by status.
+ * Moves 'complete' entries older than a threshold to an archive,
+ * or returns summary of archivable entries.
+ * @task T4474
+ */
+export async function archiveResearch(cwd?: string): Promise<{
+  action: string;
+  entriesArchived: number;
+  entriesRemaining: number;
+}> {
+  const research = await readResearch(cwd);
+  const completed = research.entries.filter(e => e.status === 'complete');
+  const remaining = research.entries.filter(e => e.status !== 'complete');
+
+  // Write back only non-complete entries
+  await saveJson(getResearchPath(cwd), { entries: remaining }, { backupDir: getBackupDir(cwd) });
+
+  return {
+    action: 'archive',
+    entriesArchived: completed.length,
+    entriesRemaining: remaining.length,
+  };
+}
+
 // === MANIFEST OPERATIONS ===
 
 /**

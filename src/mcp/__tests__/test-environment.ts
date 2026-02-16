@@ -66,7 +66,17 @@ async function cleoExec(
  * disables session enforcement, and pre-populates test data.
  */
 export async function createTestEnvironment(): Promise<TestEnvironment> {
-  const cliPath = process.env.CLEO_CLI_PATH || 'cleo';
+  // Prefer the project's own built CLI so tests run against current source.
+  // Fall back to CLEO_CLI_PATH env var or the globally installed 'cleo'.
+  const projectCli = path.resolve(
+    path.dirname(new URL(import.meta.url).pathname),
+    '..', '..', '..', 'dist', 'cli', 'index.js'
+  );
+  const defaultCliPath = await fs.access(projectCli).then(
+    () => `node ${projectCli}`,
+    () => 'cleo'
+  );
+  const cliPath = process.env.CLEO_CLI_PATH || defaultCliPath;
 
   // Create temp directory
   const tmpBase = await fs.mkdtemp(path.join(os.tmpdir(), 'cleo-test-'));
@@ -104,7 +114,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
       'add "Test Epic" --description "Epic for integration testing" --json'
     );
     const epicParsed = JSON.parse(epicResult.stdout.trim());
-    const epicId = epicParsed.task?.id;
+    const epicId = epicParsed.data?.task?.id ?? epicParsed.task?.id;
     if (!epicId) {
       throw new Error(`Failed to create test epic: ${epicResult.stdout}`);
     }
@@ -126,7 +136,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
         `add "${task.title}" --description "${task.desc}" --parent ${epicId} --json`
       );
       const parsed = JSON.parse(result.stdout.trim());
-      const taskId = parsed.task?.id;
+      const taskId = parsed.data?.task?.id ?? parsed.task?.id;
       if (taskId) {
         taskIds.push(taskId);
       }

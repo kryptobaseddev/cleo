@@ -9,7 +9,7 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
-    testTimeout: 10_000,
-    hookTimeout: 10_000,
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

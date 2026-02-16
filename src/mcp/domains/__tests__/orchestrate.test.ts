@@ -26,7 +26,7 @@ describe('OrchestrateHandler', () => {
 
     it('returns correct mutate operations', () => {
       const ops = handler.getSupportedOperations();
-      expect(ops.mutate).toEqual(['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'startup']);
+      expect(ops.mutate).toEqual(['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'startup', 'check', 'skill.inject']);
     });
   });
 

@@ -9,6 +9,7 @@
  */
 
 import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { join, dirname, resolve } from 'path';
 import { resolveProjectRoot, readJsonFile, getDataPath } from './store.js';
 import { validateSchema as ajvValidateSchema, type SchemaType } from './schema-validator.js';
@@ -806,6 +807,171 @@ export function validateCoherenceCheck(
     data: {
       coherent: issues.filter((i) => i.severity === 'error').length === 0,
       issues,
+    },
+  };
+}
+
+/**
+ * validate.test.run - Execute test suite via subprocess
+ * Uses execFileSync (no shell) for safety - all args are hardcoded, not user input.
+ * @task T4632
+ */
+export function validateTestRun(
+  params?: { scope?: string; pattern?: string; parallel?: boolean },
+  projectRoot?: string
+): EngineResult {
+  const root = projectRoot || resolveProjectRoot();
+
+  // Determine test runner
+  const hasVitest = existsSync(join(root, 'node_modules', '.bin', 'vitest'));
+  const hasBats = existsSync(join(root, 'tests'));
+
+  if (!hasVitest && !hasBats) {
+    return {
+      success: true,
+      data: {
+        ran: false,
+        message: 'No test runner found (vitest or bats tests/ directory)',
+      },
+    };
+  }
+
+  try {
+    const args: string[] = ['vitest', 'run', '--reporter=json'];
+
+    if (params?.scope) {
+      args.push(params.scope);
+    }
+
+    if (params?.pattern) {
+      args.push('--testNamePattern', params.pattern);
+    }
+
+    const result = execFileSync('npx', args, {
+      cwd: root,
+      timeout: 120000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // Try to parse JSON output from vitest
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result);
+    } catch {
+      parsed = null;
+    }
+
+    return {
+      success: true,
+      data: {
+        ran: true,
+        runner: 'vitest',
+        output: parsed || result.slice(0, 2000),
+        exitCode: 0,
+      },
+    };
+  } catch (error: unknown) {
+    const execError = error as { status?: number; stdout?: string; stderr?: string };
+    return {
+      success: true,
+      data: {
+        ran: true,
+        runner: 'vitest',
+        exitCode: execError.status || 1,
+        stdout: (execError.stdout || '').slice(0, 2000),
+        stderr: (execError.stderr || '').slice(0, 2000),
+        passed: false,
+      },
+    };
+  }
+}
+
+/**
+ * validate.batch-validate - Batch validate all tasks against schema and rules
+ * @task T4632
+ */
+export function validateBatchValidate(
+  projectRoot?: string
+): EngineResult {
+  const root = projectRoot || resolveProjectRoot();
+  const todoPath = getDataPath(root, 'todo.json');
+  const archivePath = getDataPath(root, 'todo-archive.json');
+
+  const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
+  if (!todoData) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: 'todo.json not found' },
+    };
+  }
+
+  const archiveData = readJsonFile<{ tasks: TaskRecord[] }>(archivePath);
+  const allTasks = [
+    ...(todoData.tasks || []),
+    ...(archiveData?.tasks || []),
+  ];
+
+  const results: Array<{
+    taskId: string;
+    valid: boolean;
+    errorCount: number;
+    warningCount: number;
+    violations: RuleViolation[];
+  }> = [];
+
+  let totalErrors = 0;
+  let totalWarnings = 0;
+  const allIds = new Set(allTasks.map((t) => t.id));
+  const allDescriptions = allTasks.map((t) => t.description);
+
+  for (const task of allTasks) {
+    const violations: RuleViolation[] = [];
+
+    // Title/description check
+    violations.push(...validateTitleDescription(task.title, task.description));
+
+    // Timestamp check
+    violations.push(...validateTimestamps(task as any));
+
+    // ID uniqueness check
+    violations.push(...validateIdUniqueness(task.id, allIds));
+
+    // Duplicate description check
+    const otherDescs = allDescriptions.filter((_, i) => allTasks[i].id !== task.id);
+    violations.push(...validateNoDuplicateDescription(task.description, otherDescs));
+
+    // Hierarchy check
+    if (task.parentId) {
+      const parent = allTasks.find((t) => t.id === task.parentId);
+      if (parent) {
+        violations.push(...validateHierarchy(task.parentId, allTasks as any));
+      }
+    }
+
+    const errors = violations.filter((v) => v.severity === 'error').length;
+    const warnings = violations.filter((v) => v.severity === 'warning').length;
+    totalErrors += errors;
+    totalWarnings += warnings;
+
+    results.push({
+      taskId: task.id,
+      valid: errors === 0,
+      errorCount: errors,
+      warningCount: warnings,
+      violations,
+    });
+  }
+
+  return {
+    success: true,
+    data: {
+      totalTasks: allTasks.length,
+      validTasks: results.filter((r) => r.valid).length,
+      invalidTasks: results.filter((r) => !r.valid).length,
+      totalErrors,
+      totalWarnings,
+      results: results.filter((r) => !r.valid), // Only return invalid tasks for brevity
     },
   };
 }

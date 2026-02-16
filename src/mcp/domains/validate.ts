@@ -28,6 +28,8 @@ import {
   validateTestStatus as nativeValidateTestStatus,
   validateTestCoverage as nativeValidateTestCoverage,
   validateCoherenceCheck as nativeValidateCoherenceCheck,
+  validateTestRun as nativeValidateTestRun,
+  validateBatchValidate as nativeValidateBatchValidate,
   resolveProjectRoot,
 } from '../engine/index.js';
 
@@ -257,6 +259,19 @@ export class ValidateHandler implements DomainHandler {
           ),
           'cleo_mutate', operation, startTime
         );
+      case 'test.run':
+        return this.wrapNativeResult(
+          nativeValidateTestRun(
+            params as { scope?: string; pattern?: string; parallel?: boolean } | undefined,
+            this.projectRoot
+          ),
+          'cleo_mutate', operation, startTime
+        );
+      case 'batch-validate':
+        return this.wrapNativeResult(
+          nativeValidateBatchValidate(this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
       default:
         return this.createErrorResponse('cleo_mutate', 'validate', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
     }
@@ -375,6 +390,8 @@ export class ValidateHandler implements DomainHandler {
           return await this.mutateComplianceRecord(params as unknown as ValidateComplianceRecordParams);
         case 'test.run':
           return await this.mutateTestRun(params as unknown as ValidateTestRunParams);
+        case 'batch-validate':
+          return this.mutateNative('batch-validate', params, startTime);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -403,7 +420,7 @@ export class ValidateHandler implements DomainHandler {
       ],
       mutate: [
         'fix', 'schema', 'protocol', 'session', 'research', 'lifecycle',
-        'compliance.record', 'test.run',
+        'compliance.record', 'test.run', 'batch-validate',
       ],
     };
   }

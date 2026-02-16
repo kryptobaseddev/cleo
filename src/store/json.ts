@@ -122,3 +122,96 @@ export async function appendJsonl(
   const content = existing ? existing.trimEnd() + '\n' + line + '\n' : line + '\n';
   await atomicWrite(filePath, content);
 }
+
+/**
+ * Read log entries from a hybrid JSON/JSONL file.
+ * Handles three formats:
+ *   1. Pure JSON: `{ "entries": [...] }` (legacy bash format)
+ *   2. Pure JSONL: one JSON object per line (new TS format)
+ *   3. Hybrid: JSON object followed by JSONL lines (migration state)
+ * Returns a flat array of all entries found.
+ * @task T4622
+ */
+export async function readLogEntries(filePath: string): Promise<Record<string, unknown>[]> {
+  const content = await safeReadFile(filePath);
+  if (content === null) return [];
+
+  const trimmed = content.trim();
+  if (!trimmed) return [];
+
+  // Fast path: try parsing as a single JSON object
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed as Record<string, unknown>[];
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)) {
+      return parsed.entries as Record<string, unknown>[];
+    }
+    // Single object, wrap in array
+    return [parsed as Record<string, unknown>];
+  } catch {
+    // Not valid JSON - handle hybrid format
+  }
+
+  // Hybrid format: find where the initial JSON object ends, then parse JSONL after it
+  const entries: Record<string, unknown>[] = [];
+
+  if (trimmed.startsWith('{')) {
+    // Find the matching closing brace for the initial JSON object
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let jsonEnd = -1;
+
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i]!;
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\' && inString) { escaped = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) { jsonEnd = i + 1; break; }
+      }
+    }
+
+    if (jsonEnd > 0) {
+      // Parse the initial JSON object
+      try {
+        const initialJson = JSON.parse(trimmed.substring(0, jsonEnd));
+        if (initialJson && Array.isArray(initialJson.entries)) {
+          entries.push(...(initialJson.entries as Record<string, unknown>[]));
+        }
+      } catch {
+        // Corrupted initial JSON - skip it
+      }
+
+      // Parse remaining lines as JSONL
+      const remainder = trimmed.substring(jsonEnd).trim();
+      if (remainder) {
+        for (const line of remainder.split('\n')) {
+          const l = line.trim();
+          if (!l || !l.startsWith('{')) continue;
+          try {
+            entries.push(JSON.parse(l) as Record<string, unknown>);
+          } catch {
+            // Skip unparseable lines
+          }
+        }
+      }
+    }
+  } else {
+    // Pure JSONL (no initial JSON object)
+    for (const line of trimmed.split('\n')) {
+      const l = line.trim();
+      if (!l || !l.startsWith('{')) continue;
+      try {
+        entries.push(JSON.parse(l) as Record<string, unknown>);
+      } catch {
+        // Skip unparseable lines
+      }
+    }
+  }
+
+  return entries;
+}

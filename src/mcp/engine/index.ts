@@ -76,6 +76,13 @@ export {
   taskReopen,
   taskRelatesAdd,
   taskComplexityEstimate,
+  taskDepends,
+  taskStats,
+  taskExport,
+  taskHistory,
+  taskLint,
+  taskBatchValidate,
+  taskImport,
   type TaskRecord,
   type MinimalTaskRecord,
 } from './task-engine.js';
@@ -99,11 +106,14 @@ export {
   sessionDecisionLog,
   sessionContextDrift,
   sessionRecordAssumption,
+  sessionStats,
+  sessionSwitch,
+  sessionArchive,
   type SessionRecord,
   type DecisionRecord,
 } from './session-engine.js';
 
-// System engine (system queries + inject.generate)
+// System engine (system queries + mutate operations)
 export {
   systemDash,
   systemStats,
@@ -113,6 +123,20 @@ export {
   systemContext,
   systemSequence,
   systemInjectGenerate,
+  systemMetrics,
+  systemHealth,
+  systemDiagnostics,
+  systemHelp,
+  systemRoadmap,
+  systemCompliance,
+  systemBackup,
+  systemRestore,
+  systemMigrate,
+  systemCleanup,
+  systemAudit,
+  systemSync,
+  systemSafestop,
+  systemUncancel,
   type DashboardData,
   type StatsData,
   type LabelsData,
@@ -121,6 +145,20 @@ export {
   type ContextData,
   type SequenceData,
   type InjectGenerateData,
+  type MetricsData,
+  type HealthData,
+  type DiagnosticsData,
+  type HelpData,
+  type RoadmapData,
+  type ComplianceData,
+  type BackupData,
+  type RestoreData,
+  type MigrateData,
+  type CleanupData,
+  type AuditData,
+  type SyncData,
+  type SafestopData,
+  type UncancelData,
 } from './system-engine.js';
 
 // Config engine
@@ -171,24 +209,6 @@ export {
   type TemplateSection,
 } from './template-parser.js';
 
-// Research engine
-export {
-  researchShow,
-  researchList,
-  researchQuery,
-  researchPending,
-  researchStats,
-  researchManifestRead,
-  researchLink,
-  researchManifestAppend,
-  researchManifestArchive,
-  researchContradictions,
-  researchSuperseded,
-  readManifestEntries,
-  filterEntries as filterManifestEntries,
-  type ManifestEntry as ResearchManifestEntry,
-} from './research-engine.js';
-
 // Lifecycle engine
 export {
   lifecycleStatus,
@@ -220,6 +240,8 @@ export {
   validateTestStatus,
   validateTestCoverage,
   validateCoherenceCheck,
+  validateTestRun,
+  validateBatchValidate,
 } from './validate-engine.js';
 
 // Orchestrate engine
@@ -237,7 +259,32 @@ export {
   orchestrateBootstrap,
   orchestrateCriticalPath,
   orchestrateUnblockOpportunities,
+  orchestrateParallelStart,
+  orchestrateParallelEnd,
+  orchestrateCheck,
+  orchestrateSkillInject,
 } from './orchestrate-engine.js';
+
+// Research engine
+export {
+  researchShow,
+  researchList,
+  researchQuery,
+  researchPending,
+  researchStats,
+  researchManifestRead,
+  researchLink,
+  researchManifestAppend,
+  researchManifestArchive,
+  researchContradictions,
+  researchSuperseded,
+  researchInject,
+  researchCompact,
+  researchValidate as researchValidateOp,
+  readManifestEntries,
+  filterEntries as filterManifestEntries,
+  type ManifestEntry as ResearchManifestEntry,
+} from './research-engine.js';
 
 // Release engine
 export {
@@ -249,6 +296,7 @@ export {
   releaseTag,
   releaseGatesRun,
   releaseRollback,
+  releasePush,
 } from './release-engine.js';
 
 // Capability matrix

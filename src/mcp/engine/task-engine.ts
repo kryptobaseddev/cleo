@@ -7,7 +7,7 @@
  * Supports: show, get, list, find, exists, create/add, update, complete, delete, archive
  */
 
-import { readJsonFile, writeJsonFileAtomic, withFileLock, withMultiLock, getDataPath } from './store.js';
+import { readJsonFile, readLogFileEntries, writeJsonFileAtomic, withFileLock, withMultiLock, getDataPath } from './store.js';
 // validateTask available from schema-validator but not currently used directly
 import {
   validateNewTask,
@@ -17,6 +17,28 @@ import {
   type RuleViolation,
 } from './validation-rules.js';
 import { generateNextIdFromSet, collectAllIds } from './id-generator.js';
+
+/**
+ * Read hierarchy limits from .cleo/config.json.
+ * Falls back to defaults if config is missing or unset.
+ */
+function getHierarchyLimits(projectRoot: string): { maxDepth: number; maxSiblings: number } {
+  const configPath = getDataPath(projectRoot, 'config.json');
+  const config = readJsonFile<Record<string, unknown>>(configPath);
+
+  let maxDepth = 3;
+  let maxSiblings = 7;
+
+  if (config) {
+    const hierarchy = config.hierarchy as Record<string, unknown> | undefined;
+    if (hierarchy) {
+      if (typeof hierarchy.maxDepth === 'number') maxDepth = hierarchy.maxDepth;
+      if (typeof hierarchy.maxSiblings === 'number') maxSiblings = hierarchy.maxSiblings;
+    }
+  }
+
+  return { maxDepth, maxSiblings };
+}
 
 /**
  * Task object as stored in todo.json
@@ -376,7 +398,8 @@ export async function taskCreate(
       .map((t) => t.description)
       .filter(Boolean) as string[];
 
-    // Validate
+    // Validate (with hierarchy limits from config)
+    const limits = getHierarchyLimits(projectRoot);
     const violations = validateNewTask(
       {
         id: newId,
@@ -391,17 +414,25 @@ export async function taskCreate(
         id: t.id,
         parentId: t.parentId,
         type: t.type,
-      }))
+      })),
+      limits
     );
 
     if (hasErrors(violations)) {
-      const errorMessages = violations
-        .filter((v) => v.severity === 'error')
-        .map((v) => v.message);
+      const errorViolations = violations.filter((v) => v.severity === 'error');
+      const errorMessages = errorViolations.map((v) => v.message);
+
+      // Map specific violation rules to specific error codes
+      let code = 'E_VALIDATION_FAILED';
+      const rules = errorViolations.map((v) => v.rule);
+      if (rules.includes('parent-exists')) code = 'E_PARENT_NOT_FOUND';
+      else if (rules.includes('max-depth')) code = 'E_DEPTH_EXCEEDED';
+      else if (rules.includes('max-siblings')) code = 'E_SIBLING_LIMIT';
+
       return {
         success: false,
         error: {
-          code: 'E_VALIDATION_FAILED',
+          code,
           message: errorMessages.join('; '),
           details: violations,
         },
@@ -1719,19 +1750,20 @@ export async function taskReparent(
       cur = taskMap.get(cur.parentId)!;
       if (!cur || parentDepth > 10) break;
     }
-    if (parentDepth + 1 >= 3) {
+    const reparentLimits = getHierarchyLimits(projectRoot);
+    if (parentDepth + 1 >= reparentLimits.maxDepth) {
       return {
         success: false,
-        error: { code: 'E_DEPTH_EXCEEDED', message: `Move would exceed max depth of 3` },
+        error: { code: 'E_DEPTH_EXCEEDED', message: `Move would exceed max depth of ${reparentLimits.maxDepth}` },
       };
     }
 
     // Check sibling limit
     const siblingCount = current.tasks.filter((t) => t.parentId === effectiveParentId && t.id !== taskId).length;
-    if (siblingCount >= 7) {
+    if (siblingCount >= reparentLimits.maxSiblings) {
       return {
         success: false,
-        error: { code: 'E_SIBLING_LIMIT', message: `Parent '${effectiveParentId}' already has ${siblingCount} children (max: 7)` },
+        error: { code: 'E_SIBLING_LIMIT', message: `Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded` },
       };
     }
 
@@ -2025,4 +2057,620 @@ export function taskComplexityEstimate(
       fileCount,
     },
   };
+}
+
+// ===== Dependency Query Operations =====
+
+/**
+ * List dependencies for a task in a given direction.
+ * 'upstream' = what this task depends on
+ * 'downstream' = what depends on this task
+ * 'both' = both directions
+ */
+export function taskDepends(
+  projectRoot: string,
+  taskId: string,
+  direction: 'upstream' | 'downstream' | 'both' = 'both'
+): EngineResult<{
+  taskId: string;
+  direction: string;
+  upstream: Array<{ id: string; title: string; status: string }>;
+  downstream: Array<{ id: string; title: string; status: string }>;
+}> {
+  const todo = loadTodoFile(projectRoot);
+  if (!todo) {
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+  }
+
+  const task = todo.tasks.find((t) => t.id === taskId);
+  if (!task) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+    };
+  }
+
+  const taskMap = new Map(todo.tasks.map((t) => [t.id, t]));
+
+  // Upstream: tasks this task depends on
+  const upstream: Array<{ id: string; title: string; status: string }> = [];
+  if (direction === 'upstream' || direction === 'both') {
+    for (const depId of task.depends ?? []) {
+      const dep = taskMap.get(depId);
+      if (dep) {
+        upstream.push({ id: dep.id, title: dep.title, status: dep.status });
+      }
+    }
+  }
+
+  // Downstream: tasks that depend on this task
+  const downstream: Array<{ id: string; title: string; status: string }> = [];
+  if (direction === 'downstream' || direction === 'both') {
+    for (const t of todo.tasks) {
+      if (t.depends?.includes(taskId)) {
+        downstream.push({ id: t.id, title: t.title, status: t.status });
+      }
+    }
+  }
+
+  return {
+    success: true,
+    data: { taskId, direction, upstream, downstream },
+  };
+}
+
+// ===== Statistics Operations =====
+
+/**
+ * Compute task statistics, optionally scoped to an epic.
+ */
+export function taskStats(
+  projectRoot: string,
+  epicId?: string
+): EngineResult<{
+  total: number;
+  pending: number;
+  active: number;
+  blocked: number;
+  done: number;
+  cancelled: number;
+  byPriority: Record<string, number>;
+  byType: Record<string, number>;
+}> {
+  const todo = loadTodoFile(projectRoot);
+  if (!todo) {
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+  }
+
+  let tasks = todo.tasks;
+
+  // Scope to epic if provided
+  if (epicId) {
+    const epicIds = new Set<string>();
+    epicIds.add(epicId);
+    // Collect all descendants
+    const collectChildren = (parentId: string) => {
+      for (const t of todo.tasks) {
+        if (t.parentId === parentId && !epicIds.has(t.id)) {
+          epicIds.add(t.id);
+          collectChildren(t.id);
+        }
+      }
+    };
+    collectChildren(epicId);
+    tasks = todo.tasks.filter((t) => epicIds.has(t.id));
+  }
+
+  const byStatus: Record<string, number> = {};
+  const byPriority: Record<string, number> = {};
+  const byType: Record<string, number> = {};
+
+  for (const task of tasks) {
+    byStatus[task.status] = (byStatus[task.status] ?? 0) + 1;
+    byPriority[task.priority] = (byPriority[task.priority] ?? 0) + 1;
+    const taskType = task.type ?? 'task';
+    byType[taskType] = (byType[taskType] ?? 0) + 1;
+  }
+
+  return {
+    success: true,
+    data: {
+      total: tasks.length,
+      pending: byStatus['pending'] ?? 0,
+      active: byStatus['active'] ?? 0,
+      blocked: byStatus['blocked'] ?? 0,
+      done: byStatus['done'] ?? 0,
+      cancelled: byStatus['cancelled'] ?? 0,
+      byPriority,
+      byType,
+    },
+  };
+}
+
+// ===== Export Operations =====
+
+/**
+ * Export tasks as JSON or CSV.
+ */
+export function taskExport(
+  projectRoot: string,
+  params?: {
+    format?: 'json' | 'csv';
+    status?: string;
+    parent?: string;
+  }
+): EngineResult<unknown> {
+  const todo = loadTodoFile(projectRoot);
+  if (!todo) {
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+  }
+
+  let tasks = todo.tasks;
+
+  if (params?.status) {
+    tasks = tasks.filter((t) => t.status === params.status);
+  }
+
+  if (params?.parent) {
+    // Collect parent + all descendants
+    const parentIds = new Set<string>();
+    parentIds.add(params.parent);
+    const collectChildren = (parentId: string) => {
+      for (const t of todo.tasks) {
+        if (t.parentId === parentId && !parentIds.has(t.id)) {
+          parentIds.add(t.id);
+          collectChildren(t.id);
+        }
+      }
+    };
+    collectChildren(params.parent);
+    tasks = tasks.filter((t) => parentIds.has(t.id));
+  }
+
+  if (params?.format === 'csv') {
+    // Build CSV output
+    const headers = ['id', 'title', 'status', 'priority', 'type', 'parentId', 'createdAt'];
+    const rows = tasks.map((t) => [
+      t.id,
+      `"${(t.title || '').replace(/"/g, '""')}"`,
+      t.status,
+      t.priority,
+      t.type ?? 'task',
+      t.parentId ?? '',
+      t.createdAt,
+    ].join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    return { success: true, data: { format: 'csv', content: csv, taskCount: tasks.length } };
+  }
+
+  // Default: JSON format
+  return {
+    success: true,
+    data: {
+      format: 'json',
+      tasks,
+      taskCount: tasks.length,
+    },
+  };
+}
+
+// ===== History Operations =====
+
+/**
+ * Get task history from the log file.
+ */
+export function taskHistory(
+  projectRoot: string,
+  taskId: string,
+  limit?: number
+): EngineResult<Array<Record<string, unknown>>> {
+  const logPath = getDataPath(projectRoot, 'todo-log.json');
+  const entries = readLogFileEntries(logPath);
+
+  // Filter entries that reference this task
+  const taskEntries = entries.filter((entry) => {
+    // Check multiple fields where task ID might appear
+    if (entry.taskId === taskId) return true;
+    if (entry.id === taskId) return true;
+    if (typeof entry.details === 'string' && entry.details.includes(taskId)) return true;
+    if (typeof entry.message === 'string' && entry.message.includes(taskId)) return true;
+    return false;
+  });
+
+  // Sort by timestamp descending (most recent first)
+  taskEntries.sort((a, b) => {
+    const timeA = String(a.timestamp ?? a.date ?? '');
+    const timeB = String(b.timestamp ?? b.date ?? '');
+    return timeB.localeCompare(timeA);
+  });
+
+  const result = limit && limit > 0 ? taskEntries.slice(0, limit) : taskEntries;
+
+  return { success: true, data: result };
+}
+
+// ===== Lint Operations =====
+
+/**
+ * Lint tasks for common issues.
+ */
+export function taskLint(
+  projectRoot: string,
+  taskId?: string
+): EngineResult<Array<{
+  taskId: string;
+  severity: 'error' | 'warning';
+  rule: string;
+  message: string;
+}>> {
+  const todo = loadTodoFile(projectRoot);
+  if (!todo) {
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+  }
+
+  const tasks = taskId
+    ? todo.tasks.filter((t) => t.id === taskId)
+    : todo.tasks;
+
+  if (taskId && tasks.length === 0) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+    };
+  }
+
+  const issues: Array<{
+    taskId: string;
+    severity: 'error' | 'warning';
+    rule: string;
+    message: string;
+  }> = [];
+
+  const allDescriptions = new Set<string>();
+  const allIds = new Set<string>();
+
+  for (const task of todo.tasks) {
+    // Check ID uniqueness
+    if (allIds.has(task.id)) {
+      issues.push({
+        taskId: task.id,
+        severity: 'error',
+        rule: 'unique-id',
+        message: `Duplicate task ID: ${task.id}`,
+      });
+    }
+    allIds.add(task.id);
+
+    // Only lint targeted tasks
+    if (taskId && task.id !== taskId) {
+      if (task.description) allDescriptions.add(task.description.toLowerCase());
+      continue;
+    }
+
+    // Check title present
+    if (!task.title || task.title.trim().length === 0) {
+      issues.push({
+        taskId: task.id,
+        severity: 'error',
+        rule: 'title-required',
+        message: 'Task is missing a title',
+      });
+    }
+
+    // Check description present
+    if (!task.description || task.description.trim().length === 0) {
+      issues.push({
+        taskId: task.id,
+        severity: 'warning',
+        rule: 'description-required',
+        message: 'Task is missing a description',
+      });
+    }
+
+    // Check title != description
+    if (task.title && task.description && task.title.trim() === task.description.trim()) {
+      issues.push({
+        taskId: task.id,
+        severity: 'warning',
+        rule: 'title-description-different',
+        message: 'Title and description should not be identical',
+      });
+    }
+
+    // Check duplicate descriptions
+    if (task.description) {
+      const descLower = task.description.toLowerCase();
+      if (allDescriptions.has(descLower)) {
+        issues.push({
+          taskId: task.id,
+          severity: 'warning',
+          rule: 'unique-description',
+          message: 'Duplicate task description found',
+        });
+      }
+      allDescriptions.add(descLower);
+    }
+
+    // Check valid status
+    const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled'];
+    if (!validStatuses.includes(task.status)) {
+      issues.push({
+        taskId: task.id,
+        severity: 'error',
+        rule: 'valid-status',
+        message: `Invalid status: ${task.status}`,
+      });
+    }
+
+    // Check future timestamps
+    const now = new Date();
+    if (task.createdAt && new Date(task.createdAt) > now) {
+      issues.push({
+        taskId: task.id,
+        severity: 'warning',
+        rule: 'no-future-timestamps',
+        message: 'createdAt is in the future',
+      });
+    }
+
+    // Check orphaned parent references
+    if (task.parentId && !todo.tasks.some((t) => t.id === task.parentId)) {
+      issues.push({
+        taskId: task.id,
+        severity: 'error',
+        rule: 'valid-parent',
+        message: `Parent task '${task.parentId}' does not exist`,
+      });
+    }
+
+    // Check orphaned dependency references
+    for (const depId of task.depends ?? []) {
+      if (!todo.tasks.some((t) => t.id === depId)) {
+        issues.push({
+          taskId: task.id,
+          severity: 'warning',
+          rule: 'valid-dependency',
+          message: `Dependency '${depId}' does not exist`,
+        });
+      }
+    }
+  }
+
+  return { success: true, data: issues };
+}
+
+// ===== Batch Validate Operations =====
+
+/**
+ * Validate multiple tasks at once.
+ */
+export function taskBatchValidate(
+  projectRoot: string,
+  taskIds: string[],
+  checkMode: 'full' | 'quick' = 'full'
+): EngineResult<{
+  results: Record<string, Array<{
+    severity: 'error' | 'warning';
+    rule: string;
+    message: string;
+  }>>;
+  summary: {
+    totalTasks: number;
+    validTasks: number;
+    invalidTasks: number;
+    totalIssues: number;
+    errors: number;
+    warnings: number;
+  };
+}> {
+  const todo = loadTodoFile(projectRoot);
+  if (!todo) {
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+  }
+
+  const results: Record<string, Array<{
+    severity: 'error' | 'warning';
+    rule: string;
+    message: string;
+  }>> = {};
+
+  let totalErrors = 0;
+  let totalWarnings = 0;
+
+  for (const id of taskIds) {
+    const task = todo.tasks.find((t) => t.id === id);
+    if (!task) {
+      results[id] = [{ severity: 'error', rule: 'exists', message: `Task '${id}' not found` }];
+      totalErrors++;
+      continue;
+    }
+
+    const taskIssues: Array<{ severity: 'error' | 'warning'; rule: string; message: string }> = [];
+
+    // Quick mode: basic checks
+    if (!task.title || task.title.trim().length === 0) {
+      taskIssues.push({ severity: 'error', rule: 'title-required', message: 'Missing title' });
+    }
+    if (!task.description || task.description.trim().length === 0) {
+      taskIssues.push({ severity: 'warning', rule: 'description-required', message: 'Missing description' });
+    }
+
+    const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled'];
+    if (!validStatuses.includes(task.status)) {
+      taskIssues.push({ severity: 'error', rule: 'valid-status', message: `Invalid status: ${task.status}` });
+    }
+
+    // Full mode: additional checks
+    if (checkMode === 'full') {
+      if (task.title && task.description && task.title.trim() === task.description.trim()) {
+        taskIssues.push({ severity: 'warning', rule: 'title-description-different', message: 'Title equals description' });
+      }
+
+      if (task.parentId && !todo.tasks.some((t) => t.id === task.parentId)) {
+        taskIssues.push({ severity: 'error', rule: 'valid-parent', message: `Parent '${task.parentId}' not found` });
+      }
+
+      for (const depId of task.depends ?? []) {
+        if (!todo.tasks.some((t) => t.id === depId)) {
+          taskIssues.push({ severity: 'warning', rule: 'valid-dependency', message: `Dependency '${depId}' not found` });
+        }
+      }
+
+      const now = new Date();
+      if (task.createdAt && new Date(task.createdAt) > now) {
+        taskIssues.push({ severity: 'warning', rule: 'no-future-timestamps', message: 'createdAt in future' });
+      }
+    }
+
+    results[id] = taskIssues;
+    totalErrors += taskIssues.filter((i) => i.severity === 'error').length;
+    totalWarnings += taskIssues.filter((i) => i.severity === 'warning').length;
+  }
+
+  const invalidTasks = Object.values(results).filter((issues) =>
+    issues.some((i) => i.severity === 'error')
+  ).length;
+
+  return {
+    success: true,
+    data: {
+      results,
+      summary: {
+        totalTasks: taskIds.length,
+        validTasks: taskIds.length - invalidTasks,
+        invalidTasks,
+        totalIssues: totalErrors + totalWarnings,
+        errors: totalErrors,
+        warnings: totalWarnings,
+      },
+    },
+  };
+}
+
+// ===== Import Operations =====
+
+/**
+ * Import tasks from a JSON source string or export package.
+ */
+export async function taskImport(
+  projectRoot: string,
+  source: string,
+  overwrite?: boolean
+): Promise<EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }>> {
+  const todoPath = getDataPath(projectRoot, 'todo.json');
+
+  return await withFileLock<EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }>>(
+    todoPath,
+    () => {
+      const current = loadTodoFile(projectRoot);
+      if (!current || !current.tasks) {
+        return {
+          success: false,
+          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
+        };
+      }
+
+      // Parse the source JSON
+      let importData: unknown;
+      try {
+        importData = JSON.parse(source);
+      } catch {
+        return {
+          success: false,
+          error: { code: 'E_INVALID_INPUT', message: 'Invalid JSON in import source' },
+        };
+      }
+
+      // Extract tasks from various formats
+      let importTasks: TaskRecord[] = [];
+      if (Array.isArray(importData)) {
+        importTasks = importData as TaskRecord[];
+      } else if (typeof importData === 'object' && importData !== null) {
+        const data = importData as Record<string, unknown>;
+        if (Array.isArray(data.tasks)) {
+          importTasks = data.tasks as TaskRecord[];
+        } else if (data._meta && Array.isArray(data.tasks)) {
+          // Export package format
+          importTasks = data.tasks as TaskRecord[];
+        }
+      }
+
+      if (importTasks.length === 0) {
+        return {
+          success: true,
+          data: { imported: 0, skipped: 0, errors: ['No tasks found in import source'] },
+        };
+      }
+
+      const existingIds = new Set(current.tasks.map((t) => t.id));
+      const allIds = new Set(current.tasks.map((t) => t.id));
+      const errors: string[] = [];
+      let imported = 0;
+      let skipped = 0;
+      const remapTable: Record<string, string> = {};
+
+      // Generate new IDs for imported tasks
+      let nextIdNum = 0;
+      for (const t of current.tasks) {
+        const num = parseInt(t.id.replace('T', ''), 10);
+        if (!isNaN(num) && num > nextIdNum) nextIdNum = num;
+      }
+
+      for (const importTask of importTasks) {
+        if (!importTask.id || !importTask.title) {
+          errors.push(`Skipped task with missing id or title`);
+          skipped++;
+          continue;
+        }
+
+        if (existingIds.has(importTask.id) && !overwrite) {
+          skipped++;
+          continue;
+        }
+
+        // Generate new ID if collision
+        let newId = importTask.id;
+        if (allIds.has(importTask.id) && !overwrite) {
+          nextIdNum++;
+          newId = `T${String(nextIdNum).padStart(3, '0')}`;
+          remapTable[importTask.id] = newId;
+        }
+
+        const now = new Date().toISOString();
+        const newTask: TaskRecord = {
+          ...importTask,
+          id: newId,
+          createdAt: importTask.createdAt || now,
+          updatedAt: now,
+        };
+
+        if (overwrite && existingIds.has(importTask.id)) {
+          // Replace existing
+          const idx = current.tasks.findIndex((t) => t.id === importTask.id);
+          if (idx !== -1) {
+            current.tasks[idx] = newTask;
+          }
+        } else {
+          current.tasks.push(newTask);
+        }
+
+        allIds.add(newId);
+        imported++;
+      }
+
+      if (imported > 0) {
+        saveTodoFile(projectRoot, current);
+      }
+
+      return {
+        success: true,
+        data: {
+          imported,
+          skipped,
+          errors,
+          ...(Object.keys(remapTable).length > 0 ? { remapTable } : {}),
+        },
+      };
+    }
+  ) as EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }>;
 }

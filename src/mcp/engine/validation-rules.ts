@@ -163,18 +163,23 @@ export function validateNoDuplicateDescription(
 }
 
 /**
- * Validate hierarchy constraints
+ * Validate hierarchy constraints.
+ * Accepts optional limits to override defaults (from config).
  */
 export function validateHierarchy(
   parentId: string | null | undefined,
   tasks: Array<{ id: string; parentId?: string | null; type?: string }>,
-  _taskType?: string
+  _taskType?: string,
+  limits?: { maxDepth?: number; maxSiblings?: number }
 ): RuleViolation[] {
   const violations: RuleViolation[] = [];
 
   if (!parentId) {
     return violations;
   }
+
+  const maxDepth = limits?.maxDepth ?? 3;
+  const maxSiblings = limits?.maxSiblings ?? 7;
 
   // Find parent
   const parent = tasks.find((t) => t.id === parentId);
@@ -188,7 +193,7 @@ export function validateHierarchy(
     return violations;
   }
 
-  // Check depth (max 3: epic -> task -> subtask)
+  // Check depth (default max 3: epic -> task -> subtask)
   let depth = 1;
   let current = parent;
   while (current.parentId) {
@@ -198,23 +203,22 @@ export function validateHierarchy(
     current = nextParent;
   }
 
-  if (depth > 2) {
-    // depth > 2 means the new task would be at depth 3+
+  if (depth > maxDepth - 1) {
     violations.push({
       rule: 'max-depth',
       field: 'parentId',
-      message: `Maximum hierarchy depth of 3 exceeded (epic -> task -> subtask)`,
+      message: `Maximum hierarchy depth of ${maxDepth} exceeded (epic -> task -> subtask)`,
       severity: 'error',
     });
   }
 
-  // Check sibling count (max 7 per parent)
+  // Check sibling count
   const siblingCount = tasks.filter((t) => t.parentId === parentId).length;
-  if (siblingCount >= 7) {
+  if (siblingCount >= maxSiblings) {
     violations.push({
       rule: 'max-siblings',
       field: 'parentId',
-      message: `Parent '${parentId}' already has ${siblingCount} children (max 7)`,
+      message: `Parent '${parentId}' already has ${siblingCount} children (max ${maxSiblings})`,
       severity: 'error',
     });
   }
@@ -266,7 +270,8 @@ export function validateNewTask(
   task: TaskLike,
   existingIds: Set<string>,
   existingDescriptions: string[],
-  existingTasks: Array<{ id: string; parentId?: string | null; type?: string }>
+  existingTasks: Array<{ id: string; parentId?: string | null; type?: string }>,
+  limits?: { maxDepth?: number; maxSiblings?: number }
 ): RuleViolation[] {
   const violations: RuleViolation[] = [];
 
@@ -285,7 +290,7 @@ export function validateNewTask(
 
   if (task.parentId) {
     violations.push(
-      ...validateHierarchy(task.parentId, existingTasks, task.type)
+      ...validateHierarchy(task.parentId, existingTasks, task.type, limits)
     );
   }
 

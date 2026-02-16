@@ -285,44 +285,52 @@ export class CLIExecutor {
             // CLEO CLI returns payload fields directly on the response object
             // (e.g., "task", "tasks", "session", "sessionId") rather than
             // wrapping them in a "data" field. Extract by removing envelope fields.
+            // Extract payload data from CLI response.
+            // V2 CLI wraps in {"success":true,"data":{...}}, V1 puts fields at top level.
+            // In both cases, unwrap well-known primary payload fields for convenience.
+            const primaryPayloadFields = [
+              'task', 'tasks', 'session', 'sessions', 'matches', 'results',
+              'result', 'focus', 'entries', 'stages', 'summary',
+            ];
+
             let data: T;
-            if (parsed.data !== undefined) {
-              data = parsed.data as T;
-            } else {
-              // CLEO CLI returns payload fields at the top level rather than
-              // wrapping in a "data" field. Look for well-known primary payload
-              // fields and unwrap them, falling back to the full parsed object.
-              const primaryPayloadFields = [
-                'task', 'tasks', 'session', 'sessions', 'matches',
-                'result', 'focus', 'entries', 'stages', 'summary',
-              ];
+
+            // Determine raw payload: V2 wraps in .data, V1 puts fields at top
+            const rawPayload: Record<string, unknown> =
+              parsed.data !== undefined ? (parsed.data as Record<string, unknown>) : parsed;
+
+            // V2 and V1 both need primary field unwrapping
+            if (rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload)) {
               const found = primaryPayloadFields.find(
-                (f) => parsed[f] !== undefined
+                (f) => (rawPayload as Record<string, unknown>)[f] !== undefined,
               );
-              if (found) {
-                data = parsed[found] as T;
-              } else {
-                // No recognized primary field - strip standard envelope
-                // and return remaining fields as data
-                const envelope = new Set([
-                  '$schema', '_meta', 'success', 'error', 'warnings',
+              if (found && Array.isArray((rawPayload as Record<string, unknown>)[found])) {
+                // Primary field is an array (list/find/entries) - unwrap it
+                data = (rawPayload as Record<string, unknown>)[found] as T;
+              } else if (found) {
+                // Primary field is an object - check for companion fields
+                const metaKeys = new Set([
+                  'total', 'filtered', 'count', 'query', 'searchType',
+                  'message', 'mode', 'initialized', 'directory', 'created',
+                  'skipped', 'duplicate',
                 ]);
-                const payload: Record<string, unknown> = {};
-                for (const [key, value] of Object.entries(parsed)) {
-                  if (!envelope.has(key)) {
-                    payload[key] = value;
-                  }
-                }
-                const payloadKeys = Object.keys(payload);
-                if (payloadKeys.length === 1) {
-                  data = payload[payloadKeys[0]] as T;
-                } else if (payloadKeys.length === 0) {
-                  data = parsed as T;
+                const companions = Object.keys(rawPayload).filter(
+                  (k) => k !== found && !metaKeys.has(k),
+                );
+                if (companions.length === 0) {
+                  data = (rawPayload as Record<string, unknown>)[found] as T;
                 } else {
-                  data = payload as T;
+                  // Has companion fields (upstream, downstream) - keep full payload
+                  data = rawPayload as T;
                 }
+              } else {
+                // No primary field found - use full payload
+                data = rawPayload as T;
               }
+            } else {
+              data = rawPayload as T;
             }
+
 
             return {
               success: true,
@@ -335,11 +343,22 @@ export class CLIExecutor {
           }
 
           // Structured error response
+          // V2 CLI uses numeric codes with a 'name' field (e.g., {code: 4, name: "NOT_FOUND"}).
+          // Normalize to string error codes (E_NOT_FOUND) for compatibility.
+          let errorCode = parsed.error?.code;
+          if (typeof errorCode === 'number') {
+            // Use the name field if available, prefixed with E_
+            const name = parsed.error?.name;
+            errorCode = name ? `E_${name}` : `E_EXIT_${errorCode}`;
+          }
+          const errorExitCode = typeof parsed.error?.code === 'number'
+            ? parsed.error.code
+            : (parsed.error?.exitCode || exitCode);
           return {
             success: false,
             error: {
-              code: parsed.error?.code || 'E_UNKNOWN',
-              exitCode: parsed.error?.exitCode || exitCode,
+              code: errorCode || 'E_UNKNOWN',
+              exitCode: errorExitCode,
               message: parsed.error?.message || 'Command failed',
               details: parsed.error?.details,
               fix: parsed.error?.fix,
@@ -433,7 +452,7 @@ export class CLIExecutor {
     const result = await this.execute<{ version: string }>({
       domain: 'system',
       operation: 'version',
-      customCommand: `${this.cliPath} version --json`,
+      customCommand: `${this.cliPath} version`,
       maxRetries: 1,
     });
 

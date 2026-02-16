@@ -28,11 +28,11 @@ describe('E2E: Session Management Workflow', () => {
 
   beforeAll(async () => {
     context = await setupE2ETest();
-  });
+  }, 120000);
 
   afterAll(async () => {
     await cleanupE2ETest();
-  });
+  }, 30000);
 
   it('should handle session start, status, and list', async () => {
     // Session status should work

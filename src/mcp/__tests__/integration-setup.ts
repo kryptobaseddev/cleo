@@ -116,7 +116,11 @@ export async function setupIntegrationTest(): Promise<IntegrationTestContext> {
 /**
  * Cleanup integration test resources
  */
-export async function cleanupIntegrationTest(context: IntegrationTestContext): Promise<void> {
+export async function cleanupIntegrationTest(context: IntegrationTestContext | undefined | null): Promise<void> {
+  if (!context) {
+    return;
+  }
+
   // End any active session
   try {
     await context.executor.execute({
@@ -131,7 +135,9 @@ export async function cleanupIntegrationTest(context: IntegrationTestContext): P
   }
 
   // Destroy isolated test environment
-  await destroyTestEnvironment(context.testEnv);
+  if (context.testEnv) {
+    await destroyTestEnvironment(context.testEnv);
+  }
 }
 
 /**
@@ -324,8 +330,38 @@ export async function getAuditLogEntries(
   for (const logPath of candidates) {
     try {
       const content = await fs.readFile(logPath, 'utf-8');
-      const parsed = JSON.parse(content);
-      let entries: any[] = parsed.entries || [];
+      let entries: any[] = [];
+
+      // Try parsing as JSON first (initial format with entries array)
+      try {
+        const parsed = JSON.parse(content);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.entries)) {
+          entries = parsed.entries;
+        } else {
+          // Not the expected {entries:[]} format - fall through to JSONL
+          throw new Error('Not entries format');
+        }
+      } catch {
+        // Hybrid format: JSON object followed by JSONL entries.
+        // Parse each line that looks like valid JSON.
+        const lines = content.split('\n').filter((l: string) => l.trim());
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('{')) {
+            try {
+              const entry = JSON.parse(trimmed);
+              // Skip the initial JSON object (it has "entries" key)
+              if (entry.action || entry.taskId) {
+                entries.push(entry);
+              } else if (Array.isArray(entry.entries)) {
+                entries.push(...entry.entries);
+              }
+            } catch {
+              // Skip malformed lines
+            }
+          }
+        }
+      }
 
       if (!filter) {
         return entries;
