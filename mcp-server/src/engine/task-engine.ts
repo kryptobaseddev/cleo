@@ -157,6 +157,45 @@ function saveTodoFile(projectRoot: string, data: TodoFile): void {
   writeJsonFileAtomic(todoPath, data);
 }
 
+/**
+ * Mapping from numeric priority (1-9) to canonical string priority.
+ * @task T4572
+ */
+const NUMERIC_PRIORITY_MAP: Record<number, string> = {
+  1: 'critical', 2: 'critical',
+  3: 'high', 4: 'high',
+  5: 'medium', 6: 'medium',
+  7: 'low', 8: 'low', 9: 'low',
+};
+
+const VALID_STRING_PRIORITIES = ['critical', 'high', 'medium', 'low'];
+
+/**
+ * Normalize priority to canonical string format.
+ * Accepts: "critical"|"high"|"medium"|"low" or numeric 1-9 (number or string).
+ * @task T4572
+ */
+function normalizePriority(priority: string | number | undefined): string {
+  if (priority === undefined || priority === null) return 'medium';
+
+  if (typeof priority === 'number') {
+    return NUMERIC_PRIORITY_MAP[priority] || 'medium';
+  }
+
+  // Check for numeric string
+  const asNum = Number(priority);
+  if (!Number.isNaN(asNum) && Number.isInteger(asNum) && asNum >= 1 && asNum <= 9) {
+    return NUMERIC_PRIORITY_MAP[asNum]!;
+  }
+
+  const lower = String(priority).toLowerCase().trim();
+  if (VALID_STRING_PRIORITIES.includes(lower)) {
+    return lower;
+  }
+
+  return 'medium';
+}
+
 // ===== Query Operations =====
 
 /**
@@ -388,7 +427,7 @@ export async function taskCreate(
       title: params.title,
       description: params.description,
       status: 'pending',
-      priority: params.priority || 'medium',
+      priority: normalizePriority(params.priority),
       type: taskType,
       createdAt: now,
       updatedAt: null,
@@ -491,7 +530,7 @@ export async function taskUpdate(
     // Apply updates
     if (updates.title !== undefined) task.title = updates.title;
     if (updates.description !== undefined) task.description = updates.description;
-    if (updates.priority !== undefined) task.priority = updates.priority;
+    if (updates.priority !== undefined) task.priority = normalizePriority(updates.priority);
     if (updates.labels !== undefined) task.labels = updates.labels;
     if (updates.depends !== undefined) task.depends = updates.depends;
     if (updates.acceptance !== undefined) task.acceptance = updates.acceptance;

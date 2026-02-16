@@ -113,6 +113,7 @@ export enum ExitCode {
   NO_DATA = 100,
   ALREADY_EXISTS = 101,
   NO_CHANGE = 102,
+  TESTS_SKIPPED = 103,
 }
 
 /** Check if an exit code represents an error (1-99). */

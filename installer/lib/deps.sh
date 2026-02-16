@@ -26,16 +26,21 @@ source "${INSTALLER_LIB_DIR}/core.sh"
 # ============================================
 # CONSTANTS
 # ============================================
+readonly DEPS_NODE_MIN_VERSION=20
 readonly DEPS_BASH_MIN_VERSION=4
 readonly DEPS_JQ_MIN_VERSION="1.5"
 
 # Dependency status tracking (using simple variables for Bash 3.2 compatibility)
+DEPS_STATUS_node=""
+DEPS_STATUS_npm=""
 DEPS_STATUS_bash=""
 DEPS_STATUS_jq=""
 DEPS_STATUS_checksum=""
 DEPS_STATUS_ajv=""
 DEPS_STATUS_git=""
 DEPS_STATUS_downloader=""
+DEPS_VERSION_node=""
+DEPS_VERSION_npm=""
 DEPS_VERSION_bash=""
 DEPS_VERSION_jq=""
 DEPS_VERSION_checksum=""
@@ -111,7 +116,53 @@ installer_deps_detect_package_manager() {
 # DEPENDENCY CHECKS
 # ============================================
 
-# Check Bash version (required: 4+)
+# Check Node.js availability and version (required: 20+)
+# Returns: 0 if meets requirements, 1 otherwise
+installer_deps_check_node() {
+    if ! command -v node &>/dev/null; then
+        DEPS_VERSION_node=""
+        DEPS_STATUS_node="missing"
+        installer_log_error "Node.js is required but not found"
+        return 1
+    fi
+
+    local node_version
+    node_version=$(node -v 2>/dev/null | sed 's/^v//')
+    DEPS_VERSION_node="$node_version"
+
+    local node_major
+    node_major=$(echo "$node_version" | cut -d. -f1)
+
+    if [[ "$node_major" -ge "$DEPS_NODE_MIN_VERSION" ]]; then
+        DEPS_STATUS_node="ok"
+        installer_log_debug "Node.js version $node_version meets requirements (>= $DEPS_NODE_MIN_VERSION)"
+        return 0
+    else
+        DEPS_STATUS_node="fail"
+        installer_log_error "Node.js version $node_version is too old (need >= $DEPS_NODE_MIN_VERSION)"
+        return 1
+    fi
+}
+
+# Check npm availability (required)
+# Returns: 0 if available, 1 otherwise
+installer_deps_check_npm() {
+    if command -v npm &>/dev/null; then
+        local npm_version
+        npm_version=$(npm -v 2>/dev/null)
+        DEPS_VERSION_npm="$npm_version"
+        DEPS_STATUS_npm="ok"
+        installer_log_debug "npm version $npm_version found"
+        return 0
+    else
+        DEPS_VERSION_npm=""
+        DEPS_STATUS_npm="missing"
+        installer_log_error "npm is required but not found"
+        return 1
+    fi
+}
+
+# Check Bash version (optional for TypeScript CLEO, used by installer itself)
 # Returns: 0 if meets requirements, 1 otherwise
 installer_deps_check_bash() {
     local bash_version="${BASH_VERSION%%.*}"
@@ -240,8 +291,14 @@ installer_deps_check_required() {
 
     installer_log_info "Checking required dependencies..."
 
-    installer_deps_check_bash || ((failed++))
-    installer_deps_check_jq || ((failed++))
+    # Primary: Node.js and npm (required for TypeScript CLEO)
+    installer_deps_check_node || ((failed++))
+    installer_deps_check_npm || ((failed++))
+
+    # Secondary: bash and jq are optional for the TypeScript version
+    # but still useful for the installer itself
+    installer_deps_check_bash || true
+    installer_deps_check_jq || true
 
     if [[ $failed -gt 0 ]]; then
         installer_log_error "Missing $failed required dependency(s)"
@@ -352,8 +409,27 @@ installer_deps_install_instructions() {
     echo "Installation instructions for missing dependencies:"
     echo ""
 
-    if [[ "${DEPS_STATUS[jq]}" == "missing" ]]; then
-        echo "jq (required):"
+    if [[ "$DEPS_STATUS_node" == "missing" || "$DEPS_STATUS_node" == "fail" ]]; then
+        echo "Node.js >= ${DEPS_NODE_MIN_VERSION} (required):"
+        echo "  nvm (recommended): curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
+        echo "                     nvm install ${DEPS_NODE_MIN_VERSION}"
+        case "$pkg_manager" in
+            apt)    echo "  apt:     sudo apt-get install nodejs npm" ;;
+            brew)   echo "  Homebrew: brew install node@${DEPS_NODE_MIN_VERSION}" ;;
+            dnf)    echo "  dnf:     sudo dnf install nodejs npm" ;;
+            *)      echo "  Official: https://nodejs.org/" ;;
+        esac
+        echo ""
+    fi
+
+    if [[ "$DEPS_STATUS_npm" == "missing" ]]; then
+        echo "npm (required, usually included with Node.js):"
+        echo "  Install Node.js to get npm included."
+        echo ""
+    fi
+
+    if [[ "$DEPS_STATUS_jq" == "missing" ]]; then
+        echo "jq (optional - used by some legacy features):"
         case "$pkg_manager" in
             apt)    echo "  sudo apt-get install jq" ;;
             dnf)    echo "  sudo dnf install jq" ;;
@@ -365,116 +441,30 @@ installer_deps_install_instructions() {
         esac
         echo ""
     fi
-
-    # Check for flock (needed for atomic operations)
-    if ! command -v flock &>/dev/null; then
-        echo "flock (required for atomic operations):"
-        case "$pkg_manager" in
-            apt)    echo "  sudo apt-get install util-linux" ;;
-            dnf)    echo "  sudo dnf install util-linux" ;;
-            yum)    echo "  sudo yum install util-linux" ;;
-            brew)   echo "  brew install util-linux" ;;
-            pacman) echo "  sudo pacman -S util-linux" ;;
-            apk)    echo "  apk add util-linux" ;;
-            *)      echo "  Install util-linux package for your system" ;;
-        esac
-        echo ""
-    fi
-
-    if [[ "${DEPS_STATUS[ajv]}" == "missing" ]]; then
-        echo "ajv-cli (optional - for JSON Schema validation):"
-        echo "  npm install -g ajv-cli"
-        echo ""
-    fi
 }
 
 # Attempt to auto-install missing dependencies
 # Returns: 0 if all required deps installed, 1 if failed
 installer_deps_auto_install() {
-    local pkg_manager missing_deps=() os
-    pkg_manager=$(installer_deps_detect_package_manager)
-    os=$(installer_deps_detect_os)
-
-    # Build list of missing required deps
-    [[ "${DEPS_STATUS[jq]}" == "missing" ]] && missing_deps+=("jq")
-
-    # Check flock separately (not in DEPS_STATUS)
-    if ! command -v flock &>/dev/null; then
-        # On macOS, flock comes from util-linux
-        if [[ "$os" == "darwin" ]]; then
-            missing_deps+=("util-linux")
-        fi
-    fi
-
-    if [[ ${#missing_deps[@]} -eq 0 ]]; then
-        installer_log_success "All required dependencies are installed"
-        return 0
-    fi
-
-    # If no known package manager, can't auto-install
-    if [[ "$pkg_manager" == "unknown" ]]; then
-        installer_log_warn "Cannot auto-install: unknown package manager"
-        installer_deps_install_instructions
+    # Node.js and npm cannot be reliably auto-installed via package managers
+    # because versions are often too old. Guide users to proper install methods.
+    if [[ "$DEPS_STATUS_node" == "missing" || "$DEPS_STATUS_node" == "fail" || "$DEPS_STATUS_npm" == "missing" ]]; then
+        installer_log_warn "Node.js >= ${DEPS_NODE_MIN_VERSION} and npm are required"
+        installer_log_info ""
+        installer_log_info "Install Node.js using one of these methods:"
+        installer_log_info ""
+        installer_log_info "  nvm (recommended):"
+        installer_log_info "    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
+        installer_log_info "    nvm install ${DEPS_NODE_MIN_VERSION}"
+        installer_log_info ""
+        installer_log_info "  Official installer:"
+        installer_log_info "    https://nodejs.org/"
+        installer_log_info ""
         return 1
     fi
 
-    installer_log_info "Missing dependencies: ${missing_deps[*]}"
-
-    # Ask user if they want to auto-install (only if interactive)
-    if [[ -t 0 ]]; then
-        echo ""
-        read -p "Would you like to install missing dependencies automatically? [Y/n]: " confirm
-        if [[ "${confirm,,}" =~ ^(n|no)$ ]]; then
-            installer_deps_install_instructions
-            return 1
-        fi
-    else
-        installer_log_info "Non-interactive mode: attempting auto-install"
-    fi
-
-    # Install based on package manager
-    local install_cmd=""
-    case "$pkg_manager" in
-        apt)
-            install_cmd="sudo apt-get update && sudo apt-get install -y"
-            ;;
-        dnf)
-            install_cmd="sudo dnf install -y"
-            ;;
-        yum)
-            install_cmd="sudo yum install -y"
-            ;;
-        brew)
-            install_cmd="brew install"
-            ;;
-        pacman)
-            install_cmd="sudo pacman -S --noconfirm"
-            ;;
-        apk)
-            install_cmd="apk add"
-            ;;
-        *)
-            installer_log_error "Unsupported package manager: $pkg_manager"
-            installer_deps_install_instructions
-            return 1
-            ;;
-    esac
-
-    installer_log_info "Installing: ${missing_deps[*]}"
-    echo ""
-
-    # Run the install command
-    if eval "$install_cmd ${missing_deps[*]}"; then
-        installer_log_success "Dependencies installed successfully"
-
-        # Re-check dependencies
-        installer_deps_check_required
-        return $?
-    else
-        installer_log_error "Failed to install dependencies"
-        installer_deps_install_instructions
-        return 1
-    fi
+    installer_log_success "All required dependencies are installed"
+    return 0
 }
 
 # ============================================
@@ -483,6 +473,8 @@ installer_deps_auto_install() {
 export -f installer_deps_detect_os
 export -f installer_deps_detect_arch
 export -f installer_deps_detect_package_manager
+export -f installer_deps_check_node
+export -f installer_deps_check_npm
 export -f installer_deps_check_bash
 export -f installer_deps_check_jq
 export -f installer_deps_check_checksum
