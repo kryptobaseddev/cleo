@@ -1,0 +1,59 @@
+# CLEO Project Data - Selective Git Tracking
+#
+# Strategy: Track core task/config files, ignore transient/generated data.
+#
+# TRACKED (not listed here, so git picks them up):
+#   todo.json, todo-archive.json, config.json, sessions.json,
+#   project-context.json, todo-log.json, .sequence,
+#   templates/, schemas/
+#
+# IGNORED (listed below):
+
+# Lock and temp files
+*.lock
+*.tmp
+
+# Operational backups (runtime safety nets, not source)
+.backups/
+backups/
+
+# Metrics and telemetry exports
+metrics/
+
+# Audit logs (high-volume, session-specific)
+audit-log-*.json
+
+# Context state (transient session data)
+.context-state.json
+.context-state-session_*.json
+context-states/
+
+# SQLite WAL/journal files (transient database state)
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Research artifacts (agent working data)
+research/
+
+# RCSD pipeline state (generated per-epic)
+rcsd/
+
+# Session working files
+.current-session
+.git-checkpoint-state
+
+# Backup metadata
+backup-metadata.json
+
+# Corrupted/backup copies of data files
+*.corrupted
+*.bak
+*.bak*
+*.backup-*
+
+# Cache directories
+.cache/
+
+# Uncomment to ignore SQLite databases (when using SQLite storage):
+# tasks.db
