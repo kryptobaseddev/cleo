@@ -41,7 +41,7 @@ fi
 # Default file paths
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
-LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.jsonl}"
 
 # Source required libraries
 if [[ -f "$LIB_DIR/core/version.sh" ]]; then

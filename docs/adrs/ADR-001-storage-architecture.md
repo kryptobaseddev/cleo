@@ -7,7 +7,7 @@
 
 ## Context
 
-CLEO V2 currently uses JSON files as its storage backend (todo.json, sessions.json, config.json) with JSONL for append-only logs (MANIFEST.jsonl, todo-log.json, COMPLIANCE.jsonl). This ADR evaluates whether to migrate to SQLite (with optional vector extensions) or maintain the current approach.
+CLEO V2 currently uses JSON files as its storage backend (todo.json, sessions.json, config.json) with JSONL for append-only logs (MANIFEST.jsonl, todo-log.jsonl, COMPLIANCE.jsonl). This ADR evaluates whether to migrate to SQLite (with optional vector extensions) or maintain the current approach.
 
 ## Decision Drivers
 

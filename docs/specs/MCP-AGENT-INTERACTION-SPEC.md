@@ -315,7 +315,7 @@ Both entry points converge on the same business logic:
 - Native operations share TypeScript engine code
 - CLI-routed operations execute the same Bash scripts
 - Validation rules, lifecycle gates, and audit logging are identical
-- Data files (todo.json, todo-log.json) are the single source of truth
+- Data files (todo.json, todo-log.jsonl) are the single source of truth
 
 ### 7.4 Semantic Equivalence
 

@@ -40,7 +40,7 @@ setup() {
     # Create minimal todo files for backup testing
     echo '{"tasks": [], "_meta": {"version": "2.3.0"}}' > "$CLAUDE_TODO_DIR/todo.json"
     echo '{"archivedTasks": [], "_meta": {"version": "2.3.0"}}' > "$CLAUDE_TODO_DIR/todo-archive.json"
-    echo '{"entries": [], "_meta": {"version": "2.1.0"}}' > "$CLAUDE_TODO_DIR/todo-log.json"
+    echo '{"entries": [], "_meta": {"version": "2.1.0"}}' > "$CLAUDE_TODO_DIR/todo-log.jsonl"
 
     # Create config with explicit backup directory
     cat > "$CLAUDE_TODO_DIR/config.json" << EOF
@@ -243,7 +243,7 @@ teardown_file() {
     [[ -f "$backup_path/todo.json" ]]
     [[ -f "$backup_path/todo-archive.json" ]]
     [[ -f "$backup_path/config.json" ]]
-    [[ -f "$backup_path/todo-log.json" ]]
+    [[ -f "$backup_path/todo-log.jsonl" ]]
 }
 
 @test "create_snapshot_backup with custom name includes name in path" {

@@ -1247,7 +1247,7 @@ migrate_archive_to_2_4_0() {
 
 # Migration baseline for log.schema.json v2.4.0
 # Establishes migration foundation - schema already at v2.4.0
-# Note: log schema data file is todo-log.json
+# Note: log schema data file is todo-log.jsonl
 migrate_log_to_2_4_0() {
     local file="$1"
     local target_version
@@ -2600,7 +2600,7 @@ show_migration_status() {
         "$claude_dir/todo.json:todo"
         "$claude_dir/config.json:config"
         "$claude_dir/todo-archive.json:archive"
-        "$claude_dir/todo-log.json:log"
+        "$claude_dir/todo-log.jsonl:log"
     )
 
     for file_spec in "${files[@]}"; do

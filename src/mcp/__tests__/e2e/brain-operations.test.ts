@@ -382,10 +382,10 @@ describe('E2E: Brain Operations', () => {
   // 1. Bootstrap tiers
   // -------------------------------------------------------------------------
   describe('orchestrateBootstrap', () => {
-    it('should return BrainState with expected fields for fast tier', () => {
+    it('should return BrainState with expected fields for fast tier', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = orchestrateBootstrap(TEST_ROOT, { speed: 'fast' });
+      const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'fast' });
       expect(result.success).toBe(true);
 
       const brain = result.data!;
@@ -406,11 +406,11 @@ describe('E2E: Brain Operations', () => {
       expect(brain.contextDrift).toBeUndefined();
     });
 
-    it('should return BrainState with full-tier fields for full speed', () => {
+    it('should return BrainState with full-tier fields for full speed', async () => {
       writeTodoJson(SAMPLE_TASKS);
       writeDecisions(SAMPLE_DECISIONS);
 
-      const result = orchestrateBootstrap(TEST_ROOT, { speed: 'full' });
+      const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'full' });
       expect(result.success).toBe(true);
 
       const brain = result.data!;
@@ -427,10 +427,10 @@ describe('E2E: Brain Operations', () => {
       expect(brain.recentDecisions).toBeDefined();
     });
 
-    it('should return BrainState with complete-tier fields', () => {
+    it('should return BrainState with complete-tier fields', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = orchestrateBootstrap(TEST_ROOT, { speed: 'complete' });
+      const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'complete' });
       expect(result.success).toBe(true);
 
       const brain = result.data!;
@@ -439,18 +439,18 @@ describe('E2E: Brain Operations', () => {
       // complete includes all full-tier fields
     });
 
-    it('should default to fast speed when no speed parameter provided', () => {
+    it('should default to fast speed when no speed parameter provided', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = orchestrateBootstrap(TEST_ROOT);
+      const result = await orchestrateBootstrap(TEST_ROOT);
       expect(result.success).toBe(true);
       expect(result.data!._meta.speed).toBe('fast');
     });
 
-    it('should include nextSuggestion when pending tasks exist', () => {
+    it('should include nextSuggestion when pending tasks exist', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = orchestrateBootstrap(TEST_ROOT, { speed: 'fast' });
+      const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'fast' });
       expect(result.success).toBe(true);
 
       // T105 and T107 are pending with no unmet deps, so a suggestion should exist
@@ -465,11 +465,11 @@ describe('E2E: Brain Operations', () => {
   // 2. Complexity estimate
   // -------------------------------------------------------------------------
   describe('taskComplexityEstimate', () => {
-    it('should classify a simple task as small', () => {
+    it('should classify a simple task as small', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
       // T107: short description, no deps, no subtasks, no files
-      const result = taskComplexityEstimate(TEST_ROOT, { taskId: 'T107' });
+      const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T107' });
       expect(result.success).toBe(true);
 
       const data = result.data!;
@@ -482,12 +482,12 @@ describe('E2E: Brain Operations', () => {
       expect(data.factors.length).toBeGreaterThan(0);
     });
 
-    it('should classify a complex task as medium or large', () => {
+    it('should classify a complex task as medium or large', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
       // T102: long description, has deps (T101), has subtasks (T108, T109),
       //        has acceptance criteria (3), has files (2)
-      const result = taskComplexityEstimate(TEST_ROOT, { taskId: 'T102' });
+      const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T102' });
       expect(result.success).toBe(true);
 
       const data = result.data!;
@@ -499,19 +499,19 @@ describe('E2E: Brain Operations', () => {
       expect(data.fileCount).toBe(2);
     });
 
-    it('should return error for non-existent task', () => {
+    it('should return error for non-existent task', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = taskComplexityEstimate(TEST_ROOT, { taskId: 'T999' });
+      const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T999' });
       expect(result.success).toBe(false);
       expect(result.error!.code).toBe('E_NOT_FOUND');
     });
 
-    it('should score dependency depth correctly for chained tasks', () => {
+    it('should score dependency depth correctly for chained tasks', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
       // T104 depends on T103, which depends on T102, which depends on T101
-      const result = taskComplexityEstimate(TEST_ROOT, { taskId: 'T104' });
+      const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T104' });
       expect(result.success).toBe(true);
       expect(result.data!.dependencyDepth).toBeGreaterThanOrEqual(3);
     });
@@ -793,11 +793,11 @@ describe('E2E: Brain Operations', () => {
   // 6. Decision round-trip
   // -------------------------------------------------------------------------
   describe('sessionRecordDecision / sessionDecisionLog', () => {
-    it('should record a decision and retrieve it', () => {
+    it('should record a decision and retrieve it', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
       // Record a decision
-      const recordResult = sessionRecordDecision(TEST_ROOT, {
+      const recordResult = await sessionRecordDecision(TEST_ROOT, {
         sessionId: 'test-session-001',
         taskId: 'T102',
         decision: 'Use modular architecture',
@@ -816,7 +816,7 @@ describe('E2E: Brain Operations', () => {
       expect(recorded.timestamp).toBeDefined();
 
       // Query it back
-      const queryResult = sessionDecisionLog(TEST_ROOT, {
+      const queryResult = await sessionDecisionLog(TEST_ROOT, {
         sessionId: 'test-session-001',
       });
 
@@ -827,11 +827,11 @@ describe('E2E: Brain Operations', () => {
       expect(decisions[0].sessionId).toBe('test-session-001');
     });
 
-    it('should filter decisions by taskId', () => {
+    it('should filter decisions by taskId', async () => {
       writeTodoJson(SAMPLE_TASKS);
       writeDecisions(SAMPLE_DECISIONS);
 
-      const result = sessionDecisionLog(TEST_ROOT, { taskId: 'T102' });
+      const result = await sessionDecisionLog(TEST_ROOT, { taskId: 'T102' });
       expect(result.success).toBe(true);
 
       const decisions = result.data!;
@@ -842,19 +842,19 @@ describe('E2E: Brain Operations', () => {
       );
     });
 
-    it('should return all decisions when no filters applied', () => {
+    it('should return all decisions when no filters applied', async () => {
       writeTodoJson(SAMPLE_TASKS);
       writeDecisions(SAMPLE_DECISIONS);
 
-      const result = sessionDecisionLog(TEST_ROOT);
+      const result = await sessionDecisionLog(TEST_ROOT);
       expect(result.success).toBe(true);
       expect(result.data!.length).toBe(SAMPLE_DECISIONS.length);
     });
 
-    it('should return empty array when no decisions exist', () => {
+    it('should return empty array when no decisions exist', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = sessionDecisionLog(TEST_ROOT);
+      const result = await sessionDecisionLog(TEST_ROOT);
       expect(result.success).toBe(true);
       expect(result.data!).toHaveLength(0);
     });
@@ -864,10 +864,10 @@ describe('E2E: Brain Operations', () => {
   // 7. Assumption round-trip
   // -------------------------------------------------------------------------
   describe('sessionRecordAssumption', () => {
-    it('should record an assumption and write to JSONL file', () => {
+    it('should record an assumption and write to JSONL file', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = sessionRecordAssumption(TEST_ROOT, {
+      const result = await sessionRecordAssumption(TEST_ROOT, {
         sessionId: 'test-session-001',
         taskId: 'T102',
         assumption: 'Database schema will remain stable during development',
@@ -901,10 +901,10 @@ describe('E2E: Brain Operations', () => {
       expect(parsed.confidence).toBe('medium');
     });
 
-    it('should reject assumption with invalid confidence', () => {
+    it('should reject assumption with invalid confidence', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = sessionRecordAssumption(TEST_ROOT, {
+      const result = await sessionRecordAssumption(TEST_ROOT, {
         assumption: 'Some assumption',
         confidence: 'invalid' as any,
       });
@@ -913,10 +913,10 @@ describe('E2E: Brain Operations', () => {
       expect(result.error!.code).toBe('E_INVALID_INPUT');
     });
 
-    it('should reject assumption with missing assumption text', () => {
+    it('should reject assumption with missing assumption text', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = sessionRecordAssumption(TEST_ROOT, {
+      const result = await sessionRecordAssumption(TEST_ROOT, {
         assumption: '',
         confidence: 'high',
       });
@@ -930,7 +930,7 @@ describe('E2E: Brain Operations', () => {
   // 8. Context drift
   // -------------------------------------------------------------------------
   describe('sessionContextDrift', () => {
-    it('should calculate drift score with focus-based scope', () => {
+    it('should calculate drift score with focus-based scope', async () => {
       // Single-session mode: focus set to T100 (epic)
       writeTodoJson(SAMPLE_TASKS, {
         focus: {
@@ -944,7 +944,7 @@ describe('E2E: Brain Operations', () => {
         },
       });
 
-      const result = sessionContextDrift(TEST_ROOT);
+      const result = await sessionContextDrift(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data!;
@@ -958,7 +958,7 @@ describe('E2E: Brain Operations', () => {
       expect(typeof data.outOfScope).toBe('number');
     });
 
-    it('should return zero drift when no focus is set', () => {
+    it('should return zero drift when no focus is set', async () => {
       writeTodoJson(SAMPLE_TASKS, {
         focus: {
           currentTask: null,
@@ -971,12 +971,12 @@ describe('E2E: Brain Operations', () => {
         },
       });
 
-      const result = sessionContextDrift(TEST_ROOT);
+      const result = await sessionContextDrift(TEST_ROOT);
       expect(result.success).toBe(true);
       expect(result.data!.score).toBe(0);
     });
 
-    it('should calculate drift for multi-session scope', () => {
+    it('should calculate drift for multi-session scope', async () => {
       writeTodoJson(SAMPLE_TASKS, {
         focus: {
           currentTask: 'T102',
@@ -996,7 +996,7 @@ describe('E2E: Brain Operations', () => {
       });
       writeSessionsJson([SAMPLE_SESSION]);
 
-      const result = sessionContextDrift(TEST_ROOT, {
+      const result = await sessionContextDrift(TEST_ROOT, {
         sessionId: SAMPLE_SESSION.id,
       });
       expect(result.success).toBe(true);

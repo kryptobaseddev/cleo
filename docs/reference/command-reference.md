@@ -81,7 +81,7 @@ cleo init --template ~/my-todo-template.json
 - `todo.json` (active tasks)
 - `todo-archive.json` (completed tasks)
 - `config.json` (configuration)
-- `todo-log.json` (change history)
+- `todo-log.jsonl` (change history)
 
 **Side Effects:**
 - Adds `.cleo/*.json` to `.gitignore`
@@ -158,7 +158,7 @@ cleo add "Deploy to staging" -p high -f json -q
 **Side Effects:**
 - Generates unique task ID (format: `T###`)
 - Adds `createdAt` timestamp
-- Logs operation to `todo-log.json`
+- Logs operation to `todo-log.jsonl`
 - Creates backup before write
 - Returns task ID on success
 
@@ -290,7 +290,7 @@ cleo complete T003 --notes "Implemented auth middleware. Tests passing."
 **Side Effects:**
 - Updates task status to `done`
 - Adds `completedAt` timestamp
-- Logs completion to `todo-log.json`
+- Logs completion to `todo-log.jsonl`
 - Triggers auto-archive if enabled
 - Creates backup before modification
 - Clears focus if completed task was currently focused
@@ -467,7 +467,7 @@ Controlled by `.cleo/config.json`:
 
 **Side Effects:**
 - Moves tasks from `todo.json` to `todo-archive.json`
-- Logs operation to `todo-log.json`
+- Logs operation to `todo-log.jsonl`
 - Creates backups of both files
 - Updates checksum
 
@@ -649,7 +649,7 @@ cleo claude-migrate --all
 
 **File Transformations:**
 - Config: `todo-config.json` → `config.json`
-- Log: `todo-log.json` (unchanged)
+- Log: `todo-log.jsonl` (unchanged)
 - Directories: `.claude/` → `.cleo/`, `~/.cleo/` → `~/.cleo/`
 
 **Exit Codes (--check mode):**
@@ -753,7 +753,7 @@ cleo backup --name "before-major-refactor"
 - `todo.json`
 - `todo-archive.json`
 - `config.json`
-- `todo-log.json`
+- `todo-log.jsonl`
 
 **Side Effects:**
 - Creates timestamped backup directory

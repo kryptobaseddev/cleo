@@ -39,7 +39,7 @@ The migration preserves your data, but backup is recommended:
 mkdir -p ~/cleo-backup
 cp ~/.cleo/todo.json ~/cleo-backup/
 cp ~/.cleo/todo-archive.json ~/cleo-backup/ 2>/dev/null
-cp ~/.cleo/todo-log.json ~/cleo-backup/ 2>/dev/null
+cp ~/.cleo/todo-log.jsonl ~/cleo-backup/ 2>/dev/null
 
 # Backup config and sessions
 cp ~/.cleo/config.json ~/cleo-backup/
@@ -276,7 +276,7 @@ ls ~/.claude/skills/ct-* 2>/dev/null && echo "Skills installed"
 
 ### Will I lose my tasks?
 
-**No.** Task data in `todo.json`, `todo-archive.json`, and `todo-log.json` is never modified by the installer. The migration only updates the CLI scripts and libraries.
+**No.** Task data in `todo.json`, `todo-archive.json`, and `todo-log.jsonl` is never modified by the installer. The migration only updates the CLI scripts and libraries.
 
 ### Can I switch between dev and release modes?
 

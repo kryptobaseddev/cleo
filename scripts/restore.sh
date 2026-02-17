@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
-LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.jsonl}"
 BACKUP_DIR="${BACKUP_DIR:-.cleo/backups}"
 
 # Source logging library for should_use_color function
@@ -386,7 +386,7 @@ rollback_restore() {
         config.json)
           target_file="$CONFIG_FILE"
           ;;
-        todo-log.json)
+        todo-log.jsonl)
           target_file="$LOG_FILE"
           ;;
         *)
@@ -513,7 +513,7 @@ fi
 # Check for no-change condition (idempotency)
 check_no_change() {
   local all_identical=true
-  for file_name in todo.json todo-archive.json config.json todo-log.json; do
+  for file_name in todo.json todo-archive.json config.json todo-log.jsonl; do
     if [[ -n "$TARGET_FILE" && "$TARGET_FILE" != "$file_name" ]]; then
       continue
     fi
@@ -523,7 +523,7 @@ check_no_change() {
       todo.json) target_file="$TODO_FILE" ;;
       todo-archive.json) target_file="$ARCHIVE_FILE" ;;
       config.json) target_file="$CONFIG_FILE" ;;
-      todo-log.json) target_file="$LOG_FILE" ;;
+      todo-log.jsonl) target_file="$LOG_FILE" ;;
     esac
 
     if [[ -f "$source_file" && -f "$target_file" ]]; then
@@ -545,7 +545,7 @@ check_no_change() {
 if [[ "$DRY_RUN" == true ]]; then
   # Collect files that would be restored
   WOULD_RESTORE_FILES=()
-  for file_name in todo.json todo-archive.json config.json todo-log.json; do
+  for file_name in todo.json todo-archive.json config.json todo-log.jsonl; do
     if [[ -n "$TARGET_FILE" && "$TARGET_FILE" != "$file_name" ]]; then
       continue
     fi
@@ -647,16 +647,16 @@ if [[ -n "$TARGET_FILE" ]]; then
         ((RESTORE_ERRORS++))
       fi
       ;;
-    todo-log.json)
-      if restore_file "${BACKUP_SOURCE}/todo-log.json" "$LOG_FILE"; then
-        RESTORED_FILES+=("todo-log.json")
+    todo-log.jsonl)
+      if restore_file "${BACKUP_SOURCE}/todo-log.jsonl" "$LOG_FILE"; then
+        RESTORED_FILES+=("todo-log.jsonl")
       else
         ((RESTORE_ERRORS++))
       fi
       ;;
     *)
       log_error "Unknown file: $TARGET_FILE"
-      log_error "Valid files: todo.json, todo-archive.json, config.json, todo-log.json"
+      log_error "Valid files: todo.json, todo-archive.json, config.json, todo-log.jsonl"
       exit "$EXIT_INVALID_INPUT"
       ;;
   esac
@@ -680,8 +680,8 @@ else
     ((RESTORE_ERRORS++))
   fi
 
-  if restore_file "${BACKUP_SOURCE}/todo-log.json" "$LOG_FILE"; then
-    RESTORED_FILES+=("todo-log.json")
+  if restore_file "${BACKUP_SOURCE}/todo-log.jsonl" "$LOG_FILE"; then
+    RESTORED_FILES+=("todo-log.jsonl")
   else
     ((RESTORE_ERRORS++))
   fi
@@ -724,7 +724,7 @@ for file_name in "${RESTORED_FILES[@]}"; do
     config.json)
       target_file="$CONFIG_FILE"
       ;;
-    todo-log.json)
+    todo-log.jsonl)
       target_file="$LOG_FILE"
       ;;
     *)

@@ -5,9 +5,7 @@
  */
 
 import { Command } from 'commander';
-import {
-  analyzeTaskPriority,
-} from '../../core/tasks/analyze.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -22,7 +20,8 @@ export function registerAnalyzeCommand(program: Command): void {
     .option('--auto-focus', 'Automatically set focus to recommended task')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await analyzeTaskPriority({
+        const store = await getStore();
+        const result = await store.analyzeTaskPriority({
           autoFocus: opts['autoFocus'] as boolean | undefined,
         });
         console.log(formatSuccess(result));

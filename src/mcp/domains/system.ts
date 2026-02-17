@@ -13,6 +13,7 @@
  */
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { CLIExecutor } from '../lib/executor.js';
 import { BackgroundJobManager } from '../lib/background-jobs.js';
 import { canRunNatively, generateCapabilityReport, type GatewayType } from '../engine/capability-matrix.js';
@@ -413,16 +414,15 @@ export class SystemHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
     if (result.success) {
       return {
-        _meta: { gateway, domain: 'system', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        _meta: createGatewayMeta(gateway, 'system', operation, startTime),
         success: true,
         data: result.data,
       };
     }
     return {
-      _meta: { gateway, domain: 'system', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      _meta: createGatewayMeta(gateway, 'system', operation, startTime),
       success: false,
       error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
     };
@@ -995,14 +995,7 @@ export class SystemHandler implements DomainHandler {
             }
           }
           return {
-            _meta: {
-              gateway: 'query',
-              domain: 'system',
-              operation: 'dash',
-              version: '1.0.0',
-              timestamp: new Date().toISOString(),
-              duration_ms: Date.now() - startTime,
-            },
+            _meta: createGatewayMeta('query', 'system', 'dash', startTime),
             success: true,
             data: payload,
           };
@@ -1165,11 +1158,7 @@ export class SystemHandler implements DomainHandler {
     }
 
     return {
-      _meta: {
-        gateway: 'query', domain: 'system', operation: 'job.status',
-        version: '1.0.0', timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('query', 'system', 'job.status', startTime),
       success: true,
       data: job,
     };
@@ -1190,11 +1179,7 @@ export class SystemHandler implements DomainHandler {
     const jobs = this.jobManager.listJobs(status);
 
     return {
-      _meta: {
-        gateway: 'query', domain: 'system', operation: 'job.list',
-        version: '1.0.0', timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('query', 'system', 'job.list', startTime),
       success: true,
       data: { jobs, count: jobs.length },
     };
@@ -1232,11 +1217,7 @@ export class SystemHandler implements DomainHandler {
     }
 
     return {
-      _meta: {
-        gateway: 'mutate', domain: 'system', operation: 'job.cancel',
-        version: '1.0.0', timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('mutate', 'system', 'job.cancel', startTime),
       success: true,
       data: { jobId, cancelled: true },
     };
@@ -1306,32 +1287,16 @@ export class SystemHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
-
     if (result.success) {
       return {
-        _meta: {
-          gateway,
-          domain,
-          operation,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms,
-        },
+        _meta: createGatewayMeta(gateway, domain, operation, startTime),
         success: true,
         data: result.data,
       };
     }
 
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: result.error || {
         code: 'E_UNKNOWN',
@@ -1365,7 +1330,7 @@ export class SystemHandler implements DomainHandler {
         // Hybrid: native capability report + CLI health check when available
         const report = generateCapabilityReport();
         return {
-          _meta: { gateway: 'query', domain: 'system', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms: Date.now() - startTime },
+          _meta: createGatewayMeta('query', 'system', operation, startTime),
           success: true,
           data: {
             mode: this.executionMode,
@@ -1580,14 +1545,7 @@ export class SystemHandler implements DomainHandler {
     startTime: number
   ): DomainResponse {
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: {
         code,

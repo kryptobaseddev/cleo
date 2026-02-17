@@ -14,6 +14,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
 import type { ResolvedMode } from '../lib/mode-detector.js';
 import {
@@ -204,16 +205,15 @@ export class ValidateHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
     if (result.success) {
       return {
-        _meta: { gateway, domain: 'validate', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        _meta: createGatewayMeta(gateway, 'validate', operation, startTime),
         success: true,
         data: result.data,
       };
     }
     return {
-      _meta: { gateway, domain: 'validate', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      _meta: createGatewayMeta(gateway, 'validate', operation, startTime),
       success: false,
       error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
     };
@@ -602,14 +602,7 @@ export class ValidateHandler implements DomainHandler {
     };
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'validate',
-        operation: 'task',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'validate', 'task', startTime),
       success: true,
       data: {
         taskId: params.taskId,
@@ -978,14 +971,7 @@ export class ValidateHandler implements DomainHandler {
     const totalChecks = filtered.length * (requiredManifestFields.length + 1);
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'validate',
-        operation: 'manifest',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'validate', 'manifest', startTime),
       success: true,
       data: {
         valid: errors.length === 0,
@@ -1153,32 +1139,16 @@ export class ValidateHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
-
     if (result.success) {
       return {
-        _meta: {
-          gateway,
-          domain,
-          operation,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms,
-        },
+        _meta: createGatewayMeta(gateway, domain, operation, startTime),
         success: true,
         data: result.data,
       };
     }
 
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: result.error,
     };
@@ -1196,14 +1166,7 @@ export class ValidateHandler implements DomainHandler {
     startTime: number
   ): DomainResponse {
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: {
         code,

@@ -12,6 +12,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { ManifestReader, ManifestEntry, ManifestFilter } from '../lib/manifest.js';
 import { validateEntry, serializeEntry } from '../lib/manifest-parser.js';
 import { appendFile, writeFile } from 'fs/promises';
@@ -188,16 +189,15 @@ export class ResearchHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
     if (result.success) {
       return {
-        _meta: { gateway, domain: 'research', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        _meta: createGatewayMeta(gateway, 'research', operation, startTime),
         success: true,
         data: result.data,
       };
     }
     return {
-      _meta: { gateway, domain: 'research', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      _meta: createGatewayMeta(gateway, 'research', operation, startTime),
       success: false,
       error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
     };
@@ -429,14 +429,7 @@ export class ResearchHandler implements DomainHandler {
       const filtered = this.manifestReader.filterEntries(entries, filter);
 
       return {
-        _meta: {
-          gateway: 'cleo_query',
-          domain: 'research',
-          operation: 'list',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_query', 'research', 'list', startTime),
         success: true,
         data: {
           entries: filtered,
@@ -502,14 +495,7 @@ export class ResearchHandler implements DomainHandler {
       };
 
       return {
-        _meta: {
-          gateway: 'cleo_query',
-          domain: 'research',
-          operation: 'stats',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_query', 'research', 'stats', startTime),
         success: true,
         data: stats,
       };
@@ -620,14 +606,7 @@ export class ResearchHandler implements DomainHandler {
         : entries;
 
       return {
-        _meta: {
-          gateway: 'cleo_query',
-          domain: 'research',
-          operation: 'manifest.read',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_query', 'research', 'manifest.read', startTime),
         success: true,
         data: {
           entries: filtered,
@@ -658,14 +637,7 @@ export class ResearchHandler implements DomainHandler {
       const validation = await this.manifestReader.validateManifest();
 
       return {
-        _meta: {
-          gateway: 'cleo_query',
-          domain: 'research',
-          operation: 'manifest.validate',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_query', 'research', 'manifest.validate', startTime),
         success: true,
         data: validation,
       };
@@ -692,14 +664,7 @@ export class ResearchHandler implements DomainHandler {
       const summary = await this.manifestReader.getSummary();
 
       return {
-        _meta: {
-          gateway: 'cleo_query',
-          domain: 'research',
-          operation: 'manifest.summary',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_query', 'research', 'manifest.summary', startTime),
         success: true,
         data: summary,
       };
@@ -980,14 +945,7 @@ export class ResearchHandler implements DomainHandler {
       await appendFile(manifestPath, serialized + '\n', 'utf-8');
 
       return {
-        _meta: {
-          gateway: 'cleo_mutate',
-          domain: 'research',
-          operation: 'manifest.append',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_mutate', 'research', 'manifest.append', startTime),
         success: true,
         data: {
           appended: true,
@@ -1032,14 +990,7 @@ export class ResearchHandler implements DomainHandler {
 
       if (toArchive.length === 0) {
         return {
-          _meta: {
-            gateway: 'cleo_mutate',
-            domain: 'research',
-            operation: 'manifest.archive',
-            version: '1.0.0',
-            timestamp: new Date().toISOString(),
-            duration_ms: Date.now() - startTime,
-          },
+          _meta: createGatewayMeta('cleo_mutate', 'research', 'manifest.archive', startTime),
           success: true,
           data: {
             archived: 0,
@@ -1062,14 +1013,7 @@ export class ResearchHandler implements DomainHandler {
       await writeFile(manifestPath, remainingContent, 'utf-8');
 
       return {
-        _meta: {
-          gateway: 'cleo_mutate',
-          domain: 'research',
-          operation: 'manifest.archive',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_mutate', 'research', 'manifest.archive', startTime),
         success: true,
         data: {
           archived: toArchive.length,
@@ -1101,32 +1045,16 @@ export class ResearchHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
-
     if (result.success) {
       return {
-        _meta: {
-          gateway,
-          domain,
-          operation,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms,
-        },
+        _meta: createGatewayMeta(gateway, domain, operation, startTime),
         success: true,
         data: result.data,
       };
     }
 
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: result.error,
     };
@@ -1144,14 +1072,7 @@ export class ResearchHandler implements DomainHandler {
     startTime: number
   ): DomainResponse {
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: {
         code,

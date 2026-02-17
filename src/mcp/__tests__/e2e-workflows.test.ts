@@ -46,7 +46,7 @@ describe('E2E Workflow Tests (MCP Spec Section 11)', () => {
     expect(response._meta.gateway).toBe(expectedGateway);
     expect(response._meta.domain).toBe(expectedDomain);
     expect(response._meta.operation).toBe(expectedOperation);
-    expect(response._meta.version).toBeDefined();
+    expect(response._meta.specVersion).toBeDefined();
     expect(response._meta.timestamp).toBeDefined();
     expect(typeof response._meta.duration_ms).toBe('number');
     expect(response._meta.duration_ms).toBeGreaterThanOrEqual(0);

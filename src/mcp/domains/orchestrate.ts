@@ -12,6 +12,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
 import type { ResolvedMode } from '../lib/mode-detector.js';
 import {
@@ -213,22 +214,21 @@ export class OrchestrateHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
     if (result.success) {
       return {
-        _meta: { gateway, domain: 'orchestrate', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        _meta: createGatewayMeta(gateway, 'orchestrate', operation, startTime),
         success: true,
         data: result.data,
       };
     }
     return {
-      _meta: { gateway, domain: 'orchestrate', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      _meta: createGatewayMeta(gateway, 'orchestrate', operation, startTime),
       success: false,
       error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
     };
   }
 
-  private queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+  private async queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): Promise<DomainResponse> {
     switch (operation) {
       case 'status':
         return this.wrapNativeResult(nativeOrchestrateStatus(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
@@ -245,7 +245,7 @@ export class OrchestrateHandler implements DomainHandler {
       case 'skill.list':
         return this.wrapNativeResult(nativeOrchestrateSkillList(this.projectRoot), 'cleo_query', operation, startTime);
       case 'bootstrap':
-        return this.wrapNativeResult(nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', operation, startTime);
       case 'critical-path':
         return this.wrapNativeResult(nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', operation, startTime);
       case 'unblock-opportunities':
@@ -284,7 +284,7 @@ export class OrchestrateHandler implements DomainHandler {
 
     if (this.useNative(operation, 'query')) {
       try {
-        return this.queryNative(operation, params, startTime);
+        return await this.queryNative(operation, params, startTime);
       } catch (error) {
         return this.handleError('cleo_query', 'orchestrate', operation, error, startTime);
       }
@@ -321,7 +321,7 @@ export class OrchestrateHandler implements DomainHandler {
           return await this.queryAnalyze(params as unknown as OrchestrateAnalyzeParams);
         case 'bootstrap':
           // bootstrap is always native-only, no CLI fallback
-          return this.wrapNativeResult(nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', 'bootstrap', startTime);
+          return this.wrapNativeResult(await nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', 'bootstrap', startTime);
         case 'critical-path':
           // critical-path is always native-only, no CLI fallback
           return this.wrapNativeResult(nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', 'critical-path', startTime);
@@ -914,32 +914,16 @@ export class OrchestrateHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
-
     if (result.success) {
       return {
-        _meta: {
-          gateway,
-          domain,
-          operation,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms,
-        },
+        _meta: createGatewayMeta(gateway, domain, operation, startTime),
         success: true,
         data: result.data,
       };
     }
 
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: result.error,
     };
@@ -957,14 +941,7 @@ export class OrchestrateHandler implements DomainHandler {
     startTime: number
   ): DomainResponse {
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: {
         code,

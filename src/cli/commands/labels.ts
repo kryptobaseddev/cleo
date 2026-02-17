@@ -5,11 +5,7 @@
  */
 
 import { Command } from 'commander';
-import {
-  listLabels,
-  showLabelTasks,
-  getLabelStats,
-} from '../../core/tasks/labels.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -27,7 +23,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('List all labels with task counts (default)')
     .action(async () => {
       try {
-        const result = await listLabels();
+        const store = await getStore();
+        const result = await store.listLabels();
         console.log(formatSuccess({ labels: result, count: result.length }));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -43,7 +40,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('Show tasks with specific label')
     .action(async (label: string) => {
       try {
-        const result = await showLabelTasks(label);
+        const store = await getStore();
+        const result = await store.showLabelTasks(label);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -59,7 +57,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('Show detailed label statistics')
     .action(async () => {
       try {
-        const result = await getLabelStats();
+        const store = await getStore();
+        const result = await store.getLabelStats();
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -76,7 +75,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('Alias for labels command')
     .action(async () => {
       try {
-        const result = await listLabels();
+        const store = await getStore();
+        const result = await store.listLabels();
         console.log(formatSuccess({ labels: result, count: result.length }));
       } catch (err) {
         if (err instanceof CleoError) {

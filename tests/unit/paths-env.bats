@@ -113,10 +113,10 @@ teardown_file() {
     assert_equal "$result" ".cleo/config.json"
 }
 
-@test "get_log_file returns todo-log.json" {
+@test "get_log_file returns todo-log.jsonl" {
     unset CLEO_DIR
     result=$(get_log_file)
-    assert_equal "$result" ".cleo/todo-log.json"
+    assert_equal "$result" ".cleo/todo-log.jsonl"
 }
 
 @test "get_archive_file returns correct path" {

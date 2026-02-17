@@ -238,7 +238,7 @@ cache_validation_result() {
     todo_hash=$(get_file_hash "$project_path/.cleo/todo.json")
     config_hash=$(get_file_hash "$project_path/.cleo/config.json")
     archive_hash=$(get_file_hash "$project_path/.cleo/todo-archive.json")
-    log_hash=$(get_file_hash "$project_path/.cleo/todo-log.json")
+    log_hash=$(get_file_hash "$project_path/.cleo/todo-log.jsonl")
     
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -277,7 +277,7 @@ cache_validation_result() {
                "todo.json": $todo_hash,
                "config.json": $config_hash,
                "todo-archive.json": $archive_hash,
-               "todo-log.json": $log_hash
+               "todo-log.jsonl": $log_hash
            },
            issues: $issues,
            ttl: '"$CACHE_TTL_SECONDS"'

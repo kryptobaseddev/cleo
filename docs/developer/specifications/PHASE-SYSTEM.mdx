@@ -235,7 +235,7 @@ ct phase set setup --rollback --force
 ```
 
 **Audit Trail**: Rollbacks are logged with:
-- `log_phase_rollback()` in todo-log.json
+- `log_phase_rollback()` in todo-log.jsonl
 - `add_phase_history_entry()` with `transitionType: "rollback"` and `fromPhase`
 
 ### 4.3 Phase Advance Behavior
@@ -341,7 +341,7 @@ Tasks with `phase: null` are treated as **phase-agnostic**:
 2. Non-interactive mode selects first by order
 3. Backup created before fix
 4. Other phases set to `status: "completed"`
-5. Action logged to todo-log.json
+5. Action logged to todo-log.jsonl
 
 ---
 

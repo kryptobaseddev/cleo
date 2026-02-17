@@ -22,7 +22,7 @@ fi
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
-LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.jsonl}"
 
 # Source logging library for should_use_color function
 if [[ -f "$LIB_DIR/core/version.sh" ]]; then
@@ -584,7 +584,7 @@ update_checksum() {
   save_json "$file" "$updated_content"
 }
 
-# Log operation to todo-log.json (with file locking for concurrency safety)
+# Log operation to todo-log.jsonl (with file locking for concurrency safety)
 log_operation() {
   local operation="$1"
   local task_id="$2"

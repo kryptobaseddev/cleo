@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { showTask } from '../../core/tasks/show.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -19,7 +19,8 @@ export function registerShowCommand(program: Command): void {
     .description('Show full task details by ID')
     .action(async (taskId: string) => {
       try {
-        const detail = await showTask(taskId);
+        const store = await getStore();
+        const detail = await store.showTask(taskId);
         console.log(formatSuccess({ task: detail }));
       } catch (err) {
         if (err instanceof CleoError) {

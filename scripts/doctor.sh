@@ -503,7 +503,7 @@ run_project_registry_validation() {
                 proj_todo_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo.json" 2>/dev/null || echo "unknown")
                 proj_config_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/config.json" 2>/dev/null || echo "unknown")
                 proj_archive_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-archive.json" 2>/dev/null || echo "unknown")
-                proj_log_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-log.json" 2>/dev/null || echo "unknown")
+                proj_log_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-log.jsonl" 2>/dev/null || echo "unknown")
             fi
 
             # Check each schema type

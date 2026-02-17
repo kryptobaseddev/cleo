@@ -780,10 +780,14 @@ export function orchestrateStartup(
  *
  * @task T4478
  */
-export function orchestrateBootstrap(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function orchestrateBootstrap(
   projectRoot?: string,
   params?: { speed?: 'fast' | 'full' | 'complete' }
-): EngineResult<BrainState> {
+): Promise<EngineResult<BrainState>> {
   const root = projectRoot || resolveProjectRoot();
   const speed = params?.speed || 'fast';
   const brain: BrainState = {
@@ -795,7 +799,7 @@ export function orchestrateBootstrap(
   };
 
   // --- Session ---
-  const statusResult = sessionStatus(root);
+  const statusResult = await sessionStatus(root);
   if (statusResult.success && statusResult.data) {
     const sd = statusResult.data;
     if (sd.session) {
@@ -837,7 +841,7 @@ export function orchestrateBootstrap(
   }
 
   // --- Next Suggestion ---
-  const nextResult = taskNext(root, { count: 1, explain: false });
+  const nextResult = await taskNext(root, { count: 1, explain: false });
   if (nextResult.success && nextResult.data && nextResult.data.suggestions.length > 0) {
     const suggestion = nextResult.data.suggestions[0];
     brain.nextSuggestion = {
@@ -850,7 +854,7 @@ export function orchestrateBootstrap(
   // --- Full tier: decisions, blockers, contextDrift ---
   if (speed === 'full' || speed === 'complete') {
     // Recent decisions (last 5)
-    const decisionsResult = sessionDecisionLog(root);
+    const decisionsResult = await sessionDecisionLog(root);
     if (decisionsResult.success && decisionsResult.data) {
       const recent = decisionsResult.data.slice(-5);
       brain.recentDecisions = recent.map((d) => ({
@@ -861,7 +865,7 @@ export function orchestrateBootstrap(
     }
 
     // Blockers
-    const blockersResult = taskBlockers(root);
+    const blockersResult = await taskBlockers(root);
     if (blockersResult.success && blockersResult.data) {
       brain.blockers = blockersResult.data.blockedTasks.map((b) => ({
         taskId: b.id,
@@ -871,7 +875,7 @@ export function orchestrateBootstrap(
     }
 
     // Context drift
-    const driftResult = sessionContextDrift(root);
+    const driftResult = await sessionContextDrift(root);
     if (driftResult.success && driftResult.data) {
       brain.contextDrift = {
         score: driftResult.data.score,

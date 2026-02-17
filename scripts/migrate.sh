@@ -602,7 +602,7 @@ cmd_status() {
             "$cleo_dir/todo.json:todo"
             "$cleo_dir/config.json:config"
             "$cleo_dir/todo-archive.json:archive"
-            "$cleo_dir/todo-log.json:log"
+            "$cleo_dir/todo-log.jsonl:log"
         )
 
         for file_spec in "${files[@]}"; do
@@ -708,7 +708,7 @@ cmd_check() {
         "$cleo_dir/todo.json:todo"
         "$cleo_dir/config.json:config"
         "$cleo_dir/todo-archive.json:archive"
-        "$cleo_dir/todo-log.json:log"
+        "$cleo_dir/todo-log.jsonl:log"
     )
 
     for file_spec in "${files[@]}"; do
@@ -841,7 +841,7 @@ cmd_run() {
         "$cleo_dir/todo.json:todo"
         "$cleo_dir/config.json:config"
         "$cleo_dir/todo-archive.json:archive"
-        "$cleo_dir/todo-log.json:log"
+        "$cleo_dir/todo-log.jsonl:log"
     )
 
     local migration_needed=false
@@ -1191,7 +1191,7 @@ cmd_rollback() {
         "$cleo_dir/todo.json"
         "$cleo_dir/config.json"
         "$cleo_dir/todo-archive.json"
-        "$cleo_dir/todo-log.json"
+        "$cleo_dir/todo-log.jsonl"
     )
 
     for file in "${files[@]}"; do
@@ -1297,7 +1297,7 @@ cmd_rollback() {
             todo-archive.json)
                 file_type="archive"
                 ;;
-            todo-log.json)
+            todo-log.jsonl)
                 file_type="log"
                 ;;
             *)

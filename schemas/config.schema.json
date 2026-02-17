@@ -298,7 +298,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable logging to todo-log.json."
+          "description": "Enable logging to todo-log.jsonl."
         },
         "retentionDays": {
           "type": "integer",
@@ -1460,7 +1460,7 @@
                 "log": {
                   "type": "string",
                   "pattern": "^\\d+\\.\\d+\\.\\d+$",
-                  "description": "Schema version for todo-log.json (semver)."
+                  "description": "Schema version for todo-log.jsonl (semver)."
                 }
               }
             },

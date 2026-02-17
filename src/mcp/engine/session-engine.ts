@@ -5,11 +5,19 @@
  * Supports both single-session (focus in todo.json) and multi-session
  * (separate sessions.json) modes.
  *
+ * Uses StoreProvider (via getStore()) for task/session data access where possible,
+ * falling back to direct JSON for complex mutate operations that need locking.
+ *
  * Supports: status, list, show, focus.get, focus.set, focus.clear, start, end,
  *           resume, gc, suspend, history, cleanup
+ *
+ * @task T4657
+ * @epic T4654
  */
 
 import { readJsonFile, writeJsonFileAtomic, withFileLock, getDataPath } from './store.js';
+// TODO(T4657): Use getStore() from '../../store/index.js' for domain data access
+// when StoreProvider exposes multi-session metadata.
 import { randomBytes} from 'crypto';
 import { readFileSync, appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join} from 'path';
@@ -136,7 +144,10 @@ function generateSessionId(): string {
 }
 
 /**
- * Check if multi-session mode is enabled
+ * Check if multi-session mode is enabled.
+ * Reads config metadata - not domain data, keep as direct JSON.
+ * @task T4657
+ * @epic T4654
  */
 export function isMultiSession(projectRoot: string): boolean {
   const todoPath = getDataPath(projectRoot, 'todo.json');
@@ -145,16 +156,19 @@ export function isMultiSession(projectRoot: string): boolean {
 }
 
 /**
- * Get current session status
+ * Get current session status.
+ * TODO(T4657): Migrate to StoreProvider when it exposes multi-session metadata.
+ * @task T4657
+ * @epic T4654
  */
-export function sessionStatus(
+export async function sessionStatus(
   projectRoot: string
-): EngineResult<{
+): Promise<EngineResult<{
   hasActiveSession: boolean;
   multiSessionEnabled: boolean;
   session?: SessionRecord | null;
   focus?: FocusState | null;
-}> {
+}>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
   const todo = readJsonFile<TodoFile>(todoPath);
 
@@ -195,12 +209,15 @@ export function sessionStatus(
 }
 
 /**
- * List sessions (multi-session mode)
+ * List sessions (multi-session mode).
+ * TODO(T4657): Migrate to StoreProvider when it exposes multi-session metadata.
+ * @task T4657
+ * @epic T4654
  */
-export function sessionList(
+export async function sessionList(
   projectRoot: string,
   params?: { active?: boolean; limit?: number }
-): EngineResult<SessionRecord[]> {
+): Promise<EngineResult<SessionRecord[]>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
   const todo = readJsonFile<TodoFile>(todoPath);
 
@@ -255,12 +272,15 @@ export function sessionList(
 }
 
 /**
- * Show a specific session
+ * Show a specific session.
+ * TODO(T4657): Migrate to StoreProvider when it exposes session history.
+ * @task T4657
+ * @epic T4654
  */
-export function sessionShow(
+export async function sessionShow(
   projectRoot: string,
   sessionId: string
-): EngineResult<SessionRecord> {
+): Promise<EngineResult<SessionRecord>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
   const todo = readJsonFile<TodoFile>(todoPath);
 
@@ -298,11 +318,14 @@ export function sessionShow(
 }
 
 /**
- * Get current focus
+ * Get current focus.
+ * TODO(T4657): Migrate to use getStore().showFocus().
+ * @task T4657
+ * @epic T4654
  */
-export function focusGet(
+export async function focusGet(
   projectRoot: string
-): EngineResult<{ currentTask: string | null; currentPhase: string | null }> {
+): Promise<EngineResult<{ currentTask: string | null; currentPhase: string | null }>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
   const todo = readJsonFile<TodoFile>(todoPath);
 
@@ -938,10 +961,14 @@ export async function sessionSuspend(
  * If sessionId is provided, returns history for that specific session.
  * Otherwise, returns history across all sessions.
  */
-export function sessionHistory(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function sessionHistory(
   projectRoot: string,
   params?: { sessionId?: string; limit?: number }
-): EngineResult<{
+): Promise<EngineResult<{
   sessions: Array<{
     id: string;
     name?: string;
@@ -952,7 +979,7 @@ export function sessionHistory(
     focusChanges: number;
     focusHistory: Array<{ taskId: string; timestamp: string }>;
   }>;
-}> {
+}>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
   const todo = readJsonFile<TodoFile>(todoPath);
 
@@ -1113,7 +1140,11 @@ export interface DecisionRecord {
  * Record a decision to the audit trail.
  * Appends a JSON line to `.cleo/audit/decisions.jsonl`.
  */
-export function sessionRecordDecision(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function sessionRecordDecision(
   projectRoot: string,
   params: {
     sessionId: string;
@@ -1122,7 +1153,7 @@ export function sessionRecordDecision(
     rationale: string;
     alternatives?: string[];
   }
-): EngineResult<DecisionRecord> {
+): Promise<EngineResult<DecisionRecord>> {
   if (!params.sessionId || !params.taskId || !params.decision || !params.rationale) {
     return {
       success: false,
@@ -1158,10 +1189,14 @@ export function sessionRecordDecision(
 /**
  * Read the decision log, optionally filtered by sessionId and/or taskId.
  */
-export function sessionDecisionLog(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function sessionDecisionLog(
   projectRoot: string,
   params?: { sessionId?: string; taskId?: string }
-): EngineResult<DecisionRecord[]> {
+): Promise<EngineResult<DecisionRecord[]>> {
   const decisionPath = join(projectRoot, '.cleo', 'audit', 'decisions.jsonl');
 
   if (!existsSync(decisionPath)) {
@@ -1218,16 +1253,20 @@ function collectDescendantIds(
  * Compares session progress against original scope by counting
  * completed vs total tasks in scope, and detecting out-of-scope work.
  */
-export function sessionContextDrift(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function sessionContextDrift(
   projectRoot: string,
   params?: { sessionId?: string }
-): EngineResult<{
+): Promise<EngineResult<{
   score: number;
   factors: string[];
   completedInScope: number;
   totalInScope: number;
   outOfScope: number;
-}> {
+}>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
   const todo = readJsonFile<TodoFile>(todoPath);
 
@@ -1359,7 +1398,11 @@ export function sessionContextDrift(
  * Record an assumption made during a session.
  * Appends to .cleo/audit/assumptions.jsonl (creates dir if needed).
  */
-export function sessionRecordAssumption(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function sessionRecordAssumption(
   projectRoot: string,
   params: {
     sessionId?: string;
@@ -1367,14 +1410,14 @@ export function sessionRecordAssumption(
     assumption: string;
     confidence: 'high' | 'medium' | 'low';
   }
-): EngineResult<{
+): Promise<EngineResult<{
   id: string;
   sessionId: string;
   taskId: string | null;
   assumption: string;
   confidence: string;
   timestamp: string;
-}> {
+}>> {
   if (!params?.assumption) {
     return {
       success: false,
@@ -1439,10 +1482,14 @@ export function sessionRecordAssumption(
 /**
  * Compute session statistics, optionally for a specific session.
  */
-export function sessionStats(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function sessionStats(
   projectRoot: string,
   sessionId?: string
-): EngineResult<{
+): Promise<EngineResult<{
   totalSessions: number;
   activeSessions: number;
   suspendedSessions: number;
@@ -1459,7 +1506,7 @@ export function sessionStats(
     resumeCount: number;
     durationMinutes: number;
   };
-}> {
+}>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
   const todo = readJsonFile<TodoFile>(todoPath);
 

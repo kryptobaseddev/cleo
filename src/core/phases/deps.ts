@@ -1,7 +1,9 @@
 /**
  * Dependency graph resolution - topological sort, cycle detection, impact analysis.
  * @task T4464
+ * @task T4659
  * @epic T4454
+ * @epic T4654
  */
 
 import { readJsonRequired, computeChecksum, saveJson } from '../../store/json.js';
@@ -9,6 +11,35 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TodoFile } from '../../types/task.js';
 import { getTodoPath, getBackupDir } from '../paths.js';
+
+/**
+ * Cached TodoFile loader to avoid repeated file reads within a single operation.
+ * Cache is keyed by resolved path and invalidated after 1 second.
+ * @task T4659
+ * @epic T4654
+ */
+let cachedTodoData: { path: string; data: TodoFile; timestamp: number } | null = null;
+const CACHE_TTL_MS = 1000;
+
+async function loadTodoData(cwd?: string): Promise<TodoFile> {
+  const todoPath = getTodoPath(cwd);
+  const now = Date.now();
+  if (cachedTodoData && cachedTodoData.path === todoPath && (now - cachedTodoData.timestamp) < CACHE_TTL_MS) {
+    return cachedTodoData.data;
+  }
+  const data = await readJsonRequired<TodoFile>(todoPath);
+  cachedTodoData = { path: todoPath, data, timestamp: now };
+  return data;
+}
+
+/**
+ * Invalidate the cached TodoFile (call after writes).
+ * @task T4659
+ * @epic T4654
+ */
+export function invalidateDepsCache(): void {
+  cachedTodoData = null;
+}
 
 /** A node in the dependency graph. */
 export interface DepNode {
@@ -92,7 +123,7 @@ export function buildGraph(tasks: Task[]): Map<string, DepNode> {
  * @task T4464
  */
 export async function getDepsOverview(cwd?: string): Promise<DepsOverviewResult> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = await loadTodoData(cwd);
   const graph = buildGraph(data.tasks);
   const nodes = Array.from(graph.values());
 
@@ -111,7 +142,7 @@ export async function getDepsOverview(cwd?: string): Promise<DepsOverviewResult>
  * @task T4464
  */
 export async function getTaskDeps(taskId: string, cwd?: string): Promise<TaskDepsResult> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = await loadTodoData(cwd);
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -185,7 +216,7 @@ export function topologicalSort(tasks: Task[]): Task[] {
  * @task T4464
  */
 export async function getExecutionWaves(epicId?: string, cwd?: string): Promise<ExecutionWave[]> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = await loadTodoData(cwd);
   let tasks = data.tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled');
 
   // Scope to epic if provided
@@ -253,7 +284,7 @@ export async function getExecutionWaves(epicId?: string, cwd?: string): Promise<
  * @task T4464
  */
 export async function getCriticalPath(taskId: string, cwd?: string): Promise<CriticalPathResult> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = await loadTodoData(cwd);
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -302,7 +333,7 @@ export async function getCriticalPath(taskId: string, cwd?: string): Promise<Cri
  * @task T4464
  */
 export async function getImpact(taskId: string, maxDepth: number = 10, cwd?: string): Promise<string[]> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = await loadTodoData(cwd);
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -335,7 +366,7 @@ export async function getImpact(taskId: string, maxDepth: number = 10, cwd?: str
  * @task T4464
  */
 export async function detectCycles(cwd?: string): Promise<CycleResult> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = await loadTodoData(cwd);
   const graph = buildGraph(data.tasks);
   const cycles: string[][] = [];
   const visited = new Set<string>();
@@ -387,7 +418,7 @@ export async function detectCycles(cwd?: string): Promise<CycleResult> {
  * @task T4464
  */
 export async function getTaskTree(rootId?: string, cwd?: string): Promise<TreeNode[]> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = await loadTodoData(cwd);
 
   const taskMap = new Map(data.tasks.map(t => [t.id, t]));
 
@@ -463,6 +494,7 @@ export async function addRelation(
   data._meta.checksum = computeChecksum(data.tasks);
 
   await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  invalidateDepsCache();
 
   return { taskId, relatedId };
 }

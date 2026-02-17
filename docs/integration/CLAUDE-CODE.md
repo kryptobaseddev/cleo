@@ -38,7 +38,7 @@ cleo validate --fix    # Auto-fix simple issues
 3. Verify _meta.checksum (log if mismatch, don't block)
 4. Generate session ID: session_YYYYMMDD_HHMMSS_<random>
 5. Set _meta.activeSession
-6. Log session_start to todo-log.json
+6. Log session_start to todo-log.jsonl
 7. Check focus.currentTask
    - If set: Resume that task
    - If null: Find highest priority actionable pending task
@@ -79,7 +79,7 @@ cleo session start
 2. Set focus.nextAction (specific next step)
 3. Recalculate and update _meta.checksum
 4. Check archive eligibility (config.archive.archiveOnSessionEnd)
-5. Log session_end to todo-log.json
+5. Log session_end to todo-log.jsonl
 6. Set _meta.activeSession = null
 ```
 
@@ -315,7 +315,7 @@ cleo export --format todowrite  # Export for Claude Code
 | `todo.json` | Active tasks | cleo CLI |
 | `todo-archive.json` | Completed tasks | archive command only |
 | `config.json` | Configuration | Manual edit |
-| `todo-log.json` | Audit trail | Automatic (append-only) |
+| `todo-log.jsonl` | Audit trail | Automatic (append-only) |
 
 ---
 
@@ -337,7 +337,7 @@ cleo export --format todowrite  # Export for Claude Code
 
 ## Logging
 
-All operations logged to `todo-log.json`:
+All operations logged to `todo-log.jsonl`:
 
 ```bash
 # Task events

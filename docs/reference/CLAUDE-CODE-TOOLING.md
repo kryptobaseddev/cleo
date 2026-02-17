@@ -513,7 +513,7 @@ interface Task {
 | Storage | Single `todo.json` + archive | Per-task JSON files |
 | Validation | JSON Schema + anti-hallucination | Zod validation |
 | CLI | Full CLI (`cleo`) | Tool-based only |
-| Audit trail | Append-only `todo-log.json` | None visible |
+| Audit trail | Append-only `todo-log.jsonl` | None visible |
 | Phases | Full phase system | None |
 
 **CLEO Advantages**: Hierarchies, phases, audit trails, anti-hallucination, full CLI

@@ -396,7 +396,7 @@ mock_default_config() {
 # Usage: mock_log_file '{"entries": [], "_meta": {"version": "2.1.0"}}'
 mock_log_file() {
     local content="$1"
-    local dest="${BATS_TEST_TMPDIR}/.cleo/todo-log.json"
+    local dest="${BATS_TEST_TMPDIR}/.cleo/todo-log.jsonl"
 
     mkdir -p "$(dirname "$dest")"
     echo "$content" > "$dest"
