@@ -217,7 +217,7 @@ teardown_file() {
     todo_version=$(jq -r '._meta.schemaVersion' .cleo/todo.json)
     config_version=$(jq -r '._meta.schemaVersion' .cleo/config.json)
     archive_version=$(jq -r '._meta.schemaVersion' .cleo/todo-archive.json)
-    log_version=$(jq -r '._meta.schemaVersion' .cleo/todo-log.json)
+    log_version=$(jq -r '._meta.schemaVersion' .cleo/todo-log.jsonl)
 
     # Verify all schemas define their versions
     assert [ -n "$todo_version" ]

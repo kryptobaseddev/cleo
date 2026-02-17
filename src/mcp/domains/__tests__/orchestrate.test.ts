@@ -437,7 +437,7 @@ describe('OrchestrateHandler', () => {
       expect(result._meta.gateway).toBe('cleo_query');
       expect(result._meta.domain).toBe('orchestrate');
       expect(result._meta.operation).toBe('status');
-      expect(result._meta.version).toBe('1.0.0');
+      expect(result._meta.specVersion).toBe('1.1.0');
       expect(result._meta.timestamp).toBeDefined();
       expect(result._meta.duration_ms).toBeGreaterThanOrEqual(0);
     });

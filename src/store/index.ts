@@ -26,6 +26,15 @@ export type {
   StoreEngine,
   TaskFilters,
   SessionFilters,
+  AddTaskOptions, AddTaskResult,
+  CompleteTaskOptions, CompleteTaskResult,
+  UpdateTaskOptions, UpdateTaskResult,
+  DeleteTaskOptions, DeleteTaskResult,
+  FindTasksOptions, FindTasksResult,
+  ListTasksOptions, ListTasksResult,
+  ArchiveTasksOptions, ArchiveTasksResult,
+  FocusShowResult, FocusSetResult, FocusHistoryEntry,
+  AnalysisResult,
 } from './provider.js';
 export { createJsonStoreProvider } from './json-provider.js';
 

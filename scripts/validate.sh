@@ -19,7 +19,7 @@ TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 SCHEMA_DIR="${SCHEMA_DIR:-$CLEO_HOME/schemas}"
-LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.jsonl}"
 
 # Command name for error-json library
 COMMAND_NAME="validate"

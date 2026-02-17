@@ -17,6 +17,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
 import type { ResolvedMode } from '../lib/mode-detector.js';
 import {
@@ -56,16 +57,15 @@ export class IssuesHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
     if (result.success) {
       return {
-        _meta: { gateway, domain: 'issues', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        _meta: createGatewayMeta(gateway, 'issues', operation, startTime),
         success: true,
         data: result.data,
       };
     }
     return {
-      _meta: { gateway, domain: 'issues', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      _meta: createGatewayMeta(gateway, 'issues', operation, startTime),
       success: false,
       error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
     };
@@ -205,14 +205,7 @@ export class IssuesHandler implements DomainHandler {
     });
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'issues',
-        operation: 'diagnostics',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'issues', 'diagnostics', startTime),
       success: result.success,
       data: result.data,
       error: result.error
@@ -237,14 +230,7 @@ export class IssuesHandler implements DomainHandler {
     // Validate required params
     if (!params?.title || !params?.body) {
       return {
-        _meta: {
-          gateway: 'cleo_mutate',
-          domain: 'issues',
-          operation: `create_${type}`,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_mutate', 'issues', `create_${type}`, startTime),
         success: false,
         error: {
           code: 'E_VALIDATION_FAILED',
@@ -286,14 +272,7 @@ export class IssuesHandler implements DomainHandler {
     });
 
     return {
-      _meta: {
-        gateway: 'cleo_mutate',
-        domain: 'issues',
-        operation: `create_${type}`,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_mutate', 'issues', `create_${type}`, startTime),
       success: result.success,
       data: result.data,
       error: result.error
@@ -319,14 +298,7 @@ export class IssuesHandler implements DomainHandler {
     const validOps = gateway === 'cleo_query' ? ops.query : ops.mutate;
 
     return {
-      _meta: {
-        gateway,
-        domain: 'issues',
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, 'issues', operation, startTime),
       success: false,
       error: {
         code: 'E_INVALID_OPERATION',

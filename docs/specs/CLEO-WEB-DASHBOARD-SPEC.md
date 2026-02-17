@@ -82,7 +82,7 @@ The dashboard has access to rich structured data from CLEO's file-based storage.
 | `todo.json` | Active tasks with status, priority, phase, labels, deps, notes | 566 tasks |
 | `todo-archive.json` | Completed/archived tasks with cycle times | 4,165 tasks |
 | `sessions.json` | Session history with focus, stats, token usage | 622 sessions |
-| `todo-log.json` | Before/after change log for all task mutations | Append-only |
+| `todo-log.jsonl` | Before/after change log for all task mutations | Append-only |
 | `log.json` | Audit trail of all operations | 2,256 entries |
 | `config.json` | Project configuration, phases, release settings | 1 file |
 | `project-info.json` | Registration, health, schema versions, injection status | 1 file |
@@ -114,7 +114,7 @@ The dashboard has access to rich structured data from CLEO's file-based storage.
 
 | Metric | Source | Calculation |
 |--------|--------|-------------|
-| Task velocity | todo-log.json | Completed tasks per day/week |
+| Task velocity | todo-log.jsonl | Completed tasks per day/week |
 | Average cycle time | todo-archive.json | createdAt to completedAt delta |
 | Phase completion % | todo.json + phases.index | done/total per phase |
 | Dependency bottlenecks | graph.forward.json | Nodes with highest in-degree |
@@ -444,7 +444,7 @@ const watchPaths = [
   '.cleo/sessions.json',       // Session changes
   '.cleo/config.json',         // Config changes
   '.cleo/project-info.json',   // Health changes
-  '.cleo/todo-log.json',       // Audit events
+  '.cleo/todo-log.jsonl',       // Audit events
   '.cleo/metrics/*.jsonl',     // Metric updates
 ];
 ```

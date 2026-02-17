@@ -83,7 +83,7 @@ Contains data currently spread across 4 JSON files:
 | `project-info.json` | JSON | Small, metadata only |
 | `.sequence` | JSON | Tiny, atomic counter |
 | `.context-state.json` | JSON | Tiny, ephemeral |
-| `todo-log.jsonl` (renamed) | JSONL | Append-only audit trail |
+| `todo-log.jsonll` (renamed) | JSONL | Append-only audit trail |
 | `COMPLIANCE.jsonl` | JSONL | Append-only metrics |
 | `SESSIONS.jsonl` | JSONL | Append-only session metrics |
 | `TOKEN_USAGE.jsonl` | JSONL | Append-only token tracking |
@@ -171,7 +171,7 @@ If comments become a pain point, adopt JSONC (JSON with Comments) as a minor par
 
 ### Phase 1: Fix JSONL Append (Zero Risk)
 
-Fix the TypeScript `appendJsonl()` to do a true file append instead of read-rewrite. Add log rotation for unbounded JSONL files. Rename `todo-log.json` to `todo-log.jsonl` to reflect actual format.
+Fix the TypeScript `appendJsonl()` to do a true file append instead of read-rewrite. Add log rotation for unbounded JSONL files. Rename `todo-log.jsonl` to `todo-log.jsonll` to reflect actual format.
 
 No schema changes, no new dependencies. Pure bug fix.
 

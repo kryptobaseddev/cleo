@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { showFocus, setFocus, clearFocus, getFocusHistory } from '../../core/focus/index.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -23,7 +23,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Show current focus')
     .action(async () => {
       try {
-        const result = await showFocus();
+        const store = await getStore();
+        const result = await store.showFocus();
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -39,7 +40,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Set focus to a task')
     .action(async (taskId: string) => {
       try {
-        const result = await setFocus(taskId);
+        const store = await getStore();
+        const result = await store.richSetFocus(taskId);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -55,7 +57,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Clear current focus')
     .action(async () => {
       try {
-        const result = await clearFocus();
+        const store = await getStore();
+        const result = await store.richClearFocus();
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -71,7 +74,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Show focus history')
     .action(async () => {
       try {
-        const result = await getFocusHistory();
+        const store = await getStore();
+        const result = await store.getFocusHistory();
         console.log(formatSuccess({ history: result }));
       } catch (err) {
         if (err instanceof CleoError) {

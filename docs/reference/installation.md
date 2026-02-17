@@ -189,7 +189,7 @@ your-project/
     ├── todo.json              # Active tasks list
     ├── todo-archive.json      # Completed/archived tasks
     ├── config.json       # Project-specific configuration
-    └── todo-log.json          # Change history log
+    └── todo-log.jsonl          # Change history log
 ```
 
 #### File Descriptions
@@ -212,7 +212,7 @@ your-project/
 - Logging preferences
 - Session management settings
 
-**`todo-log.json`** - Audit Trail
+**`todo-log.jsonl`** - Audit Trail
 - Append-only change history
 - Task lifecycle events
 - Session start/end records
@@ -227,7 +227,7 @@ Add to `.gitignore`:
 # CLEO files (exclude from version control)
 .cleo/todo.json
 .cleo/todo-archive.json
-.cleo/todo-log.json
+.cleo/todo-log.jsonl
 .cleo/.backups/
 
 # Optional: Keep config in version control
@@ -240,7 +240,7 @@ Add to `.gitignore`:
 # CLEO files
 .cleo/todo.json
 .cleo/todo-archive.json
-.cleo/todo-log.json
+.cleo/todo-log.jsonl
 .cleo/.backups/
 # Note: config.json is tracked for team consistency
 ```
@@ -258,7 +258,7 @@ Tasks in `.cleo/todo.json`. **Read at session start, verify checksum.**
 
 ### Protocol
 - **START**: Read .cleo/config.json → Read .cleo/todo.json → Verify checksum → Log session_start
-- **WORK**: ONE active task only → Update notes → Log changes to .cleo/todo-log.json
+- **WORK**: ONE active task only → Update notes → Log changes to .cleo/todo-log.jsonl
 - **END**: Update sessionNote → Update checksum → Log session_end
 
 ### Anti-Hallucination
@@ -271,7 +271,7 @@ Tasks in `.cleo/todo.json`. **Read at session start, verify checksum.**
 - `.cleo/todo.json` - Active tasks
 - `.cleo/todo-archive.json` - Completed (immutable)
 - `.cleo/config.json` - Settings
-- `.cleo/todo-log.json` - Audit trail
+- `.cleo/todo-log.jsonl` - Audit trail
 <!-- CLEO:END -->
 ```
 
@@ -310,7 +310,7 @@ cd /path/to/your/project
 
 # Check .claude directory
 ls -la .cleo/
-# Expected: todo.json, todo-archive.json, config.json, todo-log.json
+# Expected: todo.json, todo-archive.json, config.json, todo-log.jsonl
 
 # Validate todo.json structure
 cleo validate
@@ -333,7 +333,7 @@ cleo archive --dry-run
 # Expected: No tasks to archive (or list of archivable tasks)
 
 # Check log entries
-cat .cleo/todo-log.json | jq '.entries | length'
+cat .cleo/todo-log.jsonl | jq '.entries | length'
 # Expected: 1 (initialization entry)
 ```
 
@@ -669,7 +669,7 @@ After successful installation and initialization:
 - `.cleo/todo.json` - Active tasks (per-project)
 - `.cleo/todo-archive.json` - Completed tasks (per-project)
 - `.cleo/config.json` - Configuration (per-project)
-- `.cleo/todo-log.json` - Change history (per-project)
+- `.cleo/todo-log.jsonl` - Change history (per-project)
 
 **Task Status Values:**
 - `pending` - Not started

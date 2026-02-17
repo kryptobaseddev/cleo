@@ -13,6 +13,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
 import type { ResolvedMode } from '../lib/mode-detector.js';
 import {
@@ -117,16 +118,15 @@ export class SessionHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
     if (result.success) {
       return {
-        _meta: { gateway, domain: 'session', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        _meta: createGatewayMeta(gateway, 'session', operation, startTime),
         success: true,
         data: result.data,
       };
     }
     return {
-      _meta: { gateway, domain: 'session', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      _meta: createGatewayMeta(gateway, 'session', operation, startTime),
       success: false,
       error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
     };
@@ -191,22 +191,22 @@ export class SessionHandler implements DomainHandler {
   /**
    * Route query operations to native TypeScript engine
    */
-  private queryNative(
+  private async queryNative(
     operation: string,
     params: Record<string, unknown> | undefined,
     startTime: number
-  ): DomainResponse {
+  ): Promise<DomainResponse> {
     if (!isProjectInitialized(this.projectRoot)) {
       return this.wrapNativeResult(createNotInitializedError(), 'cleo_query', operation, startTime);
     }
 
     switch (operation) {
       case 'status':
-        return this.wrapNativeResult(nativeSessionStatus(this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeSessionStatus(this.projectRoot), 'cleo_query', operation, startTime);
       case 'list': {
         const p = params as unknown as SessionListParams;
         return this.wrapNativeResult(
-          nativeSessionList(this.projectRoot, { active: p?.active, limit: p?.limit }),
+          await nativeSessionList(this.projectRoot, { active: p?.active, limit: p?.limit }),
           'cleo_query', operation, startTime
         );
       }
@@ -215,22 +215,22 @@ export class SessionHandler implements DomainHandler {
         if (!sessionId) {
           return this.createErrorResponse('cleo_query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
         }
-        return this.wrapNativeResult(nativeSessionShow(this.projectRoot, sessionId), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeSessionShow(this.projectRoot, sessionId), 'cleo_query', operation, startTime);
       }
       case 'focus-show':
       case 'focus.get':
-        return this.wrapNativeResult(nativeFocusGet(this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeFocusGet(this.projectRoot), 'cleo_query', operation, startTime);
       case 'history': {
         const p = params as unknown as SessionHistoryParams;
         return this.wrapNativeResult(
-          nativeSessionHistory(this.projectRoot, { limit: p?.limit }),
+          await nativeSessionHistory(this.projectRoot, { limit: p?.limit }),
           'cleo_query', operation, startTime
         );
       }
       case 'decision-log': {
         const p = params as Record<string, unknown> | undefined;
         return this.wrapNativeResult(
-          nativeSessionDecisionLog(this.projectRoot, {
+          await nativeSessionDecisionLog(this.projectRoot, {
             sessionId: p?.sessionId as string | undefined,
             taskId: p?.taskId as string | undefined,
           }),
@@ -240,7 +240,7 @@ export class SessionHandler implements DomainHandler {
       case 'context-drift': {
         const p = params as Record<string, unknown> | undefined;
         return this.wrapNativeResult(
-          nativeSessionContextDrift(this.projectRoot, {
+          await nativeSessionContextDrift(this.projectRoot, {
             sessionId: p?.sessionId as string | undefined,
           }),
           'cleo_query', operation, startTime
@@ -249,7 +249,7 @@ export class SessionHandler implements DomainHandler {
       case 'stats': {
         const p = params as unknown as SessionStatsParams;
         return this.wrapNativeResult(
-          nativeSessionStats(this.projectRoot, p?.sessionId),
+          await nativeSessionStats(this.projectRoot, p?.sessionId),
           'cleo_query', operation, startTime
         );
       }
@@ -386,7 +386,7 @@ export class SessionHandler implements DomainHandler {
       case 'suspend': {
         const p = params as unknown as SessionSuspendParams;
         // Suspend requires a sessionId; use current active session from todo.json
-        const statusResult = nativeSessionStatus(this.projectRoot);
+        const statusResult = await nativeSessionStatus(this.projectRoot);
         const activeSessionId = (statusResult.data as any)?.session?.id;
         if (!activeSessionId) {
           return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_NO_ACTIVE_SESSION', 'No active session to suspend', startTime);
@@ -404,7 +404,7 @@ export class SessionHandler implements DomainHandler {
           return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT',
             'sessionId, taskId, decision, and rationale are required', startTime);
         }
-        const result = nativeSessionRecordDecision(this.projectRoot, {
+        const result = await nativeSessionRecordDecision(this.projectRoot, {
           sessionId: p.sessionId as string,
           taskId: p.taskId as string,
           decision: p.decision as string,
@@ -419,7 +419,7 @@ export class SessionHandler implements DomainHandler {
           return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT',
             'assumption and confidence are required', startTime);
         }
-        const result = nativeSessionRecordAssumption(this.projectRoot, {
+        const result = await nativeSessionRecordAssumption(this.projectRoot, {
           sessionId: p.sessionId as string | undefined,
           taskId: p.taskId as string | undefined,
           assumption: p.assumption as string,
@@ -841,32 +841,16 @@ export class SessionHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
-
     if (result.success) {
       return {
-        _meta: {
-          gateway,
-          domain,
-          operation,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms,
-        },
+        _meta: createGatewayMeta(gateway, domain, operation, startTime),
         success: true,
         data: result.data,
       };
     }
 
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: result.error,
     };
@@ -884,14 +868,7 @@ export class SessionHandler implements DomainHandler {
     startTime: number
   ): DomainResponse {
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: {
         code,

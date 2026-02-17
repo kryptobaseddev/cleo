@@ -8,7 +8,7 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { getTodoPath, getBackupDir } from '../paths.js';
 import type { TodoFile } from '../../types/task.js';
 
-interface AnalysisResult {
+export interface AnalysisResult {
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
   bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
   tiers: {

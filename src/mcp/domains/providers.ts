@@ -12,6 +12,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import {
   providerList,
   providerDetect,
@@ -22,6 +23,7 @@ import {
 /**
  * Build a response envelope.
  * @task T4368
+ * @task T4655
  */
 function buildResponse(
   domain: string,
@@ -29,14 +31,7 @@ function buildResponse(
   result: { success: boolean; data?: unknown; error?: { code: string; message: string } },
 ): DomainResponse {
   const response: DomainResponse = {
-    _meta: {
-      gateway: 'cleo_query',
-      domain,
-      operation,
-      version: '1.0.0',
-      timestamp: new Date().toISOString(),
-      duration_ms: 0,
-    },
+    _meta: createGatewayMeta('cleo_query', domain, operation, Date.now()),
     success: result.success,
   };
 

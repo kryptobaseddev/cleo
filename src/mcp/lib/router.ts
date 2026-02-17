@@ -51,7 +51,6 @@ export interface DomainResponse {
     gateway: string;
     domain: string;
     operation: string;
-    version: string;
     timestamp: string;
     duration_ms: number;
     [key: string]: unknown;

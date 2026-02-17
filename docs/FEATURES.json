@@ -502,7 +502,7 @@
           "id": "audit-logging",
           "name": "Audit Logging",
           "command": "cleo log",
-          "description": "Append-only todo-log.json for all operations",
+          "description": "Append-only todo-log.jsonl for all operations",
           "status": "complete",
           "version": "0.1.0",
           "docs": "docs/commands/log.md"

@@ -13,6 +13,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 import {
   listSkills,
   getSkill,
@@ -240,15 +241,7 @@ export class SkillsHandler implements DomainHandler {
     const skills = entries.map(toSkillSummary);
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'skills',
-        operation: 'list',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-        ctSkillsVersion,
-      },
+      _meta: { ...createGatewayMeta('cleo_query', 'skills', 'list', startTime), ctSkillsVersion },
       success: true,
       data: skills,
     };
@@ -282,14 +275,7 @@ export class SkillsHandler implements DomainHandler {
     }
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'skills',
-        operation: 'show',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'skills', 'show', startTime),
       success: true,
       data: toSkillDetail(entry),
     };
@@ -361,14 +347,7 @@ export class SkillsHandler implements DomainHandler {
       .slice(0, limit);
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'skills',
-        operation: 'search',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'skills', 'search', startTime),
       success: true,
       data: {
         query: params.query,
@@ -468,14 +447,7 @@ export class SkillsHandler implements DomainHandler {
     const selected = candidates[0];
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'skills',
-        operation: 'dispatch',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'skills', 'dispatch', startTime),
       success: true,
       data: {
         selectedSkill: selected.skill,
@@ -506,14 +478,7 @@ export class SkillsHandler implements DomainHandler {
 
       const result = validateSkillFrontmatter(params.name);
       return {
-        _meta: {
-          gateway: 'cleo_query',
-          domain: 'skills',
-          operation: 'verify',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_query', 'skills', 'verify', startTime),
         success: true,
         data: {
           valid: result.valid,
@@ -555,14 +520,7 @@ export class SkillsHandler implements DomainHandler {
     });
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'skills',
-        operation: 'verify',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'skills', 'verify', startTime),
       success: true,
       data: {
         valid: failed === 0,
@@ -623,14 +581,7 @@ export class SkillsHandler implements DomainHandler {
       });
 
     return {
-      _meta: {
-        gateway: 'cleo_query',
-        domain: 'skills',
-        operation: 'dependencies',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta('cleo_query', 'skills', 'dependencies', startTime),
       success: true,
       data: {
         name: params.name,
@@ -839,32 +790,16 @@ export class SkillsHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
-
     if (result.success) {
       return {
-        _meta: {
-          gateway,
-          domain,
-          operation,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms,
-        },
+        _meta: createGatewayMeta(gateway, domain, operation, startTime),
         success: true,
         data: result.data,
       };
     }
 
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: result.error,
     };
@@ -882,14 +817,7 @@ export class SkillsHandler implements DomainHandler {
     startTime: number
   ): DomainResponse {
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: {
         code,

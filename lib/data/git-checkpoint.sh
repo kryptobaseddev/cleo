@@ -30,7 +30,7 @@ declare -r _GIT_CHECKPOINT_LOADED=1
 # Sequence counter (ID generation state)
 _GIT_CHECKPOINT_STATE_FILES=(
     "todo.json"
-    "todo-log.json"
+    "todo-log.jsonl"
     "sessions.json"
     "todo-archive.json"
     "config.json"

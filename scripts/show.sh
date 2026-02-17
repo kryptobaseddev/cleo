@@ -15,7 +15,7 @@ set -euo pipefail
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
-LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.jsonl}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source libraries

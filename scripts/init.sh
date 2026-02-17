@@ -142,7 +142,7 @@ DESTRUCTIVE REINITIALIZE:
   Both --force AND --confirm-wipe are required to reinitialize an existing
   project. This will:
   1. Create a safety backup of ALL existing data files
-  2. PERMANENTLY WIPE: todo.json, todo-archive.json, config.json, todo-log.json
+  2. PERMANENTLY WIPE: todo.json, todo-archive.json, config.json, todo-log.jsonl
   3. Initialize fresh data files
 
   Example: cleo init --force --confirm-wipe
@@ -157,7 +157,7 @@ Creates:
   .cleo/todo.json         Active tasks
   .cleo/todo-archive.json Completed tasks
   .cleo/config.json       Configuration
-  .cleo/todo-log.json     Change history
+  .cleo/todo-log.jsonl     Change history
   .cleo/sessions.json     Multi-session management
   .cleo/schemas/          JSON Schema files
   .cleo/templates/        Injection templates for @-references
@@ -467,7 +467,7 @@ fi
 # ============================================================================
 
 # List of data files that would be wiped during reinitialize
-DATA_FILES=("todo.json" "todo-archive.json" "config.json" "todo-log.json")
+DATA_FILES=("todo.json" "todo-archive.json" "config.json" "todo-log.jsonl")
 TODO_DIR=".cleo"
 
 # Check if project is already initialized
@@ -640,7 +640,7 @@ if _project_initialized; then
                         "context": {
                             "existingFiles": $existingFiles,
                             "dataDirectory": ".cleo",
-                            "affectedFiles": ["todo.json", "todo-archive.json", "config.json", "todo-log.json"]
+                            "affectedFiles": ["todo.json", "todo-archive.json", "config.json", "todo-log.jsonl"]
                         }
                     }
                 }'
@@ -683,7 +683,7 @@ if _project_initialized; then
                         "context": {
                             "existingFiles": $existingFiles,
                             "dataDirectory": ".cleo",
-                            "affectedFiles": ["todo.json", "todo-archive.json", "config.json", "todo-log.json"],
+                            "affectedFiles": ["todo.json", "todo-archive.json", "config.json", "todo-log.jsonl"],
                             "safetyBackupLocation": ".cleo/backups/safety/"
                         }
                     }
@@ -966,15 +966,15 @@ else
   exit 1
 fi
 
-# Create todo-log.json from template
-log_info "Creating todo-log.json from template..."
+# Create todo-log.jsonl from template
+log_info "Creating todo-log.jsonl from template..."
 if [[ -f "$TEMPLATES_DIR/log.template.json" ]]; then
   # Process template and replace all placeholders
   sed -e "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" \
       -e "s/{{VERSION}}/$VERSION/g" \
       -e "s/{{SCHEMA_VERSION_LOG}}/$SCHEMA_VERSION_LOG/g" \
       -e 's|"\$schema": "../schemas/log.schema.json"|"$schema": "./schemas/log.schema.json"|' \
-      "$TEMPLATES_DIR/log.template.json" > "$TODO_DIR/todo-log.json"
+      "$TEMPLATES_DIR/log.template.json" > "$TODO_DIR/todo-log.jsonl"
 
   # Add initialization log entry
   # Generate random log ID
@@ -998,21 +998,21 @@ if [[ -f "$TEMPLATES_DIR/log.template.json" ]]; then
           "before": null,
           "after": null,
           "details": ("CLEO system initialized for project: " + $project)
-        }]' "$TODO_DIR/todo-log.json" > "$TODO_DIR/todo-log.json.tmp"
+        }]' "$TODO_DIR/todo-log.jsonl" > "$TODO_DIR/todo-log.jsonl.tmp"
 
-    mv "$TODO_DIR/todo-log.json.tmp" "$TODO_DIR/todo-log.json"
+    mv "$TODO_DIR/todo-log.jsonl.tmp" "$TODO_DIR/todo-log.jsonl"
   else
     log_warn "jq not installed - log entry not added"
   fi
 
   # Verify no placeholders remain
-  if grep -q '{{' "$TODO_DIR/todo-log.json"; then
-    log_error "Placeholder replacement failed in todo-log.json"
-    grep '{{' "$TODO_DIR/todo-log.json" >&2
+  if grep -q '{{' "$TODO_DIR/todo-log.jsonl"; then
+    log_error "Placeholder replacement failed in todo-log.jsonl"
+    grep '{{' "$TODO_DIR/todo-log.jsonl" >&2
     exit 1
   fi
 
-  log_info "Created $TODO_DIR/todo-log.json"
+  log_info "Created $TODO_DIR/todo-log.jsonl"
 else
   log_error "Template not found: $TEMPLATES_DIR/log.template.json"
   exit 1
@@ -1093,7 +1093,7 @@ fi
 log_info "Validating created files..."
 if command -v jq &> /dev/null; then
   # Validate JSON syntax for required files
-  for file in "$TODO_DIR/todo.json" "$TODO_DIR/todo-archive.json" "$TODO_DIR/config.json" "$TODO_DIR/todo-log.json"; do
+  for file in "$TODO_DIR/todo.json" "$TODO_DIR/todo-archive.json" "$TODO_DIR/config.json" "$TODO_DIR/todo-log.jsonl"; do
     if jq empty "$file" 2>/dev/null; then
       log_info "✓ Valid JSON: $(basename "$file")"
     else
@@ -1506,7 +1506,7 @@ CREATED_FILES=(
   "todo.json"
   "todo-archive.json"
   "config.json"
-  "todo-log.json"
+  "todo-log.jsonl"
 )
 # Only include sessions.json if it was actually created
 [[ -f "$TODO_DIR/sessions.json" ]] && CREATED_FILES+=("sessions.json")
@@ -1554,7 +1554,7 @@ else
   echo "  - .cleo/todo.json         (active tasks)"
   echo "  - .cleo/todo-archive.json (completed tasks)"
   echo "  - .cleo/config.json       (settings)"
-  echo "  - .cleo/todo-log.json     (change history)"
+  echo "  - .cleo/todo-log.jsonl     (change history)"
   echo "  - .cleo/sessions.json     (multi-session management)"
   echo "  - .cleo/migrations.json   (migration audit trail)"
   echo "  - .cleo/schemas/          (JSON schemas for validation)"

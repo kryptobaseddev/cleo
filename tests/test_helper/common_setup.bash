@@ -81,7 +81,7 @@ _create_test_project() {
 
     export TODO_FILE="${base_dir}/.cleo/todo.json"
     export CONFIG_FILE="${base_dir}/.cleo/config.json"
-    export LOG_FILE="${base_dir}/.cleo/todo-log.json"
+    export LOG_FILE="${base_dir}/.cleo/todo-log.jsonl"
     export ARCHIVE_FILE="${base_dir}/.cleo/todo-archive.json"
     # Use new backup path (Tier 1 operational backups)
     export BACKUPS_DIR="${base_dir}/.cleo/backups/operational"

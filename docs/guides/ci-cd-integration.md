@@ -26,12 +26,12 @@ Your CI environment needs:
 
 1. **Check in configuration**: Commit `.cleo/config.json` to version control
 2. **Include task files**: Add `.cleo/todo.json` to repository (optional)
-3. **Exclude sensitive data**: Add `.cleo/.backups/` and `.cleo/todo-log.json` to `.gitignore` if needed
+3. **Exclude sensitive data**: Add `.cleo/.backups/` and `.cleo/todo-log.jsonl` to `.gitignore` if needed
 
 ```bash
 # Example .gitignore
 .cleo/.backups/
-.cleo/todo-log.json  # Optional: exclude audit logs from repo
+.cleo/todo-log.jsonl  # Optional: exclude audit logs from repo
 ```
 
 ## GitHub Actions

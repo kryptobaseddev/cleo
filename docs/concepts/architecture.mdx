@@ -60,7 +60,7 @@ src/                        # TypeScript source
 ├── todo.json              # Active tasks
 ├── todo-archive.json      # Completed tasks
 ├── config.json            # Configuration
-├── todo-log.json          # Audit trail
+├── todo-log.jsonl          # Audit trail
 ├── sessions.json          # Session state
 └── .backups/              # Automatic backups
 ```
@@ -97,7 +97,7 @@ src/                        # TypeScript source
     **Contains**: Tasks moved after completion via `cleo archive`
   </Accordion>
 
-  <Accordion title="todo-log.json" icon="history">
+  <Accordion title="todo-log.jsonl" icon="history">
     **Purpose**: Immutable audit trail
 
     **Contains**: Append-only log of all operations with timestamps

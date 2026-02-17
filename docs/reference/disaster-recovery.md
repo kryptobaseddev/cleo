@@ -53,7 +53,7 @@ Each backup directory contains:
 - `todo.json` - Active tasks
 - `todo-archive.json` - Archived tasks
 - `config.json` - Configuration
-- `todo-log.json` - Audit log
+- `todo-log.jsonl` - Audit log
 
 ---
 

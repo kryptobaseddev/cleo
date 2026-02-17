@@ -125,11 +125,11 @@ icon: "code"
 | Script | File | Issue | Severity | Status |
 |--------|------|-------|----------|--------|
 | archive.sh | todo.json, archive.json | ~~No locking~~ | ~~HIGH~~ | **FIXED (T452)** |
-| add.sh | todo-log.json | ~~log_operation() unprotected~~ | ~~MEDIUM~~ | **FIXED (T453)** |
+| add.sh | todo-log.jsonl | ~~log_operation() unprotected~~ | ~~MEDIUM~~ | **FIXED (T453)** |
 | complete.sh | todo.json | ~~Focus clear unprotected~~ | ~~MEDIUM~~ | **FIXED (T454)** |
 | phase.sh/lib/phase-tracking.sh | todo.json | ~~5 functions use raw temp+mv~~ | ~~MEDIUM~~ | **FIXED (T350)** |
 | migrate.sh/lib/migrate.sh | todo.json | ~~8 functions use raw temp+mv~~ | ~~MEDIUM~~ | **FIXED (T530)** |
-| log.sh/lib/logging.sh | todo-log.json | ~~atomic temp+mv but no flock~~ | ~~LOW~~ | **FIXED (T531)** |
+| log.sh/lib/logging.sh | todo-log.jsonl | ~~atomic temp+mv but no flock~~ | ~~LOW~~ | **FIXED (T531)** |
 
 **All vulnerabilities have been resolved.**
 

@@ -5,12 +5,7 @@
  */
 
 import { Command } from 'commander';
-import {
-  suggestRelated,
-  addRelation,
-  discoverRelated,
-  listRelations,
-} from '../../core/tasks/relates.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -29,7 +24,8 @@ export function registerRelatesCommand(program: Command): void {
     .option('--threshold <n>', 'Minimum similarity threshold (0-100)', '50')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       try {
-        const result = await suggestRelated(taskId, {
+        const store = await getStore();
+        const result = await store.suggestRelated(taskId, {
           threshold: opts['threshold'] ? Number(opts['threshold']) : 50,
         });
         console.log(formatSuccess(result));
@@ -47,7 +43,8 @@ export function registerRelatesCommand(program: Command): void {
     .description('Add a relates entry to a task')
     .action(async (from: string, to: string, type: string, reason: string) => {
       try {
-        const result = await addRelation(from, to, type, reason);
+        const store = await getStore();
+        const result = await store.addRelation(from, to, type, reason);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -63,7 +60,8 @@ export function registerRelatesCommand(program: Command): void {
     .description('Discover related tasks using various methods')
     .action(async (taskId: string) => {
       try {
-        const result = await discoverRelated(taskId);
+        const store = await getStore();
+        const result = await store.discoverRelated(taskId);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -79,7 +77,8 @@ export function registerRelatesCommand(program: Command): void {
     .description('Show existing relates entries for a task')
     .action(async (taskId: string) => {
       try {
-        const result = await listRelations(taskId);
+        const store = await getStore();
+        const result = await store.listRelations(taskId);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {

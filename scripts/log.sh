@@ -9,7 +9,7 @@
 # json-output: true
 ###END
 # CLEO Log Script
-# Add entries to todo-log.json
+# Add entries to todo-log.jsonl
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -117,7 +117,7 @@ usage() {
   cat << EOF
 Usage: cleo log [SUBCOMMAND] [OPTIONS]
 
-Manage todo-log.json entries.
+Manage todo-log.jsonl entries.
 
 Subcommands:
   list              List log entries (with filtering)

@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { listTasks } from '../../core/tasks/list.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -31,7 +31,8 @@ export function registerListCommand(program: Command): void {
     .option('--offset <n>', 'Skip first N results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await listTasks({
+        const store = await getStore();
+        const result = await store.richListTasks({
           status: opts['status'] as TaskStatus | undefined,
           priority: opts['priority'] as TaskPriority | undefined,
           type: opts['type'] as TaskType | undefined,

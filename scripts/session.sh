@@ -128,7 +128,7 @@ CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 # Note: LOG_FILE is set by lib/core/logging.sh (readonly) - don't reassign here
 # If library wasn't sourced, set a fallback
 if [[ -z "${LOG_FILE:-}" ]]; then
-  LOG_FILE=".cleo/todo-log.json"
+  LOG_FILE=".cleo/todo-log.jsonl"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)

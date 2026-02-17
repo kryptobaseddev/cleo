@@ -756,30 +756,30 @@ mv .cleo/todo-archive.json.new .cleo/todo-archive.json
 # Count operations by type
 echo "Operation counts:"
 jq '[.entries[] | .operation] | group_by(.) | map({key: .[0], count: length}) | from_entries' \
-  .cleo/todo-log.json
+  .cleo/todo-log.jsonl
 
 # Find tasks with most changes
 echo "Tasks with most changes:"
 jq '[.entries[] | .task_id] | group_by(.) | map({task: .[0], changes: length}) | sort_by(.changes) | reverse | .[0:5]' \
-  .cleo/todo-log.json
+  .cleo/todo-log.jsonl
 
 # Tasks completed in last 7 days
 SEVEN_DAYS_AGO=$(date -d '7 days ago' -Iseconds)
 echo "Recent completions:"
 jq --arg since "$SEVEN_DAYS_AGO" \
   '.entries[] | select(.operation == "complete" and .timestamp > $since) | .task_id' \
-  .cleo/todo-log.json
+  .cleo/todo-log.jsonl
 
 # Average time between task creation and completion
-jq -r '.entries[] | select(.operation == "create") | .task_id' .cleo/todo-log.json | \
+jq -r '.entries[] | select(.operation == "create") | .task_id' .cleo/todo-log.jsonl | \
   while read -r task_id; do
     CREATE_TIME=$(jq -r --arg id "$task_id" \
       '.entries[] | select(.operation == "create" and .task_id == $id) | .timestamp' \
-      .cleo/todo-log.json)
+      .cleo/todo-log.jsonl)
 
     COMPLETE_TIME=$(jq -r --arg id "$task_id" \
       '.entries[] | select(.operation == "complete" and .task_id == $id) | .timestamp' \
-      .cleo/todo-log.json)
+      .cleo/todo-log.jsonl)
 
     if [[ -n "$COMPLETE_TIME" && "$COMPLETE_TIME" != "null" ]]; then
       echo "$task_id: $CREATE_TIME → $COMPLETE_TIME"

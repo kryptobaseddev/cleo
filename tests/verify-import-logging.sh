@@ -35,7 +35,7 @@ TEST_DIR=$(mktemp -d)
 export CLEO_DIR="$TEST_DIR/.cleo"
 mkdir -p "$CLEO_DIR"
 
-export LOG_FILE="$CLEO_DIR/todo-log.json"
+export LOG_FILE="$CLEO_DIR/todo-log.jsonl"
 
 # Initialize log file
 cat > "$LOG_FILE" <<EOF

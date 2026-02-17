@@ -49,7 +49,13 @@ function getLockPriority(filePath: string): number {
 }
 
 /**
- * Read a JSON file, returning parsed content or null if not found
+ * Read a JSON file, returning parsed content or null if not found.
+ *
+ * @deprecated For task/session/archive data, use getStore() from '../../store/index.js'
+ * instead. This function should only be used for config, template, and metadata reads
+ * that are not domain data. See T4657 for the migration plan.
+ * @task T4657
+ * @epic T4654
  */
 export function readJsonFile<T = unknown>(filePath: string): T | null {
   try {
@@ -137,6 +143,11 @@ export function readLogFileEntries(filePath: string): Record<string, unknown>[] 
  *
  * Pattern: write temp -> backup original -> rename temp to target
  *
+ * @deprecated For task/session/archive data, use getStore() from '../../store/index.js'
+ * instead. This function should only be used for config, template, and metadata writes
+ * that are not domain data. See T4657 for the migration plan.
+ * @task T4657
+ * @epic T4654
  * @param filePath - Target file path
  * @param data - Data to serialize as JSON
  * @param indent - JSON indentation (default: 2 spaces)

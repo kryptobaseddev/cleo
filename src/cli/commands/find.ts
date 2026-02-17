@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { findTasks } from '../../core/tasks/find.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -29,7 +29,8 @@ export function registerFindCommand(program: Command): void {
     .option('--offset <n>', 'Skip first N results', parseInt)
     .action(async (query: string | undefined, opts: Record<string, unknown>) => {
       try {
-        const result = await findTasks({
+        const store = await getStore();
+        const result = await store.richFindTasks({
           query,
           id: opts['id'] as string | undefined,
           exact: opts['exact'] as boolean | undefined,

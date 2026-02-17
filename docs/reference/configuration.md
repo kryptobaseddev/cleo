@@ -168,7 +168,7 @@ Controls automatic archiving behavior for completed tasks.
 
 ### Logging Settings
 
-Controls change history logging to `todo-log.json`.
+Controls change history logging to `todo-log.jsonl`.
 
 | Field | Type | Default | Options | Description |
 |-------|------|---------|---------|-------------|

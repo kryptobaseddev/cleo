@@ -25,7 +25,7 @@
 │  │              your-project/.cleo/                         │   │
 │  │                                                            │   │
 │  │  ┌──────────────┐  ┌─────────────────┐  ┌──────────────┐ │   │
-│  │  │  todo.json   │  │todo-archive.json│  │todo-log.json │ │   │
+│  │  │  todo.json   │  │todo-archive.json│  │todo-log.jsonl │ │   │
 │  │  │  (active)    │  │  (completed)    │  │  (history)   │ │   │
 │  │  └──────┬───────┘  └────────┬────────┘  └──────┬───────┘ │   │
 │  │         │                   │                   │         │   │
@@ -118,7 +118,7 @@
                   ┌─────────────┐                        │
                   │  Log Entry  │                        │
                   │ Append to   │                        │
-                  │todo-log.json│                        │
+                  │todo-log.jsonl│                        │
                   └──────┬──────┘                        │
                          │                               │
                          ▼                               │
@@ -302,7 +302,7 @@
                     │                  │                  │
                     ▼                  ▼                  ▼
             ┌──────────────┐   ┌──────────────┐  ┌──────────────┐
-            │  todo.json   │   │todo-archive  │  │ todo-log.json│
+            │  todo.json   │   │todo-archive  │  │ todo-log.jsonl│
             │  schema      │   │   schema     │  │   schema     │
             └──────┬───────┘   └──────┬───────┘  └──────┬───────┘
                    │                  │                  │
@@ -368,7 +368,7 @@
 
 ```
 ┌──────────────────┬─────────────┬──────────────────┬──────────────────┬──────────────────┐
-│  OPERATION       │  todo.json  │ todo-archive.json│ config.json │ todo-log.json    │
+│  OPERATION       │  todo.json  │ todo-archive.json│ config.json │ todo-log.jsonl    │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
 │  init.sh         │   W (new)   │   W (new)        │   W (new)        │   W (new)        │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
@@ -1180,7 +1180,7 @@ Key Points:
 
 ```
 ┌──────────────────┬─────────────┬──────────────────┬──────────────────┬──────────────────┐
-│  OPERATION       │  todo.json  │ todo-archive.json│ config.json │ todo-log.json    │
+│  OPERATION       │  todo.json  │ todo-archive.json│ config.json │ todo-log.jsonl    │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
 │  phase.sh set    │   R + W     │      -           │      R           │      W           │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤

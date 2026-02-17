@@ -333,7 +333,7 @@ All other properties optional with documented defaults.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | boolean | true | Enable logging to todo-log.json |
+| `enabled` | boolean | true | Enable logging to todo-log.jsonl |
 | `retentionDays` | integer | 30 | Days to retain log entries (1-365) |
 | `level` | string | standard | Enum: minimal, standard, verbose |
 | `logSessionEvents` | boolean | true | Log session start/end |
@@ -913,7 +913,7 @@ ajv validate -s schemas/archive.schema.json -d archive.json --strict
 ajv validate -s schemas/config.schema.json -d config.json --strict
 
 # Validate log
-ajv validate -s schemas/log.schema.json -d todo-log.json --strict
+ajv validate -s schemas/log.schema.json -d todo-log.jsonl --strict
 ```
 
 ### Pre-Commit Validation

@@ -2,12 +2,18 @@
  * Task Engine
  *
  * Native TypeScript implementation of core task CRUD operations.
- * Reads/writes .cleo/todo.json directly without CLI subprocess.
+ * Uses StoreProvider (via getStore()) for task/session data access,
+ * falling back to direct JSON for config and specialized operations.
  *
  * Supports: show, get, list, find, exists, create/add, update, complete, delete, archive
+ *
+ * @task T4657
+ * @epic T4654
  */
 
 import { readJsonFile, readLogFileEntries, writeJsonFileAtomic, withFileLock, withMultiLock, getDataPath } from './store.js';
+import { getStore } from '../../store/index.js';
+import type { Task } from '../../types/task.js';
 // validateTask available from schema-validator but not currently used directly
 import {
   validateNewTask,
@@ -38,6 +44,39 @@ function getHierarchyLimits(projectRoot: string): { maxDepth: number; maxSibling
   }
 
   return { maxDepth, maxSiblings };
+}
+
+/**
+ * Load all tasks via StoreProvider.
+ * Returns Task[] from the store abstraction layer.
+ *
+ * @task T4657
+ * @epic T4654
+ */
+async function loadAllTasksAsync(projectRoot: string): Promise<Task[]> {
+  const store = await getStore(projectRoot);
+  return store.listTasks();
+}
+
+/**
+ * Convert a core Task to a TaskRecord for backward compatibility.
+ * TaskRecord has string-typed status/priority; Task has union types.
+ *
+ * @task T4657
+ * @epic T4654
+ */
+function taskToRecord(task: Task): TaskRecord {
+  return task as unknown as TaskRecord;
+}
+
+/**
+ * Convert an array of core Tasks to TaskRecords.
+ *
+ * @task T4657
+ * @epic T4654
+ */
+function tasksToRecords(tasks: Task[]): TaskRecord[] {
+  return tasks as unknown as TaskRecord[];
 }
 
 /**
@@ -220,140 +259,139 @@ function normalizePriority(priority: string | number | undefined): string {
 
 /**
  * Get a single task by ID
+ * @task T4657
+ * @epic T4654
  */
-export function taskShow(
+export async function taskShow(
   projectRoot: string,
   taskId: string
-): EngineResult<TaskRecord> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+): Promise<EngineResult<TaskRecord>> {
+  try {
+    const store = await getStore(projectRoot);
+    const task = await store.getTask(taskId);
+    if (!task) {
+      return {
+        success: false,
+        error: {
+          code: 'E_NOT_FOUND',
+          message: `Task '${taskId}' not found`,
+        },
+      };
+    }
+    return { success: true, data: taskToRecord(task) };
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
-
-  const task = todo.tasks.find((t) => t.id === taskId);
-  if (!task) {
-    return {
-      success: false,
-      error: {
-        code: 'E_NOT_FOUND',
-        message: `Task '${taskId}' not found`,
-      },
-    };
-  }
-
-  return { success: true, data: task };
 }
 
 /**
  * List tasks with optional filters
+ * @task T4657
+ * @epic T4654
  */
-export function taskList(
+export async function taskList(
   projectRoot: string,
   params?: {
     parent?: string;
     status?: string;
     limit?: number;
   }
-): EngineResult<TaskRecord[]> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+): Promise<EngineResult<TaskRecord[]>> {
+  try {
+    const store = await getStore(projectRoot);
+    const allTasks = await store.listTasks({
+      parentId: params?.parent ?? undefined,
+      status: params?.status as import('../../types/task.js').TaskStatus | undefined,
+      limit: params?.limit,
+    });
+    return { success: true, data: tasksToRecords(allTasks) };
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
-
-  let tasks = todo.tasks;
-
-  if (params?.parent) {
-    tasks = tasks.filter((t) => t.parentId === params.parent);
-  }
-
-  if (params?.status) {
-    tasks = tasks.filter((t) => t.status === params.status);
-  }
-
-  if (params?.limit && params.limit > 0) {
-    tasks = tasks.slice(0, params.limit);
-  }
-
-  return { success: true, data: tasks };
 }
 
 /**
  * Fuzzy search tasks by title/description/ID
+ * @task T4657
+ * @epic T4654
  */
-export function taskFind(
+export async function taskFind(
   projectRoot: string,
   query: string,
   limit?: number
-): EngineResult<MinimalTaskRecord[]> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+): Promise<EngineResult<MinimalTaskRecord[]>> {
+  try {
+    const tasks = await loadAllTasksAsync(projectRoot);
+
+    const queryLower = query.toLowerCase();
+
+    // Score-based fuzzy matching
+    const scored = tasks
+      .map((task) => {
+        let score = 0;
+        const idLower = task.id.toLowerCase();
+        const titleLower = task.title.toLowerCase();
+        const descLower = (task.description || '').toLowerCase();
+
+        // Exact ID match
+        if (idLower === queryLower) score += 100;
+        // ID contains query
+        else if (idLower.includes(queryLower)) score += 50;
+
+        // Exact title match
+        if (titleLower === queryLower) score += 80;
+        // Title starts with query
+        else if (titleLower.startsWith(queryLower)) score += 40;
+        // Title contains query
+        else if (titleLower.includes(queryLower)) score += 20;
+
+        // Description contains query
+        if (descLower.includes(queryLower)) score += 10;
+
+        // Label match
+        if (task.labels?.some((l) => l.toLowerCase().includes(queryLower))) {
+          score += 15;
+        }
+
+        return { task, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    let results = scored.map((item) => ({
+      id: item.task.id,
+      title: item.task.title,
+      status: item.task.status,
+      priority: item.task.priority,
+      parentId: item.task.parentId,
+    }));
+
+    if (limit && limit > 0) {
+      results = results.slice(0, limit);
+    }
+
+    return { success: true, data: results };
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
-
-  const queryLower = query.toLowerCase();
-
-  // Score-based fuzzy matching
-  const scored = todo.tasks
-    .map((task) => {
-      let score = 0;
-      const idLower = task.id.toLowerCase();
-      const titleLower = task.title.toLowerCase();
-      const descLower = (task.description || '').toLowerCase();
-
-      // Exact ID match
-      if (idLower === queryLower) score += 100;
-      // ID contains query
-      else if (idLower.includes(queryLower)) score += 50;
-
-      // Exact title match
-      if (titleLower === queryLower) score += 80;
-      // Title starts with query
-      else if (titleLower.startsWith(queryLower)) score += 40;
-      // Title contains query
-      else if (titleLower.includes(queryLower)) score += 20;
-
-      // Description contains query
-      if (descLower.includes(queryLower)) score += 10;
-
-      // Label match
-      if (task.labels?.some((l) => l.toLowerCase().includes(queryLower))) {
-        score += 15;
-      }
-
-      return { task, score };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  let results = scored.map((item) => ({
-    id: item.task.id,
-    title: item.task.title,
-    status: item.task.status,
-    priority: item.task.priority,
-    parentId: item.task.parentId,
-  }));
-
-  if (limit && limit > 0) {
-    results = results.slice(0, limit);
-  }
-
-  return { success: true, data: results };
 }
 
 /**
  * Check if a task exists
+ * @task T4657
+ * @epic T4654
  */
-export function taskExists(
+export async function taskExists(
   projectRoot: string,
   taskId: string
-): EngineResult<{ exists: boolean; taskId: string }> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+): Promise<EngineResult<{ exists: boolean; taskId: string }>> {
+  try {
+    const store = await getStore(projectRoot);
+    const task = await store.getTask(taskId);
+    return { success: true, data: { exists: task !== null, taskId } };
+  } catch {
     return { success: true, data: { exists: false, taskId } };
   }
-
-  const exists = todo.tasks.some((t) => t.id === taskId);
-  return { success: true, data: { exists, taskId } };
 }
 
 // ===== Mutate Operations =====
@@ -817,14 +855,16 @@ function depsReady(task: TaskRecord, taskMap: Map<string, TaskRecord>): boolean 
 
 /**
  * Suggest next task to work on based on priority, phase alignment, age, and dependency readiness.
+ * @task T4657
+ * @epic T4654
  */
-export function taskNext(
+export async function taskNext(
   projectRoot: string,
   params?: {
     count?: number;
     explain?: boolean;
   }
-): EngineResult<{
+): Promise<EngineResult<{
   suggestions: Array<{
     id: string;
     title: string;
@@ -834,17 +874,23 @@ export function taskNext(
     reasons?: string[];
   }>;
   totalCandidates: number;
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const tasks = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(tasks);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  const taskMap = new Map(todo.tasks.map((t) => [t.id, t]));
-  const currentPhase = todo.project?.currentPhase;
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+  // Read current phase from config (not domain data - keep as direct JSON)
+  const todoPath = getDataPath(projectRoot, 'todo.json');
+  const todoMeta = readJsonFile<{ project?: { currentPhase?: string | null } }>(todoPath);
+  const currentPhase = todoMeta?.project?.currentPhase;
 
   // Filter candidates: pending, deps ready
-  const candidates = todo.tasks.filter((t) =>
+  const candidates = allTasks.filter((t) =>
     t.status === 'pending' && depsReady(t, taskMap),
   );
 
@@ -943,11 +989,13 @@ function buildBlockingChain(
 
 /**
  * Show blocked tasks and analyze blocking chains.
+ * @task T4657
+ * @epic T4654
  */
-export function taskBlockers(
+export async function taskBlockers(
   projectRoot: string,
   params?: { analyze?: boolean }
-): EngineResult<{
+): Promise<EngineResult<{
   blockedTasks: Array<{
     id: string;
     title: string;
@@ -961,20 +1009,23 @@ export function taskBlockers(
     blocksCount: number;
   }>;
   summary: string;
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const tasks = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(tasks);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  const taskMap = new Map(todo.tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
   const analyze = params?.analyze ?? false;
 
   // Find tasks with status 'blocked'
-  const blockedTasks = todo.tasks.filter((t) => t.status === 'blocked');
+  const blockedTasks = allTasks.filter((t) => t.status === 'blocked');
 
   // Find pending tasks with unsatisfied dependencies
-  const depBlockedTasks = todo.tasks.filter((t) =>
+  const depBlockedTasks = allTasks.filter((t) =>
     t.status === 'pending' &&
     t.depends &&
     t.depends.length > 0 &&
@@ -1066,18 +1117,23 @@ function buildTreeNode(
 /**
  * Build hierarchy tree. If taskId is provided, build subtree rooted at that task.
  * Otherwise, build full tree from all root tasks.
+ * @task T4657
+ * @epic T4654
  */
-export function taskTree(
+export async function taskTree(
   projectRoot: string,
   taskId?: string
-): EngineResult<{ tree: TaskTreeNode[]; totalNodes: number }> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+): Promise<EngineResult<{ tree: TaskTreeNode[]; totalNodes: number }>> {
+  let allTasks: TaskRecord[];
+  try {
+    const tasks = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(tasks);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
   if (taskId) {
-    const task = todo.tasks.find((t) => t.id === taskId);
+    const task = allTasks.find((t) => t.id === taskId);
     if (!task) {
       return {
         success: false,
@@ -1088,7 +1144,7 @@ export function taskTree(
 
   // Build children lookup
   const childrenMap = new Map<string, TaskRecord[]>();
-  for (const task of todo.tasks) {
+  for (const task of allTasks) {
     const parentKey = task.parentId ?? '__root__';
     if (!childrenMap.has(parentKey)) {
       childrenMap.set(parentKey, []);
@@ -1098,7 +1154,7 @@ export function taskTree(
 
   let roots: TaskRecord[];
   if (taskId) {
-    const rootTask = todo.tasks.find((t) => t.id === taskId)!;
+    const rootTask = allTasks.find((t) => t.id === taskId)!;
     roots = [rootTask];
   } else {
     roots = childrenMap.get('__root__') ?? [];
@@ -1125,23 +1181,28 @@ export function taskTree(
 
 /**
  * Show dependencies for a task - both what it depends on and what depends on it.
+ * @task T4657
+ * @epic T4654
  */
-export function taskDeps(
+export async function taskDeps(
   projectRoot: string,
   taskId: string
-): EngineResult<{
+): Promise<EngineResult<{
   taskId: string;
   dependsOn: Array<{ id: string; title: string; status: string }>;
   dependedOnBy: Array<{ id: string; title: string; status: string }>;
   unresolvedDeps: string[];
   allDepsReady: boolean;
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const tasks = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(tasks);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  const task = todo.tasks.find((t) => t.id === taskId);
+  const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
     return {
       success: false,
@@ -1149,9 +1210,9 @@ export function taskDeps(
     };
   }
 
-  const taskMap = new Map(todo.tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
   const completedIds = new Set(
-    todo.tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    allTasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
   );
 
   // What this task depends on
@@ -1163,7 +1224,7 @@ export function taskDeps(
     .filter((d): d is { id: string; title: string; status: string } => d !== null);
 
   // What depends on this task
-  const dependedOnBy = todo.tasks
+  const dependedOnBy = allTasks
     .filter((t) => t.depends?.includes(taskId))
     .map((t) => ({ id: t.id, title: t.title, status: t.status }));
 
@@ -1186,11 +1247,13 @@ export function taskDeps(
 
 /**
  * Show task relations (existing relates entries).
+ * @task T4657
+ * @epic T4654
  */
-export function taskRelates(
+export async function taskRelates(
   projectRoot: string,
   taskId: string
-): EngineResult<{
+): Promise<EngineResult<{
   taskId: string;
   relations: Array<{
     taskId: string;
@@ -1198,13 +1261,16 @@ export function taskRelates(
     reason?: string;
   }>;
   count: number;
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const tasks = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(tasks);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  const task = todo.tasks.find((t) => t.id === taskId);
+  const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
     return {
       success: false,
@@ -1289,11 +1355,13 @@ export async function taskRelatesAdd(
 
 /**
  * Analyze a task for description quality, missing fields, and dependency health.
+ * @task T4657
+ * @epic T4654
  */
-export function taskAnalyze(
+export async function taskAnalyze(
   projectRoot: string,
   taskId?: string
-): EngineResult<{
+): Promise<EngineResult<{
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
   bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
   tiers: {
@@ -1307,15 +1375,18 @@ export function taskAnalyze(
     blocked: number;
     avgLeverage: number;
   };
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const loaded = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(loaded);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
   const tasks = taskId
-    ? todo.tasks.filter((t) => t.id === taskId || t.parentId === taskId)
-    : todo.tasks;
+    ? allTasks.filter((t) => t.id === taskId || t.parentId === taskId)
+    : allTasks;
 
   // Build dependency graph: who blocks whom
   const blocksMap: Record<string, string[]> = {};
@@ -1967,23 +2038,30 @@ function measureDependencyDepth(
  * based on description length, acceptance criteria count, dependency depth,
  * subtask count, and file reference count.
  */
-export function taskComplexityEstimate(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function taskComplexityEstimate(
   projectRoot: string,
   params: { taskId: string }
-): EngineResult<{
+): Promise<EngineResult<{
   size: 'small' | 'medium' | 'large';
   score: number;
   factors: ComplexityFactor[];
   dependencyDepth: number;
   subtaskCount: number;
   fileCount: number;
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const loaded = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(loaded);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  const task = todo.tasks.find((t) => t.id === params.taskId);
+  const task = allTasks.find((t) => t.id === params.taskId);
   if (!task) {
     return {
       success: false,
@@ -2018,14 +2096,14 @@ export function taskComplexityEstimate(
   factors.push({ name: 'acceptanceCriteria', value: acceptanceScore, detail: `${acceptanceCount} criteria` });
 
   // Factor 3: Dependency depth (recursive walk)
-  const taskMap = new Map(todo.tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
   const dependencyDepth = measureDependencyDepth(params.taskId, taskMap);
   const depthScore = Math.min(dependencyDepth, 3);
   score += depthScore;
   factors.push({ name: 'dependencyDepth', value: depthScore, detail: `depth ${dependencyDepth}` });
 
   // Factor 4: Subtask count (direct children)
-  const subtaskCount = todo.tasks.filter((t) => t.parentId === params.taskId).length;
+  const subtaskCount = allTasks.filter((t) => t.parentId === params.taskId).length;
   const subtaskScore = Math.min(subtaskCount, 3);
   score += subtaskScore;
   factors.push({ name: 'subtaskCount', value: subtaskScore, detail: `${subtaskCount} subtasks` });
@@ -2067,22 +2145,29 @@ export function taskComplexityEstimate(
  * 'downstream' = what depends on this task
  * 'both' = both directions
  */
-export function taskDepends(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function taskDepends(
   projectRoot: string,
   taskId: string,
   direction: 'upstream' | 'downstream' | 'both' = 'both'
-): EngineResult<{
+): Promise<EngineResult<{
   taskId: string;
   direction: string;
   upstream: Array<{ id: string; title: string; status: string }>;
   downstream: Array<{ id: string; title: string; status: string }>;
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const loaded = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(loaded);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  const task = todo.tasks.find((t) => t.id === taskId);
+  const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
     return {
       success: false,
@@ -2090,7 +2175,7 @@ export function taskDepends(
     };
   }
 
-  const taskMap = new Map(todo.tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   // Upstream: tasks this task depends on
   const upstream: Array<{ id: string; title: string; status: string }> = [];
@@ -2106,7 +2191,7 @@ export function taskDepends(
   // Downstream: tasks that depend on this task
   const downstream: Array<{ id: string; title: string; status: string }> = [];
   if (direction === 'downstream' || direction === 'both') {
-    for (const t of todo.tasks) {
+    for (const t of allTasks) {
       if (t.depends?.includes(taskId)) {
         downstream.push({ id: t.id, title: t.title, status: t.status });
       }
@@ -2124,10 +2209,14 @@ export function taskDepends(
 /**
  * Compute task statistics, optionally scoped to an epic.
  */
-export function taskStats(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function taskStats(
   projectRoot: string,
   epicId?: string
-): EngineResult<{
+): Promise<EngineResult<{
   total: number;
   pending: number;
   active: number;
@@ -2136,13 +2225,16 @@ export function taskStats(
   cancelled: number;
   byPriority: Record<string, number>;
   byType: Record<string, number>;
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const loaded = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(loaded);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  let tasks = todo.tasks;
+  let tasks = allTasks;
 
   // Scope to epic if provided
   if (epicId) {
@@ -2150,7 +2242,7 @@ export function taskStats(
     epicIds.add(epicId);
     // Collect all descendants
     const collectChildren = (parentId: string) => {
-      for (const t of todo.tasks) {
+      for (const t of allTasks) {
         if (t.parentId === parentId && !epicIds.has(t.id)) {
           epicIds.add(t.id);
           collectChildren(t.id);
@@ -2158,7 +2250,7 @@ export function taskStats(
       }
     };
     collectChildren(epicId);
-    tasks = todo.tasks.filter((t) => epicIds.has(t.id));
+    tasks = allTasks.filter((t) => epicIds.has(t.id));
   }
 
   const byStatus: Record<string, number> = {};
@@ -2192,20 +2284,27 @@ export function taskStats(
 /**
  * Export tasks as JSON or CSV.
  */
-export function taskExport(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function taskExport(
   projectRoot: string,
   params?: {
     format?: 'json' | 'csv';
     status?: string;
     parent?: string;
   }
-): EngineResult<unknown> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+): Promise<EngineResult<unknown>> {
+  let allTasks: TaskRecord[];
+  try {
+    const loaded = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(loaded);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
-  let tasks = todo.tasks;
+  let tasks = allTasks;
 
   if (params?.status) {
     tasks = tasks.filter((t) => t.status === params.status);
@@ -2216,7 +2315,7 @@ export function taskExport(
     const parentIds = new Set<string>();
     parentIds.add(params.parent);
     const collectChildren = (parentId: string) => {
-      for (const t of todo.tasks) {
+      for (const t of allTasks) {
         if (t.parentId === parentId && !parentIds.has(t.id)) {
           parentIds.add(t.id);
           collectChildren(t.id);
@@ -2259,11 +2358,15 @@ export function taskExport(
 /**
  * Get task history from the log file.
  */
-export function taskHistory(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function taskHistory(
   projectRoot: string,
   taskId: string,
   limit?: number
-): EngineResult<Array<Record<string, unknown>>> {
+): Promise<EngineResult<Array<Record<string, unknown>>>> {
   const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
   const entries = readLogFileEntries(logPath);
 
@@ -2294,23 +2397,30 @@ export function taskHistory(
 /**
  * Lint tasks for common issues.
  */
-export function taskLint(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function taskLint(
   projectRoot: string,
   taskId?: string
-): EngineResult<Array<{
+): Promise<EngineResult<Array<{
   taskId: string;
   severity: 'error' | 'warning';
   rule: string;
   message: string;
-}>> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>>> {
+  let allTasks: TaskRecord[];
+  try {
+    const loaded = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(loaded);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
   const tasks = taskId
-    ? todo.tasks.filter((t) => t.id === taskId)
-    : todo.tasks;
+    ? allTasks.filter((t) => t.id === taskId)
+    : allTasks;
 
   if (taskId && tasks.length === 0) {
     return {
@@ -2329,7 +2439,7 @@ export function taskLint(
   const allDescriptions = new Set<string>();
   const allIds = new Set<string>();
 
-  for (const task of todo.tasks) {
+  for (const task of allTasks) {
     // Check ID uniqueness
     if (allIds.has(task.id)) {
       issues.push({
@@ -2414,7 +2524,7 @@ export function taskLint(
     }
 
     // Check orphaned parent references
-    if (task.parentId && !todo.tasks.some((t) => t.id === task.parentId)) {
+    if (task.parentId && !allTasks.some((t) => t.id === task.parentId)) {
       issues.push({
         taskId: task.id,
         severity: 'error',
@@ -2425,7 +2535,7 @@ export function taskLint(
 
     // Check orphaned dependency references
     for (const depId of task.depends ?? []) {
-      if (!todo.tasks.some((t) => t.id === depId)) {
+      if (!allTasks.some((t) => t.id === depId)) {
         issues.push({
           taskId: task.id,
           severity: 'warning',
@@ -2444,11 +2554,15 @@ export function taskLint(
 /**
  * Validate multiple tasks at once.
  */
-export function taskBatchValidate(
+/**
+ * @task T4657
+ * @epic T4654
+ */
+export async function taskBatchValidate(
   projectRoot: string,
   taskIds: string[],
   checkMode: 'full' | 'quick' = 'full'
-): EngineResult<{
+): Promise<EngineResult<{
   results: Record<string, Array<{
     severity: 'error' | 'warning';
     rule: string;
@@ -2462,9 +2576,12 @@ export function taskBatchValidate(
     errors: number;
     warnings: number;
   };
-}> {
-  const todo = loadTodoFile(projectRoot);
-  if (!todo) {
+}>> {
+  let allTasks: TaskRecord[];
+  try {
+    const loaded = await loadAllTasksAsync(projectRoot);
+    allTasks = tasksToRecords(loaded);
+  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 
@@ -2478,7 +2595,7 @@ export function taskBatchValidate(
   let totalWarnings = 0;
 
   for (const id of taskIds) {
-    const task = todo.tasks.find((t) => t.id === id);
+    const task = allTasks.find((t) => t.id === id);
     if (!task) {
       results[id] = [{ severity: 'error', rule: 'exists', message: `Task '${id}' not found` }];
       totalErrors++;
@@ -2506,12 +2623,12 @@ export function taskBatchValidate(
         taskIssues.push({ severity: 'warning', rule: 'title-description-different', message: 'Title equals description' });
       }
 
-      if (task.parentId && !todo.tasks.some((t) => t.id === task.parentId)) {
+      if (task.parentId && !allTasks.some((t) => t.id === task.parentId)) {
         taskIssues.push({ severity: 'error', rule: 'valid-parent', message: `Parent '${task.parentId}' not found` });
       }
 
       for (const depId of task.depends ?? []) {
-        if (!todo.tasks.some((t) => t.id === depId)) {
+        if (!allTasks.some((t) => t.id === depId)) {
           taskIssues.push({ severity: 'warning', rule: 'valid-dependency', message: `Dependency '${depId}' not found` });
         }
       }

@@ -51,7 +51,7 @@ ls -la .cleo/
 chmod 644 .cleo/todo.json
 chmod 644 .cleo/config.json
 chmod 644 .cleo/todo-archive.json
-chmod 644 .cleo/todo-log.json
+chmod 644 .cleo/todo-log.jsonl
 
 # Fix directory permissions
 chmod 755 .cleo/
@@ -857,7 +857,7 @@ Validating: .cleo/config.json
 ✓ All required fields present
 ✓ All values in valid ranges
 
-Validating: .cleo/todo-log.json
+Validating: .cleo/todo-log.jsonl
 ✓ File exists
 ✓ JSON syntax valid
 ✓ Schema validation passed
@@ -880,7 +880,7 @@ cat > /tmp/integrity-check.sh << 'EOF'
 echo "=== File Integrity Check ==="
 
 # Check file existence
-for file in todo.json config.json todo-archive.json todo-log.json; do
+for file in todo.json config.json todo-archive.json todo-log.jsonl; do
   if [ -f ".cleo/$file" ]; then
     echo "✓ $file exists"
   else
@@ -920,7 +920,7 @@ echo ""
 echo "=== Task Counts ==="
 echo "Active tasks: $(jq '.tasks | length' .cleo/todo.json 2>/dev/null || echo 0)"
 echo "Archived tasks: $(jq '.tasks | length' .cleo/todo-archive.json 2>/dev/null || echo 0)"
-echo "Log entries: $(jq '.entries | length' .cleo/todo-log.json 2>/dev/null || echo 0)"
+echo "Log entries: $(jq '.entries | length' .cleo/todo-log.jsonl 2>/dev/null || echo 0)"
 
 # Check for permission issues
 echo ""
@@ -939,12 +939,12 @@ chmod +x /tmp/integrity-check.sh
 **View recent operations:**
 ```bash
 # Last 10 log entries
-jq '.entries | .[-10:]' .cleo/todo-log.json
+jq '.entries | .[-10:]' .cleo/todo-log.jsonl
 
 # Last 5 with pretty printing
 jq '.entries | .[-5:] | .[] |
   {timestamp, operation, task_id, details}' \
-  .cleo/todo-log.json
+  .cleo/todo-log.jsonl
 ```
 
 **Search for specific task history:**
@@ -953,16 +953,16 @@ jq '.entries | .[-5:] | .[] |
 TASK_ID="T001"
 jq --arg id "$TASK_ID" \
   '.entries[] | select(.taskId == $id)' \
-  .cleo/todo-log.json
+  .cleo/todo-log.jsonl
 ```
 
 **Operations by type:**
 ```bash
 # Count operations by type
-jq -r '.entries[] | .operation' .cleo/todo-log.json | sort | uniq -c
+jq -r '.entries[] | .operation' .cleo/todo-log.jsonl | sort | uniq -c
 
 # Show all archive operations
-jq '.entries[] | select(.operation == "archive")' .cleo/todo-log.json
+jq '.entries[] | select(.operation == "archive")' .cleo/todo-log.jsonl
 ```
 
 **Date range analysis:**
@@ -971,7 +971,7 @@ jq '.entries[] | select(.operation == "archive")' .cleo/todo-log.json
 WEEK_AGO=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
 jq --arg date "$WEEK_AGO" \
   '.entries[] | select(.timestamp >= $date)' \
-  .cleo/todo-log.json
+  .cleo/todo-log.jsonl
 ```
 
 ---
@@ -1033,7 +1033,7 @@ ls -la ~/.cleo/
 cleo validate --verbose
 
 # Recent errors
-tail -50 .cleo/todo-log.json | jq '.entries[] | select(.details.error != null)'
+tail -50 .cleo/todo-log.jsonl | jq '.entries[] | select(.details.error != null)'
 ```
 
 ### Report issues:
