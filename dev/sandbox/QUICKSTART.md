@@ -259,7 +259,7 @@ cat .cleo/todo.json | jq '.'
 cat .cleo/config.json | jq '.session'
 
 # Check logs
-cat .cleo/todo-log.json | jq '.[-5:]'  # Last 5 log entries
+cat .cleo/todo-log.jsonl | jq '.[-5:]'  # Last 5 log entries
 
 # Verify installation
 which cleo

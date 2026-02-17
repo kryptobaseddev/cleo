@@ -57,8 +57,8 @@ setup_fixture() {
 }
 EOF
 
-    # Create minimal todo-log.json
-    cat > "$FIXTURE_DIR/.claude/todo-log.json" << 'EOF'
+    # Create minimal todo-log.jsonl
+    cat > "$FIXTURE_DIR/.claude/todo-log.jsonl" << 'EOF'
 {
   "$schema": "https://claude-todo.dev/schemas/v1/todo-log.schema.json",
   "_meta": {
