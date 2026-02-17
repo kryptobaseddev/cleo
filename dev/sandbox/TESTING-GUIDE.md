@@ -385,7 +385,7 @@ ls -la .cleo/
 cat .cleo/config.json | jq '.'
 
 # Check for errors
-cat .cleo/todo-log.json | jq '.[] | select(.level == "ERROR")'
+cat .cleo/todo-log.jsonl | jq '.[] | select(.level == "ERROR")'
 ```
 
 ### Container Storage Issues

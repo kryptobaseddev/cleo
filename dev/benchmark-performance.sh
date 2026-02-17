@@ -370,7 +370,7 @@ benchmark_dataset() {
     echo "$dataset" > "$TEMP_DIR/todo.json"
 
     # Create minimal log file for stats command
-    cat > "$TEMP_DIR/todo-log.json" << 'LOGEOF'
+    cat > "$TEMP_DIR/todo-log.jsonl" << 'LOGEOF'
 {
   "version": "1.0.0",
   "entries": []
@@ -398,7 +398,7 @@ LOGEOF
     local stats_times=()
     for ((run=1; run<=NUM_RUNS; run++)); do
         local elapsed
-        elapsed=$(measure_time "TODO_FILE=$TEMP_DIR/todo.json STATS_LOG_FILE=$TEMP_DIR/todo-log.json $SCRIPT_DIR/../scripts/stats.sh -f json")
+        elapsed=$(measure_time "TODO_FILE=$TEMP_DIR/todo.json STATS_LOG_FILE=$TEMP_DIR/todo-log.jsonl $SCRIPT_DIR/../scripts/stats.sh -f json")
         stats_times+=("$elapsed")
         [[ "$FORMAT" == "text" ]] && echo "  Run $run: ${elapsed}ms"
     done

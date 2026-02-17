@@ -163,10 +163,19 @@ export async function migrateJsonToSqlite(cwd?: string): Promise<MigrationResult
 
       for (const session of sessions) {
         try {
+          // Normalize status: map legacy 'archived' to 'ended' for SQLite CHECK constraint
+          // @task T4658 @epic T4654
+          const validStatuses = ['active', 'ended', 'orphaned', 'suspended'];
+          const normalizedStatus = validStatuses.includes(session.status)
+            ? session.status
+            : 'ended'; // 'archived' and any other legacy statuses -> 'ended'
+          // Provide default name for sessions with null/undefined names
+          const normalizedName = session.name || `session-${session.id}`;
+
           db.insert(schema.sessions).values({
             id: session.id,
-            name: session.name,
-            status: session.status,
+            name: normalizedName,
+            status: normalizedStatus,
             scopeJson: JSON.stringify(session.scope),
             currentFocus: session.focus?.taskId,
             focusSetAt: session.focus?.setAt,

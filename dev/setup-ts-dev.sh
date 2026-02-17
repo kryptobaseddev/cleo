@@ -76,7 +76,7 @@ migrate_legacy() {
         warn "Legacy bash-based CLEO installation detected"
 
         # Preserve user data files
-        local data_files=("todo.json" "todo-archive.json" "todo-log.json" "config.json" ".context-state.json")
+        local data_files=("todo.json" "todo-archive.json" "todo-log.jsonl" "config.json" ".context-state.json")
         local backup_dir="$CLEO_HOME/.legacy-backup-$(date +%Y%m%d%H%M%S)"
         mkdir -p "$backup_dir"
 
