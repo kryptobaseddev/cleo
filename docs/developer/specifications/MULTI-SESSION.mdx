@@ -45,7 +45,7 @@ This specification defines the multi-session architecture for cleo, enabling mul
 ├── todo.json              # Tasks (shared across sessions)
 ├── sessions.json          # Session registry (NEW)
 ├── config.json       # Configuration
-├── todo-log.json          # Audit log (session-aware)
+├── todo-log.jsonl          # Audit log (session-aware)
 ├── todo-archive.json      # Archived tasks
 └── .current-session       # Optional: current session hint file
 ```
@@ -386,14 +386,14 @@ validate_single_active_per_scope(session_id):
 |------|-----------|----------|
 | sessions.json | sessions.json.lock | 200-202 |
 | todo.json | todo.json.lock | 203-205 |
-| todo-log.json | todo-log.json.lock | 206-208 |
+| todo-log.jsonl | todo-log.jsonl.lock | 206-208 |
 
 ### 6.2 Lock Order
 
 To prevent deadlock, ALWAYS acquire locks in this order:
 
 ```
-sessions.json → todo.json → todo-log.json
+sessions.json → todo.json → todo-log.jsonl
 ```
 
 ### 6.3 Multi-File Transactions

@@ -42,11 +42,12 @@
   "dependencies": {
     "@cleocode/caamp": "^1.0.0",
     "@cleocode/ct-skills": "^2.0.0",
+    "@cleocode/lafs-protocol": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.45.1",
-    "@modelcontextprotocol/sdk": "^1.26.0",
     "proper-lockfile": "^4.1.2",
     "sql.js": "^1.14.0",
     "write-file-atomic": "^6.0.0",

@@ -72,7 +72,7 @@ All write operations MUST acquire an exclusive lock before modifying files:
 ### 1.3 Lock Scope
 
 Locks MUST be file-level (not directory-level):
-- Locking `todo.json` MUST NOT block operations on `todo-log.json`
+- Locking `todo.json` MUST NOT block operations on `todo-log.jsonl`
 - Multiple files MAY be locked simultaneously by the same process
 - Different processes MUST wait for locks on the same file
 

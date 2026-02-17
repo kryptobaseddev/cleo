@@ -25,7 +25,7 @@ The backup system uses two tiers:
   - `todo.json`
   - `config.json`
   - `todo-archive.json`
-  - `todo-log.jsonl`
+  - `todo-log.jsonll`
 
 ---
 
@@ -83,7 +83,7 @@ const files = [getDbPath(), getConfigPath()];
 1. Import `getDbPath` and `dbExists` from `src/store/sqlite.js`
 2. Check active storage mode (JSON vs SQLite)
 3. Adjust file list based on mode:
-   - JSON: `todo.json`, `config.json`, `todo-archive.json`, `todo-log.jsonl`
+   - JSON: `todo.json`, `config.json`, `todo-archive.json`, `todo-log.jsonll`
    - SQLite: `tasks.db`, `config.json`
 
 ### Backup File List (by mode)
@@ -93,7 +93,7 @@ const files = [getDbPath(), getConfigPath()];
 | `todo.json` | Backed up | N/A | Tasks stored in `tasks.db` |
 | `config.json` | Backed up | Backed up | Config stays as JSON |
 | `todo-archive.json` | Backed up | N/A | Archived tasks in `tasks.db` |
-| `todo-log.jsonl` | Backed up | N/A | Log entries in `tasks.db` |
+| `todo-log.jsonll` | Backed up | N/A | Log entries in `tasks.db` |
 | `tasks.db` | N/A | Backed up | Complete database |
 
 ### Restore Changes

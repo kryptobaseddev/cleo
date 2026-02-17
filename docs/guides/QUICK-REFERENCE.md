@@ -18,7 +18,7 @@
 │ ├── todo.json (active tasks)                       │
 │ ├── todo-archive.json (completed)                  │
 │ ├── config.json (settings)                    │
-│ ├── todo-log.json (audit trail)                    │
+│ ├── todo-log.jsonl (audit trail)                    │
 │ └── .backups/ (Tier 1: operational backups)        │
 └─────────────────────────────────────────────────────┘
 ```
@@ -838,7 +838,7 @@ cleo restore <backup-path>
 cleo restore <backup> --file todo.json
 
 # 5. Check logs
-jq '.entries[-10:]' .cleo/todo-log.json
+jq '.entries[-10:]' .cleo/todo-log.jsonl
 ```
 
 ## Installation Checklist

@@ -1,18 +1,33 @@
 /**
  * LAFS (LLM-Agent-First Schema) unified envelope types.
  *
- * Single source of truth for all CLEO response shapes. Both CLI and MCP
- * gateways produce responses conforming to these types.
+ * Re-exports canonical types from @cleocode/lafs-protocol and defines
+ * CLEO-specific extensions for the MCP gateway layer.
  *
  * CLI responses use the base LafsEnvelope (no _meta).
  * MCP responses extend with GatewayMeta via GatewayEnvelope.
  *
- * @epic T4454
- * @task T4649
+ * @epic T4654
+ * @task T4655
  */
 
 // ---------------------------------------------------------------------------
-// Shared error detail
+// Re-export canonical LAFS types from the protocol package
+// ---------------------------------------------------------------------------
+
+export type {
+  LAFSMeta,
+  LAFSError,
+  LAFSErrorCategory,
+  LAFSPage,
+  LAFSEnvelope,
+  LAFSTransport,
+  ConformanceReport,
+  FlagInput,
+} from '@cleocode/lafs-protocol';
+
+// ---------------------------------------------------------------------------
+// CLEO-specific error detail (backward compatible)
 // ---------------------------------------------------------------------------
 
 /** Actionable alternative the caller can try. */
@@ -32,7 +47,7 @@ export interface LafsErrorDetail {
 }
 
 // ---------------------------------------------------------------------------
-// CLI envelope (base)
+// CLI envelope (base) - backward compatible
 // ---------------------------------------------------------------------------
 
 /** LAFS success envelope (CLI). */
@@ -53,16 +68,20 @@ export interface LafsError {
 export type LafsEnvelope<T = unknown> = LafsSuccess<T> | LafsError;
 
 // ---------------------------------------------------------------------------
-// MCP / gateway envelope extension
+// MCP / gateway envelope extension (extends LAFSMeta)
 // ---------------------------------------------------------------------------
 
-/** Metadata attached to every MCP gateway response. */
-export interface GatewayMeta {
+import type { LAFSMeta } from '@cleocode/lafs-protocol';
+
+/**
+ * Metadata attached to every MCP gateway response.
+ * Extends the canonical LAFSMeta with CLEO gateway-specific fields.
+ *
+ * @task T4655
+ */
+export interface GatewayMeta extends LAFSMeta {
   gateway: string;
   domain: string;
-  operation: string;
-  version: string;
-  timestamp: string;
   duration_ms: number;
 }
 

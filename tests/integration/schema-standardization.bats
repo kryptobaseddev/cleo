@@ -265,7 +265,7 @@ EOF
         ".cleo/todo.json"
         ".cleo/config.json"
         ".cleo/todo-archive.json"
-        ".cleo/todo-log.json"
+        ".cleo/todo-log.jsonl"
     )
 
     for data_file in "${core_files[@]}"; do
@@ -304,7 +304,7 @@ EOF
         [".cleo/todo.json"]="todo.schema.json"
         [".cleo/config.json"]="config.schema.json"
         [".cleo/todo-archive.json"]="archive.schema.json"
-        [".cleo/todo-log.json"]="log.schema.json"
+        [".cleo/todo-log.jsonl"]="log.schema.json"
     )
 
     for data_file in "${!file_to_schema[@]}"; do

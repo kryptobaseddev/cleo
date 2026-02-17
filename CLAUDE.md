@@ -107,7 +107,7 @@ lib/                # Legacy Bash helpers (deprecated, pending removal)
 - **src/mcp/engine/** contains thin adapters: translate MCP params -> call core -> format response
 - **Atomic file operations** are mandatory for all write operations
 - **JSON Schema validation** runs on every data modification
-- **Append-only logging** to todo-log.json for audit trails
+- **Append-only logging** to todo-log.jsonl for audit trails
 - **scripts/ and lib/** are deprecated Bash code pending removal (see ADR-004)
 
 ## Build, Test, and Development Commands
@@ -289,7 +289,7 @@ Before any task operation, validate:
 5. No duplicate task descriptions
 
 ### Error Recovery
-- All operations log to `todo-log.json` (append-only)
+- All operations log to `todo-log.jsonl` (append-only)
 - Backup files created during atomic operations
 - Validation errors prevent operations
 - Clear error messages for debugging

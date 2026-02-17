@@ -58,7 +58,7 @@ The CLEO-CAAMP Integration spec catalogs 191 functions across CLEO's Bash codeba
 
 The native engine handles **CLEO's core business logic**: tasks, sessions, config, validation, file safety. CAAMP handles **cross-provider infrastructure**: which AI agents exist, how to configure them, how to install skills to them, how to inject instructions into them. These are **entirely separate concerns** with different data models, different consumers, and different purposes.
 
-The one area of conceptual overlap is file I/O: the native engine's `store.ts` provides atomic JSON file operations, while CAAMP's `readConfig`/`writeConfig` provides multi-format config I/O (JSONC, YAML, TOML). These operate on different files for different purposes. `store.ts` manages `todo.json`, `todo-log.json`, `sessions.json`; CAAMP manages `claude_desktop_config.json`, `.cursor/mcp.json`, `opencode.json`, etc.
+The one area of conceptual overlap is file I/O: the native engine's `store.ts` provides atomic JSON file operations, while CAAMP's `readConfig`/`writeConfig` provides multi-format config I/O (JSONC, YAML, TOML). These operate on different files for different purposes. `store.ts` manages `todo.json`, `todo-log.jsonl`, `sessions.json`; CAAMP manages `claude_desktop_config.json`, `.cursor/mcp.json`, `opencode.json`, etc.
 
 ### 2.3 Architectural Relationship
 

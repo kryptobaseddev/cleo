@@ -6,6 +6,8 @@
  * and compliance tracking.
  *
  * @task T4477
+ * @task T4659
+ * @epic T4654
  */
 
 import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
@@ -22,6 +24,8 @@ import {
   hasErrors,
   type RuleViolation,
 } from './validation-rules.js';
+import { detectCircularDeps } from '../../core/tasks/dependency-check.js';
+import type { Task } from '../../types/task.js';
 import type { TaskRecord } from './task-engine.js';
 
 /**
@@ -682,40 +686,12 @@ export function validateCoherenceCheck(
     }
   }
 
-  // 2. Dependency cycles
-  const detectCycle = (startId: string): string[] | null => {
-    const visited = new Set<string>();
-    const stack = new Set<string>();
-
-    const dfs = (id: string, path: string[]): string[] | null => {
-      if (stack.has(id)) {
-        return [...path, id];
-      }
-      if (visited.has(id)) return null;
-
-      visited.add(id);
-      stack.add(id);
-
-      const task = taskMap.get(id);
-      if (task?.depends) {
-        for (const depId of task.depends) {
-          const cycle = dfs(depId, [...path, id]);
-          if (cycle) return cycle;
-        }
-      }
-
-      stack.delete(id);
-      return null;
-    };
-
-    return dfs(startId, []);
-  };
-
+  // 2. Dependency cycles (reuse efficient detectCircularDeps from dependency-check.ts)
   const reportedCycles = new Set<string>();
   for (const task of tasks) {
     if (task.depends && task.depends.length > 0) {
-      const cycle = detectCycle(task.id);
-      if (cycle) {
+      const cycle = detectCircularDeps(task.id, tasks as unknown as Task[]);
+      if (cycle.length > 0) {
         const cycleKey = [...cycle].sort().join(',');
         if (!reportedCycles.has(cycleKey)) {
           reportedCycles.add(cycleKey);

@@ -175,7 +175,7 @@ FLAG_FORCE="$FORCE"
 UPG_TODO_FILE="./.cleo/todo.json"
 UPG_CONFIG_FILE="./.cleo/config.json"
 UPG_ARCHIVE_FILE="./.cleo/todo-archive.json"
-UPG_LOG_FILE="./.cleo/todo-log.json"
+UPG_LOG_FILE="./.cleo/todo-log.jsonl"
 # Multi-agent documentation files (managed by injection system)
 # Deprecated: UPG_CLAUDE_MD - now handled by lib/ui/injection.sh registry
 

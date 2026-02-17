@@ -130,7 +130,7 @@ export const assertions = {
     expect(response._meta).toBeDefined();
     expect(response._meta.domain).toBe(domain);
     expect(response._meta.operation).toBe(operation);
-    expect(response._meta.version).toBe('1.0.0');
+    expect(response._meta.specVersion).toBe('1.1.0');
     expect(response._meta.timestamp).toBeDefined();
     expect(response._meta.duration_ms).toBeGreaterThanOrEqual(0);
   },

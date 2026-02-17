@@ -5,14 +5,7 @@
  */
 
 import { Command } from 'commander';
-import {
-  startSession,
-  endSession,
-  sessionStatus,
-  resumeSession,
-  listSessions,
-  gcSessions,
-} from '../../core/sessions/index.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -36,7 +29,8 @@ export function registerSessionCommand(program: Command): void {
     .option('--agent <agent>', 'Agent identifier')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await startSession({
+        const store = await getStore();
+        const result = await store.startSession({
           name: opts['name'] as string,
           scope: opts['scope'] as string,
           autoFocus: opts['autoFocus'] as boolean | undefined,
@@ -60,7 +54,8 @@ export function registerSessionCommand(program: Command): void {
     .option('--note <note>', 'End note')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await endSession({
+        const store = await getStore();
+        const result = await store.richEndSession({
           sessionId: opts['session'] as string | undefined,
           note: opts['note'] as string | undefined,
         });
@@ -79,7 +74,8 @@ export function registerSessionCommand(program: Command): void {
     .description('Show current session status')
     .action(async () => {
       try {
-        const result = await sessionStatus();
+        const store = await getStore();
+        const result = await store.sessionStatus();
         if (!result) {
           console.log(formatSuccess({ session: null }, 'No active session'));
           process.exit(ExitCode.NO_DATA);
@@ -99,7 +95,8 @@ export function registerSessionCommand(program: Command): void {
     .description('Resume an existing session')
     .action(async (sessionId: string) => {
       try {
-        const result = await resumeSession(sessionId);
+        const store = await getStore();
+        const result = await store.resumeSession(sessionId);
         console.log(formatSuccess({ session: result }));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -117,7 +114,8 @@ export function registerSessionCommand(program: Command): void {
     .option('--limit <n>', 'Max results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await listSessions({
+        const store = await getStore();
+        const result = await store.richListSessions({
           status: opts['status'] as string | undefined,
           limit: opts['limit'] as number | undefined,
         });
@@ -137,7 +135,8 @@ export function registerSessionCommand(program: Command): void {
     .option('--max-age <hours>', 'Max age in hours for active sessions', parseInt)
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await gcSessions(opts['maxAge'] as number | undefined);
+        const store = await getStore();
+        const result = await store.gcSessions(opts['maxAge'] as number | undefined);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {

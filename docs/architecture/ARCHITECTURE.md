@@ -180,7 +180,7 @@ your-project/.cleo/               # Per-project instance (NOT in git)
 ├── todo.json                       # Active tasks
 ├── todo-archive.json               # Completed tasks
 ├── config.json                # Project configuration
-├── todo-log.json                   # Change history
+├── todo-log.jsonl                   # Change history
 └── .backups/                       # Tier 1: Operational backups (atomic writes)
     ├── todo.json.1                 # Most recent
     ├── todo.json.2
@@ -219,7 +219,7 @@ your-project/.cleo/               # Per-project instance (NOT in git)
 ┌─────────────────────────────────────────────────────────┐
 │                   Audit Trail Layer                     │
 │                                                         │
-│  todo-log.json ──► Immutable append-only log           │
+│  todo-log.jsonl ──► Immutable append-only log           │
 │    ├─ Every task creation                             │
 │    ├─ Every status change                             │
 │    ├─ Every archive operation                         │
@@ -234,7 +234,7 @@ your-project/.cleo/               # Per-project instance (NOT in git)
 | `todo.json` | list, stats, complete, archive | add-task, complete-task, archive | todo.schema.json |
 | `todo-archive.json` | stats, list (--all) | archive | archive.schema.json |
 | `config.json` | ALL scripts | init, user edit | config.schema.json |
-| `todo-log.json` | stats, troubleshooting | add-task, complete-task, archive | log.schema.json |
+| `todo-log.jsonl` | stats, troubleshooting | add-task, complete-task, archive | log.schema.json |
 
 ---
 
@@ -477,7 +477,7 @@ The system implements multiple layers of protection against AI-generated errors:
 ```
 User Input → Validate → Generate ID → Add to todo.json → Backup → Log
              │           │            │                  │        │
-             │           │            │                  │        └─► todo-log.json
+             │           │            │                  │        └─► todo-log.jsonl
              │           │            │                  └─────────► .cleo/.backups/
              │           │            └────────────────────────────► todo.json (atomic)
              │           └─────────────────────────────────────────► Timestamp + Random
@@ -493,7 +493,7 @@ User Input → Validate → Generate ID → Add to todo.json → Backup → Log
 6. Create task object
 7. Validate full todo.json with new task
 8. Atomic write to todo.json (with backup)
-9. Log operation to todo-log.json
+9. Log operation to todo-log.jsonl
 10. Display success with task ID
 
 ### Task Completion Flow
@@ -503,7 +503,7 @@ User Request → Find Task → Update Status → Validate → Write → Log → 
                │           │                │          │       │     │
                │           └─► done         │          │       │     └─► Auto-Archive?
                │                            │          │       │
-               │                            │          │       └─────────► todo-log.json
+               │                            │          │       └─────────► todo-log.jsonl
                │                            │          └─────────────────► Atomic Write
                │                            └────────────────────────────► Schema + Anti-H
                └─────────────────────────────────────────────────────────► By ID
@@ -699,7 +699,7 @@ cleo restore .cleo/.backups/todo.json.3
 
 ## Change Log System
 
-Every operation is logged to `todo-log.json` with complete before/after state capture:
+Every operation is logged to `todo-log.jsonl` with complete before/after state capture:
 
 ```json
 {
@@ -764,7 +764,7 @@ cleo init
 1. Creates `.cleo/` directory in project root
 2. Copies templates → `.cleo/`
 3. Renames `.template.json` → `.json`
-4. Initializes empty `todo-log.json`
+4. Initializes empty `todo-log.jsonl`
 5. Creates `.cleo/.backups/` directory
 6. Adds `.cleo/todo*.json` to `.gitignore`
 7. Validates all created files

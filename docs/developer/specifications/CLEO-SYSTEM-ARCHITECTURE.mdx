@@ -470,7 +470,7 @@ From LLM-AGENT-FIRST-SPEC:
 
 1. **Atomic operations** - All writes use temp → validate → backup → rename
 2. **JSON Schema validation** - Every write validated against schema
-3. **Append-only audit log** - All operations logged to todo-log.json
+3. **Append-only audit log** - All operations logged to todo-log.jsonl
 4. **Anti-hallucination** - Every task has title AND description (different content)
 5. **Unique IDs** - No duplicates across todo.json and archive
 

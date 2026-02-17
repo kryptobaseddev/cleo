@@ -1,6 +1,8 @@
 /**
  * CLI validate command - check file integrity, schema compliance, checksum.
  * @task T4454
+ * @task T4659
+ * @epic T4654
  */
 
 import { Command } from 'commander';
@@ -9,26 +11,13 @@ import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { readJson, computeChecksum } from '../../store/json.js';
 import { getTodoPath, getArchivePath } from '../../core/paths.js';
-import type { Task, TodoFile } from '../../types/task.js';
+import { validateDependencies } from '../../core/tasks/dependency-check.js';
+import type { TodoFile } from '../../types/task.js';
 
 interface CheckDetail {
   check: string;
   status: 'ok' | 'error' | 'warning';
   message: string;
-}
-
-/**
- * Detect circular dependencies via DFS.
- */
-function hasCircularDep(taskId: string, tasks: Task[], visited: Set<string> = new Set()): boolean {
-  if (visited.has(taskId)) return true;
-  visited.add(taskId);
-  const task = tasks.find((t) => t.id === taskId);
-  if (!task?.depends) return false;
-  for (const depId of task.depends) {
-    if (hasCircularDep(depId, tasks, new Set(visited))) return true;
-  }
-  return false;
 }
 
 export function registerValidateCommand(program: Command): void {
@@ -79,11 +68,18 @@ export function registerValidateCommand(program: Command): void {
           addOk('duplicate_ids_todo', 'No duplicate task IDs in todo.json');
         }
 
-        // 2b. Cross-file duplicates with archive
+        // 2b. Cross-file duplicates with archive (lazy load)
         const archivePath = getArchivePath();
-        const archiveData = await readJson<Record<string, unknown>>(archivePath);
-        if (archiveData) {
-          const archivedTasks = (archiveData['archivedTasks'] ?? []) as Array<Record<string, unknown>>;
+        let archiveData: Record<string, unknown> | null = null;
+        const loadArchive = async () => {
+          if (archiveData === null) {
+            archiveData = await readJson<Record<string, unknown>>(archivePath) ?? {};
+          }
+          return archiveData;
+        };
+        const archive = await loadArchive();
+        if (archive && Object.keys(archive).length > 0) {
+          const archivedTasks = (archive['archivedTasks'] ?? []) as Array<Record<string, unknown>>;
           const archiveIds = new Set(archivedTasks.map((t) => t.id as string));
           const todoIds = new Set(data.tasks.map((t) => t.id));
           const crossDups = [...todoIds].filter((id) => archiveIds.has(id));
@@ -120,21 +116,15 @@ export function registerValidateCommand(program: Command): void {
           addOk('dependencies', 'All dependencies exist');
         }
 
-        // 5. Circular dependencies
-        const tasksWithDeps = data.tasks.filter((t) => t.depends && t.depends.length > 0);
-        if (tasksWithDeps.length <= 100) {
-          let circularFound = false;
-          for (const t of tasksWithDeps) {
-            if (hasCircularDep(t.id, data.tasks)) {
-              addError('circular_deps', `Circular dependency detected involving ${t.id}`);
-              circularFound = true;
-            }
-          }
-          if (!circularFound) {
-            addOk('circular_deps', 'No circular dependencies');
+        // 5. Circular dependencies (uses efficient DFS from dependency-check.ts)
+        const depResult = validateDependencies(data.tasks);
+        const circularErrors = depResult.errors.filter((e) => e.code === 'E_CIRCULAR_DEP');
+        if (circularErrors.length > 0) {
+          for (const err of circularErrors) {
+            addError('circular_deps', err.message);
           }
         } else {
-          addWarn('circular_deps', `Skipped circular check (${tasksWithDeps.length} tasks with deps > 100 threshold)`);
+          addOk('circular_deps', 'No circular dependencies');
         }
 
         // 6. Blocked tasks have blockedBy

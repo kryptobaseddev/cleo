@@ -72,7 +72,7 @@ COMMAND_NAME="stats"
 CLEO_DIR=".cleo"
 TODO_FILE="${CLEO_DIR}/todo.json"
 ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
-STATS_LOG_FILE="${CLEO_DIR}/todo-log.json"
+STATS_LOG_FILE="${CLEO_DIR}/todo-log.jsonl"
 CONFIG_FILE="${CLEO_DIR}/config.json"
 
 #####################################################################

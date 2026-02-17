@@ -17,7 +17,7 @@ import type { Session } from '../types/session.js';
 import { addTask } from '../core/tasks/add.js';
 import { showTask } from '../core/tasks/show.js';
 import { updateTask } from '../core/tasks/update.js';
-// completeTask is used through updateTask status changes
+import { completeTask } from '../core/tasks/complete.js';
 import { listTasks } from '../core/tasks/list.js';
 import { findTasks } from '../core/tasks/find.js';
 import { archiveTasks } from '../core/tasks/archive.js';
@@ -27,12 +27,23 @@ import { deleteTask } from '../core/tasks/delete.js';
 import {
   startSession,
   endSession,
+  sessionStatus,
   listSessions,
   resumeSession,
+  gcSessions,
 } from '../core/sessions/index.js';
 
 // Focus operations
-import { setFocus, showFocus, clearFocus } from '../core/focus/index.js';
+import { setFocus, showFocus, clearFocus, getFocusHistory } from '../core/focus/index.js';
+
+// Label operations
+import { listLabels, showLabelTasks, getLabelStats } from '../core/tasks/labels.js';
+
+// Relationship operations
+import { suggestRelated, addRelation, discoverRelated, listRelations } from '../core/tasks/relates.js';
+
+// Analysis operations
+import { analyzeTaskPriority } from '../core/tasks/analyze.js';
 
 /**
  * Create a JSON-backed StoreProvider.
@@ -220,5 +231,41 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     close: async (): Promise<void> => {
       // No-op for JSON provider -- no connections to close
     },
+
+    // ---- High-level domain operations ----
+    // @task T4656
+    // @epic T4654
+
+    addTask: (options) => addTask(options, cwd),
+    completeTask: (options) => completeTask(options, cwd),
+    richUpdateTask: (options) => updateTask(options, cwd),
+    showTask: (taskId) => showTask(taskId, cwd),
+    richDeleteTask: (options) => deleteTask(options, cwd),
+    richFindTasks: (options) => findTasks(options, cwd),
+    richListTasks: (options) => listTasks(options, cwd),
+    richArchiveTasks: (options) => archiveTasks(options, cwd),
+
+    startSession: (options) => startSession(options, cwd),
+    richEndSession: (options) => endSession(options, cwd),
+    sessionStatus: () => sessionStatus(cwd),
+    resumeSession: (sessionId) => resumeSession(sessionId, cwd),
+    richListSessions: (options) => listSessions(options, cwd),
+    gcSessions: (maxAgeHours) => gcSessions(maxAgeHours, cwd),
+
+    showFocus: () => showFocus(cwd),
+    richSetFocus: (taskId) => setFocus(taskId, cwd),
+    richClearFocus: () => clearFocus(cwd),
+    getFocusHistory: () => getFocusHistory(cwd),
+
+    listLabels: () => listLabels(cwd),
+    showLabelTasks: (label) => showLabelTasks(label, cwd),
+    getLabelStats: () => getLabelStats(cwd),
+
+    suggestRelated: (taskId, opts) => suggestRelated(taskId, { ...opts, cwd }),
+    addRelation: (from, to, type, reason) => addRelation(from, to, type, reason, cwd),
+    discoverRelated: (taskId) => discoverRelated(taskId, cwd),
+    listRelations: (taskId) => listRelations(taskId, cwd),
+
+    analyzeTaskPriority: (opts) => analyzeTaskPriority({ ...opts, cwd }),
   };
 }

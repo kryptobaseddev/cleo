@@ -37,13 +37,13 @@ setup() {
 EOF
 
     # Create empty log and archive
-    echo '{"version": "0.8.2", "entries": []}' > "$TEST_DIR/.cleo/todo-log.json"
+    echo '{"version": "0.8.2", "entries": []}' > "$TEST_DIR/.cleo/todo-log.jsonl"
     echo '{"version": "0.8.2", "tasks": []}' > "$TEST_DIR/.cleo/todo-archive.json"
 
     # Set environment
     export TODO_FILE="$TEST_DIR/.cleo/todo.json"
     export CONFIG_FILE="$TEST_DIR/.cleo/config.json"
-    export LOG_FILE="$TEST_DIR/.cleo/todo-log.json"
+    export LOG_FILE="$TEST_DIR/.cleo/todo-log.jsonl"
     export ARCHIVE_FILE="$TEST_DIR/.cleo/todo-archive.json"
     export NO_COLOR=1  # Disable colors for consistent output
 

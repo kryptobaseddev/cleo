@@ -612,7 +612,7 @@ Which approach would you like?"
 | **Atomicity** | All task updates via `atomic_write()` | Task state never partially updated |
 | **Consistency** | JSON Schema validation on every write | State always valid |
 | **Isolation** | Session scopes prevent task conflicts | Agents cannot interfere |
-| **Durability** | Append-only `todo-log.json` | Audit trail survives failures |
+| **Durability** | Append-only `todo-log.jsonl` | Audit trail survives failures |
 
 ### Concurrency Control
 

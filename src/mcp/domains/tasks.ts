@@ -13,6 +13,7 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { createGatewayMeta } from '../lib/gateway-meta.js';
 // Formatter imports available but currently handled via class methods
 // import { formatSuccess, formatError, createError } from '../lib/formatter.js';
 import { ManifestReader } from '../lib/manifest.js';
@@ -221,16 +222,15 @@ export class TasksHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
     if (result.success) {
       return {
-        _meta: { gateway, domain: 'tasks', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        _meta: createGatewayMeta(gateway, 'tasks', operation, startTime),
         success: true,
         data: result.data,
       };
     }
     return {
-      _meta: { gateway, domain: 'tasks', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      _meta: createGatewayMeta(gateway, 'tasks', operation, startTime),
       success: false,
       error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
     };
@@ -245,7 +245,7 @@ export class TasksHandler implements DomainHandler {
     // Native engine routing for supported operations
     if (this.useNative(operation, 'query')) {
       try {
-        return this.queryNative(operation, params, startTime);
+        return await this.queryNative(operation, params, startTime);
       } catch (error) {
         return this.handleError('cleo_query', 'tasks', operation, error, startTime);
       }
@@ -296,7 +296,7 @@ export class TasksHandler implements DomainHandler {
         case 'relates':
           return await this.queryRelates(params as unknown as TasksRelatesParams);
         case 'complexity-estimate':
-          return this.queryComplexityEstimate(params as unknown as { taskId: string });
+          return await this.queryComplexityEstimate(params as unknown as { taskId: string });
         default:
           return this.createErrorResponse(
             'cleo_query',
@@ -726,14 +726,7 @@ export class TasksHandler implements DomainHandler {
       const entries = await this.manifestReader.getTaskEntries(params.taskId);
 
       return {
-        _meta: {
-          gateway: 'cleo_query',
-          domain: 'tasks',
-          operation: 'manifest',
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-        },
+        _meta: createGatewayMeta('cleo_query', 'tasks', 'manifest', startTime),
         success: true,
         data: {
           taskId: params.taskId,
@@ -1177,7 +1170,7 @@ export class TasksHandler implements DomainHandler {
    * complexity-estimate - Deterministic complexity scoring
    * Native only (no CLI equivalent)
    */
-  private queryComplexityEstimate(params: { taskId: string }): DomainResponse {
+  private async queryComplexityEstimate(params: { taskId: string }): Promise<DomainResponse> {
     const startTime = Date.now();
 
     if (!params?.taskId) {
@@ -1191,7 +1184,7 @@ export class TasksHandler implements DomainHandler {
       );
     }
 
-    const result = nativeTaskComplexityEstimate(this.projectRoot, { taskId: params.taskId });
+    const result = await nativeTaskComplexityEstimate(this.projectRoot, { taskId: params.taskId });
     return this.wrapNativeResult(result, 'cleo_query', 'complexity-estimate', startTime);
   }
 
@@ -1273,11 +1266,15 @@ export class TasksHandler implements DomainHandler {
   /**
    * Route query operations to native TypeScript engine
    */
-  private queryNative(
+  /**
+   * @task T4657
+   * @epic T4654
+   */
+  private async queryNative(
     operation: string,
     params: Record<string, unknown> | undefined,
     startTime: number
-  ): DomainResponse {
+  ): Promise<DomainResponse> {
     if (!isProjectInitialized(this.projectRoot)) {
       return this.wrapNativeResult(createNotInitializedError(), 'cleo_query', operation, startTime);
     }
@@ -1289,12 +1286,12 @@ export class TasksHandler implements DomainHandler {
         if (!taskId) {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
-        return this.wrapNativeResult(nativeTaskShow(this.projectRoot, taskId), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeTaskShow(this.projectRoot, taskId), 'cleo_query', operation, startTime);
       }
       case 'list': {
         const p = params as unknown as TasksListParams;
         return this.wrapNativeResult(
-          nativeTaskList(this.projectRoot, { parent: p?.parent, status: p?.status, limit: p?.limit }),
+          await nativeTaskList(this.projectRoot, { parent: p?.parent, status: p?.status, limit: p?.limit }),
           'cleo_query', operation, startTime
         );
       }
@@ -1304,7 +1301,7 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'query is required', startTime);
         }
         return this.wrapNativeResult(
-          nativeTaskFind(this.projectRoot, p.query, p?.limit),
+          await nativeTaskFind(this.projectRoot, p.query, p?.limit),
           'cleo_query', operation, startTime
         );
       }
@@ -1313,25 +1310,25 @@ export class TasksHandler implements DomainHandler {
         if (!taskId) {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
-        return this.wrapNativeResult(nativeTaskExists(this.projectRoot, taskId), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeTaskExists(this.projectRoot, taskId), 'cleo_query', operation, startTime);
       }
       case 'next': {
         const p = params as unknown as TasksNextParams;
         return this.wrapNativeResult(
-          nativeTaskNext(this.projectRoot, { count: p?.count, explain: true }),
+          await nativeTaskNext(this.projectRoot, { count: p?.count, explain: true }),
           'cleo_query', operation, startTime
         );
       }
       case 'blockers': {
         return this.wrapNativeResult(
-          nativeTaskBlockers(this.projectRoot, { analyze: true }),
+          await nativeTaskBlockers(this.projectRoot, { analyze: true }),
           'cleo_query', operation, startTime
         );
       }
       case 'tree': {
         const p = params as unknown as TasksTreeParams;
         return this.wrapNativeResult(
-          nativeTaskTree(this.projectRoot, p?.rootId),
+          await nativeTaskTree(this.projectRoot, p?.rootId),
           'cleo_query', operation, startTime
         );
       }
@@ -1341,7 +1338,7 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
         return this.wrapNativeResult(
-          nativeTaskDeps(this.projectRoot, taskId),
+          await nativeTaskDeps(this.projectRoot, taskId),
           'cleo_query', operation, startTime
         );
       }
@@ -1351,14 +1348,14 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
         return this.wrapNativeResult(
-          nativeTaskRelates(this.projectRoot, taskId),
+          await nativeTaskRelates(this.projectRoot, taskId),
           'cleo_query', operation, startTime
         );
       }
       case 'analyze': {
         const p = params as unknown as TasksAnalyzeParams;
         return this.wrapNativeResult(
-          nativeTaskAnalyze(this.projectRoot, p?.epicId),
+          await nativeTaskAnalyze(this.projectRoot, p?.epicId),
           'cleo_query', operation, startTime
         );
       }
@@ -1368,7 +1365,7 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
         return this.wrapNativeResult(
-          nativeTaskComplexityEstimate(this.projectRoot, { taskId }),
+          await nativeTaskComplexityEstimate(this.projectRoot, { taskId }),
           'cleo_query', operation, startTime
         );
       }
@@ -1378,21 +1375,21 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
         return this.wrapNativeResult(
-          nativeTaskDepends(this.projectRoot, p.taskId, p.direction),
+          await nativeTaskDepends(this.projectRoot, p.taskId, p.direction),
           'cleo_query', operation, startTime
         );
       }
       case 'stats': {
         const p = params as unknown as TasksStatsParams;
         return this.wrapNativeResult(
-          nativeTaskStats(this.projectRoot, p?.epicId),
+          await nativeTaskStats(this.projectRoot, p?.epicId),
           'cleo_query', operation, startTime
         );
       }
       case 'export': {
         const p = params as unknown as TasksExportParams;
         return this.wrapNativeResult(
-          nativeTaskExport(this.projectRoot, {
+          await nativeTaskExport(this.projectRoot, {
             format: p?.format,
             status: p?.filter?.status,
             parent: p?.filter?.parent,
@@ -1406,14 +1403,14 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
         }
         return this.wrapNativeResult(
-          nativeTaskHistory(this.projectRoot, p.taskId, p.limit),
+          await nativeTaskHistory(this.projectRoot, p.taskId, p.limit),
           'cleo_query', operation, startTime
         );
       }
       case 'lint': {
         const p = params as unknown as TasksLintParams;
         return this.wrapNativeResult(
-          nativeTaskLint(this.projectRoot, p?.taskId),
+          await nativeTaskLint(this.projectRoot, p?.taskId),
           'cleo_query', operation, startTime
         );
       }
@@ -1423,7 +1420,7 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskIds array is required', startTime);
         }
         return this.wrapNativeResult(
-          nativeTaskBatchValidate(this.projectRoot, p.taskIds, p.checkMode),
+          await nativeTaskBatchValidate(this.projectRoot, p.taskIds, p.checkMode),
           'cleo_query', operation, startTime
         );
       }
@@ -1585,32 +1582,16 @@ export class TasksHandler implements DomainHandler {
     operation: string,
     startTime: number
   ): DomainResponse {
-    const duration_ms = Date.now() - startTime;
-
     if (result.success) {
       return {
-        _meta: {
-          gateway,
-          domain,
-          operation,
-          version: '1.0.0',
-          timestamp: new Date().toISOString(),
-          duration_ms,
-        },
+        _meta: createGatewayMeta(gateway, domain, operation, startTime),
         success: true,
         data: result.data,
       };
     }
 
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: result.error,
     };
@@ -1628,14 +1609,7 @@ export class TasksHandler implements DomainHandler {
     startTime: number
   ): DomainResponse {
     return {
-      _meta: {
-        gateway,
-        domain,
-        operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
+      _meta: createGatewayMeta(gateway, domain, operation, startTime),
       success: false,
       error: {
         code,

@@ -223,7 +223,7 @@ describe('Skills Domain Integration', () => {
   // =========================================================================
 
   describe('LAFS envelope conformance', () => {
-    const requiredMetaFields = ['gateway', 'domain', 'operation', 'version', 'timestamp', 'duration_ms'];
+    const requiredMetaFields = ['gateway', 'domain', 'operation', 'specVersion', 'timestamp', 'duration_ms'];
 
     it('query responses include all required _meta fields', async () => {
       const result = await handler.query('list', {});
@@ -295,12 +295,12 @@ describe('Skills Domain Integration', () => {
       }
     });
 
-    it('_meta.version is 1.0.0 for all operations', async () => {
+    it('_meta.specVersion is 1.1.0 for all operations', async () => {
       const queryResult = await handler.query('list', {});
-      expect(queryResult._meta.version).toBe('1.0.0');
+      expect(queryResult._meta.specVersion).toBe('1.1.0');
 
       const errorResult = await handler.query('unknown-op', {});
-      expect(errorResult._meta.version).toBe('1.0.0');
+      expect(errorResult._meta.specVersion).toBe('1.1.0');
     });
 
     it('_meta.timestamp is valid ISO 8601', async () => {

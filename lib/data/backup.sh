@@ -31,7 +31,7 @@ declare -r _BACKUP_LOADED=1
 # 1. SNAPSHOT (snapshot/)
 #    - Purpose: Complete system state capture at a point in time
 #    - Trigger: Manual user request via `cleo backup`
-#    - Contains: All system files (todo.json, todo-archive.json, config.json, todo-log.json)
+#    - Contains: All system files (todo.json, todo-archive.json, config.json, todo-log.jsonl)
 #    - Retention: Configurable (default: keep last 10)
 #    - Use Case: Regular backups, before major changes, scheduled snapshots
 #    - Naming: snapshot_YYYYMMDD_HHMMSS[_custom_name]
@@ -822,7 +822,7 @@ create_snapshot_backup() {
 
     # Backup all system files (including sessions.json for multi-session support)
     local source_dir="${CLEO_DIR:-.cleo}"
-    local files=("todo.json" "todo-archive.json" "config.json" "todo-log.json" "sessions.json")
+    local files=("todo.json" "todo-archive.json" "config.json" "todo-log.jsonl" "sessions.json")
     local file
 
     for file in "${files[@]}"; do
@@ -1172,7 +1172,7 @@ create_migration_backup() {
 
     # Backup all system files (including sessions.json for multi-session support)
     local source_dir="${CLEO_DIR:-.cleo}"
-    local files=("todo.json" "todo-archive.json" "config.json" "todo-log.json" "sessions.json")
+    local files=("todo.json" "todo-archive.json" "config.json" "todo-log.jsonl" "sessions.json")
     local file
 
     for file in "${files[@]}"; do

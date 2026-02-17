@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { addTask } from '../../core/tasks/add.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import type { TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
@@ -36,7 +36,8 @@ export function registerAddCommand(program: Command): void {
     .option('--json', 'Output in JSON format (default)')
     .action(async (title: string, opts: Record<string, unknown>) => {
       try {
-        const result = await addTask({
+        const store = await getStore();
+        const result = await store.addTask({
           title,
           status: opts['status'] as TaskStatus | undefined,
           priority: opts['priority'] as TaskPriority | undefined,

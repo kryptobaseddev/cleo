@@ -64,14 +64,14 @@ When you run `cleo upgrade` on an existing project:
 ├── todo.json
 ├── config.json
 ├── todo-archive.json
-└── todo-log.json
+└── todo-log.jsonl
 
 # After (new file added)
 .cleo/
 ├── todo.json
 ├── config.json
 ├── todo-archive.json
-├── todo-log.json
+├── todo-log.jsonl
 └── project-info.json  ← NEW
 ```
 

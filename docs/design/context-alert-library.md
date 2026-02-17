@@ -229,7 +229,7 @@ is_stale() {
 
 **Condition**: State file exists but contains malformed JSON
 
-**Behavior**: Return 0 (silent). Log warning to `.cleo/todo-log.json` if logging library available.
+**Behavior**: Return 0 (silent). Log warning to `.cleo/todo-log.jsonl` if logging library available.
 
 **Rationale**: Corruption shouldn't break commands. Alert library is advisory, not critical.
 

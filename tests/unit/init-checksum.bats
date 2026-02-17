@@ -131,7 +131,7 @@ teardown_file() {
     run jq empty .cleo/config.json
     assert_success
 
-    run jq empty .cleo/todo-log.json
+    run jq empty .cleo/todo-log.jsonl
     assert_success
 }
 

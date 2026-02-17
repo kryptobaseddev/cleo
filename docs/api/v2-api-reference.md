@@ -121,7 +121,7 @@ import {
   getConfigPath,       // .cleo/config.json
   getSessionsPath,     // .cleo/sessions.json
   getArchivePath,      // .cleo/todo-archive.json
-  getLogPath,          // .cleo/todo-log.json
+  getLogPath,          // .cleo/todo-log.jsonl
   getBackupDir,        // .cleo/backups/operational
   getGlobalConfigPath, // ~/.cleo/config.json
   isAbsolutePath,      // Check if path is absolute

@@ -219,7 +219,7 @@ cleo complete T042
 cleo session end
 ```
 
-**Session data persists** in `todo-log.json`—enabling context recovery across sessions, agent handoffs, and debugging.
+**Session data persists** in `todo-log.jsonl`—enabling context recovery across sessions, agent handoffs, and debugging.
 
 ### Single Active Task
 
@@ -306,7 +306,7 @@ cleo list --format json | jq '.tasks[] | select(.status == "pending")'
 | **Single active task** | `focus set` enforces discipline |
 | **Session checkpoints** | `session start/end` for context |
 | **Atomic operations** | Write → validate → backup → rename |
-| **Immutable history** | Append-only `todo-log.json` |
+| **Immutable history** | Append-only `todo-log.jsonl` |
 
 ---
 

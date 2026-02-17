@@ -5,7 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { archiveTasks } from '../../core/tasks/archive.js';
+import { getStore } from '../../store/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -23,7 +23,8 @@ export function registerArchiveCommand(program: Command): void {
     .option('--dry-run', 'Show what would be archived without making changes')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const result = await archiveTasks({
+        const store = await getStore();
+        const result = await store.richArchiveTasks({
           before: opts['before'] as string | undefined,
           taskIds: opts['tasks'] ? (opts['tasks'] as string).split(',').map(s => s.trim()) : undefined,
           includeCancelled: opts['cancelled'] !== false,

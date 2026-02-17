@@ -290,7 +290,7 @@ infer_operation() {
         todo-archive.json)
             echo "archive"
             ;;
-        todo-log.json)
+        todo-log.jsonl)
             echo "logging"
             ;;
         focus.json)
@@ -577,7 +577,7 @@ get_conflicting_operations() {
         todo-archive.json)
             echo '["archive", "unarchive", "restore"]'
             ;;
-        todo-log.json)
+        todo-log.jsonl)
             echo '["log", "audit"]'
             ;;
         focus.json)

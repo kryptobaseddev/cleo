@@ -17,6 +17,30 @@ import { getCleoDirAbsolute } from '../core/paths.js';
 import type { Task, TaskStatus, TaskType } from '../types/task.js';
 import type { Session } from '../types/session.js';
 
+// Domain operation types - re-exported from core modules
+import type { AddTaskOptions, AddTaskResult } from '../core/tasks/add.js';
+import type { CompleteTaskOptions, CompleteTaskResult } from '../core/tasks/complete.js';
+import type { UpdateTaskOptions, UpdateTaskResult } from '../core/tasks/update.js';
+import type { DeleteTaskOptions, DeleteTaskResult } from '../core/tasks/delete.js';
+import type { FindTasksOptions, FindTasksResult } from '../core/tasks/find.js';
+import type { ListTasksOptions, ListTasksResult } from '../core/tasks/list.js';
+import type { ArchiveTasksOptions, ArchiveTasksResult } from '../core/tasks/archive.js';
+import type { FocusShowResult, FocusSetResult, FocusHistoryEntry } from '../core/focus/index.js';
+import type { AnalysisResult } from '../core/tasks/analyze.js';
+
+// Re-export domain operation types for CLI consumers
+export type {
+  AddTaskOptions, AddTaskResult,
+  CompleteTaskOptions, CompleteTaskResult,
+  UpdateTaskOptions, UpdateTaskResult,
+  DeleteTaskOptions, DeleteTaskResult,
+  FindTasksOptions, FindTasksResult,
+  ListTasksOptions, ListTasksResult,
+  ArchiveTasksOptions, ArchiveTasksResult,
+  FocusShowResult, FocusSetResult, FocusHistoryEntry,
+  AnalysisResult,
+};
+
 /**
  * Store engine type.
  * 'dual' writes to both JSON and SQLite, reads from SQLite with JSON fallback.
@@ -69,6 +93,143 @@ export interface StoreProvider {
 
   // Lifecycle
   close(): Promise<void>;
+
+  // ---- High-level domain operations ----
+  // These wrap core business logic (validation, ID generation, logging, etc.)
+  // and are the primary API for CLI commands and MCP engine.
+  // @task T4656
+  // @epic T4654
+
+  /** Add a task with full validation, ID generation, and logging. */
+  addTask(options: AddTaskOptions): Promise<AddTaskResult>;
+  /** Complete a task with dependency checks and optional auto-completion. */
+  completeTask(options: CompleteTaskOptions): Promise<CompleteTaskResult>;
+  /** Update a task with rich options (addLabels, removeDepends, etc.). */
+  richUpdateTask(options: UpdateTaskOptions): Promise<UpdateTaskResult>;
+  /** Show a task by ID (throws CleoError if not found). */
+  showTask(taskId: string): Promise<Task>;
+  /** Delete a task with force/cascade options. */
+  richDeleteTask(options: DeleteTaskOptions): Promise<DeleteTaskResult>;
+  /** Find tasks with fuzzy/ID/exact search and filtering. */
+  richFindTasks(options: FindTasksOptions): Promise<FindTasksResult>;
+  /** List tasks with full filtering and pagination. */
+  richListTasks(options: ListTasksOptions): Promise<ListTasksResult>;
+  /** Archive tasks in batch with filtering options. */
+  richArchiveTasks(options: ArchiveTasksOptions): Promise<ArchiveTasksResult>;
+
+  // High-level session operations
+  /** Start a new session with scope, auto-focus, etc. */
+  startSession(options: {
+    name: string;
+    scope: string;
+    autoFocus?: boolean;
+    focus?: string;
+    agent?: string;
+  }): Promise<Session>;
+  /** End a session, optionally by ID with a note. */
+  richEndSession(options?: { sessionId?: string; note?: string }): Promise<Session>;
+  /** Get the current active session status. */
+  sessionStatus(): Promise<Session | null>;
+  /** Resume a previously ended session. */
+  resumeSession(sessionId: string): Promise<Session>;
+  /** List sessions with status/limit filters. */
+  richListSessions(options?: { status?: string; limit?: number }): Promise<Session[]>;
+  /** Garbage collect old sessions. */
+  gcSessions(maxAgeHours?: number): Promise<{ orphaned: string[]; removed: string[] }>;
+
+  // High-level focus operations (no session ID needed)
+  /** Show current focus state. */
+  showFocus(): Promise<FocusShowResult>;
+  /** Set focus to a task by ID. */
+  richSetFocus(taskId: string): Promise<FocusSetResult>;
+  /** Clear current focus. */
+  richClearFocus(): Promise<{ previousTask: string | null }>;
+  /** Get focus history. */
+  getFocusHistory(): Promise<FocusHistoryEntry[]>;
+
+  // Label operations
+  /** List all labels with task counts. */
+  listLabels(): Promise<Array<{ label: string; count: number; statuses: Record<string, number> }>>;
+  /** Show tasks with a specific label. */
+  showLabelTasks(label: string): Promise<Record<string, unknown>>;
+  /** Get detailed label statistics. */
+  getLabelStats(): Promise<Record<string, unknown>>;
+
+  // Relationship operations
+  /** Suggest related tasks based on shared attributes. */
+  suggestRelated(taskId: string, opts?: { threshold?: number }): Promise<Record<string, unknown>>;
+  /** Add a relationship between two tasks. */
+  addRelation(from: string, to: string, type: string, reason: string): Promise<Record<string, unknown>>;
+  /** Discover related tasks using various methods. */
+  discoverRelated(taskId: string): Promise<Record<string, unknown>>;
+  /** List existing relations for a task. */
+  listRelations(taskId: string): Promise<Record<string, unknown>>;
+
+  // Analysis operations
+  /** Analyze task priority with leverage scoring. */
+  analyzeTaskPriority(opts?: { autoFocus?: boolean }): Promise<AnalysisResult>;
+}
+
+/**
+ * Create high-level domain operation methods that delegate to core modules.
+ * These are engine-agnostic: the core modules handle their own data access.
+ * Used by all providers (JSON, SQLite, dual-write) to satisfy StoreProvider.
+ *
+ * @task T4656
+ * @epic T4654
+ */
+async function createDomainOps(cwd?: string): Promise<Pick<StoreProvider,
+  'addTask' | 'completeTask' | 'richUpdateTask' | 'showTask' |
+  'richDeleteTask' | 'richFindTasks' | 'richListTasks' | 'richArchiveTasks' |
+  'startSession' | 'richEndSession' | 'sessionStatus' | 'resumeSession' |
+  'richListSessions' | 'gcSessions' |
+  'showFocus' | 'richSetFocus' | 'richClearFocus' | 'getFocusHistory' |
+  'listLabels' | 'showLabelTasks' | 'getLabelStats' |
+  'suggestRelated' | 'addRelation' | 'discoverRelated' | 'listRelations' |
+  'analyzeTaskPriority'
+>> {
+  const { addTask } = await import('../core/tasks/add.js');
+  const { completeTask } = await import('../core/tasks/complete.js');
+  const { updateTask } = await import('../core/tasks/update.js');
+  const { showTask } = await import('../core/tasks/show.js');
+  const { deleteTask } = await import('../core/tasks/delete.js');
+  const { findTasks } = await import('../core/tasks/find.js');
+  const { listTasks } = await import('../core/tasks/list.js');
+  const { archiveTasks } = await import('../core/tasks/archive.js');
+  const labels = await import('../core/tasks/labels.js');
+  const relates = await import('../core/tasks/relates.js');
+  const { analyzeTaskPriority } = await import('../core/tasks/analyze.js');
+  const sessions = await import('../core/sessions/index.js');
+  const focus = await import('../core/focus/index.js');
+
+  return {
+    addTask: (options) => addTask(options, cwd),
+    completeTask: (options) => completeTask(options, cwd),
+    richUpdateTask: (options) => updateTask(options, cwd),
+    showTask: (taskId) => showTask(taskId, cwd),
+    richDeleteTask: (options) => deleteTask(options, cwd),
+    richFindTasks: (options) => findTasks(options, cwd),
+    richListTasks: (options) => listTasks(options, cwd),
+    richArchiveTasks: (options) => archiveTasks(options, cwd),
+    listLabels: () => labels.listLabels(cwd),
+    showLabelTasks: (label) => labels.showLabelTasks(label, cwd),
+    getLabelStats: () => labels.getLabelStats(cwd),
+    suggestRelated: (taskId, opts) => relates.suggestRelated(taskId, { ...opts, cwd }),
+    addRelation: (from, to, type, reason) => relates.addRelation(from, to, type, reason, cwd),
+    discoverRelated: (taskId) => relates.discoverRelated(taskId, cwd),
+    listRelations: (taskId) => relates.listRelations(taskId, cwd),
+    analyzeTaskPriority: (opts) => analyzeTaskPriority({ ...opts, cwd }),
+    startSession: (options) => sessions.startSession(options, cwd),
+    richEndSession: (options) => sessions.endSession(options, cwd),
+    sessionStatus: () => sessions.sessionStatus(cwd),
+    resumeSession: (sessionId) => sessions.resumeSession(sessionId, cwd),
+    richListSessions: (options) => sessions.listSessions(options, cwd),
+    gcSessions: (maxAgeHours) => sessions.gcSessions(maxAgeHours, cwd),
+    showFocus: () => focus.showFocus(cwd),
+    richSetFocus: (taskId) => focus.setFocus(taskId, cwd),
+    richClearFocus: () => focus.clearFocus(cwd),
+    getFocusHistory: () => focus.getFocusHistory(cwd),
+  };
 }
 
 /**
@@ -130,6 +291,7 @@ async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
   const sqliteStore = await import('./task-store.js');
   const sessionStore = await import('./session-store.js');
   const { closeDb } = await import('./sqlite.js');
+  const domainOps = await createDomainOps(cwd);
 
   return {
     engine: 'sqlite',
@@ -149,6 +311,7 @@ async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
     getFocus: (sessionId) => sessionStore.getFocus(sessionId, cwd),
     clearFocus: (sessionId) => sessionStore.clearFocus(sessionId, cwd),
     close: async () => closeDb(),
+    ...domainOps,
   };
 }
 
@@ -165,6 +328,7 @@ async function createDualWriteProvider(cwd?: string): Promise<StoreProvider> {
   const { createJsonStoreProvider } = await import('./json-provider.js');
   const jsonProvider = createJsonStoreProvider(cwd);
   const sqliteProvider = await createSqliteProvider(cwd);
+  const domainOps = await createDomainOps(cwd);
 
   /** Log dual-write discrepancy to stderr. */
   function logDiscrepancy(op: string, detail: string): void {
@@ -326,5 +490,8 @@ async function createDualWriteProvider(cwd?: string): Promise<StoreProvider> {
         jsonProvider.close(),
       ]);
     },
+
+    // --- High-level domain operations (delegate to core modules) ---
+    ...domainOps,
   };
 }

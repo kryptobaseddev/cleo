@@ -591,7 +591,7 @@ _fo_get_schema_type() {
         todo-archive.json)   echo "archive" ;;
         config.json)         echo "config" ;;
         sessions.json)       echo "sessions" ;;
-        todo-log.json)       echo "log" ;;
+        todo-log.jsonl)       echo "log" ;;
         *)                   echo "" ;;  # Unknown schema type
     esac
 }
@@ -815,7 +815,7 @@ list_backups() {
 #   0 on success, FO_LOCK_FAILED if any lock fails
 # Notes:
 #   Locks are acquired in the order provided to prevent deadlock.
-#   Per MULTI-SESSION-SPEC.md, always lock: sessions.json → todo.json → todo-log.json
+#   Per MULTI-SESSION-SPEC.md, always lock: sessions.json → todo.json → todo-log.jsonl
 #   On failure, any acquired locks are released before returning.
 # Security:
 #   File paths are sanitized by lock_file before use

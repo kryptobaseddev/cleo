@@ -183,7 +183,7 @@ detect_legacy_project() {
         if [[ -f "$legacy_path/todo-config.json" ]]; then
             has_config=true
         fi
-        if [[ -f "$legacy_path/todo-log.json" ]]; then
+        if [[ -f "$legacy_path/todo-log.jsonl" ]]; then
             has_log=true
         fi
         if [[ -f "$legacy_path/todo-archive.json" ]]; then
@@ -629,7 +629,7 @@ create_project_backup() {
 
 # Rename config files during migration
 # Config: todo-config.json → config.json (renamed)
-# Log: todo-log.json stays as todo-log.json (unchanged)
+# Log: todo-log.jsonl stays as todo-log.jsonl (unchanged)
 # Args: $1 = target directory
 # Returns: count of files renamed
 rename_project_configs() {
@@ -643,7 +643,7 @@ rename_project_configs() {
         fi
     fi
 
-    # Log file stays as todo-log.json - no rename needed
+    # Log file stays as todo-log.jsonl - no rename needed
 
     echo "$renamed"
 }
@@ -699,7 +699,7 @@ update_injection_markers() {
 readonly CLEO_FILES=(
     "todo.json"
     "todo-config.json"
-    "todo-log.json"
+    "todo-log.jsonl"
     "todo-archive.json"
 )
 

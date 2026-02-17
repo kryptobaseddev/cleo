@@ -105,7 +105,7 @@ init_flag_defaults
 CLEO_DIR=".cleo"
 TODO_FILE="${CLEO_DIR}/todo.json"
 ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
-HIST_LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+HIST_LOG_FILE="${LOG_FILE:-.cleo/todo-log.jsonl}"
 
 #####################################################################
 # Usage
