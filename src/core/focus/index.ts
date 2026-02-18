@@ -10,6 +10,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { TodoFile } from '../../types/task.js';
 import { getTodoPath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Result of getting focus. */
 export interface FocusShowResult {
@@ -36,9 +37,10 @@ export interface FocusHistoryEntry {
  * Show current focus state.
  * @task T4462
  */
-export async function showFocus(cwd?: string): Promise<FocusShowResult> {
-  const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+export async function showFocus(cwd?: string, accessor?: DataAccessor): Promise<FocusShowResult> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
 
   const focus = data.focus ?? {};
 
@@ -54,7 +56,7 @@ export async function showFocus(cwd?: string): Promise<FocusShowResult> {
  * Set focus to a specific task.
  * @task T4462
  */
-export async function setFocus(taskId: string, cwd?: string): Promise<FocusSetResult> {
+export async function setFocus(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<FocusSetResult> {
   if (!taskId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
@@ -63,7 +65,9 @@ export async function setFocus(taskId: string, cwd?: string): Promise<FocusSetRe
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   // Verify task exists
   const task = data.tasks.find(t => t.id === taskId);
@@ -99,12 +103,16 @@ export async function setFocus(taskId: string, cwd?: string): Promise<FocusSetRe
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  await saveJson(todoPath, data, { backupDir });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+  } else {
+    await saveJson(todoPath, data, { backupDir });
+  }
 
   await logOperation(logPath, 'focus_set', taskId, {
     previousTask,
     title: task.title,
-  });
+  }, accessor);
 
   return {
     taskId,
@@ -117,12 +125,14 @@ export async function setFocus(taskId: string, cwd?: string): Promise<FocusSetRe
  * Clear current focus.
  * @task T4462
  */
-export async function clearFocus(cwd?: string): Promise<{ previousTask: string | null }> {
+export async function clearFocus(cwd?: string, accessor?: DataAccessor): Promise<{ previousTask: string | null }> {
   const todoPath = getTodoPath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   const previousTask = data.focus?.currentTask ?? null;
 
@@ -137,11 +147,15 @@ export async function clearFocus(cwd?: string): Promise<{ previousTask: string |
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  await saveJson(todoPath, data, { backupDir });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+  } else {
+    await saveJson(todoPath, data, { backupDir });
+  }
 
   await logOperation(logPath, 'focus_cleared', previousTask ?? 'none', {
     previousTask,
-  });
+  }, accessor);
 
   return { previousTask };
 }
@@ -150,9 +164,10 @@ export async function clearFocus(cwd?: string): Promise<{ previousTask: string |
  * Get focus history from session notes.
  * @task T4462
  */
-export async function getFocusHistory(cwd?: string): Promise<FocusHistoryEntry[]> {
-  const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+export async function getFocusHistory(cwd?: string, accessor?: DataAccessor): Promise<FocusHistoryEntry[]> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
 
   const notes = data.focus?.sessionNotes ?? [];
   const history: FocusHistoryEntry[] = [];

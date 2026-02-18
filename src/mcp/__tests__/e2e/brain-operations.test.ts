@@ -521,7 +521,7 @@ describe('E2E: Brain Operations', () => {
   // 3. Coherence check
   // -------------------------------------------------------------------------
   describe('validateCoherenceCheck', () => {
-    it('should detect done task with pending subtask', () => {
+    it('should detect done task with pending subtask', async () => {
       const incoherentTasks = [
         {
           id: 'T200',
@@ -547,7 +547,7 @@ describe('E2E: Brain Operations', () => {
 
       writeTodoJson(incoherentTasks);
 
-      const result = validateCoherenceCheck(TEST_ROOT);
+      const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data!;
@@ -562,7 +562,7 @@ describe('E2E: Brain Operations', () => {
       expect(doneWithIncomplete!.severity).toBe('error');
     });
 
-    it('should detect orphaned dependency', () => {
+    it('should detect orphaned dependency', async () => {
       const orphanedTasks = [
         {
           id: 'T300',
@@ -578,7 +578,7 @@ describe('E2E: Brain Operations', () => {
 
       writeTodoJson(orphanedTasks);
 
-      const result = validateCoherenceCheck(TEST_ROOT);
+      const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data!;
@@ -591,7 +591,7 @@ describe('E2E: Brain Operations', () => {
       expect(orphaned!.taskId).toBe('T300');
     });
 
-    it('should detect status inconsistency (active child under done parent)', () => {
+    it('should detect status inconsistency (active child under done parent)', async () => {
       const inconsistentTasks = [
         {
           id: 'T400',
@@ -617,7 +617,7 @@ describe('E2E: Brain Operations', () => {
 
       writeTodoJson(inconsistentTasks);
 
-      const result = validateCoherenceCheck(TEST_ROOT);
+      const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data!;
@@ -630,7 +630,7 @@ describe('E2E: Brain Operations', () => {
       expect(inconsistency!.taskId).toBe('T401');
     });
 
-    it('should report coherent for valid task graph', () => {
+    it('should report coherent for valid task graph', async () => {
       const validTasks = [
         {
           id: 'T500',
@@ -656,7 +656,7 @@ describe('E2E: Brain Operations', () => {
 
       writeTodoJson(validTasks);
 
-      const result = validateCoherenceCheck(TEST_ROOT);
+      const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
       expect(result.data!.coherent).toBe(true);
       expect(result.data!.issues.length).toBe(0);
@@ -667,10 +667,10 @@ describe('E2E: Brain Operations', () => {
   // 4. Critical path
   // -------------------------------------------------------------------------
   describe('orchestrateCriticalPath', () => {
-    it('should find the longest dependency chain', () => {
+    it('should find the longest dependency chain', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = orchestrateCriticalPath(TEST_ROOT);
+      const result = await orchestrateCriticalPath(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data as any;
@@ -700,10 +700,10 @@ describe('E2E: Brain Operations', () => {
       expect(data.remainingInPath).toBe(data.length - data.completedInPath);
     });
 
-    it('should return empty path for empty task list', () => {
+    it('should return empty path for empty task list', async () => {
       writeTodoJson([]);
 
-      const result = orchestrateCriticalPath(TEST_ROOT);
+      const result = await orchestrateCriticalPath(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data as any;
@@ -716,10 +716,10 @@ describe('E2E: Brain Operations', () => {
   // 5. Unblock opportunities
   // -------------------------------------------------------------------------
   describe('orchestrateUnblockOpportunities', () => {
-    it('should detect single-blocker tasks', () => {
+    it('should detect single-blocker tasks', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = orchestrateUnblockOpportunities(TEST_ROOT);
+      const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data as any;
@@ -735,10 +735,10 @@ describe('E2E: Brain Operations', () => {
       expect(t106entry.remainingBlocker.id).toBe('T105');
     });
 
-    it('should identify high-impact completions', () => {
+    it('should identify high-impact completions', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = orchestrateUnblockOpportunities(TEST_ROOT);
+      const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data as any;
@@ -757,7 +757,7 @@ describe('E2E: Brain Operations', () => {
       }
     });
 
-    it('should return empty arrays when no tasks are blocked', () => {
+    it('should return empty arrays when no tasks are blocked', async () => {
       const noDeps = [
         {
           id: 'T600',
@@ -780,7 +780,7 @@ describe('E2E: Brain Operations', () => {
       ];
       writeTodoJson(noDeps);
 
-      const result = orchestrateUnblockOpportunities(TEST_ROOT);
+      const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data as any;
@@ -1012,7 +1012,7 @@ describe('E2E: Brain Operations', () => {
   // 9. MVI generation
   // -------------------------------------------------------------------------
   describe('systemInjectGenerate', () => {
-    it('should generate valid MVI markdown under 5KB', () => {
+    it('should generate valid MVI markdown under 5KB', async () => {
       writeTodoJson(SAMPLE_TASKS, {
         project: { name: 'brain-ops-test' },
       });
@@ -1024,7 +1024,7 @@ describe('E2E: Brain Operations', () => {
         'utf-8',
       );
 
-      const result = systemInjectGenerate(TEST_ROOT);
+      const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const data = result.data!;
@@ -1048,7 +1048,7 @@ describe('E2E: Brain Operations', () => {
       expect(mvi).toContain('Bootstrap');
     });
 
-    it('should include session info when active session exists', () => {
+    it('should include session info when active session exists', async () => {
       writeTodoJson(SAMPLE_TASKS, {
         focus: { currentTask: 'T102' },
         meta: {
@@ -1065,7 +1065,7 @@ describe('E2E: Brain Operations', () => {
         'utf-8',
       );
 
-      const result = systemInjectGenerate(TEST_ROOT);
+      const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);
 
       const mvi = result.data!.injection;
@@ -1073,10 +1073,10 @@ describe('E2E: Brain Operations', () => {
       expect(mvi).toContain('Session');
     });
 
-    it('should handle missing package.json gracefully', () => {
+    it('should handle missing package.json gracefully', async () => {
       writeTodoJson(SAMPLE_TASKS);
 
-      const result = systemInjectGenerate(TEST_ROOT);
+      const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);
 
       // Should still generate valid MVI

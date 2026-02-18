@@ -219,14 +219,14 @@ export class ValidateHandler implements DomainHandler {
     };
   }
 
-  private queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+  private async queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): Promise<DomainResponse> {
     switch (operation) {
       case 'schema':
         return this.wrapNativeResult(nativeValidateSchema(params?.fileType as string || params?.type as string, params?.data, this.projectRoot), 'cleo_query', operation, startTime);
       case 'task':
-        return this.wrapNativeResult(nativeValidateTask(params?.taskId as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeValidateTask(params?.taskId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'protocol':
-        return this.wrapNativeResult(nativeValidateProtocol(params?.taskId as string, params?.protocolType as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeValidateProtocol(params?.taskId as string, params?.protocolType as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'manifest':
         return this.wrapNativeResult(nativeValidateManifest(this.projectRoot), 'cleo_query', operation, startTime);
       case 'output':
@@ -240,13 +240,13 @@ export class ValidateHandler implements DomainHandler {
       case 'test.coverage':
         return this.wrapNativeResult(nativeValidateTestCoverage(this.projectRoot), 'cleo_query', operation, startTime);
       case 'coherence-check':
-        return this.wrapNativeResult(nativeValidateCoherenceCheck(this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeValidateCoherenceCheck(this.projectRoot), 'cleo_query', operation, startTime);
       default:
         return this.createErrorResponse('cleo_query', 'validate', operation, 'E_INVALID_OPERATION', `Unknown native query operation: ${operation}`, startTime);
     }
   }
 
-  private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+  private async mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): Promise<DomainResponse> {
     switch (operation) {
       case 'compliance.record':
         return this.wrapNativeResult(
@@ -269,7 +269,7 @@ export class ValidateHandler implements DomainHandler {
         );
       case 'batch-validate':
         return this.wrapNativeResult(
-          nativeValidateBatchValidate(this.projectRoot),
+          await nativeValidateBatchValidate(this.projectRoot),
           'cleo_mutate', operation, startTime
         );
       default:

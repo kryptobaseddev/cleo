@@ -61,7 +61,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable logging to todo-log.json."
+          "description": "Enable logging to todo-log.jsonl."
         },
         "retentionDays": {
           "type": "integer",

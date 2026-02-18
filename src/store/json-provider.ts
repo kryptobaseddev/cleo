@@ -12,6 +12,8 @@
 import type { StoreProvider, TaskFilters, SessionFilters } from './provider.js';
 import type { Task } from '../types/task.js';
 import type { Session } from '../types/session.js';
+import { createJsonDataAccessor } from './json-data-accessor.js';
+import type { DataAccessor } from './data-accessor.js';
 
 // Task operations
 import { addTask } from '../core/tasks/add.js';
@@ -49,18 +51,29 @@ import { analyzeTaskPriority } from '../core/tasks/analyze.js';
  * Create a JSON-backed StoreProvider.
  *
  * Delegates to existing core module functions that read/write JSON files.
- * This is a thin wrapper -- the real logic lives in the core modules.
+ * A JsonDataAccessor is created once and passed to all core calls, ensuring
+ * consistent storage access throughout the provider's lifetime.
  *
  * @task T4644
  * @epic T4638
  */
 export function createJsonStoreProvider(cwd?: string): StoreProvider {
+  // Create a JSON accessor once (lazy, cached), shared by all domain operations.
+  let _accessorPromise: Promise<DataAccessor> | null = null;
+  function getAcc(): Promise<DataAccessor> {
+    if (!_accessorPromise) {
+      _accessorPromise = createJsonDataAccessor(cwd);
+    }
+    return _accessorPromise;
+  }
+
   return {
     engine: 'json',
 
     // ---- Task CRUD ----
 
     createTask: async (task: Task): Promise<Task> => {
+      const acc = await getAcc();
       const result = await addTask({
         title: task.title,
         status: task.status,
@@ -72,13 +85,14 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
         description: task.description,
         labels: task.labels,
         depends: task.depends,
-      }, cwd);
+      }, cwd, acc);
       return result.task;
     },
 
     getTask: async (taskId: string): Promise<Task | null> => {
       try {
-        const detail = await showTask(taskId, cwd);
+        const acc = await getAcc();
+        const detail = await showTask(taskId, cwd, acc);
         return detail;
       } catch {
         return null;
@@ -87,6 +101,7 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
 
     updateTask: async (taskId: string, updates: Partial<Task>): Promise<Task | null> => {
       try {
+        const acc = await getAcc();
         const result = await updateTask({
           taskId,
           title: updates.title,
@@ -99,7 +114,7 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
           labels: updates.labels,
           depends: updates.depends,
           blockedBy: updates.blockedBy,
-        }, cwd);
+        }, cwd, acc);
         return result.task;
       } catch {
         return null;
@@ -108,7 +123,8 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
 
     deleteTask: async (taskId: string): Promise<boolean> => {
       try {
-        await deleteTask({ taskId, force: true }, cwd);
+        const acc = await getAcc();
+        await deleteTask({ taskId, force: true }, cwd, acc);
         return true;
       } catch {
         return false;
@@ -116,24 +132,26 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     },
 
     listTasks: async (filters?: TaskFilters): Promise<Task[]> => {
+      const acc = await getAcc();
       const result = await listTasks({
         status: filters?.status,
         parentId: filters?.parentId ?? undefined,
         type: filters?.type,
         phase: filters?.phase,
         limit: filters?.limit,
-      }, cwd);
+      }, cwd, acc);
       return result.tasks;
     },
 
     findTasks: async (query: string, limit?: number): Promise<Task[]> => {
-      const result = await findTasks({ query, limit }, cwd);
+      const acc = await getAcc();
+      const result = await findTasks({ query, limit }, cwd, acc);
       // findTasks returns FindResult (minimal fields), but StoreProvider expects Task.
       // We need to fetch full task details for each result.
       const tasks: Task[] = [];
       for (const r of result.results) {
         try {
-          const detail = await showTask(r.id, cwd);
+          const detail = await showTask(r.id, cwd, acc);
           tasks.push(detail);
         } catch {
           // Skip tasks that can't be loaded
@@ -144,7 +162,8 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
 
     archiveTask: async (taskId: string, _reason?: string): Promise<boolean> => {
       try {
-        const result = await archiveTasks({ taskIds: [taskId] }, cwd);
+        const acc = await getAcc();
+        const result = await archiveTasks({ taskIds: [taskId] }, cwd, acc);
         return result.archived.includes(taskId);
       } catch {
         return false;
@@ -154,6 +173,7 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     // ---- Session CRUD ----
 
     createSession: async (session: Session): Promise<Session> => {
+      const acc = await getAcc();
       const result = await startSession({
         name: session.name,
         scope: session.scope.type === 'epic' && session.scope.epicId
@@ -161,20 +181,22 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
           : 'global',
         focus: session.focus?.taskId ?? undefined,
         agent: session.agent ?? undefined,
-      }, cwd);
+      }, cwd, acc);
       return result;
     },
 
     getSession: async (sessionId: string): Promise<Session | null> => {
-      const sessions = await listSessions({}, cwd);
+      const acc = await getAcc();
+      const sessions = await listSessions({}, cwd, acc);
       return sessions.find(s => s.id === sessionId) ?? null;
     },
 
     updateSession: async (sessionId: string, updates: Partial<Session>): Promise<Session | null> => {
+      const acc = await getAcc();
       // JSON sessions don't have a generic update; status changes go through end/resume
       if (updates.status === 'ended') {
         try {
-          const result = await endSession({ sessionId }, cwd);
+          const result = await endSession({ sessionId }, cwd, acc);
           return result;
         } catch {
           return null;
@@ -182,27 +204,29 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
       }
       if (updates.status === 'active') {
         try {
-          const result = await resumeSession(sessionId, cwd);
+          const result = await resumeSession(sessionId, cwd, acc);
           return result;
         } catch {
           return null;
         }
       }
       // For other updates, return the session as-is
-      const sessions = await listSessions({}, cwd);
+      const sessions = await listSessions({}, cwd, acc);
       return sessions.find(s => s.id === sessionId) ?? null;
     },
 
     listSessions: async (filters?: SessionFilters): Promise<Session[]> => {
+      const acc = await getAcc();
       const opts: { status?: string; limit?: number } = {};
       if (filters?.active) opts.status = 'active';
       if (filters?.limit) opts.limit = filters.limit;
-      return listSessions(opts, cwd);
+      return listSessions(opts, cwd, acc);
     },
 
     endSession: async (sessionId: string, note?: string): Promise<Session | null> => {
       try {
-        return await endSession({ sessionId, note }, cwd);
+        const acc = await getAcc();
+        return await endSession({ sessionId, note }, cwd, acc);
       } catch {
         return null;
       }
@@ -211,11 +235,13 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     // ---- Focus ----
 
     setFocus: async (_sessionId: string, taskId: string): Promise<void> => {
-      await setFocus(taskId, cwd);
+      const acc = await getAcc();
+      await setFocus(taskId, cwd, acc);
     },
 
     getFocus: async (_sessionId: string): Promise<{ taskId: string | null; since: string | null }> => {
-      const focus = await showFocus(cwd);
+      const acc = await getAcc();
+      const focus = await showFocus(cwd, acc);
       return {
         taskId: focus.currentTask,
         since: null, // JSON focus doesn't track 'since' per session
@@ -223,7 +249,8 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     },
 
     clearFocus: async (_sessionId: string): Promise<void> => {
-      await clearFocus(cwd);
+      const acc = await getAcc();
+      await clearFocus(cwd, acc);
     },
 
     // ---- Lifecycle ----
@@ -233,39 +260,40 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     },
 
     // ---- High-level domain operations ----
+    // All domain ops pass the accessor so the correct storage engine is used.
     // @task T4656
     // @epic T4654
 
-    addTask: (options) => addTask(options, cwd),
-    completeTask: (options) => completeTask(options, cwd),
-    richUpdateTask: (options) => updateTask(options, cwd),
-    showTask: (taskId) => showTask(taskId, cwd),
-    richDeleteTask: (options) => deleteTask(options, cwd),
-    richFindTasks: (options) => findTasks(options, cwd),
-    richListTasks: (options) => listTasks(options, cwd),
-    richArchiveTasks: (options) => archiveTasks(options, cwd),
+    addTask: async (options) => { const acc = await getAcc(); return addTask(options, cwd, acc); },
+    completeTask: async (options) => { const acc = await getAcc(); return completeTask(options, cwd, acc); },
+    richUpdateTask: async (options) => { const acc = await getAcc(); return updateTask(options, cwd, acc); },
+    showTask: async (taskId) => { const acc = await getAcc(); return showTask(taskId, cwd, acc); },
+    richDeleteTask: async (options) => { const acc = await getAcc(); return deleteTask(options, cwd, acc); },
+    richFindTasks: async (options) => { const acc = await getAcc(); return findTasks(options, cwd, acc); },
+    richListTasks: async (options) => { const acc = await getAcc(); return listTasks(options, cwd, acc); },
+    richArchiveTasks: async (options) => { const acc = await getAcc(); return archiveTasks(options, cwd, acc); },
 
-    startSession: (options) => startSession(options, cwd),
-    richEndSession: (options) => endSession(options, cwd),
-    sessionStatus: () => sessionStatus(cwd),
-    resumeSession: (sessionId) => resumeSession(sessionId, cwd),
-    richListSessions: (options) => listSessions(options, cwd),
-    gcSessions: (maxAgeHours) => gcSessions(maxAgeHours, cwd),
+    startSession: async (options) => { const acc = await getAcc(); return startSession(options, cwd, acc); },
+    richEndSession: async (options) => { const acc = await getAcc(); return endSession(options, cwd, acc); },
+    sessionStatus: async () => { const acc = await getAcc(); return sessionStatus(cwd, acc); },
+    resumeSession: async (sessionId) => { const acc = await getAcc(); return resumeSession(sessionId, cwd, acc); },
+    richListSessions: async (options) => { const acc = await getAcc(); return listSessions(options, cwd, acc); },
+    gcSessions: async (maxAgeHours) => { const acc = await getAcc(); return gcSessions(maxAgeHours, cwd, acc); },
 
-    showFocus: () => showFocus(cwd),
-    richSetFocus: (taskId) => setFocus(taskId, cwd),
-    richClearFocus: () => clearFocus(cwd),
-    getFocusHistory: () => getFocusHistory(cwd),
+    showFocus: async () => { const acc = await getAcc(); return showFocus(cwd, acc); },
+    richSetFocus: async (taskId) => { const acc = await getAcc(); return setFocus(taskId, cwd, acc); },
+    richClearFocus: async () => { const acc = await getAcc(); return clearFocus(cwd, acc); },
+    getFocusHistory: async () => { const acc = await getAcc(); return getFocusHistory(cwd, acc); },
 
-    listLabels: () => listLabels(cwd),
-    showLabelTasks: (label) => showLabelTasks(label, cwd),
-    getLabelStats: () => getLabelStats(cwd),
+    listLabels: async () => { const acc = await getAcc(); return listLabels(cwd, acc); },
+    showLabelTasks: async (label) => { const acc = await getAcc(); return showLabelTasks(label, cwd, acc); },
+    getLabelStats: async () => { const acc = await getAcc(); return getLabelStats(cwd, acc); },
 
-    suggestRelated: (taskId, opts) => suggestRelated(taskId, { ...opts, cwd }),
-    addRelation: (from, to, type, reason) => addRelation(from, to, type, reason, cwd),
-    discoverRelated: (taskId) => discoverRelated(taskId, cwd),
-    listRelations: (taskId) => listRelations(taskId, cwd),
+    suggestRelated: async (taskId, opts) => { const acc = await getAcc(); return suggestRelated(taskId, { ...opts, cwd }, acc); },
+    addRelation: async (from, to, type, reason) => { const acc = await getAcc(); return addRelation(from, to, type, reason, cwd, acc); },
+    discoverRelated: async (taskId) => { const acc = await getAcc(); return discoverRelated(taskId, cwd, acc); },
+    listRelations: async (taskId) => { const acc = await getAcc(); return listRelations(taskId, cwd, acc); },
 
-    analyzeTaskPriority: (opts) => analyzeTaskPriority({ ...opts, cwd }),
+    analyzeTaskPriority: async (opts) => { const acc = await getAcc(); return analyzeTaskPriority({ ...opts, cwd }, acc); },
   };
 }

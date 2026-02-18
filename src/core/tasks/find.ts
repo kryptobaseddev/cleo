@@ -9,6 +9,7 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskStatus, TodoFile } from '../../types/task.js';
 import { getTodoPath, getArchivePath } from '../paths.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Minimal task info for search results. */
 export interface FindResult {
@@ -90,22 +91,31 @@ export function fuzzyScore(query: string, text: string): number {
  * Returns minimal fields only (context-efficient).
  * @task T4460
  */
-export async function findTasks(options: FindTasksOptions, cwd?: string): Promise<FindTasksResult> {
+export async function findTasks(options: FindTasksOptions, cwd?: string, accessor?: DataAccessor): Promise<FindTasksResult> {
   if (!options.query && !options.id) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required');
   }
 
   const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   let allTasks: Task[] = [...data.tasks];
 
   // Include archive if requested
   if (options.includeArchive) {
-    const archivePath = getArchivePath(cwd);
-    const archive = await readJson<{ archivedTasks: Task[] }>(archivePath);
-    if (archive?.archivedTasks) {
-      allTasks = [...allTasks, ...archive.archivedTasks];
+    if (accessor) {
+      const archive = await accessor.loadArchive();
+      if (archive?.archivedTasks) {
+        allTasks = [...allTasks, ...archive.archivedTasks];
+      }
+    } else {
+      const archivePath = getArchivePath(cwd);
+      const archive = await readJson<{ archivedTasks: Task[] }>(archivePath);
+      if (archive?.archivedTasks) {
+        allTasks = [...allTasks, ...archive.archivedTasks];
+      }
     }
   }
 

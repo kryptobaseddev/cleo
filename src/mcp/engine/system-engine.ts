@@ -13,7 +13,8 @@
  * @task T4631
  */
 
-import { readJsonFile, readLogFileEntries, getDataPath } from './store.js';
+import { readLogFileEntries, getDataPath } from './store.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from 'fs';
 import { join, basename } from 'path';
 import type { EngineResult, TaskRecord } from './task-engine.js';
@@ -110,14 +111,23 @@ interface SessionsFile {
 
 // ===== Helper =====
 
-function loadTodoFile(projectRoot: string): TodoFile | null {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  return readJsonFile<TodoFile>(todoPath);
+async function loadTodoFile(projectRoot: string): Promise<TodoFile | null> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const data = await accessor.loadTodoFile();
+    return data as unknown as TodoFile;
+  } catch {
+    return null;
+  }
 }
 
-function loadArchiveFile(projectRoot: string): ArchiveFile | null {
-  const archivePath = getDataPath(projectRoot, 'todo-archive.json');
-  return readJsonFile<ArchiveFile>(archivePath);
+async function loadArchiveFile(projectRoot: string): Promise<ArchiveFile | null> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    return await accessor.loadArchive() as unknown as ArchiveFile;
+  } catch {
+    return null;
+  }
 }
 
 // loadLogFile removed in T4622 - replaced by readLogFileEntries for hybrid format support
@@ -156,10 +166,10 @@ export interface DashboardData {
  * Project dashboard: task counts by status, active session info,
  * current focus, recent completions.
  */
-export function systemDash(
+export async function systemDash(
   projectRoot: string
-): EngineResult<DashboardData> {
-  const todo = loadTodoFile(projectRoot);
+): Promise<EngineResult<DashboardData>> {
+  const todo = await loadTodoFile(projectRoot);
   if (!todo) {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
@@ -268,11 +278,11 @@ export interface StatsData {
  * Detailed statistics: tasks by status/priority/type/phase,
  * completion rate, average cycle time.
  */
-export function systemStats(
+export async function systemStats(
   projectRoot: string,
   params?: { period?: number }
-): EngineResult<StatsData> {
-  const todo = loadTodoFile(projectRoot);
+): Promise<EngineResult<StatsData>> {
+  const todo = await loadTodoFile(projectRoot);
   if (!todo) {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
@@ -380,10 +390,10 @@ export interface LabelsData {
 /**
  * List all unique labels across tasks with counts and task IDs per label.
  */
-export function systemLabels(
+export async function systemLabels(
   projectRoot: string
-): EngineResult<LabelsData> {
-  const todo = loadTodoFile(projectRoot);
+): Promise<EngineResult<LabelsData>> {
+  const todo = await loadTodoFile(projectRoot);
   if (!todo) {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
@@ -432,11 +442,11 @@ export interface ArchiveStatsData {
 /**
  * Archive metrics: total archived, by reason, average cycle time, archive rate.
  */
-export function systemArchiveStats(
+export async function systemArchiveStats(
   projectRoot: string,
   params?: { period?: number }
-): EngineResult<ArchiveStatsData> {
-  const archive = loadArchiveFile(projectRoot);
+): Promise<EngineResult<ArchiveStatsData>> {
+  const archive = await loadArchiveFile(projectRoot);
   const periodDays = params?.period ?? 30;
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
 
@@ -769,9 +779,9 @@ export interface InjectGenerateData {
  * session protocol, bootstrap instruction, error handling, storage mode,
  * and current project state.
  */
-export function systemInjectGenerate(
+export async function systemInjectGenerate(
   projectRoot?: string
-): EngineResult<InjectGenerateData> {
+): Promise<EngineResult<InjectGenerateData>> {
   const root = projectRoot || process.cwd();
 
   // --- Read project state ---
@@ -791,7 +801,7 @@ export function systemInjectGenerate(
   let focusTask: string | null = null;
   let sessionScope: string | null = null;
 
-  const todo = loadTodoFile(root);
+  const todo = await loadTodoFile(root);
   if (todo) {
     focusTask = todo.focus?.currentTask ?? null;
     activeSessionName = todo._meta?.activeSession ?? null;
@@ -872,10 +882,10 @@ export interface MetricsData {
  * System metrics: token usage, compliance summary, session counts.
  * @task T4631
  */
-export function systemMetrics(
+export async function systemMetrics(
   projectRoot: string,
   params?: { scope?: string; since?: string }
-): EngineResult<MetricsData> {
+): Promise<EngineResult<MetricsData>> {
   const cleoDir = join(projectRoot, '.cleo');
 
   // Compliance metrics
@@ -913,17 +923,15 @@ export function systemMetrics(
   let sessionsTotal = 0;
   let sessionsActive = 0;
   let sessionsCompleted = 0;
-  const sessionsPath = join(cleoDir, 'sessions.json');
-  if (existsSync(sessionsPath)) {
-    try {
-      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8')) as SessionsFile;
-      const sessions = sessionsData.sessions ?? [];
-      sessionsTotal = sessions.length;
-      sessionsActive = sessions.filter(s => s.status === 'active').length;
-      sessionsCompleted = sessions.filter(s => s.status === 'ended' || s.status === 'completed').length;
-    } catch {
-      // skip
-    }
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const sessionsData = await accessor.loadSessions() as unknown as SessionsFile;
+    const sessions = sessionsData.sessions ?? [];
+    sessionsTotal = sessions.length;
+    sessionsActive = sessions.filter(s => s.status === 'active').length;
+    sessionsCompleted = sessions.filter(s => s.status === 'ended' || s.status === 'completed').length;
+  } catch {
+    // skip
   }
 
   return {
@@ -1314,11 +1322,11 @@ export interface RoadmapData {
  * Generate roadmap from pending epics and optional CHANGELOG history.
  * @task T4631
  */
-export function systemRoadmap(
+export async function systemRoadmap(
   projectRoot: string,
   params?: { includeHistory?: boolean; upcomingOnly?: boolean }
-): EngineResult<RoadmapData> {
-  const todo = loadTodoFile(projectRoot);
+): Promise<EngineResult<RoadmapData>> {
+  const todo = await loadTodoFile(projectRoot);
   if (!todo) {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }

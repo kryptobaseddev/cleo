@@ -8,6 +8,7 @@ import { readJsonRequired, readJson, saveJson, computeChecksum } from '../../sto
 import type { Task, TodoFile } from '../../types/task.js';
 import { getTodoPath, getArchivePath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Options for archiving tasks. */
 export interface ArchiveTasksOptions {
@@ -34,13 +35,15 @@ export interface ArchiveTasksResult {
  * Moves them from todo.json to todo-archive.json.
  * @task T4461
  */
-export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string): Promise<ArchiveTasksResult> {
+export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ArchiveTasksResult> {
   const todoPath = getTodoPath(cwd);
   const archivePath = getArchivePath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
   const includeCancelled = options.includeCancelled ?? true;
 
   // Determine which tasks to archive
@@ -110,7 +113,12 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   const remainingTasks = data.tasks.filter(t => !archivedSet.has(t.id));
 
   // Read/create archive file
-  let archiveData = await readJson<{ archivedTasks: Task[]; version?: string }>(archivePath);
+  let archiveData: { archivedTasks: Task[]; version?: string } | null;
+  if (accessor) {
+    archiveData = await accessor.loadArchive();
+  } else {
+    archiveData = await readJson<{ archivedTasks: Task[]; version?: string }>(archivePath);
+  }
   if (!archiveData) {
     archiveData = { archivedTasks: [], version: '1.0.0' };
   }
@@ -126,13 +134,27 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   data._meta.checksum = computeChecksum(remainingTasks);
   data.lastUpdated = now;
 
-  await saveJson(todoPath, data, { backupDir });
-  await saveJson(archivePath, archiveData, { backupDir });
-
-  await logOperation(logPath, 'tasks_archived', archived.join(','), {
-    count: archived.length,
-    ids: archived,
-  });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+    await accessor.saveArchive(archiveData);
+    await accessor.appendLog({
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'tasks_archived',
+      taskId: archived.join(','),
+      actor: 'system',
+      details: { count: archived.length, ids: archived },
+      before: null,
+      after: { count: archived.length, ids: archived },
+    });
+  } else {
+    await saveJson(todoPath, data, { backupDir });
+    await saveJson(archivePath, archiveData, { backupDir });
+    await logOperation(logPath, 'tasks_archived', archived.join(','), {
+      count: archived.length,
+      ids: archived,
+    });
+  }
 
   return { archived, skipped, total: data.tasks.length + archived.length };
 }

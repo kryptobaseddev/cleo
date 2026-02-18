@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.2.0",
+  "version": "2026.2.1",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "type": "module",
   "bin": {

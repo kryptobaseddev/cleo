@@ -11,9 +11,9 @@ import { constants as fsConstants } from 'node:fs';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getTodoPath, getBackupDir } from '../../core/paths.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import type { Task, TaskStatus, TodoFile } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
+import type { Task, TaskStatus } from '../../types/task.js';
 import {
   generateRemapTable,
   remapTaskReferences,
@@ -109,11 +109,8 @@ export function registerImportTasksCommand(program: Command): void {
         }
 
         // Load existing data
-        const todoPath = getTodoPath();
-        const todoData = await readJson<TodoFile>(todoPath);
-        if (!todoData) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const todoData = await accessor.loadTodoFile();
 
         const onConflict = (opts['onConflict'] as OnConflict) ?? 'fail';
         const onMissingDep = (opts['onMissingDep'] as OnMissingDep) ?? 'strip';
@@ -235,7 +232,7 @@ export function registerImportTasksCommand(program: Command): void {
         todoData.tasks.push(...transformed);
         todoData._meta.checksum = computeChecksum(todoData.tasks);
         todoData.lastUpdated = new Date().toISOString();
-        await saveJson(todoPath, todoData, { backupDir: getBackupDir() });
+        await accessor.saveTodoFile(todoData);
 
         console.log(formatSuccess({
           summary: {

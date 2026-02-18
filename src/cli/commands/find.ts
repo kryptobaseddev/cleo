@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { findTasks } from '../../core/tasks/find.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -29,8 +30,8 @@ export function registerFindCommand(program: Command): void {
     .option('--offset <n>', 'Skip first N results', parseInt)
     .action(async (query: string | undefined, opts: Record<string, unknown>) => {
       try {
-        const store = await getStore();
-        const result = await store.richFindTasks({
+        const accessor = await getAccessor();
+        const result = await findTasks({
           query,
           id: opts['id'] as string | undefined,
           exact: opts['exact'] as boolean | undefined,
@@ -39,7 +40,7 @@ export function registerFindCommand(program: Command): void {
           includeArchive: opts['includeArchive'] as boolean | undefined,
           limit: opts['limit'] as number | undefined,
           offset: opts['offset'] as number | undefined,
-        });
+        }, undefined, accessor);
 
         if (result.results.length === 0) {
           console.log(formatSuccess(result, 'No matching tasks found'));

@@ -231,44 +231,44 @@ export class OrchestrateHandler implements DomainHandler {
   private async queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): Promise<DomainResponse> {
     switch (operation) {
       case 'status':
-        return this.wrapNativeResult(nativeOrchestrateStatus(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateStatus(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'analyze':
-        return this.wrapNativeResult(nativeOrchestrateAnalyze(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateAnalyze(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'ready':
-        return this.wrapNativeResult(nativeOrchestrateReady(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateReady(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'next':
-        return this.wrapNativeResult(nativeOrchestrateNext(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateNext(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'waves':
-        return this.wrapNativeResult(nativeOrchestrateWaves(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateWaves(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'context':
-        return this.wrapNativeResult(nativeOrchestrateContext(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateContext(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'skill.list':
         return this.wrapNativeResult(nativeOrchestrateSkillList(this.projectRoot), 'cleo_query', operation, startTime);
       case 'bootstrap':
         return this.wrapNativeResult(await nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', operation, startTime);
       case 'critical-path':
-        return this.wrapNativeResult(nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', operation, startTime);
       case 'unblock-opportunities':
-        return this.wrapNativeResult(nativeOrchestrateUnblockOpportunities(this.projectRoot), 'cleo_query', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateUnblockOpportunities(this.projectRoot), 'cleo_query', operation, startTime);
       default:
         return this.createErrorResponse('cleo_query', 'orchestrate', operation, 'E_INVALID_OPERATION', `Unknown native query operation: ${operation}`, startTime);
     }
   }
 
-  private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+  private async mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): Promise<DomainResponse> {
     switch (operation) {
       case 'startup':
-        return this.wrapNativeResult(nativeOrchestrateStartup(params?.epicId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateStartup(params?.epicId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'spawn':
-        return this.wrapNativeResult(nativeOrchestrateSpawn(params?.taskId as string, params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateSpawn(params?.taskId as string, params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'validate':
-        return this.wrapNativeResult(nativeOrchestrateValidate(params?.taskId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateValidate(params?.taskId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'parallel.start':
-        return this.wrapNativeResult(nativeOrchestrateParallelStart(params?.epicId as string, params?.wave as number, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateParallelStart(params?.epicId as string, params?.wave as number, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'parallel.end':
         return this.wrapNativeResult(nativeOrchestrateParallelEnd(params?.epicId as string, params?.wave as number, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'check':
-        return this.wrapNativeResult(nativeOrchestrateCheck(this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeOrchestrateCheck(this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'skill.inject':
         return this.wrapNativeResult(nativeOrchestrateSkillInject(params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       default:
@@ -324,10 +324,10 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapNativeResult(await nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', 'bootstrap', startTime);
         case 'critical-path':
           // critical-path is always native-only, no CLI fallback
-          return this.wrapNativeResult(nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', 'critical-path', startTime);
+          return this.wrapNativeResult(await nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', 'critical-path', startTime);
         case 'unblock-opportunities':
           // unblock-opportunities is always native-only, no CLI fallback
-          return this.wrapNativeResult(nativeOrchestrateUnblockOpportunities(this.projectRoot), 'cleo_query', 'unblock-opportunities', startTime);
+          return this.wrapNativeResult(await nativeOrchestrateUnblockOpportunities(this.projectRoot), 'cleo_query', 'unblock-opportunities', startTime);
         default:
           return this.createErrorResponse(
             'cleo_query',

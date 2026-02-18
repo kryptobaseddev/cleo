@@ -9,6 +9,7 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TodoFile } from '../../types/task.js';
 import { getTodoPath } from '../paths.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Enriched task with hierarchy info. */
 export interface TaskDetail extends Task {
@@ -21,13 +22,15 @@ export interface TaskDetail extends Task {
  * Get a task by ID with enriched details.
  * @task T4460
  */
-export async function showTask(taskId: string, cwd?: string): Promise<TaskDetail> {
+export async function showTask(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskDetail> {
   if (!taskId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
 
   const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) {

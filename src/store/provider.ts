@@ -16,6 +16,8 @@ import { join } from 'node:path';
 import { getCleoDirAbsolute } from '../core/paths.js';
 import type { Task, TaskStatus, TaskType } from '../types/task.js';
 import type { Session } from '../types/session.js';
+import type { DataAccessor } from './data-accessor.js';
+import { getAccessor } from './data-accessor.js';
 
 // Domain operation types - re-exported from core modules
 import type { AddTaskOptions, AddTaskResult } from '../core/tasks/add.js';
@@ -172,13 +174,13 @@ export interface StoreProvider {
 
 /**
  * Create high-level domain operation methods that delegate to core modules.
- * These are engine-agnostic: the core modules handle their own data access.
- * Used by all providers (JSON, SQLite, dual-write) to satisfy StoreProvider.
+ * An accessor is created once and passed to every core call, ensuring that
+ * the configured storage engine (JSON, SQLite, dual) is actually used.
  *
  * @task T4656
  * @epic T4654
  */
-async function createDomainOps(cwd?: string): Promise<Pick<StoreProvider,
+async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<Pick<StoreProvider,
   'addTask' | 'completeTask' | 'richUpdateTask' | 'showTask' |
   'richDeleteTask' | 'richFindTasks' | 'richListTasks' | 'richArchiveTasks' |
   'startSession' | 'richEndSession' | 'sessionStatus' | 'resumeSession' |
@@ -202,33 +204,37 @@ async function createDomainOps(cwd?: string): Promise<Pick<StoreProvider,
   const sessions = await import('../core/sessions/index.js');
   const focus = await import('../core/focus/index.js');
 
+  // Resolve accessor once; all domain ops share the same instance.
+  // If not provided, auto-detect from config (getAccessor).
+  const acc = accessor ?? await getAccessor(cwd);
+
   return {
-    addTask: (options) => addTask(options, cwd),
-    completeTask: (options) => completeTask(options, cwd),
-    richUpdateTask: (options) => updateTask(options, cwd),
-    showTask: (taskId) => showTask(taskId, cwd),
-    richDeleteTask: (options) => deleteTask(options, cwd),
-    richFindTasks: (options) => findTasks(options, cwd),
-    richListTasks: (options) => listTasks(options, cwd),
-    richArchiveTasks: (options) => archiveTasks(options, cwd),
-    listLabels: () => labels.listLabels(cwd),
-    showLabelTasks: (label) => labels.showLabelTasks(label, cwd),
-    getLabelStats: () => labels.getLabelStats(cwd),
-    suggestRelated: (taskId, opts) => relates.suggestRelated(taskId, { ...opts, cwd }),
-    addRelation: (from, to, type, reason) => relates.addRelation(from, to, type, reason, cwd),
-    discoverRelated: (taskId) => relates.discoverRelated(taskId, cwd),
-    listRelations: (taskId) => relates.listRelations(taskId, cwd),
-    analyzeTaskPriority: (opts) => analyzeTaskPriority({ ...opts, cwd }),
-    startSession: (options) => sessions.startSession(options, cwd),
-    richEndSession: (options) => sessions.endSession(options, cwd),
-    sessionStatus: () => sessions.sessionStatus(cwd),
-    resumeSession: (sessionId) => sessions.resumeSession(sessionId, cwd),
-    richListSessions: (options) => sessions.listSessions(options, cwd),
-    gcSessions: (maxAgeHours) => sessions.gcSessions(maxAgeHours, cwd),
-    showFocus: () => focus.showFocus(cwd),
-    richSetFocus: (taskId) => focus.setFocus(taskId, cwd),
-    richClearFocus: () => focus.clearFocus(cwd),
-    getFocusHistory: () => focus.getFocusHistory(cwd),
+    addTask: (options) => addTask(options, cwd, acc),
+    completeTask: (options) => completeTask(options, cwd, acc),
+    richUpdateTask: (options) => updateTask(options, cwd, acc),
+    showTask: (taskId) => showTask(taskId, cwd, acc),
+    richDeleteTask: (options) => deleteTask(options, cwd, acc),
+    richFindTasks: (options) => findTasks(options, cwd, acc),
+    richListTasks: (options) => listTasks(options, cwd, acc),
+    richArchiveTasks: (options) => archiveTasks(options, cwd, acc),
+    listLabels: () => labels.listLabels(cwd, acc),
+    showLabelTasks: (label) => labels.showLabelTasks(label, cwd, acc),
+    getLabelStats: () => labels.getLabelStats(cwd, acc),
+    suggestRelated: (taskId, opts) => relates.suggestRelated(taskId, { ...opts, cwd }, acc),
+    addRelation: (from, to, type, reason) => relates.addRelation(from, to, type, reason, cwd, acc),
+    discoverRelated: (taskId) => relates.discoverRelated(taskId, cwd, acc),
+    listRelations: (taskId) => relates.listRelations(taskId, cwd, acc),
+    analyzeTaskPriority: (opts) => analyzeTaskPriority({ ...opts, cwd }, acc),
+    startSession: (options) => sessions.startSession(options, cwd, acc),
+    richEndSession: (options) => sessions.endSession(options, cwd, acc),
+    sessionStatus: () => sessions.sessionStatus(cwd, acc),
+    resumeSession: (sessionId) => sessions.resumeSession(sessionId, cwd, acc),
+    richListSessions: (options) => sessions.listSessions(options, cwd, acc),
+    gcSessions: (maxAgeHours) => sessions.gcSessions(maxAgeHours, cwd, acc),
+    showFocus: () => focus.showFocus(cwd, acc),
+    richSetFocus: (taskId) => focus.setFocus(taskId, cwd, acc),
+    richClearFocus: () => focus.clearFocus(cwd, acc),
+    getFocusHistory: () => focus.getFocusHistory(cwd, acc),
   };
 }
 

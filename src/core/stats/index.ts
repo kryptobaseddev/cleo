@@ -9,6 +9,7 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getTodoPath, getLogPath } from '../paths.js';
 import type { TodoFile } from '../../types/task.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Period alias resolution. */
 function resolvePeriod(period: string): number {
@@ -33,9 +34,11 @@ export async function getProjectStats(opts: {
   period?: string;
   verbose?: boolean;
   cwd?: string;
-}): Promise<Record<string, unknown>> {
+}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
   const periodDays = resolvePeriod(opts.period ?? '30');
-  const data = await readJson<TodoFile>(getTodoPath(opts.cwd));
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJson<TodoFile>(getTodoPath(opts.cwd));
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project. Run cleo init first.');
   }
@@ -104,8 +107,10 @@ export async function getDashboard(opts: {
   verbose?: boolean;
   quiet?: boolean;
   cwd?: string;
-}): Promise<Record<string, unknown>> {
-  const data = await readJson<TodoFile>(getTodoPath(opts.cwd));
+}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJson<TodoFile>(getTodoPath(opts.cwd));
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project. Run cleo init first.');
   }

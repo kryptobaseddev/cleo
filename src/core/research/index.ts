@@ -12,6 +12,7 @@ import type { TodoFile } from '../../types/task.js';
 import { getTodoPath, getBackupDir, getLogPath, getCleoDirAbsolute } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join } from 'node:path';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Research entry attached to a task. */
 export interface ResearchEntry {
@@ -93,9 +94,10 @@ async function readResearch(cwd?: string): Promise<{ entries: ResearchEntry[] }>
  * Add a research entry.
  * @task T4465
  */
-export async function addResearch(options: AddResearchOptions, cwd?: string): Promise<ResearchEntry> {
-  const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+export async function addResearch(options: AddResearchOptions, cwd?: string, accessor?: DataAccessor): Promise<ResearchEntry> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
 
   // Validate task exists
   const task = data.tasks.find(t => t.id === options.taskId);
@@ -127,7 +129,7 @@ export async function addResearch(options: AddResearchOptions, cwd?: string): Pr
   await logOperation(getLogPath(cwd), 'research_added', entry.id, {
     taskId: options.taskId,
     topic: options.topic,
-  });
+  }, accessor);
 
   return entry;
 }
@@ -181,6 +183,7 @@ export async function linkResearch(
   researchId: string,
   taskId: string,
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<{ researchId: string; taskId: string }> {
   const research = await readResearch(cwd);
   const entry = research.entries.find(e => e.id === researchId);
@@ -190,7 +193,9 @@ export async function linkResearch(
   }
 
   // Validate task exists
-  const todoData = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const todoData = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const task = todoData.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);

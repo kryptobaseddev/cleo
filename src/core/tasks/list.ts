@@ -7,6 +7,7 @@
 import { readJsonRequired } from '../../store/json.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TodoFile } from '../../types/task.js';
 import { getTodoPath } from '../paths.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Filter options for listing tasks. */
 export interface ListTasksOptions {
@@ -37,9 +38,11 @@ export interface ListTasksResult {
  * List tasks with optional filtering and pagination.
  * @task T4460
  */
-export async function listTasks(options: ListTasksOptions = {}, cwd?: string): Promise<ListTasksResult> {
+export async function listTasks(options: ListTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ListTasksResult> {
   const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   let filtered = data.tasks;
 

@@ -26,7 +26,16 @@
   },
   "version": "2.10.0",
   "release": {
-    "gates": [],
+    "gates": [
+      {
+        "name": "typecheck",
+        "command": "npx tsc --noEmit"
+      },
+      {
+        "name": "tests",
+        "command": "npx vitest run"
+      }
+    ],
     "versionBump": {
       "enabled": true,
       "files": [
@@ -34,6 +43,12 @@
           "path": "VERSION",
           "strategy": "plain",
           "description": "Source of truth version file"
+        },
+        {
+          "path": "package.json",
+          "strategy": "json",
+          "jsonPath": ".version",
+          "description": "Root package.json version"
         },
         {
           "path": "README.md",
@@ -83,5 +98,8 @@
   },
   "hierarchy": {
     "maxSiblings": 15
+  },
+  "storage": {
+    "engine": "sqlite"
   }
 }

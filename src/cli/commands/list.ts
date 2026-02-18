@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { listTasks } from '../../core/tasks/list.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -31,8 +32,8 @@ export function registerListCommand(program: Command): void {
     .option('--offset <n>', 'Skip first N results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const store = await getStore();
-        const result = await store.richListTasks({
+        const accessor = await getAccessor();
+        const result = await listTasks({
           status: opts['status'] as TaskStatus | undefined,
           priority: opts['priority'] as TaskPriority | undefined,
           type: opts['type'] as TaskType | undefined,
@@ -42,7 +43,7 @@ export function registerListCommand(program: Command): void {
           children: opts['children'] as boolean | undefined,
           limit: opts['limit'] as number | undefined,
           offset: opts['offset'] as number | undefined,
-        });
+        }, undefined, accessor);
 
         if (result.tasks.length === 0) {
           console.log(formatSuccess(result, 'No tasks found'));

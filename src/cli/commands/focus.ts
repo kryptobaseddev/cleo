@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import * as focusCore from '../../core/focus/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -23,8 +24,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Show current focus')
     .action(async () => {
       try {
-        const store = await getStore();
-        const result = await store.showFocus();
+        const accessor = await getAccessor();
+        const result = await focusCore.showFocus(undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -40,8 +41,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Set focus to a task')
     .action(async (taskId: string) => {
       try {
-        const store = await getStore();
-        const result = await store.richSetFocus(taskId);
+        const accessor = await getAccessor();
+        const result = await focusCore.setFocus(taskId, undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -57,8 +58,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Clear current focus')
     .action(async () => {
       try {
-        const store = await getStore();
-        const result = await store.richClearFocus();
+        const accessor = await getAccessor();
+        const result = await focusCore.clearFocus(undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -74,8 +75,8 @@ export function registerFocusCommand(program: Command): void {
     .description('Show focus history')
     .action(async () => {
       try {
-        const store = await getStore();
-        const result = await store.getFocusHistory();
+        const accessor = await getAccessor();
+        const result = await focusCore.getFocusHistory(undefined, accessor);
         console.log(formatSuccess({ history: result }));
       } catch (err) {
         if (err instanceof CleoError) {

@@ -10,6 +10,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TodoFile } from '../../types/task.js';
 import { getTodoPath, getArchivePath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Options for deleting a task. */
 export interface DeleteTaskOptions {
@@ -28,13 +29,15 @@ export interface DeleteTaskResult {
  * Delete a task (soft delete - moves to archive).
  * @task T4461
  */
-export async function deleteTask(options: DeleteTaskOptions, cwd?: string): Promise<DeleteTaskResult> {
+export async function deleteTask(options: DeleteTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<DeleteTaskResult> {
   const todoPath = getTodoPath(cwd);
   const archivePath = getArchivePath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -106,7 +109,12 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string): Prom
   const remainingTasks = data.tasks.filter(t => !idsToDelete.has(t.id));
 
   // Read/create archive
-  let archive = await readJson<{ archivedTasks: Task[]; version?: string }>(archivePath);
+  let archive: { archivedTasks: Task[]; version?: string } | null;
+  if (accessor) {
+    archive = await accessor.loadArchive();
+  } else {
+    archive = await readJson<{ archivedTasks: Task[]; version?: string }>(archivePath);
+  }
   if (!archive) {
     archive = { archivedTasks: [], version: '1.0.0' };
   }
@@ -131,13 +139,27 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string): Prom
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  await saveJson(todoPath, data, { backupDir });
-  await saveJson(archivePath, archive, { backupDir });
-
-  await logOperation(logPath, 'task_deleted', options.taskId, {
-    title: task.title,
-    cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
-  });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+    await accessor.saveArchive(archive);
+    await accessor.appendLog({
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_deleted',
+      taskId: options.taskId,
+      actor: 'system',
+      details: { title: task.title, cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined },
+      before: null,
+      after: { title: task.title, cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined },
+    });
+  } else {
+    await saveJson(todoPath, data, { backupDir });
+    await saveJson(archivePath, archive, { backupDir });
+    await logOperation(logPath, 'task_deleted', options.taskId, {
+      title: task.title,
+      cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
+    });
+  }
 
   return {
     deletedTask: task,

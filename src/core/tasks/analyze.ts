@@ -7,6 +7,7 @@
 import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
 import { getTodoPath, getBackupDir } from '../paths.js';
 import type { TodoFile } from '../../types/task.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 export interface AnalysisResult {
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
@@ -29,9 +30,11 @@ export interface AnalysisResult {
 export async function analyzeTaskPriority(opts: {
   autoFocus?: boolean;
   cwd?: string;
-}): Promise<AnalysisResult> {
+}, accessor?: DataAccessor): Promise<AnalysisResult> {
   const todoPath = getTodoPath(opts.cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
   const tasks = data.tasks;
 
   // Build dependency graph
@@ -98,7 +101,11 @@ export async function analyzeTaskPriority(opts: {
     data.focus = { ...data.focus, currentTask: recommended.id };
     data.lastUpdated = new Date().toISOString();
     data._meta.checksum = computeChecksum(data.tasks);
-    await saveJson(todoPath, data, { backupDir: getBackupDir(opts.cwd) });
+    if (accessor) {
+      await accessor.saveTodoFile(data);
+    } else {
+      await saveJson(todoPath, data, { backupDir: getBackupDir(opts.cwd) });
+    }
     autoFocused = true;
   }
 

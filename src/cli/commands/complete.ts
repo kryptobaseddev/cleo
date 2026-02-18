@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { completeTask } from '../../core/tasks/complete.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -22,12 +23,12 @@ export function registerCompleteCommand(program: Command): void {
     .option('--changeset <changeset>', 'Changeset reference')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       try {
-        const store = await getStore();
-        const result = await store.completeTask({
+        const accessor = await getAccessor();
+        const result = await completeTask({
           taskId,
           notes: opts['notes'] as string | undefined,
           changeset: opts['changeset'] as string | undefined,
-        });
+        }, undefined, accessor);
 
         const data: Record<string, unknown> = { task: result.task };
         if (result.autoCompleted?.length) {

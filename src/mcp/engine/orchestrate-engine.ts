@@ -10,7 +10,8 @@
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'fs';
 import { join, resolve, dirname } from 'path';
-import { resolveProjectRoot, readJsonFile, getDataPath } from './store.js';
+import { resolveProjectRoot } from './store.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { TaskRecord } from './task-engine.js';
 import { taskNext, taskBlockers } from './task-engine.js';
 import { sessionStatus, sessionDecisionLog, sessionContextDrift } from './session-engine.js';
@@ -38,11 +39,15 @@ interface Wave {
 /**
  * Load all tasks from todo.json
  */
-function loadTasks(projectRoot?: string): TaskRecord[] {
+async function loadTasks(projectRoot?: string): Promise<TaskRecord[]> {
   const root = projectRoot || resolveProjectRoot();
-  const todoPath = getDataPath(root, 'todo.json');
-  const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
-  return todoData?.tasks || [];
+  try {
+    const accessor = await getAccessor(root);
+    const todoData = await accessor.loadTodoFile();
+    return (todoData as any)?.tasks || [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -144,11 +149,11 @@ function computeWaves(tasks: TaskRecord[]): Wave[] {
  * orchestrate.status - Get orchestrator status
  * @task T4478
  */
-export function orchestrateStatus(
+export async function orchestrateStatus(
   epicId?: string,
   projectRoot?: string
-): EngineResult {
-  const tasks = loadTasks(projectRoot);
+): Promise<EngineResult> {
+  const tasks = await loadTasks(projectRoot);
 
   if (epicId) {
     const epic = tasks.find((t) => t.id === epicId);
@@ -205,15 +210,15 @@ export function orchestrateStatus(
  * orchestrate.analyze - Dependency analysis
  * @task T4478
  */
-export function orchestrateAnalyze(
+export async function orchestrateAnalyze(
   epicId: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!epicId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
   }
 
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
   const epic = tasks.find((t) => t.id === epicId);
 
   if (!epic) {
@@ -288,15 +293,15 @@ export function orchestrateAnalyze(
  * orchestrate.ready - Get parallel-safe tasks (ready to execute)
  * @task T4478
  */
-export function orchestrateReady(
+export async function orchestrateReady(
   epicId: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!epicId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
   }
 
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
   const epic = tasks.find((t) => t.id === epicId);
 
   if (!epic) {
@@ -349,15 +354,15 @@ export function orchestrateReady(
  * orchestrate.next - Next task to spawn
  * @task T4478
  */
-export function orchestrateNext(
+export async function orchestrateNext(
   epicId: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!epicId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
   }
 
-  const readyResult = orchestrateReady(epicId, projectRoot);
+  const readyResult = await orchestrateReady(epicId, projectRoot);
   if (!readyResult.success) {
     return readyResult;
   }
@@ -399,15 +404,15 @@ export function orchestrateNext(
  * orchestrate.waves - Compute dependency waves
  * @task T4478
  */
-export function orchestrateWaves(
+export async function orchestrateWaves(
   epicId: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!epicId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
   }
 
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
   const epic = tasks.find((t) => t.id === epicId);
 
   if (!epic) {
@@ -446,11 +451,11 @@ export function orchestrateWaves(
  * orchestrate.context - Context usage check
  * @task T4478
  */
-export function orchestrateContext(
+export async function orchestrateContext(
   epicId?: string,
   projectRoot?: string
-): EngineResult {
-  const tasks = loadTasks(projectRoot);
+): Promise<EngineResult> {
+  const tasks = await loadTasks(projectRoot);
   const root = projectRoot || resolveProjectRoot();
 
   // Estimate context usage
@@ -564,15 +569,15 @@ export function orchestrateSkillList(
  * orchestrate.validate - Validate spawn readiness for a task
  * @task T4478
  */
-export function orchestrateValidate(
+export async function orchestrateValidate(
   taskId: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!taskId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
   }
 
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
   const task = tasks.find((t) => t.id === taskId);
 
   if (!task) {
@@ -635,17 +640,17 @@ export function orchestrateValidate(
  * orchestrate.spawn - Generate spawn prompt for a task
  * @task T4478
  */
-export function orchestrateSpawn(
+export async function orchestrateSpawn(
   taskId: string,
   protocolType?: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!taskId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
   }
 
   // First validate readiness
-  const validation = orchestrateValidate(taskId, projectRoot);
+  const validation = await orchestrateValidate(taskId, projectRoot);
   if (!validation.success) {
     return validation;
   }
@@ -662,7 +667,7 @@ export function orchestrateSpawn(
     };
   }
 
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
   const task = tasks.find((t) => t.id === taskId)!;
 
   // Build spawn context
@@ -725,15 +730,15 @@ function inferProtocolType(task: TaskRecord): string {
  * orchestrate.startup - Initialize orchestration for an epic
  * @task T4478
  */
-export function orchestrateStartup(
+export async function orchestrateStartup(
   epicId: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!epicId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
   }
 
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
   const epic = tasks.find((t) => t.id === epicId);
 
   if (!epic) {
@@ -745,7 +750,7 @@ export function orchestrateStartup(
 
   const children = getEpicChildren(epicId, tasks);
   const waves = computeWaves(children);
-  const readyResult = orchestrateReady(epicId, projectRoot);
+  const readyResult = await orchestrateReady(epicId, projectRoot);
   const readyData = readyResult.data as { readyTasks: any[]; total: number };
 
   return {
@@ -813,7 +818,7 @@ export async function orchestrateBootstrap(
   }
 
   // --- Progress (from all tasks) ---
-  const tasks = loadTasks(root);
+  const tasks = await loadTasks(root);
   const progress = {
     total: tasks.length,
     done: tasks.filter((t) => t.status === 'done').length,
@@ -894,10 +899,10 @@ export async function orchestrateBootstrap(
  * orchestrate.critical-path - Find the longest dependency chain in the task graph
  * @task T4478
  */
-export function orchestrateCriticalPath(
+export async function orchestrateCriticalPath(
   projectRoot?: string
-): EngineResult {
-  const tasks = loadTasks(projectRoot);
+): Promise<EngineResult> {
+  const tasks = await loadTasks(projectRoot);
 
   if (tasks.length === 0) {
     return {
@@ -1093,10 +1098,10 @@ function countTransitiveDependents(
  *
  * @task T4478
  */
-export function orchestrateUnblockOpportunities(
+export async function orchestrateUnblockOpportunities(
   projectRoot?: string
-): EngineResult {
-  const tasks = loadTasks(projectRoot);
+): Promise<EngineResult> {
+  const tasks = await loadTasks(projectRoot);
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const completedIds = new Set(
     tasks
@@ -1256,11 +1261,11 @@ function writeParallelState(
  * orchestrate.parallel.start - Start parallel execution for a wave
  * @task T4632
  */
-export function orchestrateParallelStart(
+export async function orchestrateParallelStart(
   epicId: string,
   wave: number,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!epicId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
   }
@@ -1280,7 +1285,7 @@ export function orchestrateParallelStart(
   }
 
   // Get wave tasks
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
   const epic = tasks.find((t) => t.id === epicId);
   if (!epic) {
     return { success: false, error: { code: 'E_NOT_FOUND', message: `Epic ${epicId} not found` } };
@@ -1379,11 +1384,11 @@ export function orchestrateParallelEnd(
  * orchestrate.check - Check current orchestration state
  * @task T4632
  */
-export function orchestrateCheck(
+export async function orchestrateCheck(
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   const parallelState = readParallelState(projectRoot);
-  const tasks = loadTasks(projectRoot);
+  const tasks = await loadTasks(projectRoot);
 
   // Active tasks (in-progress)
   const activeTasks = tasks.filter((t) => t.status === 'active');

@@ -11,6 +11,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TodoFile } from '../../types/task.js';
 import { getTodoPath, getLogPath, getArchivePath, getBackupDir } from '../paths.js';
 import { saveJson, appendJsonl, computeChecksum } from '../../store/json.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { loadConfig } from '../config.js';
 
 /** Options for creating a task. */
@@ -339,6 +340,7 @@ export async function logOperation(
   operation: string,
   taskId: string,
   details: Record<string, unknown>,
+  accessor?: import('../../store/data-accessor.js').DataAccessor,
 ): Promise<void> {
   const logId = `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`;
   const entry = {
@@ -353,7 +355,11 @@ export async function logOperation(
   };
 
   try {
-    await appendJsonl(logPath, entry);
+    if (accessor) {
+      await accessor.appendLog(entry);
+    } else {
+      await appendJsonl(logPath, entry);
+    }
   } catch {
     // Log failure is non-fatal
   }
@@ -389,7 +395,7 @@ export function findRecentDuplicate(
  * Add a new task to the todo file.
  * @task T4460
  */
-export async function addTask(options: AddTaskOptions, cwd?: string): Promise<AddTaskResult> {
+export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<AddTaskResult> {
   const todoPath = getTodoPath(cwd);
   const logPath = getLogPath(cwd);
   const archivePath = getArchivePath(cwd);
@@ -399,15 +405,24 @@ export async function addTask(options: AddTaskOptions, cwd?: string): Promise<Ad
   validateTitle(options.title);
 
   // Read current data
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   // Read archive for ID generation
   let archivedTasks: Array<{ id: string }> = [];
   try {
-    const { readJson } = await import('../../store/json.js');
-    const archive = await readJson<{ archivedTasks: Array<{ id: string }> }>(archivePath);
-    if (archive?.archivedTasks) {
-      archivedTasks = archive.archivedTasks;
+    if (accessor) {
+      const archive = await accessor.loadArchive();
+      if (archive?.archivedTasks) {
+        archivedTasks = archive.archivedTasks;
+      }
+    } else {
+      const { readJson } = await import('../../store/json.js');
+      const archive = await readJson<{ archivedTasks: Array<{ id: string }> }>(archivePath);
+      if (archive?.archivedTasks) {
+        archivedTasks = archive.archivedTasks;
+      }
     }
   } catch {
     // Archive may not exist
@@ -569,14 +584,26 @@ export async function addTask(options: AddTaskOptions, cwd?: string): Promise<Ad
   data.lastUpdated = now;
 
   // Save atomically
-  await saveJson(todoPath, data, { backupDir });
-
-  // Log operation
-  await logOperation(logPath, 'task_created', taskId, {
-    title: options.title,
-    status,
-    priority,
-  });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+    await accessor.appendLog({
+      id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_created',
+      taskId,
+      actor: 'system',
+      details: { title: options.title, status, priority },
+      before: null,
+      after: { title: options.title, status, priority },
+    });
+  } else {
+    await saveJson(todoPath, data, { backupDir });
+    await logOperation(logPath, 'task_created', taskId, {
+      title: options.title,
+      status,
+      priority,
+    });
+  }
 
   return { task };
 }

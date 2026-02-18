@@ -9,14 +9,17 @@ import { join } from 'node:path';
 import { readJson } from '../../store/json.js';
 import { getTodoPath } from '../paths.js';
 import type { TodoFile } from '../../types/task.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Get roadmap from pending epics and CHANGELOG history. */
 export async function getRoadmap(opts: {
   includeHistory?: boolean;
   upcomingOnly?: boolean;
   cwd?: string;
-}): Promise<Record<string, unknown>> {
-  const data = await readJson<TodoFile>(getTodoPath(opts.cwd));
+}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJson<TodoFile>(getTodoPath(opts.cwd));
   const tasks = data?.tasks ?? [];
 
   // Get current version

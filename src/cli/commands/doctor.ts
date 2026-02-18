@@ -7,14 +7,14 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { getTodoPath, getConfigPath, getArchivePath, getLogPath, getCleoHome, getCleoDirAbsolute, getProjectRoot } from '../../core/paths.js';
 import { stat, access, readFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { TodoFile } from '../../types/task.js';
+
 
 const execAsync = promisify(execFile);
 
@@ -105,8 +105,9 @@ export function registerDoctorCommand(program: Command): void {
         });
 
         if (todoExists) {
-          const data = await readJson<TodoFile>(todoPath);
-          if (data) {
+          try {
+            const accessor = await getAccessor();
+            const data = await accessor.loadTodoFile();
             const taskCount = data.tasks?.length ?? 0;
             const schemaVersion = data._meta?.schemaVersion ?? 'unknown';
             checks.push({
@@ -115,7 +116,7 @@ export function registerDoctorCommand(program: Command): void {
               message: `${taskCount} tasks, schema v${schemaVersion}`,
               details: { taskCount, schemaVersion },
             });
-          } else {
+          } catch {
             checks.push({
               check: 'todo_data',
               status: 'error',

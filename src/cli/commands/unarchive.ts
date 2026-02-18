@@ -7,9 +7,9 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getArchivePath, getBackupDir } from '../../core/paths.js';
-import type { Task, TaskStatus, TodoFile } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
+import type { Task, TaskStatus } from '../../types/task.js';
 
 export function registerUnarchiveCommand(program: Command): void {
   program
@@ -25,13 +25,13 @@ export function registerUnarchiveCommand(program: Command): void {
           throw new CleoError(ExitCode.INVALID_INPUT, `Invalid task ID: ${taskId}`);
         }
 
-        const archivePath = getArchivePath();
-        const archiveData = await readJson<Record<string, unknown>>(archivePath);
+        const accessor = await getAccessor();
+        const archiveData = await accessor.loadArchive();
         if (!archiveData) {
           throw new CleoError(ExitCode.NOT_FOUND, 'No archive file found');
         }
 
-        const archivedTasks = (archiveData['archivedTasks'] ?? archiveData['tasks']) as Task[] | undefined;
+        const archivedTasks = archiveData.archivedTasks as Task[] | undefined;
         if (!Array.isArray(archivedTasks)) {
           throw new CleoError(ExitCode.VALIDATION_ERROR, 'Invalid archive format');
         }
@@ -56,12 +56,8 @@ export function registerUnarchiveCommand(program: Command): void {
           return;
         }
 
-        // Load todo.json
-        const todoPath = getTodoPath();
-        const todoData = await readJson<TodoFile>(todoPath);
-        if (!todoData) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        // Load todo data
+        const todoData = await accessor.loadTodoFile();
 
         // Check for ID collision
         if (todoData.tasks.some((t) => t.id === taskId)) {
@@ -88,8 +84,8 @@ export function registerUnarchiveCommand(program: Command): void {
         archivedTasks.splice(taskIndex, 1);
 
         // Save both files
-        await saveJson(todoPath, todoData, { backupDir: getBackupDir() });
-        await saveJson(archivePath, archiveData, { backupDir: getBackupDir() });
+        await accessor.saveTodoFile(todoData);
+        await accessor.saveArchive(archiveData);
 
         console.log(formatSuccess({
           task: taskId,

@@ -10,6 +10,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TodoFile } from '../../types/task.js';
 import { getTodoPath } from '../paths.js';
 import { getExecutionWaves } from '../phases/deps.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Orchestrator session state. */
 export interface OrchestratorSession {
@@ -61,8 +62,11 @@ export interface AnalysisResult {
 export async function startOrchestration(
   epicId: string,
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<OrchestratorSession> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {
@@ -92,8 +96,10 @@ export async function startOrchestration(
  * Analyze an epic's dependency structure.
  * @task T4466
  */
-export async function analyzeEpic(epicId: string, cwd?: string): Promise<AnalysisResult> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<AnalysisResult> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {
@@ -133,8 +139,10 @@ export async function analyzeEpic(epicId: string, cwd?: string): Promise<Analysi
  * Get parallel-safe ready tasks for an epic.
  * @task T4466
  */
-export async function getReadyTasks(epicId: string, cwd?: string): Promise<TaskReadiness[]> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+export async function getReadyTasks(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskReadiness[]> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const childTasks = data.tasks.filter(t => t.parentId === epicId);
   const completedIds = new Set(
     data.tasks.filter(t => t.status === 'done').map(t => t.id),
@@ -161,8 +169,8 @@ export async function getReadyTasks(epicId: string, cwd?: string): Promise<TaskR
  * Get the next task to work on for an epic.
  * @task T4466
  */
-export async function getNextTask(epicId: string, cwd?: string): Promise<TaskReadiness | null> {
-  const readyTasks = await getReadyTasks(epicId, cwd);
+export async function getNextTask(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskReadiness | null> {
+  const readyTasks = await getReadyTasks(epicId, cwd, accessor);
   const ready = readyTasks.filter(t => t.ready);
 
   if (ready.length === 0) return null;
@@ -174,8 +182,10 @@ export async function getNextTask(epicId: string, cwd?: string): Promise<TaskRea
  * Prepare a spawn context for a subagent.
  * @task T4466
  */
-export async function prepareSpawn(taskId: string, cwd?: string): Promise<SpawnContext> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+export async function prepareSpawn(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<SpawnContext> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -224,7 +234,7 @@ export async function validateSpawnOutput(
  * Get orchestrator context summary.
  * @task T4466
  */
-export async function getOrchestratorContext(epicId: string, cwd?: string): Promise<{
+export async function getOrchestratorContext(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<{
   epicId: string;
   epicTitle: string;
   totalTasks: number;
@@ -234,7 +244,9 @@ export async function getOrchestratorContext(epicId: string, cwd?: string): Prom
   pending: number;
   completionPercent: number;
 }> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {

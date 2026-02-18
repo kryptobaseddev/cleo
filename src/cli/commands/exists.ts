@@ -7,24 +7,21 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson } from '../../store/json.js';
-import { getTodoPath, getArchivePath } from '../../core/paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getAccessor, type DataAccessor } from '../../store/data-accessor.js';
 
 /**
- * Check if a task exists in a todo file.
+ * Check if a task exists in the todo file via accessor.
  */
-async function taskExistsInTodoFile(taskId: string, filePath: string): Promise<boolean> {
-  const data = await readJson<TodoFile>(filePath);
-  if (!data) return false;
+async function taskExistsInTodoFile(taskId: string, accessor: DataAccessor): Promise<boolean> {
+  const data = await accessor.loadTodoFile();
   return data.tasks.some((t) => t.id === taskId);
 }
 
 /**
- * Check if a task exists in the archive file.
+ * Check if a task exists in the archive file via accessor.
  */
-async function taskExistsInArchive(taskId: string, filePath: string): Promise<boolean> {
-  const data = await readJson<{ archivedTasks?: Array<{ id: string }> }>(filePath);
+async function taskExistsInArchive(taskId: string, accessor: DataAccessor): Promise<boolean> {
+  const data = await accessor.loadArchive();
   if (!data?.archivedTasks) return false;
   return data.archivedTasks.some((t) => t.id === taskId);
 }
@@ -44,18 +41,17 @@ export function registerExistsCommand(program: Command): void {
           });
         }
 
-        const todoPath = getTodoPath();
+        const accessor = await getAccessor();
         let found = false;
         let location = '';
 
-        if (await taskExistsInTodoFile(taskId, todoPath)) {
+        if (await taskExistsInTodoFile(taskId, accessor)) {
           found = true;
           location = 'todo.json';
         }
 
         if (!found && opts['includeArchive']) {
-          const archivePath = getArchivePath();
-          if (await taskExistsInArchive(taskId, archivePath)) {
+          if (await taskExistsInArchive(taskId, accessor)) {
             found = true;
             location = 'todo-archive.json';
           }

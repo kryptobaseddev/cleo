@@ -7,10 +7,9 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson } from '../../store/json.js';
-import { getTodoPath } from '../../core/paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { writeFile } from 'node:fs/promises';
-import type { Task, TodoFile } from '../../types/task.js';
+import type { Task } from '../../types/task.js';
 
 type ExportFormat = 'json' | 'csv' | 'tsv' | 'markdown' | 'todowrite';
 
@@ -60,11 +59,8 @@ export function registerExportCommand(program: Command): void {
     .option('--phase <phase>', 'Filter by phase')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         let tasks = data.tasks;
 

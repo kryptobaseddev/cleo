@@ -135,21 +135,21 @@ export class ReleaseHandler implements DomainHandler {
     };
   }
 
-  private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+  private async mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): Promise<DomainResponse> {
     switch (operation) {
       case 'prepare':
         return this.wrapNativeResult(
-          nativeReleasePrepare(params?.version as string, params?.tasks as string[], params?.notes as string, this.projectRoot),
+          await nativeReleasePrepare(params?.version as string, params?.tasks as string[], params?.notes as string, this.projectRoot),
           'cleo_mutate', operation, startTime
         );
       case 'changelog':
-        return this.wrapNativeResult(nativeReleaseChangelog(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeReleaseChangelog(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'commit':
         return this.wrapNativeResult(nativeReleaseCommit(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'tag':
         return this.wrapNativeResult(nativeReleaseTag(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'gates.run':
-        return this.wrapNativeResult(nativeReleaseGatesRun(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeReleaseGatesRun(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'rollback':
         return this.wrapNativeResult(nativeReleaseRollback(params?.version as string, params?.reason as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'push':
@@ -207,7 +207,7 @@ export class ReleaseHandler implements DomainHandler {
 
     if (this.useNative(operation, 'mutate')) {
       try {
-        return this.mutateNative(operation, params, startTime);
+        return await this.mutateNative(operation, params, startTime);
       } catch (error) {
         return this.handleError('cleo_mutate', 'release', operation, error, startTime);
       }

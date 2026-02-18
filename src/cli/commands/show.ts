@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { showTask } from '../../core/tasks/show.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -19,8 +20,8 @@ export function registerShowCommand(program: Command): void {
     .description('Show full task details by ID')
     .action(async (taskId: string) => {
       try {
-        const store = await getStore();
-        const detail = await store.showTask(taskId);
+        const accessor = await getAccessor();
+        const detail = await showTask(taskId, undefined, accessor);
         console.log(formatSuccess({ task: detail }));
       } catch (err) {
         if (err instanceof CleoError) {
