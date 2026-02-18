@@ -11,6 +11,7 @@ import { getTodoPath, getArchivePath } from '../paths.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { TodoFile } from '../../types/task.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 function getSequencePath(cwd?: string): string {
   return join(cwd ?? process.cwd(), '.cleo', '.sequence.json');
@@ -55,14 +56,18 @@ export async function showSequence(cwd?: string): Promise<Record<string, unknown
 }
 
 /** Check sequence integrity. */
-export async function checkSequence(cwd?: string): Promise<Record<string, unknown>> {
+export async function checkSequence(cwd?: string, accessor?: DataAccessor): Promise<Record<string, unknown>> {
   const seq = readSequence(cwd);
   if (!seq) {
     throw new CleoError(ExitCode.NOT_FOUND, 'Sequence file not found');
   }
 
-  const todoData = await readJson<TodoFile>(getTodoPath(cwd));
-  const archiveData = await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
+  const todoData = accessor
+    ? await accessor.loadTodoFile()
+    : await readJson<TodoFile>(getTodoPath(cwd));
+  const archiveData = accessor
+    ? await accessor.loadArchive()
+    : await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
 
   const allTasks = [
     ...(todoData?.tasks ?? []),
@@ -84,12 +89,16 @@ export async function checkSequence(cwd?: string): Promise<Record<string, unknow
 }
 
 /** Repair sequence if behind. */
-export async function repairSequence(cwd?: string): Promise<Record<string, unknown>> {
+export async function repairSequence(cwd?: string, accessor?: DataAccessor): Promise<Record<string, unknown>> {
   const seqPath = getSequencePath(cwd);
   const seq = readSequence(cwd);
 
-  const todoData = await readJson<TodoFile>(getTodoPath(cwd));
-  const archiveData = await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
+  const todoData = accessor
+    ? await accessor.loadTodoFile()
+    : await readJson<TodoFile>(getTodoPath(cwd));
+  const archiveData = accessor
+    ? await accessor.loadArchive()
+    : await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
 
   const allTasks = [
     ...(todoData?.tasks ?? []),

@@ -212,7 +212,7 @@ describe('MCP Gateway Meta', () => {
     const startTime = Date.now();
     const meta = createGatewayMeta('cleo_query', 'tasks', 'list', startTime);
     expect(meta.specVersion).toBe('1.1.0');
-    expect(meta.schemaVersion).toBe('2026.2.0');
+    expect(meta.schemaVersion).toBe('2026.2.1');
     expect(meta.timestamp).toBeDefined();
     expect(meta.operation).toBe('list');
     expect(meta.requestId).toBeDefined();

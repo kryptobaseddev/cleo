@@ -38,7 +38,7 @@ function collectDiagnostics(): Record<string, string> {
   const ghVersion = getVersion('gh', ['--version']).split('\n')[0] ?? 'not installed';
 
   return {
-    cleoVersion: '2026.2.0',
+    cleoVersion: '2026.2.1',
     nodeVersion: process.version,
     os: `${platform()} ${release()} ${arch()}`,
     shell: process.env['SHELL'] ?? 'unknown',

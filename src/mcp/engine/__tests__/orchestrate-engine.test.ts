@@ -53,8 +53,8 @@ describe('Orchestrate Engine', () => {
   });
 
   describe('orchestrateStatus', () => {
-    it('should return status for an epic', () => {
-      const result = orchestrateStatus('T100', TEST_ROOT);
+    it('should return status for an epic', async () => {
+      const result = await orchestrateStatus('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.epicId).toBe('T100');
@@ -63,16 +63,16 @@ describe('Orchestrate Engine', () => {
       expect(data.byStatus.pending).toBe(3);
     });
 
-    it('should return error for missing epic', () => {
-      const result = orchestrateStatus('T999', TEST_ROOT);
+    it('should return error for missing epic', async () => {
+      const result = await orchestrateStatus('T999', TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NOT_FOUND');
     });
   });
 
   describe('orchestrateAnalyze', () => {
-    it('should analyze dependency graph', () => {
-      const result = orchestrateAnalyze('T100', TEST_ROOT);
+    it('should analyze dependency graph', async () => {
+      const result = await orchestrateAnalyze('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.waves).toBeDefined();
@@ -82,8 +82,8 @@ describe('Orchestrate Engine', () => {
   });
 
   describe('orchestrateReady', () => {
-    it('should find tasks with met dependencies', () => {
-      const result = orchestrateReady('T100', TEST_ROOT);
+    it('should find tasks with met dependencies', async () => {
+      const result = await orchestrateReady('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       // T102 and T103 depend on T101 (done), so they should be ready
@@ -94,8 +94,8 @@ describe('Orchestrate Engine', () => {
   });
 
   describe('orchestrateNext', () => {
-    it('should return highest priority ready task', () => {
-      const result = orchestrateNext('T100', TEST_ROOT);
+    it('should return highest priority ready task', async () => {
+      const result = await orchestrateNext('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       // T103 is high priority, T102 is medium
@@ -104,8 +104,8 @@ describe('Orchestrate Engine', () => {
   });
 
   describe('orchestrateWaves', () => {
-    it('should compute dependency waves', () => {
-      const result = orchestrateWaves('T100', TEST_ROOT);
+    it('should compute dependency waves', async () => {
+      const result = await orchestrateWaves('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.totalWaves).toBeGreaterThan(0);
@@ -115,44 +115,44 @@ describe('Orchestrate Engine', () => {
   });
 
   describe('orchestrateValidate', () => {
-    it('should validate ready task', () => {
-      const result = orchestrateValidate('T102', TEST_ROOT);
+    it('should validate ready task', async () => {
+      const result = await orchestrateValidate('T102', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).ready).toBe(true);
     });
 
-    it('should report unmet dependencies', () => {
-      const result = orchestrateValidate('T104', TEST_ROOT);
+    it('should report unmet dependencies', async () => {
+      const result = await orchestrateValidate('T104', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).ready).toBe(false);
       expect((result.data as any).issues.length).toBeGreaterThan(0);
     });
 
-    it('should report done task as not ready', () => {
-      const result = orchestrateValidate('T101', TEST_ROOT);
+    it('should report done task as not ready', async () => {
+      const result = await orchestrateValidate('T101', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).ready).toBe(false);
     });
   });
 
   describe('orchestrateSpawn', () => {
-    it('should generate spawn context for ready task', () => {
-      const result = orchestrateSpawn('T102', undefined, TEST_ROOT);
+    it('should generate spawn context for ready task', async () => {
+      const result = await orchestrateSpawn('T102', undefined, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).taskId).toBe('T102');
       expect((result.data as any).tokenResolution.fullyResolved).toBe(true);
     });
 
-    it('should reject not-ready task', () => {
-      const result = orchestrateSpawn('T104', undefined, TEST_ROOT);
+    it('should reject not-ready task', async () => {
+      const result = await orchestrateSpawn('T104', undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NOT_READY');
     });
   });
 
   describe('orchestrateStartup', () => {
-    it('should initialize orchestration', () => {
-      const result = orchestrateStartup('T100', TEST_ROOT);
+    it('should initialize orchestration', async () => {
+      const result = await orchestrateStartup('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.initialized).toBe(true);
@@ -161,8 +161,8 @@ describe('Orchestrate Engine', () => {
   });
 
   describe('orchestrateContext', () => {
-    it('should estimate context usage', () => {
-      const result = orchestrateContext('T100', TEST_ROOT);
+    it('should estimate context usage', async () => {
+      const result = await orchestrateContext('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).taskCount).toBe(4);
       expect((result.data as any).estimatedTokens).toBeGreaterThan(0);

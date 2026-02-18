@@ -7,9 +7,8 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson } from '../../store/json.js';
-import { getTodoPath } from '../../core/paths.js';
-import type { Task, TodoFile } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import type { Task } from '../../types/task.js';
 
 const PRIORITY_SCORE: Record<string, number> = {
   critical: 100,
@@ -79,11 +78,8 @@ export function registerNextCommand(program: Command): void {
     .option('-n, --count <n>', 'Show top N suggestions', '1')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
         const currentPhase = data.project?.currentPhase;

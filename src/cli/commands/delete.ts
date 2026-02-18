@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { deleteTask } from '../../core/tasks/delete.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -22,12 +23,12 @@ export function registerDeleteCommand(program: Command): void {
     .option('--cascade', 'Delete children recursively')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       try {
-        const store = await getStore();
-        const result = await store.richDeleteTask({
+        const accessor = await getAccessor();
+        const result = await deleteTask({
           taskId,
           force: opts['force'] as boolean | undefined,
           cascade: opts['cascade'] as boolean | undefined,
-        });
+        }, undefined, accessor);
 
         const data: Record<string, unknown> = { deletedTask: result.deletedTask };
         if (result.cascadeDeleted?.length) {

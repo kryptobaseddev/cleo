@@ -11,6 +11,7 @@
 import { readJson } from '../../store/json.js';
 import { getTodoPath } from '../paths.js';
 import type { TodoFile, Task } from '../../types/task.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Epic completeness result. */
 export interface EpicCompletenessResult {
@@ -55,9 +56,11 @@ function findEpicAncestor(
 export async function checkEpicCompleteness(
   releaseTaskIds: string[],
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<EpicCompletenessResult> {
-  const todoPath = getTodoPath(cwd);
-  const data = await readJson<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJson<TodoFile>(getTodoPath(cwd));
   if (!data?.tasks) {
     return { hasIncomplete: false, epics: [], orphanTasks: [] };
   }

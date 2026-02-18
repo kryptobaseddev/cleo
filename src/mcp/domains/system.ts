@@ -570,7 +570,7 @@ export class SystemHandler implements DomainHandler {
         case 'uncancel':
           return this.mutateUncancel(params as unknown as SystemUncancelParams, startTime);
         case 'inject.generate':
-          return this.wrapNativeResult(nativeSystemInjectGenerate(this.projectRoot), 'mutate', operation, startTime);
+          return this.wrapNativeResult(await nativeSystemInjectGenerate(this.projectRoot), 'mutate', operation, startTime);
         // CAAMP MCP config operations
         case 'mcp.list': {
           const p = params as unknown as McpListParams;
@@ -1310,11 +1310,11 @@ export class SystemHandler implements DomainHandler {
   /**
    * Route query operations to native TypeScript engine
    */
-  private queryNative(
+  private async queryNative(
     operation: string,
     params: Record<string, unknown> | undefined,
     startTime: number
-  ): DomainResponse {
+  ): Promise<DomainResponse> {
     switch (operation) {
       case 'version':
         return this.wrapNativeResult(nativeGetVersion(this.projectRoot), 'query', operation, startTime);
@@ -1344,25 +1344,25 @@ export class SystemHandler implements DomainHandler {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
-        return this.wrapNativeResult(nativeSystemDash(this.projectRoot), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeSystemDash(this.projectRoot), 'query', operation, startTime);
       }
       case 'stats': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
-        return this.wrapNativeResult(nativeSystemStats(this.projectRoot), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeSystemStats(this.projectRoot), 'query', operation, startTime);
       }
       case 'labels': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
-        return this.wrapNativeResult(nativeSystemLabels(this.projectRoot), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeSystemLabels(this.projectRoot), 'query', operation, startTime);
       }
       case 'archive-stats': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
-        return this.wrapNativeResult(nativeSystemArchiveStats(this.projectRoot), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeSystemArchiveStats(this.projectRoot), 'query', operation, startTime);
       }
       case 'log': {
         if (!isProjectInitialized(this.projectRoot)) {
@@ -1388,7 +1388,7 @@ export class SystemHandler implements DomainHandler {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
         const mp = params as SystemMetricsParams;
-        return this.wrapNativeResult(nativeSystemMetrics(this.projectRoot, { scope: mp?.scope, since: mp?.since }), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeSystemMetrics(this.projectRoot, { scope: mp?.scope, since: mp?.since }), 'query', operation, startTime);
       }
       case 'health': {
         if (!isProjectInitialized(this.projectRoot)) {
@@ -1413,7 +1413,7 @@ export class SystemHandler implements DomainHandler {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
         const rp = params as SystemRoadmapParams;
-        return this.wrapNativeResult(nativeSystemRoadmap(this.projectRoot, { includeHistory: rp?.includeHistory, upcomingOnly: rp?.upcomingOnly }), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeSystemRoadmap(this.projectRoot, { includeHistory: rp?.includeHistory, upcomingOnly: rp?.upcomingOnly }), 'query', operation, startTime);
       }
       case 'compliance': {
         if (!isProjectInitialized(this.projectRoot)) {
@@ -1460,7 +1460,7 @@ export class SystemHandler implements DomainHandler {
         return this.wrapNativeResult(result, 'mutate', operation, startTime);
       }
       case 'inject.generate': {
-        const result = nativeSystemInjectGenerate(this.projectRoot);
+        const result = await nativeSystemInjectGenerate(this.projectRoot);
         return this.wrapNativeResult(result, 'mutate', operation, startTime);
       }
       case 'backup': {

@@ -11,9 +11,10 @@ import { join } from 'node:path';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getTodoPath, getCleoDir } from '../../core/paths.js';
-import { readJson, readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
-import type { Task, TodoFile, TaskStatus } from '../../types/task.js';
+import { getCleoDir } from '../../core/paths.js';
+import { readJson, computeChecksum } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import type { Task, TaskStatus } from '../../types/task.js';
 
 /** TodoWrite item as exported by Claude. */
 interface TodoWriteItem {
@@ -133,9 +134,9 @@ export function registerExtractCommand(program: Command): void {
           throw new CleoError(ExitCode.INVALID_INPUT, 'File must contain a "todos" array');
         }
 
-        // Load todo.json
-        const todoPath = getTodoPath();
-        const todoData = await readJsonRequired<TodoFile>(todoPath);
+        // Load todo data
+        const accessor = await getAccessor();
+        const todoData = await accessor.loadTodoFile();
 
         // Load sync session state
         const cleoDir = getCleoDir();
@@ -223,7 +224,7 @@ export function registerExtractCommand(program: Command): void {
           // Save changes
           todoData._meta.checksum = computeChecksum(todoData.tasks);
           todoData.lastUpdated = new Date().toISOString();
-          await saveJson(todoPath, todoData);
+          await accessor.saveTodoFile(todoData);
 
           // Clean up session state
           try {

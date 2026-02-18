@@ -9,10 +9,9 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getArchivePath } from '../../core/paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
 import { validateDependencies } from '../../core/tasks/dependency-check.js';
-import type { TodoFile } from '../../types/task.js';
 
 interface CheckDetail {
   check: string;
@@ -29,13 +28,8 @@ export function registerValidateCommand(program: Command): void {
     .option('--dry-run', 'Preview fixes without applying')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, `File not found: ${todoPath}`, {
-            fix: 'cleo init',
-          });
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         const details: CheckDetail[] = [];
         let errors = 0;
@@ -68,19 +62,10 @@ export function registerValidateCommand(program: Command): void {
           addOk('duplicate_ids_todo', 'No duplicate task IDs in todo.json');
         }
 
-        // 2b. Cross-file duplicates with archive (lazy load)
-        const archivePath = getArchivePath();
-        let archiveData: Record<string, unknown> | null = null;
-        const loadArchive = async () => {
-          if (archiveData === null) {
-            archiveData = await readJson<Record<string, unknown>>(archivePath) ?? {};
-          }
-          return archiveData;
-        };
-        const archive = await loadArchive();
-        if (archive && Object.keys(archive).length > 0) {
-          const archivedTasks = (archive['archivedTasks'] ?? []) as Array<Record<string, unknown>>;
-          const archiveIds = new Set(archivedTasks.map((t) => t.id as string));
+        // 2b. Cross-file duplicates with archive
+        const archive = await accessor.loadArchive();
+        if (archive && archive.archivedTasks.length > 0) {
+          const archiveIds = new Set(archive.archivedTasks.map((t) => t.id));
           const todoIds = new Set(data.tasks.map((t) => t.id));
           const crossDups = [...todoIds].filter((id) => archiveIds.has(id));
           if (crossDups.length > 0) {

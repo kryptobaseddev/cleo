@@ -7,11 +7,11 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getBackupDir } from '../../core/paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
 import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
-import type { Task, TaskStatus, TaskPriority, TodoFile } from '../../types/task.js';
+import type { Task, TaskStatus, TaskPriority } from '../../types/task.js';
 
 type DuplicateStrategy = 'skip' | 'overwrite' | 'rename';
 
@@ -71,11 +71,8 @@ export function registerImportCommand(program: Command): void {
         }
 
         // Load existing data
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         const existingIds = new Set(data.tasks.map((t) => t.id));
         const duplicateStrategy = (opts['onDuplicate'] as DuplicateStrategy) || 'skip';
@@ -158,7 +155,7 @@ export function registerImportCommand(program: Command): void {
         // Save
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
-        await saveJson(todoPath, data, { backupDir: getBackupDir() });
+        await accessor.saveTodoFile(data);
 
         console.log(formatSuccess({
           imported: imported.length,

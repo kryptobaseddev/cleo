@@ -7,9 +7,9 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getBackupDir } from '../../core/paths.js';
-import type { Task, TodoFile } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
+import type { Task } from '../../types/task.js';
 
 /**
  * Get siblings of a task (same parent).
@@ -36,11 +36,8 @@ export function registerReorderCommand(program: Command): void {
           throw new CleoError(ExitCode.INVALID_INPUT, `Invalid task ID: ${taskId}`);
         }
 
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         const task = data.tasks.find((t) => t.id === taskId);
         if (!task) {
@@ -97,7 +94,7 @@ export function registerReorderCommand(program: Command): void {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = now;
 
-        await saveJson(todoPath, data, { backupDir: getBackupDir() });
+        await accessor.saveTodoFile(data);
 
         console.log(formatSuccess({
           task: taskId,

@@ -15,9 +15,9 @@
  * @epic T4654
  */
 
-import { readJsonFile, writeJsonFileAtomic, withFileLock, getDataPath } from './store.js';
-// TODO(T4657): Use getStore() from '../../store/index.js' for domain data access
-// when StoreProvider exposes multi-session metadata.
+
+import { getAccessor } from '../../store/data-accessor.js';
+
 import { randomBytes} from 'crypto';
 import { readFileSync, appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join} from 'path';
@@ -145,19 +145,23 @@ function generateSessionId(): string {
 
 /**
  * Check if multi-session mode is enabled.
- * Reads config metadata - not domain data, keep as direct JSON.
+ * Reads todo.json _meta via accessor.
  * @task T4657
  * @epic T4654
  */
-export function isMultiSession(projectRoot: string): boolean {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
-  return todo?._meta?.multiSessionEnabled === true;
+export async function isMultiSession(projectRoot: string): Promise<boolean> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const data = await accessor.loadTodoFile();
+    return (data as unknown as TodoFile)?._meta?.multiSessionEnabled === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Get current session status.
- * TODO(T4657): Migrate to StoreProvider when it exposes multi-session metadata.
+ * Uses DataAccessor for domain data access.
  * @task T4657
  * @epic T4654
  */
@@ -169,48 +173,49 @@ export async function sessionStatus(
   session?: SessionRecord | null;
   focus?: FocusState | null;
 }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const todo = todoData as unknown as TodoFile;
 
-  if (!todo) {
+    const multiSession = todo._meta?.multiSessionEnabled === true;
+
+    if (multiSession) {
+      const sessionsData = await accessor.loadSessions();
+      const sessions = sessionsData as unknown as SessionsFile;
+      const active = sessions?.sessions?.find((s) => s.status === 'active');
+
+      return {
+        success: true,
+        data: {
+          hasActiveSession: !!active,
+          multiSessionEnabled: true,
+          session: active || null,
+          focus: null,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        hasActiveSession: !!todo.focus?.currentTask,
+        multiSessionEnabled: false,
+        session: null,
+        focus: todo.focus || null,
+      },
+    };
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
-
-  const multiSession = todo._meta?.multiSessionEnabled === true;
-
-  if (multiSession) {
-    const sessionsPath = getDataPath(projectRoot, todo._meta?.sessionsFile || 'sessions.json');
-    const sessions = readJsonFile<SessionsFile>(sessionsPath);
-    const active = sessions?.sessions?.find((s) => s.status === 'active');
-
-    return {
-      success: true,
-      data: {
-        hasActiveSession: !!active,
-        multiSessionEnabled: true,
-        session: active || null,
-        focus: null,
-      },
-    };
-  }
-
-  return {
-    success: true,
-    data: {
-      hasActiveSession: !!todo.focus?.currentTask,
-      multiSessionEnabled: false,
-      session: null,
-      focus: todo.focus || null,
-    },
-  };
 }
 
 /**
  * List sessions (multi-session mode).
- * TODO(T4657): Migrate to StoreProvider when it exposes multi-session metadata.
+ * Uses DataAccessor for domain data access.
  * @task T4657
  * @epic T4654
  */
@@ -218,62 +223,63 @@ export async function sessionList(
   projectRoot: string,
   params?: { active?: boolean; limit?: number }
 ): Promise<EngineResult<SessionRecord[]>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const todo = todoData as unknown as TodoFile;
 
-  if (!todo) {
+    const multiSession = todo._meta?.multiSessionEnabled === true;
+
+    if (!multiSession) {
+      // Single-session mode: return synthetic session if focus is set
+      if (todo.focus?.currentTask) {
+        const syntheticSession: SessionRecord = {
+          id: todo._meta?.activeSession || 'default',
+          status: 'active',
+          scope: { type: 'task', rootTaskId: todo.focus.currentTask },
+          focus: {
+            currentTask: todo.focus.currentTask,
+            currentPhase: todo.focus.currentPhase,
+          },
+          startedAt: new Date().toISOString(),
+          lastActivity: new Date().toISOString(),
+        };
+        return { success: true, data: [syntheticSession] };
+      }
+      return { success: true, data: [] };
+    }
+
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFile;
+
+    if (!sessions) {
+      return { success: true, data: [] };
+    }
+
+    let result = sessions.sessions || [];
+
+    if (params?.active === true) {
+      result = result.filter((s) => s.status === 'active');
+    } else if (params?.active === false) {
+      result = result.filter((s) => s.status !== 'active');
+    }
+
+    if (params?.limit && params.limit > 0) {
+      result = result.slice(0, params.limit);
+    }
+
+    return { success: true, data: result };
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
-
-  const multiSession = todo._meta?.multiSessionEnabled === true;
-
-  if (!multiSession) {
-    // Single-session mode: return synthetic session if focus is set
-    if (todo.focus?.currentTask) {
-      const syntheticSession: SessionRecord = {
-        id: todo._meta?.activeSession || 'default',
-        status: 'active',
-        scope: { type: 'task', rootTaskId: todo.focus.currentTask },
-        focus: {
-          currentTask: todo.focus.currentTask,
-          currentPhase: todo.focus.currentPhase,
-        },
-        startedAt: new Date().toISOString(),
-        lastActivity: new Date().toISOString(),
-      };
-      return { success: true, data: [syntheticSession] };
-    }
-    return { success: true, data: [] };
-  }
-
-  const sessionsPath = getDataPath(projectRoot, todo._meta?.sessionsFile || 'sessions.json');
-  const sessions = readJsonFile<SessionsFile>(sessionsPath);
-
-  if (!sessions) {
-    return { success: true, data: [] };
-  }
-
-  let result = sessions.sessions || [];
-
-  if (params?.active === true) {
-    result = result.filter((s) => s.status === 'active');
-  } else if (params?.active === false) {
-    result = result.filter((s) => s.status !== 'active');
-  }
-
-  if (params?.limit && params.limit > 0) {
-    result = result.slice(0, params.limit);
-  }
-
-  return { success: true, data: result };
 }
 
 /**
  * Show a specific session.
- * TODO(T4657): Migrate to StoreProvider when it exposes session history.
+ * Uses DataAccessor for domain data access.
  * @task T4657
  * @epic T4654
  */
@@ -281,68 +287,67 @@ export async function sessionShow(
   projectRoot: string,
   sessionId: string
 ): Promise<EngineResult<SessionRecord>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFile;
 
-  if (!todo) {
+    if (!sessions) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
+      };
+    }
+
+    const session = sessions.sessions?.find((s) => s.id === sessionId);
+    if (!session) {
+      // Check history
+      const historical = sessions.sessionHistory?.find((s) => s.id === sessionId);
+      if (historical) {
+        return { success: true, data: historical };
+      }
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
+      };
+    }
+
+    return { success: true, data: session };
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
-
-  const sessionsPath = getDataPath(projectRoot, todo._meta?.sessionsFile || 'sessions.json');
-  const sessions = readJsonFile<SessionsFile>(sessionsPath);
-
-  if (!sessions) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
-    };
-  }
-
-  const session = sessions.sessions?.find((s) => s.id === sessionId);
-  if (!session) {
-    // Check history
-    const historical = sessions.sessionHistory?.find((s) => s.id === sessionId);
-    if (historical) {
-      return { success: true, data: historical };
-    }
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
-    };
-  }
-
-  return { success: true, data: session };
 }
 
 /**
  * Get current focus.
- * TODO(T4657): Migrate to use getStore().showFocus().
+ * Uses DataAccessor for domain data access.
  * @task T4657
  * @epic T4654
  */
 export async function focusGet(
   projectRoot: string
 ): Promise<EngineResult<{ currentTask: string | null; currentPhase: string | null }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const todo = todoData as unknown as TodoFile;
 
-  if (!todo) {
+    return {
+      success: true,
+      data: {
+        currentTask: todo.focus?.currentTask || null,
+        currentPhase: todo.focus?.currentPhase || null,
+      },
+    };
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
-
-  return {
-    success: true,
-    data: {
-      currentTask: todo.focus?.currentTask || null,
-      currentPhase: todo.focus?.currentPhase || null,
-    },
-  };
 }
 
 /**
@@ -352,53 +357,49 @@ export async function focusSet(
   projectRoot: string,
   taskId: string
 ): Promise<EngineResult<{ taskId: string; previousTask: string | null }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const current = todoData as unknown as TodoFile;
 
-  return await withFileLock<EngineResult<{ taskId: string; previousTask: string | null }>>(
-    todoPath,
-    () => {
-      const current = readJsonFile<TodoFile>(todoPath);
-      if (!current) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      // Verify task exists
-      const taskExists = current.tasks?.some((t) => t.id === taskId);
-      if (!taskExists) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-        };
-      }
-
-      const previousTask = current.focus?.currentTask || null;
-
-      if (!current.focus) {
-        current.focus = {
-          currentTask: null,
-          currentPhase: null,
-          blockedUntil: null,
-          sessionNote: null,
-          sessionNotes: [],
-          nextAction: null,
-          primarySession: null,
-        };
-      }
-
-      current.focus.currentTask = taskId;
-      current.lastUpdated = new Date().toISOString();
-      if (current._meta) {
-        current._meta.generation = (current._meta.generation || 0) + 1;
-      }
-
-      writeJsonFileAtomic(todoPath, current);
-
-      return { success: true, data: { taskId, previousTask } };
+    // Verify task exists
+    const taskExistsInData = current.tasks?.some((t) => t.id === taskId);
+    if (!taskExistsInData) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+      };
     }
-  ) as EngineResult<{ taskId: string; previousTask: string | null }>;
+
+    const previousTask = current.focus?.currentTask || null;
+
+    if (!current.focus) {
+      current.focus = {
+        currentTask: null,
+        currentPhase: null,
+        blockedUntil: null,
+        sessionNote: null,
+        sessionNotes: [],
+        nextAction: null,
+        primarySession: null,
+      };
+    }
+
+    current.focus.currentTask = taskId;
+    (current as Record<string, unknown>).lastUpdated = new Date().toISOString();
+    if (current._meta) {
+      current._meta.generation = (current._meta.generation || 0) + 1;
+    }
+
+    await accessor.saveTodoFile(todoData);
+
+    return { success: true, data: { taskId, previousTask } };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
+    };
+  }
 }
 
 /**
@@ -407,35 +408,31 @@ export async function focusSet(
 export async function focusClear(
   projectRoot: string
 ): Promise<EngineResult<{ cleared: boolean; previousTask: string | null }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const current = todoData as unknown as TodoFile;
 
-  return await withFileLock<EngineResult<{ cleared: boolean; previousTask: string | null }>>(
-    todoPath,
-    () => {
-      const current = readJsonFile<TodoFile>(todoPath);
-      if (!current) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
+    const previousTask = current.focus?.currentTask || null;
 
-      const previousTask = current.focus?.currentTask || null;
-
-      if (current.focus) {
-        current.focus.currentTask = null;
-      }
-
-      current.lastUpdated = new Date().toISOString();
-      if (current._meta) {
-        current._meta.generation = (current._meta.generation || 0) + 1;
-      }
-
-      writeJsonFileAtomic(todoPath, current);
-
-      return { success: true, data: { cleared: true, previousTask } };
+    if (current.focus) {
+      current.focus.currentTask = null;
     }
-  ) as EngineResult<{ cleared: boolean; previousTask: string | null }>;
+
+    (current as Record<string, unknown>).lastUpdated = new Date().toISOString();
+    if (current._meta) {
+      current._meta.generation = (current._meta.generation || 0) + 1;
+    }
+
+    await accessor.saveTodoFile(todoData);
+
+    return { success: true, data: { cleared: true, previousTask } };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
+    };
+  }
 }
 
 /**
@@ -450,16 +447,10 @@ export async function sessionStart(
     focus?: string;
   }
 ): Promise<EngineResult<SessionRecord>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<SessionRecord>>(todoPath, () => {
-    const current = readJsonFile<TodoFile>(todoPath);
-    if (!current) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-      };
-    }
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const current = todoData as unknown as TodoFile;
 
     // Parse scope (e.g., "epic:T001" -> { type: 'epic', rootTaskId: 'T001' })
     const scopeParts = params.scope.split(':');
@@ -537,26 +528,15 @@ export async function sessionStart(
       current._meta.generation = (current._meta.generation || 0) + 1;
     }
 
-    current.lastUpdated = now;
-    writeJsonFileAtomic(todoPath, current);
+    (current as Record<string, unknown>).lastUpdated = now;
+    await accessor.saveTodoFile(todoData);
 
     // If multi-session enabled, also write to sessions.json
     if (current._meta?.multiSessionEnabled) {
-      const sessionsPath = getDataPath(
-        projectRoot,
-        current._meta?.sessionsFile || 'sessions.json'
-      );
-      const sessions = readJsonFile<SessionsFile>(sessionsPath) || {
-        _meta: {
-          schemaVersion: '1.0.0',
-          checksum: '',
-          lastModified: now,
-          totalSessionsCreated: 0,
-        },
-        sessions: [],
-        sessionHistory: [],
-      };
+      const sessionsData = await accessor.loadSessions();
+      const sessions = sessionsData as unknown as SessionsFile;
 
+      if (!sessions.sessions) sessions.sessions = [];
       sessions.sessions.push(newSession);
       if (sessions._meta) {
         sessions._meta.lastModified = now;
@@ -565,11 +545,16 @@ export async function sessionStart(
           (sessions._meta.totalSessionsCreated || 0) + 1;
       }
 
-      writeJsonFileAtomic(sessionsPath, sessions);
+      await accessor.saveSessions(sessionsData);
     }
 
     return { success: true, data: newSession };
-  }) as EngineResult<SessionRecord>;
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
+    };
+  }
 }
 
 /**
@@ -579,73 +564,66 @@ export async function sessionEnd(
   projectRoot: string,
   notes?: string
 ): Promise<EngineResult<{ sessionId: string; ended: boolean }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const current = todoData as unknown as TodoFile;
 
-  return await withFileLock<EngineResult<{ sessionId: string; ended: boolean }>>(
-    todoPath,
-    () => {
-      const current = readJsonFile<TodoFile>(todoPath);
-      if (!current) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
+    const sessionId = current._meta?.activeSession || 'default';
+    const now = new Date().toISOString();
+
+    // Clear focus
+    if (current.focus) {
+      current.focus.currentTask = null;
+      if (notes) {
+        if (!current.focus.sessionNotes) current.focus.sessionNotes = [];
+        current.focus.sessionNotes.push({ timestamp: now, note: notes });
       }
-
-      const sessionId = current._meta?.activeSession || 'default';
-      const now = new Date().toISOString();
-
-      // Clear focus
-      if (current.focus) {
-        current.focus.currentTask = null;
-        if (notes) {
-          if (!current.focus.sessionNotes) current.focus.sessionNotes = [];
-          current.focus.sessionNotes.push({ timestamp: now, note: notes });
-        }
-      }
-
-      if (current._meta) {
-        current._meta.activeSession = null;
-        current._meta.generation = (current._meta.generation || 0) + 1;
-      }
-
-      current.lastUpdated = now;
-      writeJsonFileAtomic(todoPath, current);
-
-      // Update sessions.json if multi-session
-      if (current._meta?.multiSessionEnabled && sessionId !== 'default') {
-        const sessionsPath = getDataPath(
-          projectRoot,
-          current._meta?.sessionsFile || 'sessions.json'
-        );
-        const sessions = readJsonFile<SessionsFile>(sessionsPath);
-        if (sessions) {
-          const sessionIndex = sessions.sessions.findIndex(
-            (s) => s.id === sessionId
-          );
-          if (sessionIndex !== -1) {
-            const session = sessions.sessions[sessionIndex];
-            session.status = 'ended';
-            session.endedAt = now;
-            session.lastActivity = now;
-
-            // Move to history
-            if (!sessions.sessionHistory) sessions.sessionHistory = [];
-            sessions.sessionHistory.push(session);
-            sessions.sessions.splice(sessionIndex, 1);
-
-            if (sessions._meta) {
-              sessions._meta.lastModified = now;
-            }
-
-            writeJsonFileAtomic(sessionsPath, sessions);
-          }
-        }
-      }
-
-      return { success: true, data: { sessionId, ended: true } };
     }
-  ) as EngineResult<{ sessionId: string; ended: boolean }>;
+
+    if (current._meta) {
+      current._meta.activeSession = null;
+      current._meta.generation = (current._meta.generation || 0) + 1;
+    }
+
+    (current as Record<string, unknown>).lastUpdated = now;
+    await accessor.saveTodoFile(todoData);
+
+    // Update sessions.json if multi-session
+    if (current._meta?.multiSessionEnabled && sessionId !== 'default') {
+      const sessionsData = await accessor.loadSessions();
+      const sessions = sessionsData as unknown as SessionsFile;
+      if (sessions) {
+        const sessionIndex = sessions.sessions.findIndex(
+          (s) => s.id === sessionId
+        );
+        if (sessionIndex !== -1) {
+          const session = sessions.sessions[sessionIndex];
+          session.status = 'ended';
+          session.endedAt = now;
+          session.lastActivity = now;
+
+          // Move to history
+          if (!sessions.sessionHistory) sessions.sessionHistory = [];
+          sessions.sessionHistory.push(session);
+          sessions.sessions.splice(sessionIndex, 1);
+
+          if (sessions._meta) {
+            sessions._meta.lastModified = now;
+          }
+
+          await accessor.saveSessions(sessionsData);
+        }
+      }
+    }
+
+    return { success: true, data: { sessionId, ended: true } };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
+    };
+  }
 }
 
 /**
@@ -656,16 +634,10 @@ export async function sessionResume(
   projectRoot: string,
   sessionId: string
 ): Promise<EngineResult<SessionRecord>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<SessionRecord>>(todoPath, () => {
-    const current = readJsonFile<TodoFile>(todoPath);
-    if (!current) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
-      };
-    }
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const current = todoData as unknown as TodoFile;
 
     const multiSession = current._meta?.multiSessionEnabled === true;
 
@@ -679,11 +651,8 @@ export async function sessionResume(
       };
     }
 
-    const sessionsPath = getDataPath(
-      projectRoot,
-      current._meta?.sessionsFile || 'sessions.json'
-    );
-    const sessions = readJsonFile<SessionsFile>(sessionsPath);
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFile;
 
     if (!sessions) {
       return {
@@ -749,17 +718,22 @@ export async function sessionResume(
       current.focus.currentTask = session.focus.currentTask;
     }
 
-    current.lastUpdated = now;
+    (current as Record<string, unknown>).lastUpdated = now;
 
     if (sessions._meta) {
       sessions._meta.lastModified = now;
     }
 
-    writeJsonFileAtomic(todoPath, current);
-    writeJsonFileAtomic(sessionsPath, sessions);
+    await accessor.saveTodoFile(todoData);
+    await accessor.saveSessions(sessionsData);
 
     return { success: true, data: session };
-  }) as EngineResult<SessionRecord>;
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
 }
 
 /**
@@ -771,92 +745,85 @@ export async function sessionGc(
   projectRoot: string,
   maxAgeDays: number = 1
 ): Promise<EngineResult<{ orphaned: string[]; removed: string[] }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const current = todoData as unknown as TodoFile;
 
-  return await withFileLock<EngineResult<{ orphaned: string[]; removed: string[] }>>(
-    todoPath,
-    () => {
-      const current = readJsonFile<TodoFile>(todoPath);
-      if (!current) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
-        };
-      }
+    const multiSession = current._meta?.multiSessionEnabled === true;
+    if (!multiSession) {
+      return { success: true, data: { orphaned: [], removed: [] } };
+    }
 
-      const multiSession = current._meta?.multiSessionEnabled === true;
-      if (!multiSession) {
-        return { success: true, data: { orphaned: [], removed: [] } };
-      }
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFile;
 
-      const sessionsPath = getDataPath(
-        projectRoot,
-        current._meta?.sessionsFile || 'sessions.json'
-      );
-      const sessions = readJsonFile<SessionsFile>(sessionsPath);
+    if (!sessions) {
+      return { success: true, data: { orphaned: [], removed: [] } };
+    }
 
-      if (!sessions) {
-        return { success: true, data: { orphaned: [], removed: [] } };
-      }
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const orphaned: string[] = [];
+    const removed: string[] = [];
 
-      const now = Date.now();
-      const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-      const orphaned: string[] = [];
-      const removed: string[] = [];
-
-      // Mark stale active sessions as orphaned
-      for (const session of sessions.sessions) {
-        if (session.status === 'active') {
-          const lastActive = new Date(session.lastActivity || session.startedAt).getTime();
-          if (now - lastActive > maxAgeMs) {
-            session.status = 'ended';
-            session.endedAt = new Date().toISOString();
-            session.lastActivity = new Date().toISOString();
-            orphaned.push(session.id);
-          }
+    // Mark stale active sessions as orphaned
+    for (const session of sessions.sessions) {
+      if (session.status === 'active') {
+        const lastActive = new Date(session.lastActivity || session.startedAt).getTime();
+        if (now - lastActive > maxAgeMs) {
+          session.status = 'ended';
+          session.endedAt = new Date().toISOString();
+          session.lastActivity = new Date().toISOString();
+          orphaned.push(session.id);
         }
       }
+    }
 
-      // Remove very old ended sessions
-      sessions.sessions = sessions.sessions.filter((s) => {
-        if (s.status === 'active') return true;
+    // Remove very old ended sessions
+    sessions.sessions = sessions.sessions.filter((s) => {
+      if (s.status === 'active') return true;
+      const endedAt = s.endedAt
+        ? new Date(s.endedAt).getTime()
+        : new Date(s.startedAt).getTime();
+      if (now - endedAt > thirtyDaysMs) {
+        removed.push(s.id);
+        return false;
+      }
+      return true;
+    });
+
+    // Also clean old session history
+    if (sessions.sessionHistory) {
+      sessions.sessionHistory = sessions.sessionHistory.filter((s) => {
         const endedAt = s.endedAt
           ? new Date(s.endedAt).getTime()
           : new Date(s.startedAt).getTime();
         if (now - endedAt > thirtyDaysMs) {
-          removed.push(s.id);
+          if (!removed.includes(s.id)) {
+            removed.push(s.id);
+          }
           return false;
         }
         return true;
       });
-
-      // Also clean old session history
-      if (sessions.sessionHistory) {
-        sessions.sessionHistory = sessions.sessionHistory.filter((s) => {
-          const endedAt = s.endedAt
-            ? new Date(s.endedAt).getTime()
-            : new Date(s.startedAt).getTime();
-          if (now - endedAt > thirtyDaysMs) {
-            if (!removed.includes(s.id)) {
-              removed.push(s.id);
-            }
-            return false;
-          }
-          return true;
-        });
-      }
-
-      if (orphaned.length > 0 || removed.length > 0) {
-        if (sessions._meta) {
-          sessions._meta.lastModified = new Date().toISOString();
-        }
-        writeJsonFileAtomic(sessionsPath, sessions);
-      }
-
-      return { success: true, data: { orphaned, removed } };
     }
-  ) as EngineResult<{ orphaned: string[]; removed: string[] }>;
+
+    if (orphaned.length > 0 || removed.length > 0) {
+      if (sessions._meta) {
+        sessions._meta.lastModified = new Date().toISOString();
+      }
+      await accessor.saveSessions(sessionsData);
+    }
+
+    return { success: true, data: { orphaned, removed } };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
 }
 
 /**
@@ -868,16 +835,10 @@ export async function sessionSuspend(
   sessionId: string,
   reason?: string
 ): Promise<EngineResult<SessionRecord>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<SessionRecord>>(todoPath, () => {
-    const current = readJsonFile<TodoFile>(todoPath);
-    if (!current) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
-      };
-    }
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todoData = await accessor.loadTodoFile();
+    const current = todoData as unknown as TodoFile;
 
     const multiSession = current._meta?.multiSessionEnabled === true;
 
@@ -891,11 +852,8 @@ export async function sessionSuspend(
       };
     }
 
-    const sessionsPath = getDataPath(
-      projectRoot,
-      current._meta?.sessionsFile || 'sessions.json'
-    );
-    const sessions = readJsonFile<SessionsFile>(sessionsPath);
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFile;
 
     if (!sessions) {
       return {
@@ -942,18 +900,23 @@ export async function sessionSuspend(
     if (current._meta?.activeSession === sessionId) {
       current._meta.activeSession = null;
       current._meta.generation = (current._meta.generation || 0) + 1;
-      current.lastUpdated = now;
-      writeJsonFileAtomic(todoPath, current);
+      (current as Record<string, unknown>).lastUpdated = now;
+      await accessor.saveTodoFile(todoData);
     }
 
     if (sessions._meta) {
       sessions._meta.lastModified = now;
     }
 
-    writeJsonFileAtomic(sessionsPath, sessions);
+    await accessor.saveSessions(sessionsData);
 
     return { success: true, data: session };
-  }) as EngineResult<SessionRecord>;
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
 }
 
 /**
@@ -980,23 +943,19 @@ export async function sessionHistory(
     focusHistory: Array<{ taskId: string; timestamp: string }>;
   }>;
 }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
-
-  if (!todo) {
+  const accessor = await getAccessor(projectRoot);
+  try {
+    await accessor.loadTodoFile();
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
 
-  const sessionsPath = getDataPath(
-    projectRoot,
-    todo._meta?.sessionsFile || 'sessions.json'
-  );
-  const sessionsFile = readJsonFile<SessionsFile>(sessionsPath);
+  const sessionsFile = await accessor.loadSessions() as unknown as SessionsFile;
 
-  if (!sessionsFile) {
+  if (!sessionsFile || !sessionsFile.sessions) {
     return { success: true, data: { sessions: [] } };
   }
 
@@ -1043,84 +1002,77 @@ export async function sessionHistory(
 export async function sessionCleanup(
   projectRoot: string
 ): Promise<EngineResult<{ removed: string[]; cleaned: boolean }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  const accessor = await getAccessor(projectRoot);
+  let todoData;
+  try {
+    todoData = await accessor.loadTodoFile();
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
+  const current = todoData as unknown as TodoFile;
 
-  return await withFileLock<EngineResult<{ removed: string[]; cleaned: boolean }>>(
-    todoPath,
-    () => {
-      const current = readJsonFile<TodoFile>(todoPath);
-      if (!current) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
-        };
-      }
+  const multiSession = current._meta?.multiSessionEnabled === true;
+  if (!multiSession) {
+    return { success: true, data: { removed: [], cleaned: false } };
+  }
 
-      const multiSession = current._meta?.multiSessionEnabled === true;
-      if (!multiSession) {
-        return { success: true, data: { removed: [], cleaned: false } };
-      }
+  const sessions = await accessor.loadSessions() as unknown as SessionsFile;
 
-      const sessionsPath = getDataPath(
-        projectRoot,
-        current._meta?.sessionsFile || 'sessions.json'
-      );
-      const sessions = readJsonFile<SessionsFile>(sessionsPath);
+  if (!sessions) {
+    return { success: true, data: { removed: [], cleaned: false } };
+  }
 
-      if (!sessions) {
-        return { success: true, data: { removed: [], cleaned: false } };
-      }
+  const removed: string[] = [];
+  let todoUpdated = false;
 
-      const removed: string[] = [];
-      let todoUpdated = false;
-
-      // Remove all non-active sessions from the sessions list
-      // (move ended/suspended to history, remove orphaned entirely)
-      const activeSessions: SessionRecord[] = [];
-      for (const session of sessions.sessions) {
-        if (session.status === 'active') {
-          activeSessions.push(session);
-        } else if (session.status === 'ended' || session.status === 'suspended') {
-          // Move to history
-          if (!sessions.sessionHistory) sessions.sessionHistory = [];
-          sessions.sessionHistory.push(session);
-          removed.push(session.id);
-        } else if (session.status === 'archived') {
-          // Archived sessions are removed from active list
-          removed.push(session.id);
-        }
-      }
-      sessions.sessions = activeSessions;
-
-      // Clean stale references in todo.json
-      if (current._meta?.activeSession) {
-        const activeExists = sessions.sessions.some(
-          (s) => s.id === current._meta!.activeSession
-        );
-        if (!activeExists) {
-          current._meta.activeSession = null;
-          current._meta.generation = (current._meta.generation || 0) + 1;
-          current.lastUpdated = new Date().toISOString();
-          todoUpdated = true;
-        }
-      }
-
-      if (removed.length > 0 || todoUpdated) {
-        if (sessions._meta) {
-          sessions._meta.lastModified = new Date().toISOString();
-        }
-        writeJsonFileAtomic(sessionsPath, sessions);
-        if (todoUpdated) {
-          writeJsonFileAtomic(todoPath, current);
-        }
-      }
-
-      return {
-        success: true,
-        data: { removed, cleaned: removed.length > 0 || todoUpdated },
-      };
+  // Remove all non-active sessions from the sessions list
+  // (move ended/suspended to history, remove orphaned entirely)
+  const activeSessions: SessionRecord[] = [];
+  for (const session of sessions.sessions) {
+    if (session.status === 'active') {
+      activeSessions.push(session);
+    } else if (session.status === 'ended' || session.status === 'suspended') {
+      // Move to history
+      if (!sessions.sessionHistory) sessions.sessionHistory = [];
+      sessions.sessionHistory.push(session);
+      removed.push(session.id);
+    } else if (session.status === 'archived') {
+      // Archived sessions are removed from active list
+      removed.push(session.id);
     }
-  ) as EngineResult<{ removed: string[]; cleaned: boolean }>;
+  }
+  sessions.sessions = activeSessions;
+
+  // Clean stale references in todo.json
+  if (current._meta?.activeSession) {
+    const activeExists = sessions.sessions.some(
+      (s) => s.id === current._meta!.activeSession
+    );
+    if (!activeExists) {
+      current._meta.activeSession = null;
+      current._meta.generation = (current._meta.generation || 0) + 1;
+      current.lastUpdated = new Date().toISOString();
+      todoUpdated = true;
+    }
+  }
+
+  if (removed.length > 0 || todoUpdated) {
+    if (sessions._meta) {
+      sessions._meta.lastModified = new Date().toISOString();
+    }
+    await accessor.saveSessions(sessions as any);
+    if (todoUpdated) {
+      await accessor.saveTodoFile(todoData);
+    }
+  }
+
+  return {
+    success: true,
+    data: { removed, cleaned: removed.length > 0 || todoUpdated },
+  };
 }
 
 /**
@@ -1267,22 +1219,23 @@ export async function sessionContextDrift(
   totalInScope: number;
   outOfScope: number;
 }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
-
-  if (!todo) {
+  const accessor = await getAccessor(projectRoot);
+  let todoData;
+  try {
+    todoData = await accessor.loadTodoFile();
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
+  const todo = todoData as unknown as TodoFile;
 
   // Find the active session (or specified session)
   let session: SessionRecord | undefined;
 
   if (params?.sessionId) {
-    const sessionsPath = getDataPath(projectRoot, todo._meta?.sessionsFile || 'sessions.json');
-    const sessionsFile = readJsonFile<SessionsFile>(sessionsPath);
+    const sessionsFile = await accessor.loadSessions() as unknown as SessionsFile;
     if (sessionsFile) {
       session = sessionsFile.sessions?.find((s) => s.id === params.sessionId)
         || sessionsFile.sessionHistory?.find((s) => s.id === params.sessionId);
@@ -1296,8 +1249,7 @@ export async function sessionContextDrift(
   } else {
     const activeSessionId = todo._meta?.activeSession;
     if (activeSessionId && todo._meta?.multiSessionEnabled) {
-      const sessionsPath = getDataPath(projectRoot, todo._meta?.sessionsFile || 'sessions.json');
-      const sessionsFile = readJsonFile<SessionsFile>(sessionsPath);
+      const sessionsFile = await accessor.loadSessions() as unknown as SessionsFile;
       session = sessionsFile?.sessions?.find((s) => s.id === activeSessionId);
     }
   }
@@ -1432,15 +1384,17 @@ export async function sessionRecordAssumption(
     };
   }
 
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
-
-  if (!todo) {
+  const accessor = await getAccessor(projectRoot);
+  let todoData;
+  try {
+    todoData = await accessor.loadTodoFile();
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
+  const todo = todoData as unknown as TodoFile;
 
   const sessionId = params.sessionId || todo._meta?.activeSession || 'default';
   const id = `asm-${randomBytes(8).toString('hex')}`;
@@ -1507,15 +1461,17 @@ export async function sessionStats(
     durationMinutes: number;
   };
 }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todo = readJsonFile<TodoFile>(todoPath);
-
-  if (!todo) {
+  const accessor = await getAccessor(projectRoot);
+  let todoData;
+  try {
+    todoData = await accessor.loadTodoFile();
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
     };
   }
+  const todo = todoData as unknown as TodoFile;
 
   const multiSession = todo._meta?.multiSessionEnabled === true;
 
@@ -1536,8 +1492,7 @@ export async function sessionStats(
     };
   }
 
-  const sessionsPath = getDataPath(projectRoot, todo._meta?.sessionsFile || 'sessions.json');
-  const sessionsFile = readJsonFile<SessionsFile>(sessionsPath);
+  const sessionsFile = await accessor.loadSessions() as unknown as SessionsFile;
 
   if (!sessionsFile) {
     return {
@@ -1634,110 +1589,109 @@ export async function sessionSwitch(
   projectRoot: string,
   sessionId: string
 ): Promise<EngineResult<SessionRecord>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  const accessor = await getAccessor(projectRoot);
+  let todoData;
+  try {
+    todoData = await accessor.loadTodoFile();
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
+  const current = todoData as unknown as TodoFile;
 
-  return await withFileLock<EngineResult<SessionRecord>>(todoPath, () => {
-    const current = readJsonFile<TodoFile>(todoPath);
-    if (!current) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
-      };
+  const multiSession = current._meta?.multiSessionEnabled === true;
+  if (!multiSession) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_SUPPORTED', message: 'Session switch requires multi-session mode' },
+    };
+  }
+
+  const sessions = await accessor.loadSessions() as unknown as SessionsFile;
+
+  if (!sessions) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
+    };
+  }
+
+  // Find target session
+  let targetSession = sessions.sessions.find((s) => s.id === sessionId);
+  let fromHistory = false;
+
+  if (!targetSession && sessions.sessionHistory) {
+    const histIndex = sessions.sessionHistory.findIndex((s) => s.id === sessionId);
+    if (histIndex !== -1) {
+      targetSession = sessions.sessionHistory[histIndex];
+      sessions.sessionHistory.splice(histIndex, 1);
+      fromHistory = true;
     }
+  }
 
-    const multiSession = current._meta?.multiSessionEnabled === true;
-    if (!multiSession) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_SUPPORTED', message: 'Session switch requires multi-session mode' },
-      };
-    }
+  if (!targetSession) {
+    return {
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
+    };
+  }
 
-    const sessionsPath = getDataPath(projectRoot, current._meta?.sessionsFile || 'sessions.json');
-    const sessions = readJsonFile<SessionsFile>(sessionsPath);
+  if (targetSession.status === 'archived') {
+    return {
+      success: false,
+      error: { code: 'E_INVALID_STATE', message: `Session '${sessionId}' is archived and cannot be switched to` },
+    };
+  }
 
-    if (!sessions) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
-      };
-    }
+  const now = new Date().toISOString();
 
-    // Find target session
-    let targetSession = sessions.sessions.find((s) => s.id === sessionId);
-    let fromHistory = false;
-
-    if (!targetSession && sessions.sessionHistory) {
-      const histIndex = sessions.sessionHistory.findIndex((s) => s.id === sessionId);
-      if (histIndex !== -1) {
-        targetSession = sessions.sessionHistory[histIndex];
-        sessions.sessionHistory.splice(histIndex, 1);
-        fromHistory = true;
+  // Suspend the current active session (if different from target)
+  const currentActiveId = current._meta?.activeSession;
+  if (currentActiveId && currentActiveId !== sessionId) {
+    const currentSession = sessions.sessions.find((s) => s.id === currentActiveId);
+    if (currentSession && currentSession.status === 'active') {
+      currentSession.status = 'suspended';
+      currentSession.suspendedAt = now;
+      currentSession.lastActivity = now;
+      if (currentSession.stats) {
+        currentSession.stats.suspendCount = (currentSession.stats.suspendCount || 0) + 1;
       }
     }
+  }
 
-    if (!targetSession) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_FOUND', message: `Session '${sessionId}' not found` },
-      };
-    }
+  // Activate the target session
+  targetSession.status = 'active';
+  targetSession.lastActivity = now;
+  targetSession.suspendedAt = null;
+  targetSession.endedAt = null;
+  targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
 
-    if (targetSession.status === 'archived') {
-      return {
-        success: false,
-        error: { code: 'E_INVALID_STATE', message: `Session '${sessionId}' is archived and cannot be switched to` },
-      };
-    }
+  if (fromHistory) {
+    sessions.sessions.push(targetSession);
+  }
 
-    const now = new Date().toISOString();
+  // Update todo.json
+  if (current._meta) {
+    current._meta.activeSession = sessionId;
+    current._meta.generation = (current._meta.generation || 0) + 1;
+  }
 
-    // Suspend the current active session (if different from target)
-    const currentActiveId = current._meta?.activeSession;
-    if (currentActiveId && currentActiveId !== sessionId) {
-      const currentSession = sessions.sessions.find((s) => s.id === currentActiveId);
-      if (currentSession && currentSession.status === 'active') {
-        currentSession.status = 'suspended';
-        currentSession.suspendedAt = now;
-        currentSession.lastActivity = now;
-        if (currentSession.stats) {
-          currentSession.stats.suspendCount = (currentSession.stats.suspendCount || 0) + 1;
-        }
-      }
-    }
+  if (targetSession.focus?.currentTask && current.focus) {
+    current.focus.currentTask = targetSession.focus.currentTask;
+  }
 
-    // Activate the target session
-    targetSession.status = 'active';
-    targetSession.lastActivity = now;
-    targetSession.suspendedAt = null;
-    targetSession.endedAt = null;
-    targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
+  current.lastUpdated = now;
 
-    if (fromHistory) {
-      sessions.sessions.push(targetSession);
-    }
+  if (sessions._meta) {
+    sessions._meta.lastModified = now;
+  }
 
-    // Update todo.json
-    if (current._meta) {
-      current._meta.activeSession = sessionId;
-      current._meta.generation = (current._meta.generation || 0) + 1;
-    }
+  await accessor.saveTodoFile(todoData);
+  await accessor.saveSessions(sessions as any);
 
-    if (targetSession.focus?.currentTask && current.focus) {
-      current.focus.currentTask = targetSession.focus.currentTask;
-    }
-
-    current.lastUpdated = now;
-
-    if (sessions._meta) {
-      sessions._meta.lastModified = now;
-    }
-
-    writeJsonFileAtomic(todoPath, current);
-    writeJsonFileAtomic(sessionsPath, sessions);
-
-    return { success: true, data: targetSession };
-  }) as EngineResult<SessionRecord>;
+  return { success: true, data: targetSession };
 }
 
 // ===== Session Archive =====
@@ -1750,72 +1704,68 @@ export async function sessionArchive(
   projectRoot: string,
   olderThan?: string
 ): Promise<EngineResult<{ archived: string[]; count: number }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  const accessor = await getAccessor(projectRoot);
+  let todoData;
+  try {
+    todoData = await accessor.loadTodoFile();
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
+  const current = todoData as unknown as TodoFile;
 
-  return await withFileLock<EngineResult<{ archived: string[]; count: number }>>(
-    todoPath,
-    () => {
-      const current = readJsonFile<TodoFile>(todoPath);
-      if (!current) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
-        };
-      }
+  const multiSession = current._meta?.multiSessionEnabled === true;
+  if (!multiSession) {
+    return { success: true, data: { archived: [], count: 0 } };
+  }
 
-      const multiSession = current._meta?.multiSessionEnabled === true;
-      if (!multiSession) {
-        return { success: true, data: { archived: [], count: 0 } };
-      }
+  const sessions = await accessor.loadSessions() as unknown as SessionsFile;
 
-      const sessionsPath = getDataPath(projectRoot, current._meta?.sessionsFile || 'sessions.json');
-      const sessions = readJsonFile<SessionsFile>(sessionsPath);
+  if (!sessions) {
+    return { success: true, data: { archived: [], count: 0 } };
+  }
 
-      if (!sessions) {
-        return { success: true, data: { archived: [], count: 0 } };
-      }
+  const now = new Date();
+  const archivedIds: string[] = [];
 
-      const now = new Date();
-      const archivedIds: string[] = [];
+  // Process both active sessions list and history
+  const allSessionLists = [sessions.sessions, sessions.sessionHistory || []];
 
-      // Process both active sessions list and history
-      const allSessionLists = [sessions.sessions, sessions.sessionHistory || []];
+  for (const list of allSessionLists) {
+    for (const session of list) {
+      if (session.status === 'active' || session.status === 'archived') continue;
 
-      for (const list of allSessionLists) {
-        for (const session of list) {
-          if (session.status === 'active' || session.status === 'archived') continue;
-
-          // Check age threshold
-          if (olderThan) {
-            const sessionDate = session.endedAt || session.suspendedAt || session.lastActivity || session.startedAt;
-            if (sessionDate && new Date(sessionDate) > new Date(olderThan)) {
-              continue;
-            }
-          }
-
-          session.status = 'archived';
-          session.archivedAt = now.toISOString();
-          archivedIds.push(session.id);
+      // Check age threshold
+      if (olderThan) {
+        const sessionDate = session.endedAt || session.suspendedAt || session.lastActivity || session.startedAt;
+        if (sessionDate && new Date(sessionDate) > new Date(olderThan)) {
+          continue;
         }
       }
 
-      if (archivedIds.length > 0) {
-        // Move archived sessions from active list to history
-        const toMove = sessions.sessions.filter((s) => s.status === 'archived');
-        if (!sessions.sessionHistory) sessions.sessionHistory = [];
-        sessions.sessionHistory.push(...toMove);
-        sessions.sessions = sessions.sessions.filter((s) => s.status !== 'archived');
-
-        if (sessions._meta) {
-          sessions._meta.lastModified = now.toISOString();
-        }
-        writeJsonFileAtomic(sessionsPath, sessions);
-      }
-
-      return {
-        success: true,
-        data: { archived: archivedIds, count: archivedIds.length },
-      };
+      session.status = 'archived';
+      session.archivedAt = now.toISOString();
+      archivedIds.push(session.id);
     }
-  ) as EngineResult<{ archived: string[]; count: number }>;
+  }
+
+  if (archivedIds.length > 0) {
+    // Move archived sessions from active list to history
+    const toMove = sessions.sessions.filter((s) => s.status === 'archived');
+    if (!sessions.sessionHistory) sessions.sessionHistory = [];
+    sessions.sessionHistory.push(...toMove);
+    sessions.sessions = sessions.sessions.filter((s) => s.status !== 'archived');
+
+    if (sessions._meta) {
+      sessions._meta.lastModified = now.toISOString();
+    }
+    await accessor.saveSessions(sessions as any);
+  }
+
+  return {
+    success: true,
+    data: { archived: archivedIds, count: archivedIds.length },
+  };
 }

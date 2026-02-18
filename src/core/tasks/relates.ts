@@ -9,6 +9,7 @@ import { getTodoPath, getBackupDir } from '../paths.js';
 import type { TodoFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 interface Relation {
   targetId: string;
@@ -21,8 +22,11 @@ interface Relation {
 export async function suggestRelated(
   taskId: string,
   opts: { threshold?: number; cwd?: string },
+  accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(opts.cwd));
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(opts.cwd));
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
@@ -79,9 +83,12 @@ export async function addRelation(
   type: string,
   reason: string,
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   const fromTask = data.tasks.find(t => t.id === from);
   if (!fromTask) {
@@ -109,7 +116,11 @@ export async function addRelation(
 
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
-  await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+  } else {
+    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  }
 
   return { from, to, type, reason, added: true };
 }
@@ -118,16 +129,20 @@ export async function addRelation(
 export async function discoverRelated(
   taskId: string,
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  return suggestRelated(taskId, { threshold: 30, cwd });
+  return suggestRelated(taskId, { threshold: 30, cwd }, accessor);
 }
 
 /** List existing relations for a task. */
 export async function listRelations(
   taskId: string,
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);

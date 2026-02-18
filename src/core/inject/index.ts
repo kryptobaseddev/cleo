@@ -16,6 +16,7 @@ import { getTodoPath } from '../paths.js';
 import type { TodoFile, Task } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 // TODO(T4539): Replace with @cleocode/caamp injection provider when available
 // import { InstructionInjector } from '@cleocode/caamp';
@@ -83,8 +84,10 @@ export async function injectTasks(opts: {
   saveState?: boolean;
   dryRun?: boolean;
   cwd?: string;
-}): Promise<Record<string, unknown>> {
-  const data = await readJson<TodoFile>(getTodoPath(opts.cwd));
+}, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJson<TodoFile>(getTodoPath(opts.cwd));
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project');
   }

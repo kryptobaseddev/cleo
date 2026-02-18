@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { addTask } from '../../core/tasks/add.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import type { TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
@@ -36,8 +37,8 @@ export function registerAddCommand(program: Command): void {
     .option('--json', 'Output in JSON format (default)')
     .action(async (title: string, opts: Record<string, unknown>) => {
       try {
-        const store = await getStore();
-        const result = await store.addTask({
+        const accessor = await getAccessor();
+        const result = await addTask({
           title,
           status: opts['status'] as TaskStatus | undefined,
           priority: opts['priority'] as TaskPriority | undefined,
@@ -54,7 +55,7 @@ export function registerAddCommand(program: Command): void {
           notes: opts['notes'] as string | undefined,
           position: opts['position'] as number | undefined,
           dryRun: opts['dryRun'] as boolean | undefined,
-        });
+        }, undefined, accessor);
 
         if (result.duplicate) {
           console.log(formatSuccess(

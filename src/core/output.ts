@@ -25,7 +25,7 @@ export type { LafsSuccess, LafsError, LafsEnvelope };
 function createCliMeta(operation: string): LAFSMeta {
   return {
     specVersion: '1.1.0',
-    schemaVersion: '2026.2.0',
+    schemaVersion: '2026.2.1',
     timestamp: new Date().toISOString(),
     operation,
     requestId: randomUUID(),

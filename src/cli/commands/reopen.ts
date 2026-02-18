@@ -7,9 +7,9 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getBackupDir } from '../../core/paths.js';
-import type { TaskStatus, TodoFile } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
+import type { TaskStatus } from '../../types/task.js';
 
 export function registerReopenCommand(program: Command): void {
   program
@@ -30,11 +30,8 @@ export function registerReopenCommand(program: Command): void {
           throw new CleoError(ExitCode.INVALID_INPUT, `Invalid target status: ${targetStatus}. Must be 'pending' or 'active'`);
         }
 
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         const taskIndex = data.tasks.findIndex((t) => t.id === taskId);
         if (taskIndex === -1) {
@@ -74,7 +71,7 @@ export function registerReopenCommand(program: Command): void {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
 
-        await saveJson(todoPath, data, { backupDir: getBackupDir() });
+        await accessor.saveTodoFile(data);
 
         console.log(formatSuccess({
           task: taskId,

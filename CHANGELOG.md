@@ -4,6 +4,29 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [2026.2.1] - 2026-02-17
+
+### Features
+- **SQLite storage activated** — All task domain data (tasks, archive, sessions) now stored in SQLite via DataAccessor abstraction (ADR-002)
+- LAFS type conformance in gateway-meta.ts — GatewayMetaRecord now extends canonical GatewayMeta from @cleocode/lafs-protocol v1.1
+- release-engine.ts migrated to async DataAccessor pattern for todo.json access
+
+### Bug Fixes
+- Fixed T4454 master epic type from "task" to "epic"
+- Cleared stale focus pointer to archived task T4654
+- Resolved T4653 orphan (parent T4638 in archive)
+- Fixed release-engine loadTasks() to use DataAccessor with JSON fallback for tests
+- Fixed release domain handler mutateNative() to properly await async engine functions
+
+### Architecture
+- DataAccessor pattern fully wired: StoreProvider, all MCP engines, all core modules
+- logOperation() accepts optional DataAccessor parameter — 7 bypassed log writes fixed
+- Core guards, changelog, version-check, research modules accept accessor parameter
+- release-engine.ts: releasePrepare, releaseChangelog, releaseGatesRun converted to async
+- Full I/O audit completed: 27 core functions migrated, ~14 correctly direct JSON calls confirmed
+- Storage migration: `cleo migrate-storage --to-sqlite --verify` verified 278 tasks + 3,978 archived + 606 sessions
+- 2,419 tests pass, 0 failures (125 test files)
+
 ## [0.98.4] - 2026-02-14
 
 ### Other Changes

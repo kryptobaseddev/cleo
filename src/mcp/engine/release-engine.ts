@@ -14,6 +14,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { dirname } from 'path';
 import { resolveProjectRoot, readJsonFile, writeJsonFileAtomic, getDataPath } from './store.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { TaskRecord } from './task-engine.js';
 
 /**
@@ -95,25 +96,40 @@ function normalizeVersion(version: string): string {
 }
 
 /**
- * Load tasks from todo.json
+ * Load tasks via DataAccessor (SQLite or JSON depending on engine config).
+ * When projectRoot is explicitly provided (e.g., in tests), uses direct
+ * JSON read to avoid requiring full CLEO initialization.
  */
-function loadTasks(projectRoot?: string): TaskRecord[] {
-  const root = projectRoot || resolveProjectRoot();
-  const todoPath = getDataPath(root, 'todo.json');
-  const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
-  return todoData?.tasks || [];
+async function loadTasks(projectRoot?: string): Promise<TaskRecord[]> {
+  if (projectRoot) {
+    // Explicit root: direct JSON read (test path or custom root)
+    const todoPath = getDataPath(projectRoot, 'todo.json');
+    const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
+    return todoData?.tasks || [];
+  }
+  try {
+    const accessor = await getAccessor();
+    const todoFile = await accessor.loadTodoFile();
+    return (todoFile?.tasks as TaskRecord[]) || [];
+  } catch {
+    // Fallback: direct JSON read when accessor unavailable
+    const root = resolveProjectRoot();
+    const todoPath = getDataPath(root, 'todo.json');
+    const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
+    return todoData?.tasks || [];
+  }
 }
 
 /**
  * release.prepare - Prepare a release
  * @task T4476
  */
-export function releasePrepare(
+export async function releasePrepare(
   version: string,
   tasks?: string[],
   notes?: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!version) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'version is required' } };
   }
@@ -143,14 +159,14 @@ export function releasePrepare(
   // Auto-discover completed tasks if none provided
   let releaseTasks = tasks || [];
   if (releaseTasks.length === 0) {
-    const allTasks = loadTasks(projectRoot);
+    const allTasks = await loadTasks(projectRoot);
     releaseTasks = allTasks
       .filter((t) => t.status === 'done' && t.completedAt)
       .map((t) => t.id);
   }
 
   // Filter out epic IDs (organizational only)
-  const allTasks = loadTasks(projectRoot);
+  const allTasks = await loadTasks(projectRoot);
   const epicIds = new Set(
     allTasks.filter((t) => allTasks.some((c) => c.parentId === t.id)).map((t) => t.id)
   );
@@ -184,10 +200,10 @@ export function releasePrepare(
  * release.changelog - Generate changelog
  * @task T4476
  */
-export function releaseChangelog(
+export async function releaseChangelog(
   version: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!version) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'version is required' } };
   }
@@ -204,7 +220,7 @@ export function releaseChangelog(
   }
 
   // Load task details for changelog
-  const allTasks = loadTasks(projectRoot);
+  const allTasks = await loadTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   // Group tasks by type
@@ -450,10 +466,10 @@ export function releaseTag(
  * release.gates.run - Run release gates (validation checks)
  * @task T4476
  */
-export function releaseGatesRun(
+export async function releaseGatesRun(
   version: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!version) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'version is required' } };
   }
@@ -493,7 +509,7 @@ export function releaseGatesRun(
   });
 
   // Gate 4: All tasks completed
-  const allTasks = loadTasks(projectRoot);
+  const allTasks = await loadTasks(projectRoot);
   const incompleteTasks = release.tasks.filter((id) => {
     const task = allTasks.find((t) => t.id === id);
     return task && task.status !== 'done';

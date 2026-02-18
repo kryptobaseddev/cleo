@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoHome } from '../paths.js';
 import { readJson } from '../../store/json.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Commands that handle their own version checks (skip warnings). */
 const VERSION_CHECK_SKIP_COMMANDS = new Set([
@@ -34,6 +35,7 @@ export interface VersionCheckResult {
  */
 export async function checkProjectNeedsUpdate(
   projectDir: string = '.',
+  accessor?: DataAccessor,
 ): Promise<VersionCheckResult> {
   const warnings: string[] = [];
   const todoFile = join(projectDir, '.cleo', 'todo.json');
@@ -45,7 +47,9 @@ export async function checkProjectNeedsUpdate(
   }
 
   // Check schema version
-  const todoData = await readJson<Record<string, unknown>>(todoFile);
+  const todoData = accessor
+    ? (await accessor.loadTodoFile()) as unknown as Record<string, unknown>
+    : await readJson<Record<string, unknown>>(todoFile);
   if (todoData) {
     const meta = todoData._meta as Record<string, unknown> | undefined;
     const currentVersion = meta?.schemaVersion as string | undefined;

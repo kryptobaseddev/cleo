@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.2.0-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.2.1-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -865,7 +865,7 @@ CLEO_FORMAT=json              # Force output format
 your-project/.cleo/          # Per-project instance
 ├── todo.json                # Active tasks (source of truth)
 ├── todo-archive.json        # Completed tasks (immutable)
-├── todo-log.json            # Audit trail (append-only)
+├── todo-log.jsonl           # Audit trail (append-only)
 ├── config.json              # Project configuration
 └── .backups/                # Automatic versioned backups
 ```

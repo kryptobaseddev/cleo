@@ -11,9 +11,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
-import { getCleoDir, getTodoPath } from '../../core/paths.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import type { TodoFile } from '../../types/task.js';
+import { getCleoDir } from '../../core/paths.js';
+import { readJson, computeChecksum } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 /**
  * Check if inside a git repository.
@@ -100,11 +100,11 @@ export function registerSafestopCommand(program: Command): void {
         const dryRun = opts['dryRun'] as boolean ?? false;
 
         const cleoDir = getCleoDir();
-        const todoPath = getTodoPath();
         const percentage = await getContextPercentage(cleoDir);
 
         // Get focused task
-        const todoData = await readJson<TodoFile>(todoPath);
+        const accessor = await getAccessor();
+        const todoData = await accessor.loadTodoFile();
         const taskId = todoData?.focus?.currentTask ?? null;
         const taskTitle = taskId
           ? todoData?.tasks.find((t) => t.id === taskId)?.title ?? null
@@ -203,7 +203,7 @@ export function registerSafestopCommand(program: Command): void {
         if (taskId && todoData) {
           todoData._meta.checksum = computeChecksum(todoData.tasks);
           todoData.lastUpdated = new Date().toISOString();
-          await saveJson(todoPath, todoData);
+          await accessor.saveTodoFile(todoData);
         }
 
         console.log(formatSuccess({

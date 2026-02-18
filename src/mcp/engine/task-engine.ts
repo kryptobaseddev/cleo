@@ -11,18 +11,18 @@
  * @epic T4654
  */
 
-import { readJsonFile, readLogFileEntries, writeJsonFileAtomic, withFileLock, withMultiLock, getDataPath } from './store.js';
-import { getStore } from '../../store/index.js';
+import { readJsonFile, readLogFileEntries, getDataPath } from './store.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';
-// validateTask available from schema-validator but not currently used directly
-import {
-  validateNewTask,
-  validateTitleDescription,
-  validateStatusTransition,
-  hasErrors,
-  type RuleViolation,
-} from './validation-rules.js';
-import { generateNextIdFromSet, collectAllIds } from './id-generator.js';
+// validation-rules.js still used by other engines; core modules handle their own validation
+// Core module imports for accessor-based operations
+import { addTask as coreAddTask } from '../../core/tasks/add.js';
+import { updateTask as coreUpdateTask } from '../../core/tasks/update.js';
+import { deleteTask as coreDeleteTask } from '../../core/tasks/delete.js';
+import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
+import { showTask as coreShowTask } from '../../core/tasks/show.js';
+import { listTasks as coreListTasks } from '../../core/tasks/list.js';
+import { findTasks as coreFindTasks } from '../../core/tasks/find.js';
 
 /**
  * Read hierarchy limits from .cleo/config.json.
@@ -47,15 +47,16 @@ function getHierarchyLimits(projectRoot: string): { maxDepth: number; maxSibling
 }
 
 /**
- * Load all tasks via StoreProvider.
- * Returns Task[] from the store abstraction layer.
+ * Load all tasks via DataAccessor.
+ * Returns Task[] from the accessor abstraction layer.
  *
  * @task T4657
  * @epic T4654
  */
 async function loadAllTasksAsync(projectRoot: string): Promise<Task[]> {
-  const store = await getStore(projectRoot);
-  return store.listTasks();
+  const accessor = await getAccessor(projectRoot);
+  const data = await accessor.loadTodoFile();
+  return data.tasks;
 }
 
 /**
@@ -121,43 +122,7 @@ export interface TaskRecord {
   cancellationReason?: string;
 }
 
-/**
- * The full todo.json structure
- */
-interface TodoFile {
-  version?: string;
-  project?: {
-    name: string;
-    currentPhase?: string | null;
-    phases?: Record<string, unknown>;
-    phaseHistory?: unknown[];
-    releases?: unknown[];
-  };
-  lastUpdated?: string;
-  focus?: {
-    currentTask?: string | null;
-    currentPhase?: string | null;
-    blockedUntil?: string | null;
-    sessionNote?: string | null;
-    sessionNotes?: unknown[];
-    nextAction?: string | null;
-    primarySession?: string | null;
-  };
-  _meta?: {
-    schemaVersion: string;
-    specVersion?: string;
-    checksum?: string;
-    configVersion?: string;
-    lastSessionId?: string | null;
-    activeSession?: string | null;
-    multiSessionEnabled?: boolean;
-    activeSessionCount?: number;
-    sessionsFile?: string | null;
-    generation?: number;
-  };
-  tasks: TaskRecord[];
-  labels?: Record<string, string[]>;
-}
+// Local TodoFile interface removed — DataAccessor uses the canonical TodoFile from types/task.ts.
 
 /**
  * Minimal task representation for find results
@@ -183,77 +148,11 @@ export interface EngineResult<T = unknown> {
   };
 }
 
-/**
- * Load the todo.json file
- */
-function loadTodoFile(projectRoot: string): TodoFile | null {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  return readJsonFile<TodoFile>(todoPath);
-}
+// loadTodoFile and saveTodoFile removed — all operations now use DataAccessor.
+// Config reads (hierarchy limits, phase meta) still use readJsonFile directly
+// since they are NOT domain data (they don't go through the accessor).
 
-/**
- * Compute SHA-256 truncated checksum for _meta
- */
-function computeChecksum(tasks: TaskRecord[]): string {
-  const { createHash } = require('crypto');
-  const content = JSON.stringify(tasks);
-  return createHash('sha256').update(content).digest('hex').substring(0, 16);
-}
-
-/**
- * Save todo.json with updated metadata
- */
-function saveTodoFile(projectRoot: string, data: TodoFile): void {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  // Update metadata
-  data.lastUpdated = new Date().toISOString();
-  if (data._meta) {
-    data._meta.checksum = computeChecksum(data.tasks);
-    data._meta.generation = (data._meta.generation || 0) + 1;
-  }
-
-  writeJsonFileAtomic(todoPath, data);
-}
-
-/**
- * Mapping from numeric priority (1-9) to canonical string priority.
- * @task T4572
- */
-const NUMERIC_PRIORITY_MAP: Record<number, string> = {
-  1: 'critical', 2: 'critical',
-  3: 'high', 4: 'high',
-  5: 'medium', 6: 'medium',
-  7: 'low', 8: 'low', 9: 'low',
-};
-
-const VALID_STRING_PRIORITIES = ['critical', 'high', 'medium', 'low'];
-
-/**
- * Normalize priority to canonical string format.
- * Accepts: "critical"|"high"|"medium"|"low" or numeric 1-9 (number or string).
- * @task T4572
- */
-function normalizePriority(priority: string | number | undefined): string {
-  if (priority === undefined || priority === null) return 'medium';
-
-  if (typeof priority === 'number') {
-    return NUMERIC_PRIORITY_MAP[priority] || 'medium';
-  }
-
-  // Check for numeric string
-  const asNum = Number(priority);
-  if (!Number.isNaN(asNum) && Number.isInteger(asNum) && asNum >= 1 && asNum <= 9) {
-    return NUMERIC_PRIORITY_MAP[asNum]!;
-  }
-
-  const lower = String(priority).toLowerCase().trim();
-  if (VALID_STRING_PRIORITIES.includes(lower)) {
-    return lower;
-  }
-
-  return 'medium';
-}
+// Priority normalization moved to core/tasks/add.ts (normalizePriority)
 
 // ===== Query Operations =====
 
@@ -267,19 +166,17 @@ export async function taskShow(
   taskId: string
 ): Promise<EngineResult<TaskRecord>> {
   try {
-    const store = await getStore(projectRoot);
-    const task = await store.getTask(taskId);
-    if (!task) {
+    const accessor = await getAccessor(projectRoot);
+    const detail = await coreShowTask(taskId, projectRoot, accessor);
+    return { success: true, data: taskToRecord(detail) };
+  } catch (err: unknown) {
+    const code = (err as { code?: number })?.code;
+    if (code === 5 /* NOT_FOUND */) {
       return {
         success: false,
-        error: {
-          code: 'E_NOT_FOUND',
-          message: `Task '${taskId}' not found`,
-        },
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
       };
     }
-    return { success: true, data: taskToRecord(task) };
-  } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
 }
@@ -298,13 +195,13 @@ export async function taskList(
   }
 ): Promise<EngineResult<TaskRecord[]>> {
   try {
-    const store = await getStore(projectRoot);
-    const allTasks = await store.listTasks({
+    const accessor = await getAccessor(projectRoot);
+    const result = await coreListTasks({
       parentId: params?.parent ?? undefined,
       status: params?.status as import('../../types/task.js').TaskStatus | undefined,
       limit: params?.limit,
-    });
-    return { success: true, data: tasksToRecords(allTasks) };
+    }, projectRoot, accessor);
+    return { success: true, data: tasksToRecords(result.tasks) };
   } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
   }
@@ -321,54 +218,19 @@ export async function taskFind(
   limit?: number
 ): Promise<EngineResult<MinimalTaskRecord[]>> {
   try {
-    const tasks = await loadAllTasksAsync(projectRoot);
+    const accessor = await getAccessor(projectRoot);
+    const findResult = await coreFindTasks({
+      query,
+      limit: limit ?? 20,
+    }, projectRoot, accessor);
 
-    const queryLower = query.toLowerCase();
-
-    // Score-based fuzzy matching
-    const scored = tasks
-      .map((task) => {
-        let score = 0;
-        const idLower = task.id.toLowerCase();
-        const titleLower = task.title.toLowerCase();
-        const descLower = (task.description || '').toLowerCase();
-
-        // Exact ID match
-        if (idLower === queryLower) score += 100;
-        // ID contains query
-        else if (idLower.includes(queryLower)) score += 50;
-
-        // Exact title match
-        if (titleLower === queryLower) score += 80;
-        // Title starts with query
-        else if (titleLower.startsWith(queryLower)) score += 40;
-        // Title contains query
-        else if (titleLower.includes(queryLower)) score += 20;
-
-        // Description contains query
-        if (descLower.includes(queryLower)) score += 10;
-
-        // Label match
-        if (task.labels?.some((l) => l.toLowerCase().includes(queryLower))) {
-          score += 15;
-        }
-
-        return { task, score };
-      })
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score);
-
-    let results = scored.map((item) => ({
-      id: item.task.id,
-      title: item.task.title,
-      status: item.task.status,
-      priority: item.task.priority,
-      parentId: item.task.parentId,
+    const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
+      id: r.id,
+      title: r.title,
+      status: r.status,
+      priority: r.priority,
+      parentId: r.parentId,
     }));
-
-    if (limit && limit > 0) {
-      results = results.slice(0, limit);
-    }
 
     return { success: true, data: results };
   } catch {
@@ -386,9 +248,10 @@ export async function taskExists(
   taskId: string
 ): Promise<EngineResult<{ exists: boolean; taskId: string }>> {
   try {
-    const store = await getStore(projectRoot);
-    const task = await store.getTask(taskId);
-    return { success: true, data: { exists: task !== null, taskId } };
+    const accessor = await getAccessor(projectRoot);
+    const data = await accessor.loadTodoFile();
+    const exists = data.tasks.some((t) => t.id === taskId);
+    return { success: true, data: { exists, taskId } };
   } catch {
     return { success: true, data: { exists: false, taskId } };
   }
@@ -411,120 +274,43 @@ export async function taskCreate(
     type?: string;
   }
 ): Promise<EngineResult<TaskRecord>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<TaskRecord>>(todoPath, () => {
-    const current = loadTodoFile(projectRoot);
-    if (!current || !current.tasks) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-      };
-    }
-
-    // Collect all IDs for uniqueness check
-    const allIds = new Set(current.tasks.map((t) => t.id));
-    // Also check archive
-    const archiveIds = collectAllIds(projectRoot);
-    for (const id of archiveIds) allIds.add(id);
-
-    // Generate new ID
-    const newId = generateNextIdFromSet(allIds);
-
-    // Get existing descriptions for duplicate check
-    const existingDescriptions = current.tasks
-      .map((t) => t.description)
-      .filter(Boolean) as string[];
-
-    // Validate (with hierarchy limits from config)
-    const limits = getHierarchyLimits(projectRoot);
-    const violations = validateNewTask(
-      {
-        id: newId,
-        title: params.title,
-        description: params.description,
-        parentId: params.parent || null,
-        type: params.type,
-      },
-      allIds,
-      existingDescriptions,
-      current.tasks.map((t) => ({
-        id: t.id,
-        parentId: t.parentId,
-        type: t.type,
-      })),
-      limits
-    );
-
-    if (hasErrors(violations)) {
-      const errorViolations = violations.filter((v) => v.severity === 'error');
-      const errorMessages = errorViolations.map((v) => v.message);
-
-      // Map specific violation rules to specific error codes
-      let code = 'E_VALIDATION_FAILED';
-      const rules = errorViolations.map((v) => v.rule);
-      if (rules.includes('parent-exists')) code = 'E_PARENT_NOT_FOUND';
-      else if (rules.includes('max-depth')) code = 'E_DEPTH_EXCEEDED';
-      else if (rules.includes('max-siblings')) code = 'E_SIBLING_LIMIT';
-
-      return {
-        success: false,
-        error: {
-          code,
-          message: errorMessages.join('; '),
-          details: violations,
-        },
-      };
-    }
-
-    const now = new Date().toISOString();
-
-    // Determine type from parent
-    let taskType = params.type || 'task';
-    if (params.parent) {
-      const parent = current.tasks.find((t) => t.id === params.parent);
-      if (parent) {
-        if (parent.type === 'epic') taskType = 'task';
-        else if (parent.type === 'task') taskType = 'subtask';
-      }
-    }
-
-    const newTask: TaskRecord = {
-      id: newId,
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await coreAddTask({
       title: params.title,
       description: params.description,
-      status: 'pending',
-      priority: normalizePriority(params.priority),
-      type: taskType,
-      createdAt: now,
-      updatedAt: null,
       parentId: params.parent || null,
-      depends: params.depends || [],
-      labels: params.labels || [],
-      acceptance: [],
-      notes: [],
-      files: [],
-    };
+      depends: params.depends,
+      priority: (params.priority as import('../../types/task.js').TaskPriority) || 'medium',
+      labels: params.labels,
+      type: (params.type as import('../../types/task.js').TaskType) || undefined,
+    }, projectRoot, accessor);
 
-    current.tasks.push(newTask);
-
-    // Update metadata
-    current.lastUpdated = now;
-    if (current._meta) {
-      current._meta.checksum = computeChecksum(current.tasks);
-      current._meta.generation = (current._meta.generation || 0) + 1;
+    if (result.duplicate) {
+      return {
+        success: true,
+        data: taskToRecord(result.task),
+      };
     }
 
-    // Write back (the lock handler will write this)
-    // But withLock expects us to return the full file data for writing
-    // We need to restructure: return the file for writing and wrap differently
-
-    // Actually, withLock writes the return value as the file content.
-    // We need to handle this differently - write the file ourselves and return the result.
-    writeJsonFileAtomic(todoPath, current);
-
-    return { success: true, data: newTask };
-  }) as EngineResult<TaskRecord>;
+    return { success: true, data: taskToRecord(result.task) };
+  } catch (err: unknown) {
+    const cleoErr = err as { code?: number; message?: string };
+    // Map CleoError exit codes to engine error codes
+    if (cleoErr.code === 7 /* PARENT_NOT_FOUND */) {
+      return { success: false, error: { code: 'E_PARENT_NOT_FOUND', message: cleoErr.message ?? 'Parent task not found' } };
+    }
+    if (cleoErr.code === 9 /* DEPTH_EXCEEDED */) {
+      return { success: false, error: { code: 'E_DEPTH_EXCEEDED', message: cleoErr.message ?? 'Max hierarchy depth exceeded' } };
+    }
+    if (cleoErr.code === 10 /* SIBLING_LIMIT */) {
+      return { success: false, error: { code: 'E_SIBLING_LIMIT', message: cleoErr.message ?? 'Max siblings exceeded' } };
+    }
+    if (cleoErr.code === 4 /* VALIDATION_ERROR */ || cleoErr.code === 3 /* INVALID_INPUT */) {
+      return { success: false, error: { code: 'E_VALIDATION_FAILED', message: cleoErr.message ?? 'Validation failed' } };
+    }
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+  }
 }
 
 /**
@@ -544,88 +330,34 @@ export async function taskUpdate(
     acceptance?: string[];
   }
 ): Promise<EngineResult<TaskRecord>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await coreUpdateTask({
+      taskId,
+      title: updates.title,
+      description: updates.description,
+      status: updates.status as import('../../types/task.js').TaskStatus | undefined,
+      priority: updates.priority as import('../../types/task.js').TaskPriority | undefined,
+      notes: updates.notes,
+      labels: updates.labels,
+      depends: updates.depends,
+      acceptance: updates.acceptance,
+    }, projectRoot, accessor);
 
-  return await withFileLock<EngineResult<TaskRecord>>(todoPath, () => {
-    const current = loadTodoFile(projectRoot);
-    if (!current || !current.tasks) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-      };
+    return { success: true, data: taskToRecord(result.task) };
+  } catch (err: unknown) {
+    const cleoErr = err as { code?: number; message?: string };
+    if (cleoErr.code === 5 /* NOT_FOUND */) {
+      return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? `Task '${taskId}' not found` } };
     }
-
-    const taskIndex = current.tasks.findIndex((t) => t.id === taskId);
-    if (taskIndex === -1) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-      };
+    if (cleoErr.code === 4 /* VALIDATION_ERROR */ || cleoErr.code === 3 /* INVALID_INPUT */) {
+      return { success: false, error: { code: 'E_VALIDATION_FAILED', message: cleoErr.message ?? 'Validation failed' } };
     }
-
-    const task = current.tasks[taskIndex];
-    const violations: RuleViolation[] = [];
-
-    // Validate title/description if being updated
-    if (updates.title !== undefined || updates.description !== undefined) {
-      const newTitle = updates.title ?? task.title;
-      const newDesc = updates.description ?? task.description;
-      violations.push(...validateTitleDescription(newTitle, newDesc));
+    if (cleoErr.code === 50 /* NO_CHANGE */) {
+      return { success: false, error: { code: 'E_NO_CHANGE', message: cleoErr.message ?? 'No changes specified' } };
     }
-
-    // Validate status transition
-    if (updates.status && updates.status !== task.status) {
-      violations.push(...validateStatusTransition(task.status, updates.status));
-    }
-
-    if (hasErrors(violations)) {
-      const errorMessages = violations
-        .filter((v) => v.severity === 'error')
-        .map((v) => v.message);
-      return {
-        success: false,
-        error: {
-          code: 'E_VALIDATION_FAILED',
-          message: errorMessages.join('; '),
-          details: violations,
-        },
-      };
-    }
-
-    const now = new Date().toISOString();
-
-    // Apply updates
-    if (updates.title !== undefined) task.title = updates.title;
-    if (updates.description !== undefined) task.description = updates.description;
-    if (updates.priority !== undefined) task.priority = normalizePriority(updates.priority);
-    if (updates.labels !== undefined) task.labels = updates.labels;
-    if (updates.depends !== undefined) task.depends = updates.depends;
-    if (updates.acceptance !== undefined) task.acceptance = updates.acceptance;
-
-    if (updates.status !== undefined) {
-      task.status = updates.status;
-      if (updates.status === 'done') {
-        task.completedAt = now;
-      }
-      if (updates.status === 'cancelled') {
-        task.cancelledAt = now;
-      }
-    }
-
-    // Append note if provided
-    if (updates.notes) {
-      if (!task.notes) task.notes = [];
-      task.notes.push(`[${now}] ${updates.notes}`);
-    }
-
-    task.updatedAt = now;
-    current.tasks[taskIndex] = task;
-
-    // Save
-    saveTodoFile(projectRoot, current);
-
-    return { success: true, data: task };
-  }) as EngineResult<TaskRecord>;
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+  }
 }
 
 /**
@@ -650,64 +382,25 @@ export async function taskDelete(
   taskId: string,
   force?: boolean
 ): Promise<EngineResult<{ deleted: boolean; taskId: string }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
+  try {
+    const accessor = await getAccessor(projectRoot);
+    await coreDeleteTask({
+      taskId,
+      force: force ?? false,
+      cascade: force ?? false,
+    }, projectRoot, accessor);
 
-  return await withFileLock<EngineResult<{ deleted: boolean; taskId: string }>>(
-    todoPath,
-    () => {
-      const current = loadTodoFile(projectRoot);
-      if (!current || !current.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      const taskIndex = current.tasks.findIndex((t) => t.id === taskId);
-      if (taskIndex === -1) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-        };
-      }
-
-      // Check for children
-      if (!force) {
-        const children = current.tasks.filter((t) => t.parentId === taskId);
-        if (children.length > 0) {
-          return {
-            success: false,
-            error: {
-              code: 'E_HAS_CHILDREN',
-              message: `Task '${taskId}' has ${children.length} children. Use force=true to delete anyway.`,
-            },
-          };
-        }
-      }
-
-      // Remove task (and optionally children if force)
-      if (force) {
-        const toRemove = new Set<string>([taskId]);
-        // Collect all descendants
-        const collectDescendants = (parentId: string) => {
-          for (const t of current.tasks) {
-            if (t.parentId === parentId && !toRemove.has(t.id)) {
-              toRemove.add(t.id);
-              collectDescendants(t.id);
-            }
-          }
-        };
-        collectDescendants(taskId);
-        current.tasks = current.tasks.filter((t) => !toRemove.has(t.id));
-      } else {
-        current.tasks.splice(taskIndex, 1);
-      }
-
-      saveTodoFile(projectRoot, current);
-
-      return { success: true, data: { deleted: true, taskId } };
+    return { success: true, data: { deleted: true, taskId } };
+  } catch (err: unknown) {
+    const cleoErr = err as { code?: number; message?: string };
+    if (cleoErr.code === 5 /* NOT_FOUND */) {
+      return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? `Task '${taskId}' not found` } };
     }
-  ) as EngineResult<{ deleted: boolean; taskId: string }>;
+    if (cleoErr.code === 11 /* HAS_CHILDREN */) {
+      return { success: false, error: { code: 'E_HAS_CHILDREN', message: cleoErr.message ?? `Task '${taskId}' has children` } };
+    }
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+  }
 }
 
 /**
@@ -719,115 +412,24 @@ export async function taskArchive(
   taskId?: string,
   before?: string
 ): Promise<EngineResult<{ archived: number; taskIds: string[] }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const archivePath = getDataPath(projectRoot, 'todo-archive.json');
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await coreArchiveTasks({
+      taskIds: taskId ? [taskId] : undefined,
+      before,
+    }, projectRoot, accessor);
 
-  return await withMultiLock<EngineResult<{ archived: number; taskIds: string[] }>>(
-    [todoPath, archivePath],
-    () => {
-      const todo = readJsonFile<TodoFile>(todoPath);
-      if (!todo || !todo.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      // Determine which tasks to archive
-      let tasksToArchive: TaskRecord[];
-
-      if (taskId) {
-        const task = todo.tasks.find((t) => t.id === taskId);
-        if (!task) {
-          return {
-            success: false,
-            error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-          };
-        }
-        if (task.status !== 'done' && task.status !== 'cancelled') {
-          return {
-            success: false,
-            error: {
-              code: 'E_INVALID_STATUS',
-              message: `Task '${taskId}' has status '${task.status}', must be done or cancelled to archive`,
-            },
-          };
-        }
-        tasksToArchive = [task];
-      } else {
-        // Archive all completed tasks
-        tasksToArchive = todo.tasks.filter((t) => {
-          if (t.status !== 'done' && t.status !== 'cancelled') return false;
-          if (before) {
-            const completedDate = t.completedAt || t.cancelledAt;
-            if (completedDate && completedDate > before) return false;
-          }
-          return true;
-        });
-      }
-
-      if (tasksToArchive.length === 0) {
-        return { success: true, data: { archived: 0, taskIds: [] } };
-      }
-
-      // Load or create archive
-      let archive = readJsonFile<{
-        version?: string;
-        project?: string;
-        _meta?: {
-          schemaVersion: string;
-          totalArchived: number;
-          lastArchived: string | null;
-        };
-        archivedTasks: Array<TaskRecord & { _archive?: Record<string, unknown> }>;
-      }>(archivePath);
-
-      if (!archive) {
-        archive = {
-          _meta: {
-            schemaVersion: '2.4.0',
-            totalArchived: 0,
-            lastArchived: null,
-          },
-          archivedTasks: [],
-        };
-      }
-
-      const now = new Date().toISOString();
-      const archivedIds: string[] = [];
-
-      // Move tasks to archive
-      for (const task of tasksToArchive) {
-        const archivedTask = {
-          ...task,
-          _archive: {
-            archivedAt: now,
-            reason: taskId ? 'manual' : 'auto',
-          },
-        };
-        archive.archivedTasks.push(archivedTask);
-        archivedIds.push(task.id);
-      }
-
-      // Remove from todo
-      todo.tasks = todo.tasks.filter((t) => !archivedIds.includes(t.id));
-
-      // Update archive metadata
-      if (archive._meta) {
-        archive._meta.totalArchived = archive.archivedTasks.length;
-        archive._meta.lastArchived = now;
-      }
-
-      // Save both files
-      writeJsonFileAtomic(todoPath, todo);
-      writeJsonFileAtomic(archivePath, archive);
-
-      return {
-        success: true,
-        data: { archived: archivedIds.length, taskIds: archivedIds },
-      };
+    return {
+      success: true,
+      data: { archived: result.archived.length, taskIds: result.archived },
+    };
+  } catch (err: unknown) {
+    const cleoErr = err as { code?: number; message?: string };
+    if (cleoErr.code === 5 /* NOT_FOUND */) {
+      return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? `Task not found` } };
     }
-  );
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+  }
 }
 
 // ===== Scoring & Analysis Operations =====
@@ -1300,55 +902,56 @@ export async function taskRelatesAdd(
   type: string,
   reason?: string
 ): Promise<EngineResult<{ from: string; to: string; type: string; added: boolean }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<{ from: string; to: string; type: string; added: boolean }>>(
-    todoPath,
-    () => {
-      const current = loadTodoFile(projectRoot);
-      if (!current || !current.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      const fromTask = current.tasks.find((t) => t.id === taskId);
-      if (!fromTask) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-        };
-      }
-
-      const toTask = current.tasks.find((t) => t.id === relatedId);
-      if (!toTask) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${relatedId}' not found` },
-        };
-      }
-
-      if (!fromTask.relates) {
-        fromTask.relates = [];
-      }
-
-      fromTask.relates.push({
-        taskId: relatedId,
-        type,
-        reason: reason || undefined,
-      });
-
-      fromTask.updatedAt = new Date().toISOString();
-
-      saveTodoFile(projectRoot, current);
-
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const current = await accessor.loadTodoFile();
+    if (!current || !current.tasks) {
       return {
-        success: true,
-        data: { from: taskId, to: relatedId, type, added: true },
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
       };
     }
-  ) as EngineResult<{ from: string; to: string; type: string; added: boolean }>;
+
+    const fromTask = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
+    if (!fromTask) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+      };
+    }
+
+    const toTask = current.tasks.find((t) => t.id === relatedId);
+    if (!toTask) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${relatedId}' not found` },
+      };
+    }
+
+    if (!fromTask.relates) {
+      fromTask.relates = [];
+    }
+
+    fromTask.relates.push({
+      taskId: relatedId,
+      type,
+      reason: reason || undefined,
+    });
+
+    fromTask.updatedAt = new Date().toISOString();
+
+    await accessor.saveTodoFile(current);
+
+    return {
+      success: true,
+      data: { from: taskId, to: relatedId, type, added: true },
+    };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to update task relations' },
+    };
+  }
 }
 
 // ===== Analysis Operations =====
@@ -1482,74 +1085,75 @@ export async function taskRestore(
   taskId: string,
   params?: { cascade?: boolean; notes?: string }
 ): Promise<EngineResult<{ task: string; restored: string[]; count: number }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<{ task: string; restored: string[]; count: number }>>(
-    todoPath,
-    () => {
-      const current = loadTodoFile(projectRoot);
-      if (!current || !current.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      const task = current.tasks.find((t) => t.id === taskId);
-      if (!task) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-        };
-      }
-
-      if (task.status !== 'cancelled') {
-        return {
-          success: false,
-          error: {
-            code: 'E_INVALID_STATUS',
-            message: `Task '${taskId}' is not cancelled (status: ${task.status}). Only cancelled tasks can be restored.`,
-          },
-        };
-      }
-
-      // Collect tasks to restore
-      const tasksToRestore = [task];
-      if (params?.cascade) {
-        const findCancelledChildren = (parentId: string): void => {
-          const children = current.tasks.filter(
-            (t) => t.parentId === parentId && t.status === 'cancelled',
-          );
-          for (const child of children) {
-            tasksToRestore.push(child);
-            findCancelledChildren(child.id);
-          }
-        };
-        findCancelledChildren(taskId);
-      }
-
-      const now = new Date().toISOString();
-      const restored: string[] = [];
-
-      for (const t of tasksToRestore) {
-        t.status = 'pending';
-        t.cancelledAt = null;
-        t.cancellationReason = undefined;
-        t.updatedAt = now;
-
-        if (!t.notes) t.notes = [];
-        t.notes.push(`[${now}] Restored from cancelled${params?.notes ? ': ' + params.notes : ''}`);
-        restored.push(t.id);
-      }
-
-      saveTodoFile(projectRoot, current);
-
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const current = await accessor.loadTodoFile();
+    if (!current || !current.tasks) {
       return {
-        success: true,
-        data: { task: taskId, restored, count: restored.length },
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
       };
     }
-  ) as EngineResult<{ task: string; restored: string[]; count: number }>;
+
+    const task = current.tasks.find((t) => t.id === taskId);
+    if (!task) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+      };
+    }
+
+    if (task.status !== 'cancelled') {
+      return {
+        success: false,
+        error: {
+          code: 'E_INVALID_STATUS',
+          message: `Task '${taskId}' is not cancelled (status: ${task.status}). Only cancelled tasks can be restored.`,
+        },
+      };
+    }
+
+    // Collect tasks to restore (cast to TaskRecord for mutation)
+    const tasksToRestore: TaskRecord[] = [task as unknown as TaskRecord];
+    if (params?.cascade) {
+      const findCancelledChildren = (parentId: string): void => {
+        const children = current.tasks.filter(
+          (t) => t.parentId === parentId && t.status === 'cancelled',
+        );
+        for (const child of children) {
+          tasksToRestore.push(child as unknown as TaskRecord);
+          findCancelledChildren(child.id);
+        }
+      };
+      findCancelledChildren(taskId);
+    }
+
+    const now = new Date().toISOString();
+    const restored: string[] = [];
+
+    for (const t of tasksToRestore) {
+      t.status = 'pending';
+      t.cancelledAt = null;
+      t.cancellationReason = undefined;
+      t.updatedAt = now;
+
+      if (!t.notes) t.notes = [];
+      t.notes.push(`[${now}] Restored from cancelled${params?.notes ? ': ' + params.notes : ''}`);
+      restored.push(t.id);
+    }
+
+    await accessor.saveTodoFile(current);
+
+    return {
+      success: true,
+      data: { task: taskId, restored, count: restored.length },
+    };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to restore task' },
+    };
+  }
 }
 
 /**
@@ -1560,94 +1164,81 @@ export async function taskUnarchive(
   taskId: string,
   params?: { status?: string; preserveStatus?: boolean }
 ): Promise<EngineResult<{ task: string; unarchived: boolean; title: string; status: string }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const archivePath = getDataPath(projectRoot, 'todo-archive.json');
-
-  return await withMultiLock<EngineResult<{ task: string; unarchived: boolean; title: string; status: string }>>(
-    [todoPath, archivePath],
-    () => {
-      const todo = readJsonFile<TodoFile>(todoPath);
-      if (!todo || !todo.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      const archive = readJsonFile<{
-        _meta?: {
-          schemaVersion: string;
-          totalArchived: number;
-          lastArchived: string | null;
-        };
-        archivedTasks: Array<TaskRecord & { _archive?: Record<string, unknown> }>;
-      }>(archivePath);
-
-      if (!archive || !archive.archivedTasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: 'No archive file found' },
-        };
-      }
-
-      const taskIndex = archive.archivedTasks.findIndex((t) => t.id === taskId);
-      if (taskIndex === -1) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found in archive` },
-        };
-      }
-
-      // Check for ID collision
-      if (todo.tasks.some((t) => t.id === taskId)) {
-        return {
-          success: false,
-          error: { code: 'E_ID_COLLISION', message: `Task '${taskId}' already exists in todo.json` },
-        };
-      }
-
-      const task = archive.archivedTasks[taskIndex];
-
-      // Remove archive metadata
-      delete task._archive;
-
-      // Set status
-      if (!params?.preserveStatus) {
-        const targetStatus = params?.status || 'pending';
-        task.status = targetStatus;
-        if (targetStatus !== 'done') {
-          task.completedAt = null;
-        }
-      }
-
-      task.updatedAt = new Date().toISOString();
-
-      // Add to todo.json
-      todo.tasks.push(task);
-
-      // Remove from archive
-      archive.archivedTasks.splice(taskIndex, 1);
-
-      // Update archive metadata
-      if (archive._meta) {
-        archive._meta.totalArchived = archive.archivedTasks.length;
-      }
-
-      // Save both files
-      writeJsonFileAtomic(todoPath, todo);
-      writeJsonFileAtomic(archivePath, archive);
-
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const todo = await accessor.loadTodoFile();
+    if (!todo || !todo.tasks) {
       return {
-        success: true,
-        data: {
-          task: taskId,
-          unarchived: true,
-          title: task.title,
-          status: task.status,
-        },
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
       };
     }
-  );
+
+    const archive = await accessor.loadArchive();
+    if (!archive || !archive.archivedTasks) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: 'No archive file found' },
+      };
+    }
+
+    const taskIndex = archive.archivedTasks.findIndex((t) => t.id === taskId);
+    if (taskIndex === -1) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found in archive` },
+      };
+    }
+
+    // Check for ID collision
+    if (todo.tasks.some((t) => t.id === taskId)) {
+      return {
+        success: false,
+        error: { code: 'E_ID_COLLISION', message: `Task '${taskId}' already exists in todo.json` },
+      };
+    }
+
+    const task = archive.archivedTasks[taskIndex] as TaskRecord & { _archive?: Record<string, unknown> };
+
+    // Remove archive metadata
+    delete task._archive;
+
+    // Set status
+    if (!params?.preserveStatus) {
+      const targetStatus = params?.status || 'pending';
+      task.status = targetStatus;
+      if (targetStatus !== 'done') {
+        task.completedAt = null;
+      }
+    }
+
+    task.updatedAt = new Date().toISOString();
+
+    // Add to todo.json
+    (todo.tasks as unknown as TaskRecord[]).push(task);
+
+    // Remove from archive
+    archive.archivedTasks.splice(taskIndex, 1);
+
+    // Save both files via accessor
+    await accessor.saveTodoFile(todo);
+    await accessor.saveArchive(archive);
+
+    return {
+      success: true,
+      data: {
+        task: taskId,
+        unarchived: true,
+        title: task.title,
+        status: task.status,
+      },
+    };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to unarchive task' },
+    };
+  }
 }
 
 // ===== Hierarchy Mutation Operations =====
@@ -1660,63 +1251,64 @@ export async function taskReorder(
   taskId: string,
   position: number
 ): Promise<EngineResult<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }>>(
-    todoPath,
-    () => {
-      const current = loadTodoFile(projectRoot);
-      if (!current || !current.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      const task = current.tasks.find((t) => t.id === taskId);
-      if (!task) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-        };
-      }
-
-      // Get all siblings (same parent, including self), sorted by position
-      const allSiblings = current.tasks
-        .filter((t) => t.parentId === task.parentId)
-        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-
-      const currentIndex = allSiblings.findIndex((t) => t.id === taskId);
-      const newIndex = Math.max(0, Math.min(position - 1, allSiblings.length - 1));
-
-      // Remove from current position and insert at new position
-      allSiblings.splice(currentIndex, 1);
-      allSiblings.splice(newIndex, 0, task);
-
-      // Update positions on the actual tasks in current.tasks
-      const now = new Date().toISOString();
-      for (let i = 0; i < allSiblings.length; i++) {
-        const sibling = current.tasks.find((t) => t.id === allSiblings[i]!.id);
-        if (sibling) {
-          sibling.position = i + 1;
-          sibling.positionVersion = (sibling.positionVersion ?? 0) + 1;
-          sibling.updatedAt = now;
-        }
-      }
-
-      saveTodoFile(projectRoot, current);
-
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const current = await accessor.loadTodoFile();
+    if (!current || !current.tasks) {
       return {
-        success: true,
-        data: {
-          task: taskId,
-          reordered: true,
-          newPosition: newIndex + 1,
-          totalSiblings: allSiblings.length,
-        },
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
       };
     }
-  ) as EngineResult<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }>;
+
+    const task = current.tasks.find((t) => t.id === taskId);
+    if (!task) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+      };
+    }
+
+    // Get all siblings (same parent, including self), sorted by position
+    const allSiblings = current.tasks
+      .filter((t) => t.parentId === task.parentId)
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+    const currentIndex = allSiblings.findIndex((t) => t.id === taskId);
+    const newIndex = Math.max(0, Math.min(position - 1, allSiblings.length - 1));
+
+    // Remove from current position and insert at new position
+    allSiblings.splice(currentIndex, 1);
+    allSiblings.splice(newIndex, 0, task);
+
+    // Update positions on the actual tasks in current.tasks
+    const now = new Date().toISOString();
+    for (let i = 0; i < allSiblings.length; i++) {
+      const sibling = current.tasks.find((t) => t.id === allSiblings[i]!.id);
+      if (sibling) {
+        sibling.position = i + 1;
+        sibling.positionVersion = (sibling.positionVersion ?? 0) + 1;
+        sibling.updatedAt = now;
+      }
+    }
+
+    await accessor.saveTodoFile(current);
+
+    return {
+      success: true,
+      data: {
+        task: taskId,
+        reordered: true,
+        newPosition: newIndex + 1,
+        totalSiblings: allSiblings.length,
+      },
+    };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to reorder task' },
+    };
+  }
 }
 
 /**
@@ -1734,16 +1326,9 @@ export async function taskReparent(
   newParent: string | null;
   newType?: string;
 }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<{
-    task: string;
-    reparented: boolean;
-    oldParent: string | null;
-    newParent: string | null;
-    newType?: string;
-  }>>(todoPath, () => {
-    const current = loadTodoFile(projectRoot);
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const current = await accessor.loadTodoFile();
     if (!current || !current.tasks) {
       return {
         success: false,
@@ -1769,7 +1354,7 @@ export async function taskReparent(
       if (task.type === 'subtask') task.type = 'task';
       task.updatedAt = new Date().toISOString();
 
-      saveTodoFile(projectRoot, current);
+      await accessor.saveTodoFile(current);
 
       return {
         success: true,
@@ -1848,7 +1433,7 @@ export async function taskReparent(
 
     task.updatedAt = new Date().toISOString();
 
-    saveTodoFile(projectRoot, current);
+    await accessor.saveTodoFile(current);
 
     return {
       success: true,
@@ -1860,13 +1445,12 @@ export async function taskReparent(
         newType: task.type,
       },
     };
-  }) as EngineResult<{
-    task: string;
-    reparented: boolean;
-    oldParent: string | null;
-    newParent: string | null;
-    newType?: string;
-  }>;
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to reparent task' },
+    };
+  }
 }
 
 /**
@@ -1876,52 +1460,53 @@ export async function taskPromote(
   projectRoot: string,
   taskId: string
 ): Promise<EngineResult<{ task: string; promoted: boolean; previousParent: string | null; typeChanged: boolean }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<{ task: string; promoted: boolean; previousParent: string | null; typeChanged: boolean }>>(
-    todoPath,
-    () => {
-      const current = loadTodoFile(projectRoot);
-      if (!current || !current.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      const task = current.tasks.find((t) => t.id === taskId);
-      if (!task) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-        };
-      }
-
-      if (!task.parentId) {
-        return {
-          success: true,
-          data: { task: taskId, promoted: false, previousParent: null, typeChanged: false },
-        };
-      }
-
-      const oldParent = task.parentId;
-      task.parentId = null;
-      task.updatedAt = new Date().toISOString();
-
-      let typeChanged = false;
-      if (task.type === 'subtask') {
-        task.type = 'task';
-        typeChanged = true;
-      }
-
-      saveTodoFile(projectRoot, current);
-
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const current = await accessor.loadTodoFile();
+    if (!current || !current.tasks) {
       return {
-        success: true,
-        data: { task: taskId, promoted: true, previousParent: oldParent, typeChanged },
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
       };
     }
-  ) as EngineResult<{ task: string; promoted: boolean; previousParent: string | null; typeChanged: boolean }>;
+
+    const task = current.tasks.find((t) => t.id === taskId);
+    if (!task) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+      };
+    }
+
+    if (!task.parentId) {
+      return {
+        success: true,
+        data: { task: taskId, promoted: false, previousParent: null, typeChanged: false },
+      };
+    }
+
+    const oldParent = task.parentId;
+    task.parentId = null;
+    task.updatedAt = new Date().toISOString();
+
+    let typeChanged = false;
+    if (task.type === 'subtask') {
+      task.type = 'task';
+      typeChanged = true;
+    }
+
+    await accessor.saveTodoFile(current);
+
+    return {
+      success: true,
+      data: { task: taskId, promoted: true, previousParent: oldParent, typeChanged },
+    };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to promote task' },
+    };
+  }
 }
 
 /**
@@ -1932,71 +1517,72 @@ export async function taskReopen(
   taskId: string,
   params?: { status?: string; reason?: string }
 ): Promise<EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }>>(
-    todoPath,
-    () => {
-      const current = loadTodoFile(projectRoot);
-      if (!current || !current.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      const task = current.tasks.find((t) => t.id === taskId);
-      if (!task) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
-        };
-      }
-
-      if (task.status !== 'done') {
-        return {
-          success: false,
-          error: {
-            code: 'E_INVALID_STATUS',
-            message: `Task '${taskId}' is not completed (status: ${task.status}). Only done tasks can be reopened.`,
-          },
-        };
-      }
-
-      const targetStatus = params?.status || 'pending';
-      if (targetStatus !== 'pending' && targetStatus !== 'active') {
-        return {
-          success: false,
-          error: {
-            code: 'E_INVALID_INPUT',
-            message: `Invalid target status: ${targetStatus}. Must be 'pending' or 'active'.`,
-          },
-        };
-      }
-
-      const previousStatus = task.status;
-      task.status = targetStatus;
-      task.completedAt = null;
-      task.updatedAt = new Date().toISOString();
-
-      // Add note about reopening
-      if (!task.notes) task.notes = [];
-      const reason = params?.reason;
-      task.notes.push(`[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`);
-
-      saveTodoFile(projectRoot, current);
-
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const current = await accessor.loadTodoFile();
+    if (!current || !current.tasks) {
       return {
-        success: true,
-        data: {
-          task: taskId,
-          reopened: true,
-          previousStatus,
-          newStatus: targetStatus,
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
+      };
+    }
+
+    const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
+    if (!task) {
+      return {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+      };
+    }
+
+    if (task.status !== 'done') {
+      return {
+        success: false,
+        error: {
+          code: 'E_INVALID_STATUS',
+          message: `Task '${taskId}' is not completed (status: ${task.status}). Only done tasks can be reopened.`,
         },
       };
     }
-  ) as EngineResult<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }>;
+
+    const targetStatus = params?.status || 'pending';
+    if (targetStatus !== 'pending' && targetStatus !== 'active') {
+      return {
+        success: false,
+        error: {
+          code: 'E_INVALID_INPUT',
+          message: `Invalid target status: ${targetStatus}. Must be 'pending' or 'active'.`,
+        },
+      };
+    }
+
+    const previousStatus = task.status;
+    task.status = targetStatus;
+    task.completedAt = null;
+    task.updatedAt = new Date().toISOString();
+
+    // Add note about reopening
+    if (!task.notes) task.notes = [];
+    const reason = params?.reason;
+    task.notes.push(`[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`);
+
+    await accessor.saveTodoFile(current);
+
+    return {
+      success: true,
+      data: {
+        task: taskId,
+        reopened: true,
+        previousStatus,
+        newStatus: targetStatus,
+      },
+    };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to reopen task' },
+    };
+  }
 }
 
 // ===== Complexity Estimation Operations =====
@@ -2674,120 +2260,123 @@ export async function taskImport(
   source: string,
   overwrite?: boolean
 ): Promise<EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }>> {
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-
-  return await withFileLock<EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }>>(
-    todoPath,
-    () => {
-      const current = loadTodoFile(projectRoot);
-      if (!current || !current.tasks) {
-        return {
-          success: false,
-          error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
-        };
-      }
-
-      // Parse the source JSON
-      let importData: unknown;
-      try {
-        importData = JSON.parse(source);
-      } catch {
-        return {
-          success: false,
-          error: { code: 'E_INVALID_INPUT', message: 'Invalid JSON in import source' },
-        };
-      }
-
-      // Extract tasks from various formats
-      let importTasks: TaskRecord[] = [];
-      if (Array.isArray(importData)) {
-        importTasks = importData as TaskRecord[];
-      } else if (typeof importData === 'object' && importData !== null) {
-        const data = importData as Record<string, unknown>;
-        if (Array.isArray(data.tasks)) {
-          importTasks = data.tasks as TaskRecord[];
-        } else if (data._meta && Array.isArray(data.tasks)) {
-          // Export package format
-          importTasks = data.tasks as TaskRecord[];
-        }
-      }
-
-      if (importTasks.length === 0) {
-        return {
-          success: true,
-          data: { imported: 0, skipped: 0, errors: ['No tasks found in import source'] },
-        };
-      }
-
-      const existingIds = new Set(current.tasks.map((t) => t.id));
-      const allIds = new Set(current.tasks.map((t) => t.id));
-      const errors: string[] = [];
-      let imported = 0;
-      let skipped = 0;
-      const remapTable: Record<string, string> = {};
-
-      // Generate new IDs for imported tasks
-      let nextIdNum = 0;
-      for (const t of current.tasks) {
-        const num = parseInt(t.id.replace('T', ''), 10);
-        if (!isNaN(num) && num > nextIdNum) nextIdNum = num;
-      }
-
-      for (const importTask of importTasks) {
-        if (!importTask.id || !importTask.title) {
-          errors.push(`Skipped task with missing id or title`);
-          skipped++;
-          continue;
-        }
-
-        if (existingIds.has(importTask.id) && !overwrite) {
-          skipped++;
-          continue;
-        }
-
-        // Generate new ID if collision
-        let newId = importTask.id;
-        if (allIds.has(importTask.id) && !overwrite) {
-          nextIdNum++;
-          newId = `T${String(nextIdNum).padStart(3, '0')}`;
-          remapTable[importTask.id] = newId;
-        }
-
-        const now = new Date().toISOString();
-        const newTask: TaskRecord = {
-          ...importTask,
-          id: newId,
-          createdAt: importTask.createdAt || now,
-          updatedAt: now,
-        };
-
-        if (overwrite && existingIds.has(importTask.id)) {
-          // Replace existing
-          const idx = current.tasks.findIndex((t) => t.id === importTask.id);
-          if (idx !== -1) {
-            current.tasks[idx] = newTask;
-          }
-        } else {
-          current.tasks.push(newTask);
-        }
-
-        allIds.add(newId);
-        imported++;
-      }
-
-      if (imported > 0) {
-        saveTodoFile(projectRoot, current);
-      }
-
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const current = await accessor.loadTodoFile();
+    if (!current || !current.tasks) {
       return {
-        success: true,
-        data: {
-          imported,
-          skipped,
-          errors,
-          ...(Object.keys(remapTable).length > 0 ? { remapTable } : {}),
-        },
+        success: false,
+        error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
       };
     }
-  ) as EngineResult<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }>;
+
+    // Parse the source JSON
+    let importData: unknown;
+    try {
+      importData = JSON.parse(source);
+    } catch {
+      return {
+        success: false,
+        error: { code: 'E_INVALID_INPUT', message: 'Invalid JSON in import source' },
+      };
+    }
+
+    // Extract tasks from various formats
+    let importTasks: TaskRecord[] = [];
+    if (Array.isArray(importData)) {
+      importTasks = importData as TaskRecord[];
+    } else if (typeof importData === 'object' && importData !== null) {
+      const data = importData as Record<string, unknown>;
+      if (Array.isArray(data.tasks)) {
+        importTasks = data.tasks as TaskRecord[];
+      } else if (data._meta && Array.isArray(data.tasks)) {
+        // Export package format
+        importTasks = data.tasks as TaskRecord[];
+      }
+    }
+
+    if (importTasks.length === 0) {
+      return {
+        success: true,
+        data: { imported: 0, skipped: 0, errors: ['No tasks found in import source'] },
+      };
+    }
+
+    const existingIds = new Set(current.tasks.map((t) => t.id));
+    const allIds = new Set(current.tasks.map((t) => t.id));
+    const errors: string[] = [];
+    let imported = 0;
+    let skipped = 0;
+    const remapTable: Record<string, string> = {};
+
+    // Generate new IDs for imported tasks
+    let nextIdNum = 0;
+    for (const t of current.tasks) {
+      const num = parseInt(t.id.replace('T', ''), 10);
+      if (!isNaN(num) && num > nextIdNum) nextIdNum = num;
+    }
+
+    const tasksList = current.tasks as unknown as TaskRecord[];
+
+    for (const importTask of importTasks) {
+      if (!importTask.id || !importTask.title) {
+        errors.push(`Skipped task with missing id or title`);
+        skipped++;
+        continue;
+      }
+
+      if (existingIds.has(importTask.id) && !overwrite) {
+        skipped++;
+        continue;
+      }
+
+      // Generate new ID if collision
+      let newId = importTask.id;
+      if (allIds.has(importTask.id) && !overwrite) {
+        nextIdNum++;
+        newId = `T${String(nextIdNum).padStart(3, '0')}`;
+        remapTable[importTask.id] = newId;
+      }
+
+      const now = new Date().toISOString();
+      const newTask: TaskRecord = {
+        ...importTask,
+        id: newId,
+        createdAt: importTask.createdAt || now,
+        updatedAt: now,
+      };
+
+      if (overwrite && existingIds.has(importTask.id)) {
+        // Replace existing
+        const idx = tasksList.findIndex((t) => t.id === importTask.id);
+        if (idx !== -1) {
+          tasksList[idx] = newTask;
+        }
+      } else {
+        tasksList.push(newTask);
+      }
+
+      allIds.add(newId);
+      imported++;
+    }
+
+    if (imported > 0) {
+      await accessor.saveTodoFile(current);
+    }
+
+    return {
+      success: true,
+      data: {
+        imported,
+        skipped,
+        errors,
+        ...(Object.keys(remapTable).length > 0 ? { remapTable } : {}),
+      },
+    };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'Failed to import tasks' },
+    };
+  }
 }

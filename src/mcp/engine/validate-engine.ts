@@ -13,7 +13,8 @@
 import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join, dirname, resolve } from 'path';
-import { resolveProjectRoot, readJsonFile, getDataPath } from './store.js';
+import { resolveProjectRoot, readJsonFile } from './store.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { validateSchema as ajvValidateSchema, type SchemaType } from './schema-validator.js';
 import {
   validateTitleDescription,
@@ -130,20 +131,18 @@ export function validateSchemaOp(
  * validate.task - Anti-hallucination task validation
  * @task T4477
  */
-export function validateTask(
+export async function validateTask(
   taskId: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!taskId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
   }
 
   const root = projectRoot || resolveProjectRoot();
-  const todoPath = getDataPath(root, 'todo.json');
-  const archivePath = getDataPath(root, 'todo-archive.json');
-
-  const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
-  const archiveData = readJsonFile<{ tasks: TaskRecord[] }>(archivePath);
+  const accessor = await getAccessor(root);
+  const todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
+  const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
 
   if (!todoData) {
     return {
@@ -208,18 +207,18 @@ export function validateTask(
  * validate.protocol - Protocol compliance check
  * @task T4477
  */
-export function validateProtocol(
+export async function validateProtocol(
   taskId: string,
   protocolType?: string,
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   if (!taskId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
   }
 
   const root = projectRoot || resolveProjectRoot();
-  const todoPath = getDataPath(root, 'todo.json');
-  const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
+  const accessor = await getAccessor(root);
+  const todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
 
   if (!todoData) {
     return {
@@ -651,12 +650,20 @@ interface CoherenceIssue {
  *
  * @task T4477
  */
-export function validateCoherenceCheck(
+export async function validateCoherenceCheck(
   projectRoot?: string
-): EngineResult<{ coherent: boolean; issues: CoherenceIssue[] }> {
+): Promise<EngineResult<{ coherent: boolean; issues: CoherenceIssue[] }>> {
   const root = projectRoot || resolveProjectRoot();
-  const todoPath = getDataPath(root, 'todo.json');
-  const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
+  const accessor = await getAccessor(root);
+  let todoData: { tasks: TaskRecord[] };
+  try {
+    todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
+  } catch {
+    return {
+      success: false,
+      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+    };
+  }
 
   if (!todoData || !todoData.tasks) {
     return {
@@ -867,22 +874,23 @@ export function validateTestRun(
  * validate.batch-validate - Batch validate all tasks against schema and rules
  * @task T4632
  */
-export function validateBatchValidate(
+export async function validateBatchValidate(
   projectRoot?: string
-): EngineResult {
+): Promise<EngineResult> {
   const root = projectRoot || resolveProjectRoot();
-  const todoPath = getDataPath(root, 'todo.json');
-  const archivePath = getDataPath(root, 'todo-archive.json');
+  const accessor = await getAccessor(root);
 
-  const todoData = readJsonFile<{ tasks: TaskRecord[] }>(todoPath);
-  if (!todoData) {
+  let todoData: { tasks: TaskRecord[] };
+  try {
+    todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
+  } catch {
     return {
       success: false,
       error: { code: 'E_NOT_FOUND', message: 'todo.json not found' },
     };
   }
 
-  const archiveData = readJsonFile<{ tasks: TaskRecord[] }>(archivePath);
+  const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
   const allTasks = [
     ...(todoData.tasks || []),
     ...(archiveData?.tasks || []),

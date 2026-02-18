@@ -7,10 +7,10 @@ import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getBackupDir } from '../../core/paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
 import { loadConfig } from '../../core/config.js';
-import type { Task, TodoFile } from '../../types/task.js';
+import type { Task } from '../../types/task.js';
 
 /**
  * Calculate depth of a task in the hierarchy.
@@ -57,11 +57,8 @@ export function registerReparentCommand(program: Command): void {
           throw new CleoError(ExitCode.INVALID_INPUT, `Invalid parent ID: ${targetParent}`);
         }
 
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
         const task = taskMap.get(taskId);
@@ -77,7 +74,7 @@ export function registerReparentCommand(program: Command): void {
 
           data._meta.checksum = computeChecksum(data.tasks);
           data.lastUpdated = new Date().toISOString();
-          await saveJson(todoPath, data, { backupDir: getBackupDir() });
+          await accessor.saveTodoFile(data);
 
           console.log(formatSuccess({
             task: taskId,
@@ -131,7 +128,7 @@ export function registerReparentCommand(program: Command): void {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
 
-        await saveJson(todoPath, data, { backupDir: getBackupDir() });
+        await accessor.saveTodoFile(data);
 
         console.log(formatSuccess({
           task: taskId,

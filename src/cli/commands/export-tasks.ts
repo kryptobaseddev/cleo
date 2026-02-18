@@ -10,9 +10,8 @@ import { writeFile } from 'node:fs/promises';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getTodoPath } from '../../core/paths.js';
-import { readJson } from '../../store/json.js';
-import type { Task, TodoFile } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import type { Task } from '../../types/task.js';
 import {
   buildExportPackage,
 } from '../../store/export.js';
@@ -135,11 +134,8 @@ export function registerExportTasksCommand(program: Command): void {
     .option('--dry-run', 'Preview selection without creating export file')
     .action(async (taskIds: string[], opts: Record<string, unknown>) => {
       try {
-        const todoPath = getTodoPath();
-        const todoData = await readJson<TodoFile>(todoPath);
-        if (!todoData) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const todoData = await accessor.loadTodoFile();
 
         const allTasks = todoData.tasks;
         const subtreeMode = opts['subtree'] as boolean ?? false;

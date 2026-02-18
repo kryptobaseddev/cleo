@@ -18,6 +18,7 @@ import {
   validateTitle,
   logOperation,
 } from './add.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Options for updating a task. */
 export interface UpdateTaskOptions {
@@ -53,12 +54,14 @@ export interface UpdateTaskResult {
  * Update a task's fields.
  * @task T4461
  */
-export async function updateTask(options: UpdateTaskOptions, cwd?: string): Promise<UpdateTaskResult> {
+export async function updateTask(options: UpdateTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<UpdateTaskResult> {
   const todoPath = getTodoPath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -197,12 +200,25 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string): Prom
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
-  await saveJson(todoPath, data, { backupDir });
-
-  await logOperation(logPath, 'task_updated', options.taskId, {
-    changes,
-    title: task.title,
-  });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+    await accessor.appendLog({
+      id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_updated',
+      taskId: options.taskId,
+      actor: 'system',
+      details: { changes, title: task.title },
+      before: null,
+      after: { changes, title: task.title },
+    });
+  } else {
+    await saveJson(todoPath, data, { backupDir });
+    await logOperation(logPath, 'task_updated', options.taskId, {
+      changes,
+      title: task.title,
+    });
+  }
 
   return { task, changes };
 }

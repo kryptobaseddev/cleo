@@ -12,6 +12,7 @@ import type { Release, TodoFile } from '../../types/task.js';
 import { getTodoPath, getBackupDir, getLogPath, getProjectRoot } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join } from 'node:path';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Options for creating a release. */
 export interface CreateReleaseOptions {
@@ -78,12 +79,14 @@ function normalizeVersion(version: string): string {
  * Create a new release.
  * @task T4467
  */
-export async function createRelease(options: CreateReleaseOptions, cwd?: string): Promise<Release> {
+export async function createRelease(options: CreateReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<Release> {
   validateVersion(options.version);
   const version = normalizeVersion(options.version);
 
   const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   // Ensure releases array exists
   if (!data.project.releases) {
@@ -116,10 +119,14 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string)
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
 
-  await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+  } else {
+    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  }
   await logOperation(getLogPath(cwd), 'release_created', version, {
     tasks: taskIds,
-  });
+  }, accessor);
 
   return release;
 }
@@ -128,10 +135,12 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string)
  * Plan/update a release - add or remove tasks.
  * @task T4467
  */
-export async function planRelease(options: PlanReleaseOptions, cwd?: string): Promise<Release> {
+export async function planRelease(options: PlanReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<Release> {
   const version = normalizeVersion(options.version);
   const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === version);
@@ -169,7 +178,11 @@ export async function planRelease(options: PlanReleaseOptions, cwd?: string): Pr
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
 
-  await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+  } else {
+    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  }
 
   return release;
 }
@@ -178,14 +191,16 @@ export async function planRelease(options: PlanReleaseOptions, cwd?: string): Pr
  * Ship a release - mark as released and generate changelog.
  * @task T4467
  */
-export async function shipRelease(options: ShipReleaseOptions, cwd?: string): Promise<{
+export async function shipRelease(options: ShipReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<{
   release: Release;
   changelog: string;
   dryRun: boolean;
 }> {
   const version = normalizeVersion(options.version);
   const todoPath = getTodoPath(cwd);
-  const data = await readJsonRequired<TodoFile>(todoPath);
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(todoPath);
 
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === version);
@@ -226,7 +241,11 @@ export async function shipRelease(options: ShipReleaseOptions, cwd?: string): Pr
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
 
-  await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  if (accessor) {
+    await accessor.saveTodoFile(data);
+  } else {
+    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+  }
 
   // Write VERSION file if bumping
   if (options.bumpVersion) {
@@ -255,8 +274,10 @@ export async function shipRelease(options: ShipReleaseOptions, cwd?: string): Pr
  * List all releases.
  * @task T4467
  */
-export async function listReleases(cwd?: string): Promise<Release[]> {
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+export async function listReleases(cwd?: string, accessor?: DataAccessor): Promise<Release[]> {
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   return data.project.releases ?? [];
 }
 
@@ -264,9 +285,11 @@ export async function listReleases(cwd?: string): Promise<Release[]> {
  * Show a specific release.
  * @task T4467
  */
-export async function showRelease(version: string, cwd?: string): Promise<ReleaseShowResult> {
+export async function showRelease(version: string, cwd?: string, accessor?: DataAccessor): Promise<ReleaseShowResult> {
   const normalizedVersion = normalizeVersion(version);
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === normalizedVersion);
 
@@ -296,9 +319,11 @@ export async function showRelease(version: string, cwd?: string): Promise<Releas
  * Get changelog for a release.
  * @task T4467
  */
-export async function getChangelog(version: string, cwd?: string): Promise<string> {
+export async function getChangelog(version: string, cwd?: string, accessor?: DataAccessor): Promise<string> {
   const normalizedVersion = normalizeVersion(version);
-  const data = await readJsonRequired<TodoFile>(getTodoPath(cwd));
+  const data = accessor
+    ? await accessor.loadTodoFile()
+    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === normalizedVersion);
 

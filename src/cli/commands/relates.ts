@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import * as relatesCore from '../../core/tasks/relates.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -24,10 +25,10 @@ export function registerRelatesCommand(program: Command): void {
     .option('--threshold <n>', 'Minimum similarity threshold (0-100)', '50')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       try {
-        const store = await getStore();
-        const result = await store.suggestRelated(taskId, {
+        const accessor = await getAccessor();
+        const result = await relatesCore.suggestRelated(taskId, {
           threshold: opts['threshold'] ? Number(opts['threshold']) : 50,
-        });
+        }, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -43,8 +44,8 @@ export function registerRelatesCommand(program: Command): void {
     .description('Add a relates entry to a task')
     .action(async (from: string, to: string, type: string, reason: string) => {
       try {
-        const store = await getStore();
-        const result = await store.addRelation(from, to, type, reason);
+        const accessor = await getAccessor();
+        const result = await relatesCore.addRelation(from, to, type, reason, undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -60,8 +61,8 @@ export function registerRelatesCommand(program: Command): void {
     .description('Discover related tasks using various methods')
     .action(async (taskId: string) => {
       try {
-        const store = await getStore();
-        const result = await store.discoverRelated(taskId);
+        const accessor = await getAccessor();
+        const result = await relatesCore.discoverRelated(taskId, undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -77,8 +78,8 @@ export function registerRelatesCommand(program: Command): void {
     .description('Show existing relates entries for a task')
     .action(async (taskId: string) => {
       try {
-        const store = await getStore();
-        const result = await store.listRelations(taskId);
+        const accessor = await getAccessor();
+        const result = await relatesCore.listRelations(taskId, undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {

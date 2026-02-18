@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import * as labelsCore from '../../core/tasks/labels.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -23,8 +24,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('List all labels with task counts (default)')
     .action(async () => {
       try {
-        const store = await getStore();
-        const result = await store.listLabels();
+        const accessor = await getAccessor();
+        const result = await labelsCore.listLabels(undefined, accessor);
         console.log(formatSuccess({ labels: result, count: result.length }));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -40,8 +41,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('Show tasks with specific label')
     .action(async (label: string) => {
       try {
-        const store = await getStore();
-        const result = await store.showLabelTasks(label);
+        const accessor = await getAccessor();
+        const result = await labelsCore.showLabelTasks(label, undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -57,8 +58,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('Show detailed label statistics')
     .action(async () => {
       try {
-        const store = await getStore();
-        const result = await store.getLabelStats();
+        const accessor = await getAccessor();
+        const result = await labelsCore.getLabelStats(undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -75,8 +76,8 @@ export function registerLabelsCommand(program: Command): void {
     .description('Alias for labels command')
     .action(async () => {
       try {
-        const store = await getStore();
-        const result = await store.listLabels();
+        const accessor = await getAccessor();
+        const result = await labelsCore.listLabels(undefined, accessor);
         console.log(formatSuccess({ labels: result, count: result.length }));
       } catch (err) {
         if (err instanceof CleoError) {

@@ -18,6 +18,7 @@ import {
   archiveResearch,
 } from '../../core/research/index.js';
 import { formatSuccess, formatError } from '../../core/output.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -38,12 +39,13 @@ export function registerResearchCommand(program: Command): void {
     .option('--sources <sources>', 'Comma-separated sources')
     .action(async (opts: Record<string, unknown>) => {
       try {
+        const accessor = await getAccessor();
         const result = await addResearch({
           taskId: opts['task'] as string,
           topic: opts['topic'] as string,
           findings: opts['findings'] ? (opts['findings'] as string).split(',').map(s => s.trim()) : undefined,
           sources: opts['sources'] ? (opts['sources'] as string).split(',').map(s => s.trim()) : undefined,
-        });
+        }, undefined, accessor);
         console.log(formatSuccess({ entry: result }));
       } catch (err) {
         if (err instanceof CleoError) {
@@ -117,7 +119,8 @@ export function registerResearchCommand(program: Command): void {
     .description('Link a research entry to a task')
     .action(async (researchId: string, taskId: string) => {
       try {
-        const result = await linkResearch(researchId, taskId);
+        const accessor = await getAccessor();
+        const result = await linkResearch(researchId, taskId, undefined, accessor);
         console.log(formatSuccess(result));
       } catch (err) {
         if (err instanceof CleoError) {

@@ -6,7 +6,7 @@
     "checksum": "",
     "lastModified": "2026-02-16T19:29:51Z",
     "totalSessionsCreated": 629,
-    "lastUpdated": "2026-02-16T22:20:09.413Z"
+    "lastUpdated": "2026-02-17T06:18:06.584Z"
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35572,7 +35572,7 @@
     {
       "id": "session-1771280409413-bebab9",
       "name": "Wave 4-5 Orchestration",
-      "status": "active",
+      "status": "ended",
       "scope": {
         "type": "epic",
         "epicId": "T4637"
@@ -35583,9 +35583,33 @@
       },
       "startedAt": "2026-02-16T22:20:09.413Z",
       "agent": null,
-      "notes": [],
+      "notes": [
+        "Waves 4-5 complete. Wave 4: .cleo gitignore management. Wave 5: SQLite storage activation - ADR-002 accepted, JSON StoreProvider, migration CLI, dual-write, tests. 2407 tests pass, 0 failures."
+      ],
       "tasksCompleted": [],
-      "tasksCreated": []
+      "tasksCreated": [],
+      "endedAt": "2026-02-16T23:08:13.363Z"
+    },
+    {
+      "id": "session-1771304306861-4e349d",
+      "name": "Wave 6 Production Release",
+      "status": "ended",
+      "scope": {
+        "type": "epic",
+        "epicId": "T4454"
+      },
+      "focus": {
+        "taskId": null,
+        "setAt": null
+      },
+      "startedAt": "2026-02-17T04:58:26.861Z",
+      "agent": null,
+      "notes": [
+        "Wave 6 Production Release complete. Sub-waves 6.0-6.5 all done. 136+ files changed. LAFS protocol wired, StoreProvider integrated into CLI+MCP, async migration done, SQLite verified, perf fixed, all 2419 tests pass."
+      ],
+      "tasksCompleted": [],
+      "tasksCreated": [],
+      "endedAt": "2026-02-17T06:18:06.583Z"
     }
   ],
   "sessionHistory": [

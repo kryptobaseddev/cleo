@@ -50,43 +50,43 @@ describe('Release Engine', () => {
   });
 
   describe('releasePrepare', () => {
-    it('should prepare a release with specified tasks', () => {
-      const result = releasePrepare('v1.0.0', ['T001', 'T002'], 'First release', TEST_ROOT);
+    it('should prepare a release with specified tasks', async () => {
+      const result = await releasePrepare('v1.0.0', ['T001', 'T002'], 'First release', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).version).toBe('v1.0.0');
       expect((result.data as any).taskCount).toBe(2);
     });
 
-    it('should auto-discover completed tasks', () => {
-      const result = releasePrepare('v1.0.0', undefined, undefined, TEST_ROOT);
+    it('should auto-discover completed tasks', async () => {
+      const result = await releasePrepare('v1.0.0', undefined, undefined, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).taskCount).toBe(2); // T001 and T002
     });
 
-    it('should reject duplicate version', () => {
-      releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
-      const result = releasePrepare('v1.0.0', ['T002'], undefined, TEST_ROOT);
+    it('should reject duplicate version', async () => {
+      await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
+      const result = await releasePrepare('v1.0.0', ['T002'], undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_VERSION_EXISTS');
     });
 
-    it('should reject invalid version format', () => {
-      const result = releasePrepare('not-a-version', ['T001'], undefined, TEST_ROOT);
+    it('should reject invalid version format', async () => {
+      const result = await releasePrepare('not-a-version', ['T001'], undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_VERSION');
     });
 
-    it('should normalize version with v prefix', () => {
-      const result = releasePrepare('1.0.0', ['T001'], undefined, TEST_ROOT);
+    it('should normalize version with v prefix', async () => {
+      const result = await releasePrepare('1.0.0', ['T001'], undefined, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).version).toBe('v1.0.0');
     });
   });
 
   describe('releaseChangelog', () => {
-    it('should generate changelog', () => {
-      releasePrepare('v1.0.0', ['T001', 'T002'], undefined, TEST_ROOT);
-      const result = releaseChangelog('v1.0.0', TEST_ROOT);
+    it('should generate changelog', async () => {
+      await releasePrepare('v1.0.0', ['T001', 'T002'], undefined, TEST_ROOT);
+      const result = await releaseChangelog('v1.0.0', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.changelog).toContain('v1.0.0');
@@ -94,17 +94,17 @@ describe('Release Engine', () => {
       expect(data.sections.fixes).toBe(1);
     });
 
-    it('should return error for missing release', () => {
-      const result = releaseChangelog('v9.9.9', TEST_ROOT);
+    it('should return error for missing release', async () => {
+      const result = await releaseChangelog('v9.9.9', TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NOT_FOUND');
     });
   });
 
   describe('releaseList', () => {
-    it('should list releases', () => {
-      releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
-      releasePrepare('v1.1.0', ['T002'], undefined, TEST_ROOT);
+    it('should list releases', async () => {
+      await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
+      await releasePrepare('v1.1.0', ['T002'], undefined, TEST_ROOT);
 
       const result = releaseList(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -119,8 +119,8 @@ describe('Release Engine', () => {
   });
 
   describe('releaseShow', () => {
-    it('should show release details', () => {
-      releasePrepare('v1.0.0', ['T001'], 'Test notes', TEST_ROOT);
+    it('should show release details', async () => {
+      await releasePrepare('v1.0.0', ['T001'], 'Test notes', TEST_ROOT);
       const result = releaseShow('v1.0.0', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).version).toBe('v1.0.0');
@@ -129,15 +129,15 @@ describe('Release Engine', () => {
   });
 
   describe('releaseCommit', () => {
-    it('should mark release as committed', () => {
-      releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
+    it('should mark release as committed', async () => {
+      await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
       const result = releaseCommit('v1.0.0', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).status).toBe('committed');
     });
 
-    it('should reject non-prepared release', () => {
-      releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
+    it('should reject non-prepared release', async () => {
+      await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
       releaseCommit('v1.0.0', TEST_ROOT);
       const result = releaseCommit('v1.0.0', TEST_ROOT);
       expect(result.success).toBe(false);
@@ -146,8 +146,8 @@ describe('Release Engine', () => {
   });
 
   describe('releaseTag', () => {
-    it('should mark release as tagged', () => {
-      releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
+    it('should mark release as tagged', async () => {
+      await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
       const result = releaseTag('v1.0.0', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).status).toBe('tagged');
@@ -155,11 +155,11 @@ describe('Release Engine', () => {
   });
 
   describe('releaseGatesRun', () => {
-    it('should run release gates', () => {
-      releasePrepare('v1.0.0', ['T001', 'T002'], undefined, TEST_ROOT);
-      releaseChangelog('v1.0.0', TEST_ROOT);
+    it('should run release gates', async () => {
+      await releasePrepare('v1.0.0', ['T001', 'T002'], undefined, TEST_ROOT);
+      await releaseChangelog('v1.0.0', TEST_ROOT);
 
-      const result = releaseGatesRun('v1.0.0', TEST_ROOT);
+      const result = await releaseGatesRun('v1.0.0', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.gates).toBeDefined();
@@ -168,8 +168,8 @@ describe('Release Engine', () => {
   });
 
   describe('releaseRollback', () => {
-    it('should rollback a release', () => {
-      releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
+    it('should rollback a release', async () => {
+      await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
       releaseTag('v1.0.0', TEST_ROOT);
 
       const result = releaseRollback('v1.0.0', 'Bad release', TEST_ROOT);

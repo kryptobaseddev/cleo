@@ -5,7 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getStore } from '../../store/index.js';
+import { getAccessor } from '../../store/data-accessor.js';
+import { updateTask } from '../../core/tasks/update.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import type { TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
@@ -39,8 +40,8 @@ export function registerUpdateCommand(program: Command): void {
     .option('--no-auto-complete', 'Disable auto-complete for epic')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       try {
-        const store = await getStore();
-        const result = await store.richUpdateTask({
+        const accessor = await getAccessor();
+        const result = await updateTask({
           taskId,
           title: opts['title'] as string | undefined,
           status: opts['status'] as TaskStatus | undefined,
@@ -60,7 +61,7 @@ export function registerUpdateCommand(program: Command): void {
           files: opts['files'] ? (opts['files'] as string).split(',').map(s => s.trim()) : undefined,
           blockedBy: opts['blockedBy'] as string | undefined,
           noAutoComplete: opts['autoComplete'] === false ? true : undefined,
-        });
+        }, undefined, accessor);
 
         console.log(formatSuccess({ task: result.task, changes: result.changes }));
       } catch (err) {

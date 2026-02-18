@@ -10,6 +10,7 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session, SessionsFile, SessionScope, SessionScopeType } from '../../types/session.js';
 import { getSessionsPath, getBackupDir } from '../paths.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Options for starting a session. */
 export interface StartSessionOptions {
@@ -62,7 +63,19 @@ function generateSessionId(): string {
  * Read or create sessions file.
  * @task T4463
  */
-async function readSessions(cwd?: string): Promise<SessionsFile> {
+async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<SessionsFile> {
+  if (accessor) {
+    const data = await accessor.loadSessions() as SessionsFile;
+    if (data && data.sessions) return data;
+    return {
+      version: '1.0.0',
+      sessions: [],
+      _meta: {
+        schemaVersion: '1.0.0',
+        lastUpdated: new Date().toISOString(),
+      },
+    };
+  }
   const sessionsPath = getSessionsPath(cwd);
   const data = await readJson<SessionsFile>(sessionsPath);
   if (data) return data;
@@ -81,10 +94,14 @@ async function readSessions(cwd?: string): Promise<SessionsFile> {
  * Save sessions file.
  * @task T4463
  */
-async function saveSessions(data: SessionsFile, cwd?: string): Promise<void> {
+async function saveSessions(data: SessionsFile, cwd?: string, accessor?: DataAccessor): Promise<void> {
+  data._meta.lastUpdated = new Date().toISOString();
+  if (accessor) {
+    await accessor.saveSessions(data);
+    return;
+  }
   const sessionsPath = getSessionsPath(cwd);
   const backupDir = getBackupDir(cwd);
-  data._meta.lastUpdated = new Date().toISOString();
   await saveJson(sessionsPath, data, { backupDir });
 }
 
@@ -92,9 +109,9 @@ async function saveSessions(data: SessionsFile, cwd?: string): Promise<void> {
  * Start a new session.
  * @task T4463
  */
-export async function startSession(options: StartSessionOptions, cwd?: string): Promise<Session> {
+export async function startSession(options: StartSessionOptions, cwd?: string, accessor?: DataAccessor): Promise<Session> {
   const scope = parseScope(options.scope);
-  const data = await readSessions(cwd);
+  const data = await readSessions(cwd, accessor);
 
   // Check for conflicting active sessions
   const activeSessions = data.sessions.filter(s => s.status === 'active');
@@ -134,7 +151,7 @@ export async function startSession(options: StartSessionOptions, cwd?: string): 
   };
 
   data.sessions.push(session);
-  await saveSessions(data, cwd);
+  await saveSessions(data, cwd, accessor);
 
   return session;
 }
@@ -143,8 +160,8 @@ export async function startSession(options: StartSessionOptions, cwd?: string): 
  * End a session.
  * @task T4463
  */
-export async function endSession(options: EndSessionOptions = {}, cwd?: string): Promise<Session> {
-  const data = await readSessions(cwd);
+export async function endSession(options: EndSessionOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<Session> {
+  const data = await readSessions(cwd, accessor);
 
   let session: Session | undefined;
 
@@ -182,7 +199,7 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string):
     session.notes.push(options.note);
   }
 
-  await saveSessions(data, cwd);
+  await saveSessions(data, cwd, accessor);
 
   return session;
 }
@@ -191,8 +208,8 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string):
  * Get current session status.
  * @task T4463
  */
-export async function sessionStatus(cwd?: string): Promise<Session | null> {
-  const data = await readSessions(cwd);
+export async function sessionStatus(cwd?: string, accessor?: DataAccessor): Promise<Session | null> {
+  const data = await readSessions(cwd, accessor);
 
   const active = data.sessions
     .filter(s => s.status === 'active')
@@ -205,8 +222,8 @@ export async function sessionStatus(cwd?: string): Promise<Session | null> {
  * Resume an existing session.
  * @task T4463
  */
-export async function resumeSession(sessionId: string, cwd?: string): Promise<Session> {
-  const data = await readSessions(cwd);
+export async function resumeSession(sessionId: string, cwd?: string, accessor?: DataAccessor): Promise<Session> {
+  const data = await readSessions(cwd, accessor);
 
   const session = data.sessions.find(s => s.id === sessionId);
   if (!session) {
@@ -227,7 +244,7 @@ export async function resumeSession(sessionId: string, cwd?: string): Promise<Se
     if (!session.notes) session.notes = [];
     session.notes.push(`Resumed at ${new Date().toISOString()}`);
 
-    await saveSessions(data, cwd);
+    await saveSessions(data, cwd, accessor);
   }
 
   return session;
@@ -237,8 +254,8 @@ export async function resumeSession(sessionId: string, cwd?: string): Promise<Se
  * List sessions with optional filtering.
  * @task T4463
  */
-export async function listSessions(options: ListSessionsOptions = {}, cwd?: string): Promise<Session[]> {
-  const data = await readSessions(cwd);
+export async function listSessions(options: ListSessionsOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
+  const data = await readSessions(cwd, accessor);
 
   let sessions = data.sessions;
 
@@ -261,8 +278,8 @@ export async function listSessions(options: ListSessionsOptions = {}, cwd?: stri
  * Marks orphaned sessions that have been active too long.
  * @task T4463
  */
-export async function gcSessions(maxAgeHours: number = 24, cwd?: string): Promise<{ orphaned: string[]; removed: string[] }> {
-  const data = await readSessions(cwd);
+export async function gcSessions(maxAgeHours: number = 24, cwd?: string, accessor?: DataAccessor): Promise<{ orphaned: string[]; removed: string[] }> {
+  const data = await readSessions(cwd, accessor);
   const now = Date.now();
   const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
 
@@ -293,7 +310,7 @@ export async function gcSessions(maxAgeHours: number = 24, cwd?: string): Promis
   });
 
   if (orphaned.length > 0 || removed.length > 0) {
-    await saveSessions(data, cwd);
+    await saveSessions(data, cwd, accessor);
   }
 
   return { orphaned, removed };

@@ -7,11 +7,9 @@
 import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { readJson, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getBackupDir } from '../../core/paths.js';
-import { createBackup } from '../../store/backup.js';
-import type { TodoFile } from '../../types/task.js';
+
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
 
 interface UpgradeAction {
   action: string;
@@ -28,11 +26,8 @@ export function registerUpgradeCommand(program: Command): void {
     .option('--force', 'Skip confirmation prompts')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const todoPath = getTodoPath();
-        const data = await readJson<TodoFile>(todoPath);
-        if (!data) {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json found. Run: cleo init');
-        }
+        const accessor = await getAccessor();
+        const data = await accessor.loadTodoFile();
 
         const actions: UpgradeAction[] = [];
         const isDryRun = !!opts['dryRun'] || !!opts['status'];
@@ -48,7 +43,7 @@ export function registerUpgradeCommand(program: Command): void {
               details: `Would set _meta.schemaVersion to ${currentVersion}`,
             });
           } else {
-            data._meta = data._meta ?? {} as TodoFile['_meta'];
+            data._meta = data._meta ?? {} as typeof data._meta;
             data._meta.schemaVersion = currentVersion;
             actions.push({
               action: 'add_schema_version',
@@ -136,16 +131,9 @@ export function registerUpgradeCommand(program: Command): void {
         // Save if changes were made
         const applied = actions.filter((a) => a.status === 'applied');
         if (applied.length > 0 && !isDryRun) {
-          // Backup first
-          try {
-            await createBackup(todoPath, getBackupDir());
-          } catch {
-            // Non-fatal
-          }
-
           data._meta.checksum = computeChecksum(data.tasks);
           data.lastUpdated = new Date().toISOString();
-          await saveJson(todoPath, data, { backupDir: getBackupDir() });
+          await accessor.saveTodoFile(data);
         }
 
         const needsWork = actions.some((a) => a.status === 'applied' || a.status === 'preview');

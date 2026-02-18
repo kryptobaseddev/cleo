@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs
 import { join } from 'node:path';
 import { getCleoDir } from '../paths.js';
 import { readJson } from '../../store/json.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Label-to-category mapping for changelog sections. */
 const LABEL_CATEGORIES: Record<string, string> = {
@@ -54,19 +55,29 @@ export async function discoverReleaseTasks(
     taskIds?: string[];
   } = {},
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<ChangelogTask[]> {
-  const todoPath = join(getCleoDir(cwd), 'todo.json');
-  const archivePath = join(getCleoDir(cwd), 'todo-archive.json');
-
   const tasks: ChangelogTask[] = [];
 
-  // Read from todo.json and archive
-  for (const path of [todoPath, archivePath]) {
-    if (!existsSync(path)) continue;
+  // Collect tasks from both active and archive sources
+  const dataSources: Array<{ tasks: Array<Record<string, unknown>> }> = [];
 
-    const data = await readJson<{ tasks: Array<Record<string, unknown>> }>(path);
-    if (!data?.tasks) continue;
+  if (accessor) {
+    const todoData = await accessor.loadTodoFile();
+    if (todoData?.tasks) dataSources.push({ tasks: todoData.tasks as unknown as Array<Record<string, unknown>> });
+    const archiveData = await accessor.loadArchive();
+    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>> });
+  } else {
+    const todoPath = join(getCleoDir(cwd), 'todo.json');
+    const archivePath = join(getCleoDir(cwd), 'todo-archive.json');
+    for (const path of [todoPath, archivePath]) {
+      if (!existsSync(path)) continue;
+      const data = await readJson<{ tasks: Array<Record<string, unknown>> }>(path);
+      if (data?.tasks) dataSources.push(data);
+    }
+  }
 
+  for (const data of dataSources) {
     for (const task of data.tasks) {
       const id = task.id as string;
       const status = task.status as string;
@@ -221,11 +232,13 @@ export async function generateChangelog(
     append?: boolean;
   } = {},
   cwd?: string,
+  accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const date = new Date().toISOString().split('T')[0]!;
   const tasks = await discoverReleaseTasks(
     { since: options.since, until: options.until, taskIds: options.taskIds },
     cwd,
+    accessor,
   );
 
   if (tasks.length === 0) {

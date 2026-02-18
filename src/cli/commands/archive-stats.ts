@@ -9,8 +9,7 @@
 import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
-import { readJson } from '../../store/json.js';
-import { getArchivePath } from '../../core/paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 /** Archived task shape (subset of fields used for stats). */
 interface ArchivedTask {
@@ -25,10 +24,6 @@ interface ArchivedTask {
     cycleTimeDays?: number;
     archiveSource?: string;
   };
-}
-
-interface ArchiveFile {
-  archivedTasks: ArchivedTask[];
 }
 
 type ReportType = 'summary' | 'by-phase' | 'by-label' | 'by-priority' | 'cycle-times' | 'trends';
@@ -252,8 +247,8 @@ export async function getArchiveStats(opts: {
   until?: string;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  const archivePath = getArchivePath(opts.cwd);
-  const data = await readJson<ArchiveFile>(archivePath);
+  const accessor = await getAccessor(opts.cwd);
+  const data = await accessor.loadArchive();
 
   if (!data || !data.archivedTasks?.length) {
     return {
@@ -262,7 +257,8 @@ export async function getArchiveStats(opts: {
     };
   }
 
-  const filtered = filterByDate(data.archivedTasks, opts.since, opts.until);
+  const tasks = data.archivedTasks as unknown as ArchivedTask[];
+  const filtered = filterByDate(tasks, opts.since, opts.until);
   const reportType = opts.report ?? 'summary';
 
   let reportData: unknown;
