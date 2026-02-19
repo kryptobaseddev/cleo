@@ -15,6 +15,7 @@
 
 import { readLogFileEntries, getDataPath } from './store.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { checkStorageMigration } from '../../core/migration/preflight.js';
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from 'fs';
 import { join, basename } from 'path';
 import type { EngineResult, TaskRecord } from './task-engine.js';
@@ -1122,6 +1123,23 @@ export function systemDiagnostics(
         undefined
       : undefined,
   }));
+
+  // Storage migration pre-flight check (@task T4699)
+  const preflight = checkStorageMigration(projectRoot);
+  if (preflight.migrationNeeded) {
+    diagChecks.push({
+      name: 'storage_migration',
+      status: 'fail',
+      details: preflight.summary,
+      fix: preflight.fix ?? undefined,
+    });
+  } else {
+    diagChecks.push({
+      name: 'storage_migration',
+      status: 'pass',
+      details: preflight.summary,
+    });
+  }
 
   // Additional diagnostics
   const cleoDir = join(projectRoot, '.cleo');

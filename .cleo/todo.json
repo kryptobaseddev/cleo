@@ -7,21 +7,21 @@
     "phaseHistory": [],
     "releases": []
   },
-  "lastUpdated": "2026-02-18T23:34:21.113Z",
+  "lastUpdated": "2026-02-19T00:02:56.876Z",
   "_meta": {
     "schemaVersion": "2.10.0",
-    "checksum": "migration-rebuild",
+    "checksum": "a9e5077d2c19c319",
     "configVersion": "1.0.0"
   },
   "focus": {
-    "currentTask": "T4663",
+    "currentTask": "T4699",
     "currentPhase": null,
     "blockedUntil": null,
     "sessionNote": null,
     "sessionNotes": [
       {
-        "note": "Focus set to T4663 (renumbered from T001): EPIC: Wave 8",
-        "timestamp": "2026-02-18T23:34:21.114Z"
+        "note": "Focus set to T4699: Add pre-flight migration check to core - detect JSON data needing SQLite migration",
+        "timestamp": "2026-02-18T23:55:14.723Z"
       }
     ],
     "nextAction": null,
@@ -5609,16 +5609,14 @@
       "status": "pending",
       "priority": "high",
       "type": "epic",
-      "parentId": null,
-      "createdAt": "2025-12-30T07:40:23Z",
       "phase": "core",
+      "positionVersion": 0,
       "description": "Implement companion Claude Code plugin for CLEO (Option A architecture). Plugin provides Claude-native integration while preserving standalone CLI. Replaces CLAUDE.md injection with auto-discovered skills, adds slash commands, agents, and session lifecycle hooks. See claudedocs/specs/CLEO-PLUGIN-SPEC.md for full specification.",
       "notes": [
         "2025-12-30 07:43:12 UTC: Cross-linked with T1062 (CLEO Orchestration Platform). These epics are companions: T1074 provides Claude Code integration, T1062 provides deterministic orchestration engine. Plugin will use orchestration engine for subagent coordination via ct verify and verification gates.",
         "2025-12-31 23:32:55 UTC: EPIC PROGRESS 2025-12-31: Wave 0 complete (7 tasks). Research in .cleo/research/T1075-T1078. Commands in commands/. Wave 1 ready: T1079, T1085, T1131."
       ],
-      "size": null,
-      "labels": []
+      "createdAt": "2025-12-30T07:40:23Z"
     },
     {
       "id": "T1171",
@@ -5626,16 +5624,15 @@
       "status": "pending",
       "priority": "medium",
       "type": "epic",
-      "parentId": null,
-      "createdAt": "2026-01-01T00:23:14Z",
       "phase": "polish",
+      "positionVersion": 0,
       "description": "Create compelling visual demonstrations of CLEO for Reddit posts and README. Goal: Show what CLEO does in screenshots that hook viewers in 2 seconds. Includes terminal screenshots, side-by-side comparisons, animated GIFs, and demo project creation.",
       "labels": [
         "documentation",
         "marketing",
         "screenshots"
       ],
-      "size": null
+      "createdAt": "2026-01-01T00:23:14Z"
     },
     {
       "id": "T4663",
@@ -6104,6 +6101,19 @@
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:27.026Z",
       "updatedAt": "2026-02-18T19:19:27.026Z"
+    },
+    {
+      "id": "T4699",
+      "title": "Add pre-flight migration check to core - detect JSON data needing SQLite migration",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "size": "medium",
+      "position": 900,
+      "positionVersion": 0,
+      "createdAt": "2026-02-18T23:55:09.489Z",
+      "updatedAt": "2026-02-19T00:02:56.876Z",
+      "completedAt": "2026-02-19T00:02:56.876Z"
     }
   ]
 }

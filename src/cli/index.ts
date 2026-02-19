@@ -93,6 +93,9 @@ import { registerVerifyCommand } from './commands/verify.js';
 // Wave 5: Storage migration (T4647, T4648)
 import { registerMigrateStorageCommand } from './commands/migrate-storage.js';
 
+// Core: pre-flight migration check (@task T4699)
+import { checkStorageMigration } from '../core/migration/preflight.js';
+
 /** Read version from package.json (single source of truth). */
 function getPackageVersion(): string {
   try {
@@ -231,5 +234,25 @@ registerVerifyCommand(program);
 
 // T4647, T4648: Storage migration
 registerMigrateStorageCommand(program);
+
+// Pre-flight migration check: warn if JSON data needs SQLite migration (@task T4699)
+// Runs before any command, emits to stderr so JSON output on stdout is not affected.
+// Skipped for commands that don't need data (version, init, migrate-storage itself).
+const SKIP_PREFLIGHT = new Set(['version', 'init', 'migrate-storage', 'help']);
+program.hook('preAction', (thisCommand) => {
+  const cmdName = thisCommand.args?.[0] ?? thisCommand.name();
+  if (SKIP_PREFLIGHT.has(cmdName)) return;
+  try {
+    const result = checkStorageMigration();
+    if (result.migrationNeeded) {
+      process.stderr.write(
+        `\n⚠ Storage migration needed: ${result.summary}\n`
+        + `  Fix: ${result.fix}\n\n`,
+      );
+    }
+  } catch {
+    // Never block CLI operation due to preflight failure
+  }
+});
 
 program.parse();
