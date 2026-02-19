@@ -135,14 +135,16 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     || details.archiveJsonTaskCount > 0
     || details.sessionsJsonCount > 0;
 
-  // Migration is ONLY flagged for broken/incomplete states, never for
-  // projects intentionally using JSON storage. Users opt into SQLite
-  // explicitly via `cleo migrate-storage --to-sqlite`.
+  // Migration is flagged for broken or upgrade states:
   //
   // Cases:
   // 1. Config says sqlite but tasks.db is missing (broken state)
-  // 2. Config says sqlite and tasks.db is tiny (interrupted migration)
-  const DB_SCHEMA_ONLY_THRESHOLD = 200_000; // ~200KB = schema only, no real data
+  // 2. No config engine set, JSON data exists, no tasks.db (v1→v2 upgrade)
+  //
+  // NOT flagged:
+  // - Config says sqlite and tasks.db exists (normal post-migration state,
+  //   even if JSON files remain as backups)
+  // - Config says json explicitly (user opted out of SQLite)
 
   let migrationNeeded = false;
   let summary = '';
@@ -154,18 +156,10 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     summary = `Config engine is 'sqlite' but tasks.db is missing. `
       + `${details.todoJsonTaskCount} active tasks and ${details.archiveJsonTaskCount} archived tasks found in JSON files.`;
     fix = 'cleo migrate-storage --to-sqlite --verify';
-  } else if (
-    details.configEngine === 'sqlite'
-    && details.tasksDbExists
-    && details.tasksDbSize < DB_SCHEMA_ONLY_THRESHOLD
-    && jsonHasData
-    && details.todoJsonTaskCount > 0
-  ) {
-    // Config says sqlite, DB exists but is tiny (schema-only), JSON has real data
-    migrationNeeded = true;
-    summary = `tasks.db exists but appears empty (${details.tasksDbSize} bytes). `
-      + `${details.todoJsonTaskCount} active tasks found in JSON files need migration.`;
-    fix = 'rm .cleo/tasks.db && cleo migrate-storage --to-sqlite --verify';
+  } else if (details.configEngine === 'sqlite' && !details.tasksDbExists && !jsonHasData) {
+    // Config says sqlite, no DB, no JSON data - fresh project with bad config
+    migrationNeeded = false;
+    summary = 'No data found. Run cleo init to set up a new project.';
   } else if (
     details.configEngine === null
     && jsonHasData

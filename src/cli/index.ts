@@ -238,7 +238,7 @@ registerMigrateStorageCommand(program);
 // Pre-flight migration check: warn if JSON data needs SQLite migration (@task T4699)
 // Runs before any command, emits to stderr so JSON output on stdout is not affected.
 // Skipped for commands that don't need data (version, init, migrate-storage itself).
-const SKIP_PREFLIGHT = new Set(['version', 'init', 'migrate-storage', 'help']);
+const SKIP_PREFLIGHT = new Set(['version', 'init', 'migrate-storage', 'self-update', 'upgrade', 'help']);
 program.hook('preAction', (thisCommand) => {
   const cmdName = thisCommand.args?.[0] ?? thisCommand.name();
   if (SKIP_PREFLIGHT.has(cmdName)) return;
