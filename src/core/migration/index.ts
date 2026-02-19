@@ -4,6 +4,10 @@
  * @epic T4454
  */
 
+// Re-export pre-flight check for CLI/MCP consumers (@task T4699)
+export { checkStorageMigration } from './preflight.js';
+export type { PreflightResult } from './preflight.js';
+
 import { readJson, saveJson } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
