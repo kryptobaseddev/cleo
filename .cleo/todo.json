@@ -7,10 +7,10 @@
     "phaseHistory": [],
     "releases": []
   },
-  "lastUpdated": "2026-02-19T14:53:27.846Z",
+  "lastUpdated": "2026-02-19T22:02:37.386Z",
   "_meta": {
     "schemaVersion": "2.10.0",
-    "checksum": "20c8021357a97acf",
+    "checksum": "e9f21e58495338f5",
     "configVersion": "1.0.0"
   },
   "focus": {
@@ -6513,6 +6513,754 @@
       "createdAt": "2026-02-19T02:08:59.302Z",
       "updatedAt": "2026-02-19T02:09:12.028Z",
       "completedAt": "2026-02-19T02:09:12.028Z"
+    },
+    {
+      "id": "T4720",
+      "title": "SQLite Migration Safety & Data Integrity Overhaul",
+      "status": "pending",
+      "priority": "critical",
+      "type": "epic",
+      "size": "medium",
+      "position": 4699,
+      "positionVersion": 0,
+      "description": "Comprehensive overhaul of the SQLite migration system to prevent data loss, ensure idempotency, and implement atomic operations. Addresses critical issues in upgrade.ts, migration-sqlite.ts, and sqlite.ts that cause database dropping during JSON→SQLite migrations.",
+      "acceptance": [
+        "Migration is fully idempotent - running multiple times produces same result",
+        "Database is never deleted without verified backup",
+        "Atomic rename pattern used: write to temp → validate → rename",
+        "File locking prevents concurrent migration race conditions",
+        "Singleton state properly reset before/after migration",
+        "All failure modes have automatic rollback with verification",
+        "Zero data loss in all tested scenarios"
+      ],
+      "createdAt": "2026-02-19T17:18:42Z",
+      "updatedAt": "2026-02-19T17:18:42Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4721",
+      "title": "Implement atomic rename pattern for database migration",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4700,
+      "positionVersion": 0,
+      "description": "Replace destructive delete-then-create pattern with atomic write-to-temp-then-rename approach. Current code in upgrade.ts:148-153 deletes tasks.db before migration, creating a window for data loss. Implement: 1) Write new database to tasks.db.new, 2) Validate integrity, 3) Rename tasks.db → tasks.db.backup, 4) Rename tasks.db.new → tasks.db, 5) Clean up on success.",
+      "labels": [
+        "upgrade.ts"
+      ],
+      "acceptance": [
+        "Migration uses tasks.db.new as temp file",
+        "Atomic rename only occurs after validation",
+        "Original database preserved until new one verified",
+        "No window where tasks.db is missing"
+      ],
+      "files": [
+        "src/core/upgrade.ts:96-253",
+        "src/store/atomic.ts"
+      ],
+      "createdAt": "2026-02-19T17:19:43Z",
+      "updatedAt": "2026-02-19T17:19:43Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4722",
+      "title": "Fix singleton state contamination in sqlite.ts",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4701,
+      "positionVersion": 0,
+      "description": "The getDb() function uses module-level singletons (_db, _nativeDb, _dbPath) that can reference deleted databases. When migration deletes tasks.db and creates new one, cached singletons may point to stale memory or wrong path. Implement: 1) Add resetDbState() function to clear all singletons, 2) Call resetDbState() before migration starts, 3) Call resetDbState() after migration completes, 4) Ensure getDb() validates _dbPath matches requested cwd.",
+      "labels": [
+        "state-management"
+      ],
+      "acceptance": [
+        "resetDbState() function implemented and exported",
+        "Singletons cleared before migration",
+        "Singletons cleared after migration",
+        "getDb() validates path matches cwd parameter"
+      ],
+      "files": [
+        "src/store/sqlite.ts:28-73",
+        "src/store/sqlite.ts:205-213"
+      ],
+      "createdAt": "2026-02-19T17:19:47Z",
+      "updatedAt": "2026-02-19T17:19:47Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4723",
+      "title": "Add file locking to migration process",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4702,
+      "positionVersion": 0,
+      "description": "Current migration has no concurrency protection. Multiple agents or processes running upgrade simultaneously can cause race conditions and data corruption. Implement: 1) Import withLock from lock.ts, 2) Wrap entire migration in withLock(getDbPath(), async () => {...}), 3) Set appropriate lock options (stale: 30000, retries: 5), 4) Handle lock acquisition failures gracefully with retry logic.",
+      "labels": [
+        "safety"
+      ],
+      "acceptance": [
+        "Migration wrapped in exclusive file lock",
+        "Lock timeout set to 30 seconds with 5 retries",
+        "Clear error message if lock cannot be acquired",
+        "No concurrent migration possible"
+      ],
+      "files": [
+        "src/core/upgrade.ts",
+        "src/store/lock.ts:74-85"
+      ],
+      "createdAt": "2026-02-19T17:19:50Z",
+      "updatedAt": "2026-02-19T17:19:50Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4724",
+      "title": "Make migration-sqlite.ts truly idempotent",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4703,
+      "positionVersion": 0,
+      "description": "Current migration warns when tasks.db exists but does not properly handle re-runs. Need: 1) Check existing row counts before migration, 2) Compare JSON vs SQLite counts, 3) Skip import if data already present, 4) Add force flag to override, 5) Return detailed diff showing what would change.",
+      "labels": [
+        "migration-sqlite.ts"
+      ],
+      "acceptance": [
+        "Migration checks existing database row counts",
+        "Compares JSON source vs SQLite destination",
+        "Reports diff without changes on dry-run",
+        "Skip import if counts match (unless --force)",
+        "Detailed result showing tasks added/skipped"
+      ],
+      "files": [
+        "src/store/migration-sqlite.ts:35-49",
+        "src/store/migration-sqlite.ts:200-205"
+      ],
+      "createdAt": "2026-02-19T17:19:54Z",
+      "updatedAt": "2026-02-19T17:19:54Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4725",
+      "title": "Add pre-migration JSON validation",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4704,
+      "positionVersion": 0,
+      "description": "Currently migration deletes database before validating JSON content. If JSON is corrupted or empty, database is lost. Implement: 1) Validate todo.json parses before any destructive operations, 2) Validate sessions.json parses, 3) Validate archive.json parses, 4) Check for minimum task count mismatch warnings, 5) Fail fast with clear error before touching database.",
+      "labels": [
+        "json"
+      ],
+      "acceptance": [
+        "All JSON files validated before destructive ops",
+        "Parse errors reported with file path and line",
+        "Empty JSON warnings with confirmation required",
+        "Task count validation (warn if JSON has 0 tasks but DB has N)",
+        "No database touched if JSON validation fails"
+      ],
+      "files": [
+        "src/core/upgrade.ts:96-150",
+        "src/store/migration-sqlite.ts:54-112"
+      ],
+      "createdAt": "2026-02-19T17:19:58Z",
+      "updatedAt": "2026-02-19T17:19:58Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4726",
+      "title": "Implement migration state tracking and recovery",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4705,
+      "positionVersion": 0,
+      "description": "Add persistent migration progress tracking to enable resumable migrations and better recovery. Create .cleo/.migration-state.json tracking: 1) Migration start time, 2) Source files and checksums, 3) Current phase (backup/validate/import/verify/cleanup), 4) Progress counters, 5) Any errors encountered. Enables automatic resume if migration interrupted.",
+      "labels": [
+        "resilience"
+      ],
+      "acceptance": [
+        "Migration state JSON created at start",
+        "Each phase updates state with timestamp",
+        "Can resume from interruption point",
+        "Automatic cleanup of completed migrations",
+        "State includes checksums of source files"
+      ],
+      "files": [
+        "src/core/upgrade.ts",
+        "src/core/migration/preflight.ts"
+      ],
+      "createdAt": "2026-02-19T17:20:01Z",
+      "updatedAt": "2026-02-19T17:20:01Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4727",
+      "title": "Add comprehensive migration logging and audit trail",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4706,
+      "positionVersion": 0,
+      "description": "Current migration has minimal logging, making debugging failures difficult. Implement structured logging: 1) Log every phase entry/exit, 2) Log file operations with sizes, 3) Log validation results, 4) Log row counts at each step, 5) Write to .cleo/logs/migration-YYYY-MM-DD-HH-mm-ss.jsonl, 6) Include in result object for programmatic access.",
+      "labels": [
+        "debugging"
+      ],
+      "acceptance": [
+        "Structured JSONL log file created per migration",
+        "Each operation logged with timestamp",
+        "File sizes logged before/after operations",
+        "Row counts logged at import and verify phases",
+        "Log path returned in migration result"
+      ],
+      "files": [
+        "src/core/upgrade.ts",
+        "src/store/migration-sqlite.ts"
+      ],
+      "createdAt": "2026-02-19T17:20:05Z",
+      "updatedAt": "2026-02-19T17:20:05Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4728",
+      "title": "Enhance backup verification beyond file size",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4707,
+      "positionVersion": 0,
+      "description": "Current backup verification only compares file sizes (upgrade.ts:116-123). This is insufficient - file could be corrupted but same size. Implement: 1) Compute SHA-256 checksum of source database, 2) Copy file and compute checksum of backup, 3) Compare checksums not just sizes, 4) Store checksum in migration state, 5) Verify backup can be opened as valid SQLite before proceeding.",
+      "labels": [
+        "checksums"
+      ],
+      "acceptance": [
+        "SHA-256 checksum computed for source DB",
+        "Checksum computed for backup file",
+        "Checksums compared before proceeding",
+        "Backup verified as valid SQLite database",
+        "Checksums stored in migration state"
+      ],
+      "files": [
+        "src/core/upgrade.ts:102-124",
+        "src/store/json.ts:97-106"
+      ],
+      "createdAt": "2026-02-19T17:20:07Z",
+      "updatedAt": "2026-02-19T17:20:07Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4729",
+      "title": "Add migration integration tests for failure scenarios",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4708,
+      "positionVersion": 0,
+      "description": "Create comprehensive test suite covering failure modes: 1) Test migration with corrupted JSON, 2) Test migration interruption and resume, 3) Test concurrent migration attempts, 4) Test zero-task JSON with existing database, 5) Test database locked during migration, 6) Test singleton state after migration.",
+      "labels": [
+        "safety"
+      ],
+      "acceptance": [
+        "Test corrupted JSON fails before destructive ops",
+        "Test migration interruption and recovery",
+        "Test concurrent access is properly blocked",
+        "Test singleton reset clears cached state",
+        "All tests pass with 100% coverage of new safety code"
+      ],
+      "files": [
+        "src/store/__tests__/migration-sqlite.test.ts",
+        "src/store/__tests__/migration-integration.test.ts"
+      ],
+      "createdAt": "2026-02-19T17:20:12Z",
+      "updatedAt": "2026-02-19T17:20:12Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4730",
+      "title": "Update migration CLI to require explicit confirmation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4709,
+      "positionVersion": 0,
+      "description": "Current migration can run automatically with autoMigrate=true. Change to require explicit user confirmation: 1) Add --confirm flag to migrate-storage command, 2) Interactive prompt showing what will happen, 3) Show counts: tasks to migrate, database size, backup location, 4) Require yes or --confirm flag to proceed, 5) Dry-run by default showing what would happen.",
+      "labels": [
+        "safety"
+      ],
+      "acceptance": [
+        "--confirm flag required for destructive migration",
+        "Interactive prompt shows migration summary",
+        "Dry-run displays detailed plan without changes",
+        "Cannot accidentally run destructive migration",
+        "Clear warning about database replacement"
+      ],
+      "files": [
+        "src/cli/commands/migrate-storage.ts:94-140",
+        "src/cli/commands/upgrade.ts"
+      ],
+      "createdAt": "2026-02-19T17:20:18Z",
+      "updatedAt": "2026-02-19T17:20:18Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4731",
+      "title": "Document migration safety architecture and runbooks",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4720",
+      "size": "medium",
+      "position": 4710,
+      "positionVersion": 0,
+      "description": "Create comprehensive documentation: 1) ADR for migration safety design decisions, 2) Runbook for recovering from failed migrations, 3) Document all safety mechanisms and their purposes, 4) Troubleshooting guide for common migration issues, 5) Update existing migration docs with new flags and behaviors.",
+      "labels": [
+        "runbook"
+      ],
+      "acceptance": [
+        "ADR-003 created documenting safety architecture",
+        "Runbook for migration recovery created",
+        "Troubleshooting guide with error scenarios",
+        "All new flags documented",
+        "Documentation reviewed and approved"
+      ],
+      "files": [
+        "docs/",
+        "README.md",
+        "src/core/upgrade.ts"
+      ],
+      "createdAt": "2026-02-19T17:20:21Z",
+      "updatedAt": "2026-02-19T17:20:21Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4732",
+      "title": "API Terminology Standardization — focus→start, naming conventions, verb unification",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "size": "large",
+      "position": 4732,
+      "positionVersion": 0,
+      "description": "Full migration of CLEO MCP API surface: (1) Replace session.focus-* with canonical tasks.start/stop/current operations, (2) Standardize all compound operation names to dot.notation (kill hyphens, underscores), (3) Unify CRUD verbs across all 11 domains, (4) Remove cross-convention aliases, (5) Update all tests, documentation, ct-skills repo, CAAMP package. ZERO legacy references. Affects claude-todo, cleo-skills, and caamp repos.",
+      "acceptance": [
+        "All focus operations replaced with start/stop/current",
+        "All compound ops use dot.notation",
+        "CRUD verbs unified across domains",
+        "Zero legacy references in docs",
+        "All tests passing"
+      ],
+      "createdAt": "2026-02-19T21:00:00Z",
+      "updatedAt": "2026-02-19T21:00:00Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4733",
+      "title": "Core Focus→Start Migration",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4732",
+      "size": "large",
+      "position": 4733,
+      "positionVersion": 0,
+      "description": "Replace session.focus-* with canonical tasks.start/stop/current operations. Create new core module, MCP domain operations, engine adapters, types, store layer changes, and CLI commands. Remove ALL focus operations from session domain entirely. Files: src/core/focus/ (replace), src/mcp/domains/tasks.ts, src/mcp/domains/session.ts, src/mcp/engine/, src/mcp/types/, src/store/session-store.ts, src/cli/commands/focus.ts (replace), src/types/task.ts, src/types/session.ts",
+      "labels": [
+        "core",
+        "focus"
+      ],
+      "acceptance": [
+        "Core task-work module created",
+        "MCP operations added",
+        "Engine adapters wired",
+        "Store layer migrated",
+        "CLI commands updated"
+      ],
+      "files": [
+        "src/core/focus/",
+        "src/mcp/domains/tasks.ts",
+        "src/store/session-store.ts"
+      ],
+      "createdAt": "2026-02-19T21:00:01Z",
+      "updatedAt": "2026-02-19T21:00:01Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4734",
+      "title": "Naming Convention Standardization",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4732",
+      "size": "medium",
+      "position": 4734,
+      "positionVersion": 0,
+      "description": "Standardize ALL compound operation names across 11 MCP domains to dot.notation. Kill hyphenated operations (14 ops), kill underscore_case (6 ops in issues/providers), fix camelCase (2 ops in system). Remove cross-convention aliases where both hyphen and dot forms exist. Update router validation. Files: src/mcp/domains/*.ts (all 11), src/mcp/lib/router.ts",
+      "labels": [
+        "naming",
+        "conventions"
+      ],
+      "acceptance": [
+        "14 hyphenated ops converted to dot.notation",
+        "6 underscore_case ops fixed",
+        "2 camelCase ops fixed",
+        "All aliases removed",
+        "Router validation updated"
+      ],
+      "files": [
+        "src/mcp/domains/*.ts",
+        "src/mcp/lib/router.ts"
+      ],
+      "createdAt": "2026-02-19T21:00:02Z",
+      "updatedAt": "2026-02-19T21:00:02Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4735",
+      "title": "CRUD Verb Unification",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4732",
+      "size": "medium",
+      "position": 4735,
+      "positionVersion": 0,
+      "description": "Standardize CRUD verbs across all domains: Create=add, Read=show, List=list, Search=find, Modify=update, Remove=delete, Soft-delete=archive, Restore=restore, Finish=complete, Begin-work=start, Stop-work=stop, Check-state=status. Update all domain handlers to use canonical verbs. Remove verb aliases. Files: src/mcp/domains/*.ts, src/mcp/types/operations/*.ts",
+      "labels": [
+        "verbs",
+        "crud"
+      ],
+      "acceptance": [
+        "All domains use canonical verbs",
+        "All aliases removed",
+        "Type definitions updated",
+        "No create/add confusion",
+        "No get/show confusion"
+      ],
+      "files": [
+        "src/mcp/domains/*.ts",
+        "src/mcp/types/operations/*.ts"
+      ],
+      "createdAt": "2026-02-19T21:00:03Z",
+      "updatedAt": "2026-02-19T21:00:03Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4736",
+      "title": "Test Suite Migration",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4732",
+      "size": "large",
+      "position": 4736,
+      "positionVersion": 0,
+      "description": "Update ALL test files that reference focus operations, old operation names, or old naming conventions. 38+ test files reference focus. Verify full test suite passes after migration with zero regressions. Files: src/core/focus/__tests__/, src/mcp/domains/__tests__/, src/store/__tests__/, src/mcp/__tests__/e2e/, all integration tests",
+      "labels": [
+        "testing"
+      ],
+      "acceptance": [
+        "38+ test files updated",
+        "All focus tests migrated",
+        "All naming convention tests fixed",
+        "Zero test regressions",
+        "Full suite passes"
+      ],
+      "files": [
+        "src/core/focus/__tests__/",
+        "src/mcp/__tests__/e2e/"
+      ],
+      "createdAt": "2026-02-19T21:00:04Z",
+      "updatedAt": "2026-02-19T21:00:04Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4737",
+      "title": "Claude-Todo Documentation Migration",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4732",
+      "size": "large",
+      "position": 4737,
+      "positionVersion": 0,
+      "description": "Update ALL documentation in claude-todo repo: CLAUDE.md, README.md, docs/commands/*.mdx, templates/CLEO-INJECTION.md, templates/AGENT-INJECTION.md, templates/agents/*.md. Replace every focus reference with start/stop/current. Update MCP operation tables. Update token definitions. Update CLI command docs. ZERO legacy references remaining.",
+      "labels": [
+        "documentation"
+      ],
+      "acceptance": [
+        "CLAUDE.md updated",
+        "README.md updated",
+        "All command docs updated",
+        "Templates updated",
+        "Zero legacy references"
+      ],
+      "files": [
+        "CLAUDE.md",
+        "README.md",
+        "docs/commands/",
+        "templates/"
+      ],
+      "createdAt": "2026-02-19T21:00:05Z",
+      "updatedAt": "2026-02-19T21:00:05Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4738",
+      "title": "CT-Skills and CAAMP Package Migration",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4732",
+      "size": "large",
+      "position": 4738,
+      "positionVersion": 0,
+      "description": "Update cleo-skills repo (/mnt/projects/cleo-skills): all 12 skill SKILL.md files, 3 shared protocol files, placeholders.json tokens, dispatch-config.json. Rebuild skills.json/manifest.json. Bump package version. Commit/push to GitHub. Publish to NPM. Then update CAAMP repo. Install latest packages in claude-todo.",
+      "labels": [
+        "cleo-skills",
+        "caamp",
+        "packages"
+      ],
+      "acceptance": [
+        "12 skill files updated",
+        "3 shared protocol files updated",
+        "Skills rebuilt and published",
+        "CAAMP updated",
+        "Packages installed in claude-todo"
+      ],
+      "files": [
+        "/mnt/projects/cleo-skills/",
+        "/mnt/projects/caamp/"
+      ],
+      "createdAt": "2026-02-19T21:00:06Z",
+      "updatedAt": "2026-02-19T21:00:06Z",
+      "provenance": {
+        "createdBy": "recovery",
+        "modifiedBy": null,
+        "sessionId": null
+      }
+    },
+    {
+      "id": "T4739",
+      "title": "EPIC: Naming Standardization - Eliminate 'Todo' Terminology",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "size": "medium",
+      "position": 4733,
+      "positionVersion": 0,
+      "description": "Complete standardization of CLEO terminology from 'Todo' to 'Tasks' across entire codebase. This includes file renames, type renames, function renames, and ensuring consistency.",
+      "labels": [
+        "v2"
+      ],
+      "createdAt": "2026-02-19T22:01:58.388Z",
+      "updatedAt": "2026-02-19T22:01:58.388Z"
+    },
+    {
+      "id": "T4740",
+      "title": "EPIC: Core Data Safety - Complete Implementation",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "size": "medium",
+      "position": 4734,
+      "positionVersion": 0,
+      "description": "Complete implementation of centralized data safety across all CLEO core operations. Make safety mandatory at factory level with zero bypass capability.",
+      "labels": [
+        "v2"
+      ],
+      "createdAt": "2026-02-19T22:02:01.238Z",
+      "updatedAt": "2026-02-19T22:02:01.238Z"
+    },
+    {
+      "id": "T4741",
+      "title": "EPIC: End-to-End Safety Testing",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "size": "medium",
+      "position": 4735,
+      "positionVersion": 0,
+      "description": "Comprehensive testing of all safety mechanisms across CLI, MCP, and migration paths. Test data integrity, collision detection, write verification, and recovery procedures.",
+      "labels": [
+        "validation"
+      ],
+      "createdAt": "2026-02-19T22:02:03.373Z",
+      "updatedAt": "2026-02-19T22:02:03.373Z"
+    },
+    {
+      "id": "T4742",
+      "title": "Standardize naming: Todo → Tasks across codebase",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "size": "medium",
+      "position": 4736,
+      "positionVersion": 0,
+      "description": "Rename all 'Todo' terminology to 'Tasks' including: todo.json → tasks.json, todo-log.jsonl → tasks-log.jsonl, TodoFile type → TaskFile, saveTodoFile() → saveTaskFile(), all internal references and comments. Must maintain backward compatibility during transition.",
+      "labels": [
+        "refactoring"
+      ],
+      "createdAt": "2026-02-19T22:02:27.106Z",
+      "updatedAt": "2026-02-19T22:02:27.106Z"
+    },
+    {
+      "id": "T4743",
+      "title": "Create migration script for file renaming",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "size": "medium",
+      "position": 4737,
+      "positionVersion": 0,
+      "description": "Create script to handle migration from todo.* to tasks.* file naming for existing installations. Must safely rename files, update references, and handle errors gracefully.",
+      "labels": [
+        "scripting"
+      ],
+      "createdAt": "2026-02-19T22:02:29.477Z",
+      "updatedAt": "2026-02-19T22:02:29.477Z"
+    },
+    {
+      "id": "T4744",
+      "title": "Update core task operations with safety",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "size": "medium",
+      "position": 4738,
+      "positionVersion": 0,
+      "description": "Update all core task operations (update.ts, delete.ts, complete.ts, archive.ts, relates.ts, analyze.ts) to use safeSaveTaskFile() and other safety mechanisms from data-safety-central.ts",
+      "labels": [
+        "core-operations"
+      ],
+      "createdAt": "2026-02-19T22:02:32.024Z",
+      "updatedAt": "2026-02-19T22:02:32.024Z"
+    },
+    {
+      "id": "T4745",
+      "title": "Integrate safety at DataAccessor factory level",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "size": "medium",
+      "position": 4739,
+      "positionVersion": 0,
+      "description": "Modify createDataAccessor() to return safety-wrapped accessors by default. Ensure NO code path can bypass safety checks. Make safety mandatory and automatic.",
+      "labels": [
+        "architecture"
+      ],
+      "createdAt": "2026-02-19T22:02:34.701Z",
+      "updatedAt": "2026-02-19T22:02:34.701Z"
+    },
+    {
+      "id": "T4746",
+      "title": "Document comprehensive testing strategy",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": null,
+      "position": 4740,
+      "positionVersion": 0,
+      "size": "medium",
+      "createdAt": "2026-02-19T22:02:37.386Z",
+      "updatedAt": "2026-02-19T22:02:37.386Z",
+      "description": "Create detailed testing documentation for end-to-end safety testing. Document test cases, scenarios, expected outcomes, and validation criteria. DO NOT execute tests - only document approach.",
+      "labels": [
+        "documentation"
+      ]
     }
   ]
 }
