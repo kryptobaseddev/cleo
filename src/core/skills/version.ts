@@ -1,10 +1,16 @@
 /**
  * Skills version tracking.
- * Delegates lock file tracking to @cleocode/caamp for canonical skill versions.
- * Keeps CLEO's local installed-skills.json for project-specific tracking.
+ *
+ * CAAMP's skills-lock is the PRIMARY source of truth for skill versions.
+ * CLEO's local installed-skills.json is kept as a synchronous cache
+ * and fallback for when CAAMP's async lock file is unavailable.
+ *
+ * Write operations record to BOTH CAAMP lock and CLEO local tracking.
+ * Read operations check CAAMP lock first, CLEO local second.
  *
  * @epic T4454
  * @task T4521
+ * @task T4680
  */
 
 import {
@@ -16,6 +22,8 @@ import {
 import { join, dirname } from 'node:path';
 import {
   getTrackedSkills as caampGetTrackedSkills,
+  recordSkillInstall as caampRecordSkillInstall,
+  checkSkillUpdate as caampCheckSkillUpdate,
 } from '@cleocode/caamp';
 import { getCleoHome, getProjectRoot } from '../paths.js';
 import type { InstalledSkillsFile } from './types.js';
@@ -25,7 +33,7 @@ import type { InstalledSkillsFile } from './types.js';
 // ============================================================================
 
 /**
- * Get the installed skills tracking file path.
+ * Get the installed skills tracking file path (CLEO local cache).
  */
 function getInstalledSkillsPath(): string {
   return join(getCleoHome(), 'installed-skills.json');
@@ -40,11 +48,11 @@ function getSourceManifestPath(cwd?: string): string {
 }
 
 // ============================================================================
-// File Operations
+// CLEO Local Cache Operations
 // ============================================================================
 
 /**
- * Read the installed skills file.
+ * Read the installed skills file (CLEO local cache).
  * @task T4521
  */
 export function readInstalledSkills(): InstalledSkillsFile {
@@ -68,7 +76,7 @@ export function readInstalledSkills(): InstalledSkillsFile {
 }
 
 /**
- * Save the installed skills file.
+ * Save the installed skills file (CLEO local cache).
  * @task T4521
  */
 export function saveInstalledSkills(data: InstalledSkillsFile): void {
@@ -84,7 +92,7 @@ export function saveInstalledSkills(data: InstalledSkillsFile): void {
 }
 
 // ============================================================================
-// Version Tracking
+// Version Tracking (CAAMP primary, CLEO local fallback)
 // ============================================================================
 
 /**
@@ -101,7 +109,10 @@ export function initInstalledSkills(): InstalledSkillsFile {
 
 /**
  * Record a skill version after installation.
+ * Writes to BOTH CAAMP lock (primary) and CLEO local cache (fallback).
+ *
  * @task T4521
+ * @task T4680
  */
 export function recordSkillVersion(
   name: string,
@@ -109,8 +120,8 @@ export function recordSkillVersion(
   sourcePath: string,
   symlinkPath: string,
 ): void {
+  // Write to CLEO local cache (synchronous, always succeeds)
   const data = readInstalledSkills();
-
   data.skills[name] = {
     name,
     version,
@@ -118,12 +129,29 @@ export function recordSkillVersion(
     sourcePath,
     symlinkPath,
   };
-
   saveInstalledSkills(data);
+
+  // Write to CAAMP lock (async, best-effort)
+  // Fire-and-forget: CAAMP lock is the primary source but we don't
+  // block synchronous callers. Next async read will pick it up.
+  caampRecordSkillInstall(
+    name,
+    name, // scopedName
+    sourcePath, // source
+    'local', // sourceType
+    [], // agents (populated by CAAMP during actual install)
+    symlinkPath, // canonicalPath
+    true, // isGlobal
+    undefined, // projectDir
+    version,
+  ).catch(() => {
+    // CAAMP lock write failed - CLEO local cache is the fallback
+  });
 }
 
 /**
- * Get the installed version of a skill from CLEO's local tracking.
+ * Get the installed version of a skill from CLEO's local cache.
+ * Synchronous fallback - prefer getInstalledVersionAsync() for accurate results.
  * @task T4521
  */
 export function getInstalledVersion(name: string): string | null {
@@ -132,30 +160,35 @@ export function getInstalledVersion(name: string): string | null {
 }
 
 /**
- * Get the installed version of a skill, checking CAAMP's lock file as fallback.
- * Async because CAAMP's getTrackedSkills reads the lock file asynchronously.
+ * Get the installed version of a skill.
+ * Checks CAAMP's lock file first (primary), falls back to CLEO local cache.
+ *
  * @task T4521
+ * @task T4680
  */
 export async function getInstalledVersionAsync(name: string): Promise<string | null> {
-  // Check CLEO's local tracking first
-  const localVersion = getInstalledVersion(name);
-  if (localVersion) return localVersion;
-
-  // Fallback: check CAAMP's tracked skills
+  // Check CAAMP's lock file first (primary source of truth)
   try {
     const tracked = await caampGetTrackedSkills();
     const entry = tracked[name];
     if (entry?.version) return entry.version;
   } catch {
-    // CAAMP lock file not available
+    // CAAMP lock file not available, fall through to local cache
   }
+
+  // Fallback: check CLEO's local tracking
+  const localVersion = getInstalledVersion(name);
+  if (localVersion) return localVersion;
 
   return null;
 }
 
 /**
- * Check for skill updates by comparing installed versions against manifest.
+ * Check for skill updates using CAAMP's lock-based update checker.
+ * Falls back to manifest comparison if CAAMP check is unavailable.
+ *
  * @task T4521
+ * @task T4680
  */
 export function checkSkillUpdates(cwd?: string): Array<{
   name: string;
@@ -199,6 +232,31 @@ export function checkSkillUpdates(cwd?: string): Array<{
   }
 
   return updates;
+}
+
+/**
+ * Check if a single skill needs an update via CAAMP's lock-based checker.
+ * Async because it reads the CAAMP lock file.
+ *
+ * @task T4680
+ */
+export async function checkSkillUpdateAsync(name: string): Promise<{
+  needsUpdate: boolean;
+  currentVersion?: string;
+  latestVersion?: string;
+}> {
+  try {
+    const result = await caampCheckSkillUpdate(name);
+    return {
+      needsUpdate: result.hasUpdate,
+      currentVersion: result.currentVersion,
+      latestVersion: result.latestVersion,
+    };
+  } catch {
+    // CAAMP check unavailable, fall back to local
+    const local = getInstalledVersion(name);
+    return { needsUpdate: false, currentVersion: local ?? undefined };
+  }
 }
 
 /**

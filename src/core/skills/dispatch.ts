@@ -22,6 +22,7 @@ import type {
   SkillProtocolType,
 } from './types.js';
 import { discoverAllSkills, findSkill } from './discovery.js';
+import { injectTokens } from './injection/token.js';
 
 // ============================================================================
 // Keyword Dispatch Map
@@ -268,3 +269,131 @@ export function prepareSpawnContext(
     dispatch,
   };
 }
+
+// ============================================================================
+// Multi-Skill Composition
+// ============================================================================
+
+/** Result of multi-skill composition. */
+export interface MultiSkillComposition {
+  skillCount: number;
+  primarySkill: string;
+  skills: Array<{
+    skill: string;
+    mode: 'full' | 'progressive';
+    estimatedTokens: number;
+  }>;
+  totalEstimatedTokens: number;
+  prompt: string;
+}
+
+/**
+ * Load a skill in progressive mode: frontmatter + first section only.
+ * @task T4712
+ * @epic T4663
+ */
+function loadProgressive(content: string): string {
+  const lines = content.split('\n');
+  const result: string[] = [];
+  let inFrontmatter = false;
+  let afterFrontmatter = false;
+  let inFirstSection = false;
+
+  for (const line of lines) {
+    if (line.trim() === '---' && !inFrontmatter && !afterFrontmatter) {
+      inFrontmatter = true;
+      result.push(line);
+      continue;
+    }
+    if (line.trim() === '---' && inFrontmatter) {
+      inFrontmatter = false;
+      afterFrontmatter = true;
+      result.push(line);
+      result.push('');
+      continue;
+    }
+    if (inFrontmatter) {
+      result.push(line);
+      continue;
+    }
+    if (afterFrontmatter && /^##? /.test(line) && !inFirstSection) {
+      inFirstSection = true;
+      result.push(line);
+      continue;
+    }
+    if (afterFrontmatter && /^##? /.test(line) && inFirstSection) {
+      break;
+    }
+    if (inFirstSection) {
+      result.push(line);
+    }
+  }
+
+  result.push('');
+  result.push('> **Note**: This skill is loaded in progressive mode. Request full content if needed.');
+
+  return result.join('\n');
+}
+
+/**
+ * Compose multiple skills into a single prompt with progressive disclosure.
+ * Ports skill_prepare_spawn_multi from lib/skills/skill-dispatch.sh.
+ *
+ * The first skill is loaded fully (primary). Secondary skills use progressive
+ * disclosure (frontmatter + first section only) to save context budget.
+ *
+ * @task T4712
+ * @epic T4663
+ */
+export function prepareSpawnMulti(
+  skillNames: string[],
+  tokenValues: Record<string, string>,
+  cwd?: string,
+): MultiSkillComposition {
+  if (skillNames.length === 0) {
+    throw new Error('At least one skill required for multi-skill composition');
+  }
+
+  const primarySkill = skillNames[0];
+  const skillEntries: MultiSkillComposition['skills'] = [];
+  const promptParts: string[] = [];
+  let totalTokens = 0;
+
+  for (let i = 0; i < skillNames.length; i++) {
+    const skillName = skillNames[i];
+    const isPrimary = i === 0;
+
+    const skill = findSkill(skillName, cwd);
+    if (!skill || !skill.content) {
+      continue;
+    }
+
+    // Primary: full content. Secondary: progressive disclosure.
+    let content = isPrimary ? skill.content : loadProgressive(skill.content);
+
+    // Inject tokens
+    content = injectTokens(content, tokenValues);
+
+    const estimatedTokens = Math.ceil(content.length / 4);
+    totalTokens += estimatedTokens;
+
+    skillEntries.push({
+      skill: skillName,
+      mode: isPrimary ? 'full' : 'progressive',
+      estimatedTokens,
+    });
+
+    promptParts.push(`\n---\n\n## Skill: ${skillName}\n\n${content}`);
+  }
+
+  const prompt = `## Skills Loaded (${skillNames.length} total)\n${promptParts.join('\n')}`;
+
+  return {
+    skillCount: skillEntries.length,
+    primarySkill,
+    skills: skillEntries,
+    totalEstimatedTokens: totalTokens,
+    prompt,
+  };
+}
+

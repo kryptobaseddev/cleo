@@ -175,7 +175,7 @@ export {
   getVersion,
 } from './init-engine.js';
 
-// CAAMP adapter (provider registry, MCP config, injection)
+// CAAMP adapter (provider registry, MCP config, injection, batch ops)
 export {
   providerList,
   providerGet,
@@ -192,6 +192,8 @@ export {
   injectionCheckAll,
   injectionUpdate,
   injectionUpdateAll,
+  batchInstallWithRollback,
+  dualScopeConfigure,
   caampResolveAlias,
   caampBuildServerConfig,
   caampGenerateInjectionContent,

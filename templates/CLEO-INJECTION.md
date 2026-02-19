@@ -1,64 +1,315 @@
-# CLEO Universal Subagent Architecture
+# CLEO Agent Injection Protocol
 
-**Version**: 1.0.0
+**Version**: 2.0.0
 **Status**: ACTIVE
 
-This document defines the global injection for all agents operating within CLEO's 2-tier architecture.
+<!-- MVI Progressive Disclosure Architecture
+     Tier 0 (Minimal):       ALL agents — identity, MCP tools, CLI fallback, errors
+     Tier 1 (Standard):      Lead agents — sessions, RCSD-IVTR, research, tokens, skills
+     Tier 2 (Orchestrator):  Orchestrators — ORC constraints, spawn pipeline, lifecycle gates
+
+     Include tiers cumulatively: Orchestrator agents get all three tiers.
+     Conditional markers: <!-- TIER:minimal --> <!-- TIER:standard --> <!-- TIER:orchestrator -->
+-->
 
 ---
 
-## Time Estimates — PROHIBITED (RFC 2119)
+<!-- TIER:minimal -->
 
-| Constraint | Rule |
-|------------|------|
-| **MUST NOT** | Estimate hours, days, weeks, or temporal duration |
-| **MUST NOT** | Provide time predictions even when explicitly requested |
-| **MUST** | Use relative sizing: `small` / `medium` / `large` |
-| **SHOULD** | Describe scope, complexity, dependencies when asked |
-| **MAY** | Reference task count, file count, dependency depth |
+## CLEO Identity
 
-**Sizing Definitions**:
-- `small` — Single function, minimal complexity, clear path
-- `medium` — Multiple components, moderate complexity, some unknowns
-- `large` — Cross-cutting changes, high complexity, significant unknowns
+CLEO is the task management protocol for AI coding agents. It provides structured task tracking, session management, and multi-agent coordination with anti-hallucination validation.
 
-**Response Template** (when user insists on time):
-> "I cannot provide time predictions. I can describe scope (N tasks, M files), complexity, and dependencies."
+**Time Estimates -- PROHIBITED (RFC 2119)**:
+- **MUST NOT** estimate hours, days, weeks, or temporal duration
+- **MUST** use relative sizing: `small` / `medium` / `large`
+- **SHOULD** describe scope, complexity, dependencies when asked
+
+## MCP Tools (Primary Interface)
+
+MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate` for writes.
+
+### Read Operations (`cleo_query`)
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `show` | Get task details (`params: { taskId }`) |
+| `tasks` | `find` | Search tasks (`params: { query }` or `{ id }`) |
+| `tasks` | `list` | List tasks (`params: { parent?, status? }`) |
+| `session` | `status` | Current session state |
+| `session` | `list` | All sessions |
+| `orchestrate` | `analyze` | Dependency wave analysis (`params: { epicId }`) |
+| `orchestrate` | `ready` | Tasks ready to spawn (`params: { epicId }`) |
+| `orchestrate` | `next` | Next task suggestion (`params: { epicId }`) |
+| `research` | `list` | Research manifest entries |
+| `research` | `show` | Research entry details (`params: { entryId }`) |
+| `validate` | `check` | Validate task data integrity |
+| `system` | `dash` | Project overview dashboard |
+| `system` | `context` | Context window usage |
+| `skills` | `list` | Available skills |
+| `skills` | `show` | Skill details (`params: { name }`) |
+
+### Write Operations (`cleo_mutate`)
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `add` | Create task (`params: { title, description?, parent?, depends? }`) |
+| `tasks` | `update` | Update task (`params: { taskId, title?, status?, notes? }`) |
+| `tasks` | `complete` | Complete task (`params: { taskId }`) |
+| `session` | `start` | Start session (`params: { scope, name, autoFocus? }`) |
+| `session` | `end` | End session (`params: { note? }`) |
+| `session` | `resume` | Resume session (`params: { sessionId }`) |
+| `research` | `link` | Link research to task (`params: { taskId, entryId }`) |
+
+## CLI Fallback
+
+When MCP tools are unavailable, use `ct` (alias for `cleo`) CLI commands.
+
+### Essential Commands
+```bash
+ct show T1234              # Task details
+ct find "query"            # Search (99% less context than list)
+ct find --id 142           # Search by ID
+ct add "Task title"        # Create task
+ct complete T1234          # Complete task
+ct focus set T1234         # Set active focus
+ct dash                    # Project overview
+```
+
+### Error Handling
+
+**CRITICAL: NEVER ignore exit codes. Failed commands = tasks NOT created/updated.**
+
+After EVERY command:
+1. Exit code `0` = success, `1-22` = error, `100+` = special (not error)
+2. JSON `"success": false` = operation failed
+3. Execute `error.fix` -- copy-paste-ready fix command
+
+| Exit | Code | Fix |
+|:----:|------|-----|
+| 4 | `E_NOT_FOUND` | Use `ct find` or `ct list` to verify |
+| 6 | `E_VALIDATION_*` | Check field lengths, escape `$` as `\$` |
+| 10 | `E_PARENT_NOT_FOUND` | Verify with `ct exists <parent-id>` |
+| 11 | `E_DEPTH_EXCEEDED` | Max depth 3 (epic->task->subtask) |
+| 12 | `E_SIBLING_LIMIT` | Max 7 siblings per parent |
+
+### Task Discovery (Context Efficiency)
+
+**MUST** use efficient commands -- `find` for discovery, `show` for details:
+```bash
+ct find "query"              # Minimal fields (99% less context)
+ct show T1234                # Full details for specific task
+ct list --parent T001        # Direct children only
+```
+
+`list` includes full notes arrays (huge). `find` returns minimal fields only.
+
+<!-- /TIER:minimal -->
 
 ---
+
+<!-- TIER:standard -->
+
+## Session Protocol
+
+Sessions track work context across agent interactions. **CRITICAL: Multi-session requires BOTH flags.**
+
+### MCP Session Operations
+```
+cleo_mutate({ domain: "session", operation: "start",
+  params: { scope: "epic:T001", name: "Work", autoFocus: true }})
+cleo_query({ domain: "session", operation: "status" })
+cleo_mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
+```
+
+### CLI Session Protocol
+```bash
+# START (ALWAYS first):
+ct session list                # Check existing sessions
+ct session status              # Current session
+ct session resume <id>         # Resume existing
+# OR (only if no suitable session):
+ct session start --scope epic:T001 --auto-focus --name "Work"
+
+# WORK:
+ct focus show                  # Current focus
+ct next                        # Task suggestion
+ct add "Task" --depends T005   # Add related
+ct complete T005               # Complete task
+ct focus set T006              # Move focus
+
+# END (ALWAYS when stopping):
+ct complete <id>               # Complete current
+ct archive                     # Clean up done tasks
+ct session end --note "Progress"
+```
+
+## RCSD-IVTR Lifecycle
+
+Projects follow a structured lifecycle with gate enforcement:
+
+```
+RCSD PIPELINE (setup phase):
+  Research -> Consensus -> Specification -> Decomposition
+                              |
+                              v
+EXECUTION (core/polish):
+  Implementation -> Contribution -> Release
+```
+
+Each stage has a **lifecycle gate**. Entering a later stage requires prior stages to be `completed` or `skipped`. Gate enforcement mode is configured in `.cleo/config.json` (`strict` | `advisory` | `off`).
+
+### Conditional Protocols (9 Types)
+
+| Protocol | Keywords | Use Case |
+|----------|----------|----------|
+| Research | research, investigate, explore | Information gathering |
+| Consensus | vote, validate, decide | Multi-agent decisions |
+| Specification | spec, rfc, design | Document creation |
+| Decomposition | epic, plan, decompose | Task breakdown |
+| Implementation | implement, build, create | Code execution |
+| Contribution | PR, merge, shared | Work attribution |
+| Release | release, version, publish | Version management |
+| Artifact Publish | publish, artifact, package | Artifact distribution |
+| Provenance | provenance, attestation, SLSA | Supply chain integrity |
+
+## Research & Manifest Operations
+
+### Output Requirements
+
+Subagent output files follow this structure:
+```markdown
+# <Title>
+
+**Task**: T####
+**Epic**: T####
+**Date**: YYYY-MM-DD
+**Status**: complete | partial | blocked
+
+---
+
+## Summary
+<2-3 sentence executive summary>
+
+## Content
+<main deliverable>
+```
+
+### Manifest Entry (MANIFEST.jsonl)
+
+Append ONE line (no pretty-printing):
+```json
+{"id":"T####-slug","file":"path","title":"...","date":"YYYY-MM-DD","status":"complete","agent_type":"research","topics":[],"key_findings":[],"actionable":true,"needs_followup":[],"linked_tasks":["T####"]}
+```
+
+### Status Classification
+
+| Status | Condition | Action |
+|--------|-----------|--------|
+| `complete` | All objectives achieved | Complete normally |
+| `partial` | Some objectives achieved | Populate `needs_followup` |
+| `blocked` | Cannot proceed | Document blocker |
+
+## Token System
+
+Orchestrators resolve ALL tokens before spawning subagents. Subagents CANNOT resolve `@` references or `{{TOKEN}}` patterns.
+
+### Standard Tokens
+
+| Token | Description |
+|-------|-------------|
+| `{{TASK_ID}}` | Current task identifier |
+| `{{EPIC_ID}}` | Parent epic identifier |
+| `{{DATE}}` | Current date (ISO) |
+| `{{TOPIC_SLUG}}` | URL-safe topic name |
+| `{{OUTPUT_DIR}}` | Output directory |
+| `{{MANIFEST_PATH}}` | Manifest file path |
+| `{{TASK_TITLE}}` | Task title |
+| `{{TASK_DESCRIPTION}}` | Task description |
+
+### Command Tokens
+
+| Token | Default |
+|-------|---------|
+| `{{TASK_SHOW_CMD}}` | `cleo show` |
+| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
+| `{{TASK_LINK_CMD}}` | `cleo research link` |
+
+## Skill Ecosystem
+
+Skills are **context injections, NOT agents**. The orchestrator selects and injects skill content into `cleo-subagent`.
+
+### Discovery
+```
+cleo_query({ domain: "skills", operation: "list" })
+cleo_query({ domain: "skills", operation: "show", params: { name: "ct-orchestrator" }})
+```
+
+### Key Skills
+
+| Skill | Category | Use Case |
+|-------|----------|----------|
+| `ct-orchestrator` | orchestration | Multi-agent coordination |
+| `ct-epic-architect` | planning | Epic decomposition |
+| `ct-task-executor` | execution | General task execution |
+| `ct-research-agent` | research | Information gathering |
+| `ct-spec-writer` | specification | Document creation |
+| `ct-validator` | validation | Quality checks |
+| `ct-documentor` | documentation | Documentation generation |
+| `ct-test-writer-bats` | testing | BATS test creation |
+
+### Dispatch Priority
+1. **Label-based**: Task labels match skill tags
+2. **Catalog-based**: CAAMP dispatch matrix
+3. **Type-based**: Task type maps to protocol
+4. **Keyword-based**: Title/description matches triggers
+5. **Fallback**: `ct-task-executor`
+
+## Release Workflow
+
+**CRITICAL**: `release ship` only commits version metadata. All code changes MUST be committed BEFORE running `release ship`.
+
+```bash
+git add <files> && git commit -m "feat(T####): description"
+cleo release create v1.0.0
+cleo release ship v1.0.0 --bump-version --create-tag --push
+```
+
+## Project Context
+
+When available, project-specific configuration is loaded from `.cleo/project-context.json` (generated by `cleo init --detect`). Contains detected project type, testing framework, and LLM hints.
+
+<!-- /TIER:standard -->
+
+---
+
+<!-- TIER:orchestrator -->
 
 ## Architecture Overview
 
-CLEO implements a **2-tier universal subagent architecture** for multi-agent coordination:
+CLEO implements a **2-tier universal subagent architecture**:
 
 ```
 Tier 0: ORCHESTRATOR (ct-orchestrator)
-    │
-    ├── Coordinates complex workflows
-    ├── Spawns subagents via Task tool
-    ├── Pre-resolves ALL tokens before spawn
-    └── Reads only manifest summaries (not full content)
-    │
-    ▼
+    |
+    +-- Coordinates complex workflows
+    +-- Spawns subagents via Task tool
+    +-- Pre-resolves ALL tokens before spawn
+    +-- Reads only manifest summaries (not full content)
+    |
+    v
 Tier 1: CLEO-SUBAGENT (universal executor)
-    │
-    ├── Receives fully-resolved prompts
-    ├── Loads skill via protocol injection
-    ├── Executes delegated work
-    └── Outputs: file + manifest entry + summary
+    |
+    +-- Receives fully-resolved prompts
+    +-- Loads skill via protocol injection
+    +-- Executes delegated work
+    +-- Outputs: file + manifest entry + summary
 ```
 
-**Core Principle**: One universal subagent type (`cleo-subagent`) with context-specific protocols - NOT skill-specific agents.
+**Core Principle**: One universal subagent type (`cleo-subagent`) with context-specific protocols -- NOT skill-specific agents.
 
----
-
-## Orchestrator (Tier 0)
-
-### Role
-
-The orchestrator is a **conductor, not a musician**. It coordinates work without implementing details.
-
-### Constraints (ORC)
+## Orchestrator Constraints (ORC)
 
 | ID | Rule | Enforcement |
 |----|------|-------------|
@@ -71,42 +322,60 @@ The orchestrator is a **conductor, not a musician**. It coordinates work without
 | ORC-007 | All work traced to Epic | No orphaned work |
 | ORC-008 | Zero architectural decisions | Must be pre-decided by HITL |
 
+## Spawn Pipeline
+
+### MCP Spawn Operations
+```
+# Analyze dependency waves
+cleo_query({ domain: "orchestrate", operation: "analyze", params: { epicId: "T001" }})
+
+# Get ready tasks
+cleo_query({ domain: "orchestrate", operation: "ready", params: { epicId: "T001" }})
+
+# Get next task suggestion
+cleo_query({ domain: "orchestrate", operation: "next", params: { epicId: "T001" }})
+```
+
+### CLI Spawn Operations
+```bash
+cleo orchestrator start --epic T001
+cleo orchestrator analyze T001
+cleo orchestrator ready --epic T001
+cleo orchestrator next --epic T001
+cleo orchestrator spawn T002
+```
+
 ### Spawn Workflow
 
-```bash
-# 1. Analyze task and select protocol
-protocol=$(skill_auto_dispatch "T1234")
+1. Select skill protocol for task (auto-dispatch or explicit)
+2. Prepare spawn context (resolve ALL tokens)
+3. Verify `tokenResolution.fullyResolved == true`
+4. Spawn `cleo-subagent` with resolved prompt via Task tool
 
-# 2. Prepare spawn context (resolves ALL tokens)
-spawn_json=$(skill_prepare_spawn "$protocol" "T1234")
+### Protocol Stack
 
-# 3. Verify tokens fully resolved
-jq '.tokenResolution.fullyResolved' <<< "$spawn_json"  # Must be true
-
-# 4. Spawn cleo-subagent with Task tool
-#    subagent_type: "cleo-subagent"
-#    prompt: $(jq -r '.prompt' <<< "$spawn_json")
-```
-
----
-
-## cleo-subagent (Tier 1)
-
-### Role
-
-Universal executor that receives fully-resolved prompts. Follows injected protocol to complete delegated work.
-
-### Lifecycle
+Every spawn combines two layers:
 
 ```
-SPAWN → INJECT → EXECUTE → OUTPUT → RETURN
++------------------------------------------+
+| CONDITIONAL PROTOCOL (task-specific)     |
+| - research.md, implementation.md, etc.   |
++------------------------------------------+
+| BASE PROTOCOL (always loaded)            |
+| - Lifecycle, output format, constraints  |
++------------------------------------------+
 ```
 
-1. **SPAWN**: Orchestrator invokes Task tool
-2. **INJECT**: Subagent receives base protocol + conditional protocol
-3. **EXECUTE**: Follow skill-specific instructions
-4. **OUTPUT**: Write file + append manifest entry
-5. **RETURN**: Completion signal only (no content)
+### Token Pre-Resolution
+
+**CRITICAL**: Orchestrator MUST resolve ALL tokens before spawn. Verify:
+- All `@` references resolved
+- All `{{TOKEN}}` placeholders substituted
+- `tokenResolution.fullyResolved == true`
+- Task exists (`cleo exists T####`)
+- Output directory exists
+
+## Subagent (cleo-subagent)
 
 ### Constraints (BASE)
 
@@ -120,320 +389,16 @@ SPAWN → INJECT → EXECUTE → OUTPUT → RETURN
 | BASE-006 | MUST NOT fabricate information | Required |
 | BASE-007 | SHOULD link research to task | Recommended |
 
-### Agent Definition
-
-```yaml
----
-name: cleo-subagent
-description: |
-  CLEO task executor with protocol compliance. Spawned by orchestrators for
-  delegated work. Auto-loads skills and protocols based on task context.
-  Writes output to files, appends manifest entries, returns summary only.
-model: sonnet
-allowed_tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
----
+### Subagent Lifecycle
+```
+SPAWN -> INJECT -> EXECUTE -> OUTPUT -> RETURN
 ```
 
----
-
-## Skill Loading Mechanism
-
-### Key Principle
-
-**Skills are context injections, NOT agents.** The orchestrator selects and injects skill content - subagents cannot load skills themselves.
-
-### Dispatch Pipeline
-
-```
-lib/skill-dispatch.sh
-    │
-    ├── skill_auto_dispatch(task_id)     → Select protocol
-    ├── skill_prepare_spawn(protocol, id) → Resolve ALL tokens
-    └── Returns JSON with:
-        - prompt: Fully-resolved protocol content
-        - tokenResolution.fullyResolved: true/false
-```
-
-### Loading Strategies
-
-| Strategy | Content Loaded | Token Budget | Use Case |
-|----------|----------------|--------------|----------|
-| **Minimal** | Frontmatter + first 50 lines | ~500 tokens | Simple tasks, tight context |
-| **Standard** | Full SKILL.md | ~2-5K tokens | Most tasks (default) |
-| **Comprehensive** | SKILL.md + references/ | ~5-15K tokens | Complex multi-step tasks |
-
-### Dispatch Priority
-
-1. **Label-based**: Task labels match skill tags
-2. **Type-based**: Task type maps to protocol
-3. **Keyword-based**: Title/description matches dispatch triggers
-4. **Fallback**: `ct-task-executor` (default)
-
----
-
-## Protocol Stack
-
-### Architecture
-
-Every spawn combines two layers:
-
-```
-┌─────────────────────────────────────────┐
-│ CONDITIONAL PROTOCOL (task-specific)    │
-│ - research.md, implementation.md, etc.  │
-├─────────────────────────────────────────┤
-│ BASE PROTOCOL (always loaded)           │
-│ - Lifecycle, output format, constraints │
-└─────────────────────────────────────────┘
-```
-
-### Base Protocol
-
-Loaded for ALL subagents from `agents/cleo-subagent/AGENT.md`:
-- Lifecycle phases (spawn, inject, execute, output, return)
-- Output requirements (file + manifest)
-- RFC 2119 constraints
-- Error handling patterns
-
-### Conditional Protocols (9 Types)
-
-| Protocol | File | Keywords | Use Case |
-|----------|------|----------|----------|
-| Research | `protocols/research.md` | research, investigate, explore | Information gathering |
-| Consensus | `protocols/consensus.md` | vote, validate, decide | Multi-agent decisions |
-| Specification | `protocols/specification.md` | spec, rfc, design | Document creation |
-| Decomposition | `protocols/decomposition.md` | epic, plan, decompose | Task breakdown |
-| Implementation | `protocols/implementation.md` | implement, build, create | Code execution |
-| Contribution | `protocols/contribution.md` | PR, merge, shared | Work attribution |
-| Release | `protocols/release.md` | release, version, publish | Version management |
-| Artifact Publish | `protocols/artifact-publish.md` | publish, artifact, package, registry | Artifact distribution |
-| Provenance | `protocols/provenance.md` | provenance, attestation, SLSA, SBOM | Supply chain integrity |
-
-### Project Lifecycle (RCSD → Execution → Release)
-
-```
-┌─────────────────── RCSD PIPELINE (setup phase) ───────────────────┐
-│  Research → Consensus → Specification → Decomposition             │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────── EXECUTION (core/polish) ───────────────────────┐
-│  Implementation → Contribution → Release                          │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-**Full specification**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
-
-### Protocol Composition Example
-
-```markdown
-## Subagent Protocol (Auto-injected)
-
-{base protocol content - lifecycle, constraints}
-
----
-
-## Skill: research
-
-{research protocol content - specific requirements}
-```
-
----
-
-## Lifecycle Gate Enforcement
-
-<!-- @task T2721 -->
-
-CLEO enforces RCSD-IVTR lifecycle progression through automatic gate checks at spawn time.
-
-### RCSD-IVTR Flow with Gates
-
-```
-research ──┬──► consensus ──┬──► specification ──┬──► decomposition
-           │                │                    │
-           │ GATE           │ GATE               │ GATE
-           │                │                    │
-           └────────────────┴────────────────────┴──► implementation ──► release
-```
-
-Each arrow represents a **lifecycle gate**. Spawning a task for a later stage requires all prior stages to be `completed` or `skipped`.
-
-### Gate Check Behavior
-
-| Enforcement Mode | On Gate Failure | Default |
-|------------------|-----------------|---------|
-| `strict` | Blocks spawn with exit 75 | ✓ |
-| `advisory` | Warns but proceeds | |
-| `off` | Skips all checks | |
-
-**Configuration**: `.cleo/config.json`
-```json
-{
-  "lifecycleEnforcement": {
-    "mode": "strict"
-  }
-}
-```
-
-### Emergency Bypass
-
-**For emergencies only** - temporarily disable enforcement:
-
-```bash
-# Option 1: Set mode to off (safe config write)
-cleo config set lifecycleEnforcement.mode off
-
-# Option 2: Environment variable (session only)
-export LIFECYCLE_ENFORCEMENT_MODE=off
-
-# REMEMBER: Restore strict mode after emergency
-cleo config set lifecycleEnforcement.mode strict
-```
-
-### Troubleshooting Gate Failures
-
-**Exit Code 75: E_LIFECYCLE_GATE_FAILED**
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| "SPAWN BLOCKED: Lifecycle prerequisites not met" | Missing prior RCSD stages | Complete missing stages first |
-| Error shows `missingPrerequisites: "research"` | Research not done for epic | Spawn research task first |
-| Gate fails for new epic | No RCSD manifest exists | Initialize epic with research |
-
-**Check RCSD state**:
-```bash
-jq . .cleo/rcsd/{EPIC_ID}/_manifest.json
-```
-
-**Record stage completion manually** (for imports/migrations):
-```bash
-source lib/lifecycle.sh
-record_rcsd_stage_completion "T1234" "research" "completed"
-```
-
-### Integration with Orchestrator
-
-The orchestrator automatically:
-1. Checks lifecycle gate at Step 6.75 (after protocol validation)
-2. Reads enforcement mode from config
-3. Queries `.cleo/rcsd/{epicId}/_manifest.json` for stage status
-4. Blocks or warns based on mode
-5. Provides actionable fix in error JSON
-
-**See**: `docs/developer/specifications/LIFECYCLE-ENFORCEMENT.mdx` for full specification
-
----
-
-## Token Handling
-
-### Pre-Resolution Requirement
-
-**CRITICAL**: Orchestrator MUST resolve ALL tokens before spawn. Subagents CANNOT resolve `@` references or `{{TOKEN}}` patterns.
-
-### Token Types
-
-| Type | Syntax | Resolution |
-|------|--------|------------|
-| File reference | `@file.md` | Read and inline |
-| Glob pattern | `@dir/*.md` | Glob, read, concat |
-| Placeholder | `{{VAR}}` | Substitute value |
-| Environment | `${ENV}` | Environment variable |
-| Command | `` !`cmd` `` | Execute and inline |
-
-### Standard Tokens
-
-| Token | Description | Example |
-|-------|-------------|---------|
-| `{{TASK_ID}}` | Current task identifier | `T2402` |
-| `{{EPIC_ID}}` | Parent epic identifier | `T2392` |
-| `{{DATE}}` | Current date (ISO) | `2026-01-26` |
-| `{{TOPIC_SLUG}}` | URL-safe topic name | `authentication-research` |
-| `{{OUTPUT_DIR}}` | Output directory | `claudedocs/agent-outputs` |
-| `{{MANIFEST_PATH}}` | Manifest file path | `claudedocs/agent-outputs/MANIFEST.jsonl` |
-
-### Task Context Tokens
-
-| Token | Source |
-|-------|--------|
-| `{{TASK_TITLE}}` | `task.title` |
-| `{{TASK_DESCRIPTION}}` | `task.description` |
-| `{{TOPICS_JSON}}` | `task.labels` as JSON array |
-| `{{DEPENDS_LIST}}` | `task.depends` formatted |
-| `{{ACCEPTANCE_CRITERIA}}` | From task description |
-
-### Command Tokens (CLEO Defaults)
-
-| Token | Default |
-|-------|---------|
-| `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
-| `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
-| `{{TASK_LINK_CMD}}` | `cleo research link` |
-
----
-
-## Output Requirements
-
-### File Naming
-
-```
-{{OUTPUT_DIR}}/{{TASK_ID}}-<slug>.<ext>
-```
-
-Examples:
-- `claudedocs/agent-outputs/T2402-protocol-spec.md`
-- `docs/specs/T2398-skill-loading.md`
-
-### File Structure
-
-```markdown
-# <Title>
-
-**Task**: {{TASK_ID}}
-**Epic**: {{EPIC_ID}}
-**Date**: {{DATE}}
-**Status**: complete | partial | blocked
-
----
-
-## Summary
-
-<2-3 sentence executive summary>
-
-## Content
-
-<main deliverable>
-
-## References
-
-- Epic: {{EPIC_ID}}
-- Related: ...
-```
-
-### Manifest Entry Format
-
-Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
-
-```json
-{"id":"{{TASK_ID}}-<slug>","file":"<path>","title":"<title>","date":"{{DATE}}","status":"complete","agent_type":"<type>","topics":[...],"key_findings":[...],"actionable":true,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
-```
-
-### Required Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique entry ID (`T####-slug`) |
-| `file` | string | Relative path to output file |
-| `title` | string | Human-readable title |
-| `date` | string | ISO date (YYYY-MM-DD) |
-| `status` | enum | `complete`, `partial`, `blocked` |
-| `agent_type` | string | research, specification, implementation |
+1. **SPAWN**: Orchestrator invokes Task tool
+2. **INJECT**: Subagent receives base protocol + conditional protocol
+3. **EXECUTE**: Follow skill-specific instructions
+4. **OUTPUT**: Write file + append manifest entry
+5. **RETURN**: Completion signal only (no content)
 
 ### Return Messages
 
@@ -443,37 +408,30 @@ Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
 | Partial | `[Type] partial. See MANIFEST.jsonl for details.` |
 | Blocked | `[Type] blocked. See MANIFEST.jsonl for blocker details.` |
 
----
+## Lifecycle Gate Enforcement
 
-## Error Handling
+CLEO enforces RCSD-IVTR lifecycle progression through automatic gate checks at spawn time.
 
-### Status Classification
-
-| Status | Condition | Manifest Field |
-|--------|-----------|----------------|
-| `complete` | All objectives achieved | `"status": "complete"` |
-| `partial` | Some objectives achieved | `"status": "partial"`, populate `needs_followup` |
-| `blocked` | Cannot proceed | `"status": "blocked"`, document blocker |
-
-### Retryable Errors
-
-Exit codes 7, 20, 21, 22, 60-63 support retry with exponential backoff:
-
-```bash
-for attempt in 1 2 3; do
-    if cleo complete {{TASK_ID}}; then break; fi
-    sleep $((2 ** attempt))
-done
+```
+research --+---> consensus --+---> specification --+---> decomposition
+           |                 |                     |
+           | GATE            | GATE                | GATE
+           |                 |                     |
+           +-----------------+---------------------+---> implementation ---> release
 ```
 
-### Partial Completion Protocol
+| Enforcement Mode | On Gate Failure | Default |
+|------------------|-----------------|---------|
+| `strict` | Blocks spawn with exit 75 | yes |
+| `advisory` | Warns but proceeds | |
+| `off` | Skips all checks | |
 
-1. **MUST** write partial output to file
-2. **MUST** set `status: "partial"` in manifest
-3. **MUST** populate `needs_followup` array
-4. **MUST NOT** fabricate content
-
----
+### Emergency Bypass
+```bash
+cleo config set lifecycleEnforcement.mode off
+# ... emergency work ...
+cleo config set lifecycleEnforcement.mode strict
+```
 
 ## Anti-Patterns
 
@@ -495,101 +453,15 @@ done
 | Loading skills via `@` | Cannot resolve | Skills injected by orchestrator |
 | Skipping focus | Protocol violation | Always `cleo focus set` first |
 
----
-
-## Quick Reference
-
-### Orchestrator Commands
-
-```bash
-cleo orchestrator start --epic T001      # Initialize session
-cleo orchestrator analyze T001           # Dependency waves
-cleo orchestrator ready --epic T001      # Parallel-safe tasks
-cleo orchestrator next --epic T001       # Next task to spawn
-cleo orchestrator spawn T002             # Generate spawn prompt
-```
-
-### Subagent Lifecycle
-
-```bash
-cleo show {{TASK_ID}}                    # Read task
-cleo focus set {{TASK_ID}}               # Set focus
-# ... execute work ...
-# Write output file
-# Append manifest entry
-cleo complete {{TASK_ID}}                # Complete task
-cleo research link {{TASK_ID}} <id>      # Link research (optional)
-```
-
-### Spawn Verification Checklist
-
-Before spawning, orchestrator verifies:
-- [ ] All `@` references resolved
-- [ ] All `{{TOKEN}}` placeholders substituted
-- [ ] `tokenResolution.fullyResolved == true`
-- [ ] Task exists (`cleo exists T####`)
-- [ ] Output directory exists
-
-### Completion Checklist
-
-Before returning, subagent verifies:
-- [ ] Focus set via `cleo focus set`
-- [ ] Output file written
-- [ ] Manifest entry appended (single line JSON)
-- [ ] Task completed via `cleo complete`
-- [ ] Response is ONLY summary message
-
----
-
-## Release Workflow
-
-**CRITICAL**: `release ship` only commits version metadata (VERSION, CHANGELOG, package.json). All code changes MUST be committed BEFORE running `release ship`.
-
-```bash
-# 1. Commit all code changes FIRST
-git add <files> && git commit -m "feat(T####): description"
-
-# 2. Create release (--tasks optional; ship auto-discovers completed tasks)
-cleo release create v1.0.0 --tasks T001,T002
-
-# 3. (Optional) Add/remove tasks — appends, does not replace
-cleo release plan v1.0.0 --tasks T003 --notes "Bug fix release"
-cleo release plan v1.0.0 --remove T001
-
-# 4. Ship (bumps version, generates changelog, commits metadata, tags, pushes)
-cleo release ship v1.0.0 --bump-version --create-tag --push
-
-# Preview without changes:
-cleo release ship v1.0.0 --bump-version --dry-run
-```
-
-**Key behaviors:**
-- `ship` auto-populates tasks from completed work by date range — manual `--tasks` on `create`/`plan` is optional
-- Epic IDs are filtered out of changelogs (organizational only) — list child tasks, not the epic
-- `plan --tasks` appends and deduplicates (use `--remove` to drop tasks)
-
-**Other commands:** `release list`, `release show <ver>`, `release changelog <ver>`
-
-See `protocols/release.md` for full specification.
-
----
-
-## Progressive Disclosure References
-
-For detailed protocol and integration documentation:
-
-- **Base Protocol**: `skills/_shared/subagent-protocol-base.md`
-- **Task System Integration**: `skills/_shared/task-system-integration.md`
-- **Testing Framework Config**: `skills/_shared/testing-framework-config.md`
+<!-- /TIER:orchestrator -->
 
 ---
 
 ## References
 
+- **Base Protocol**: `skills/_shared/subagent-protocol-base.md`
+- **Task System Integration**: `skills/_shared/task-system-integration.md`
 - **Project Lifecycle**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
 - **Protocol Stack**: `docs/specs/PROTOCOL-STACK-SPEC.md`
-- **RCSD Pipeline**: `docs/specs/RCSD-PIPELINE-SPEC.md`
-- **Protocol Spec**: `docs/specs/CLEO-SUBAGENT-PROTOCOL-v1.md`
-- **Skill Loading**: `docs/designs/SKILL-LOADING-MECHANISM.md`
 - **Orchestrator Skill**: `skills/ct-orchestrator/SKILL.md`
 - **Subagent Agent**: `agents/cleo-subagent/AGENT.md`

@@ -7,10 +7,10 @@
     "phaseHistory": [],
     "releases": []
   },
-  "lastUpdated": "2026-02-19T02:24:05.732Z",
+  "lastUpdated": "2026-02-19T14:29:25.704Z",
   "_meta": {
     "schemaVersion": "2.10.0",
-    "checksum": "ae2c6b46fa074099",
+    "checksum": "b4c8bd4a9efed891",
     "configVersion": "1.0.0"
   },
   "focus": {
@@ -5654,7 +5654,7 @@
     {
       "id": "T4664",
       "title": "8.1: Fix MCP transport value - use 'sdk' with x-cleo-transport extension",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5665,12 +5665,13 @@
         "2026-02-19 02:05:32 UTC: UPDATED: LAFS v1.2.3 confirms 'sdk' is correct transport for MCP. wrapMCPResult() in mcpAdapter.ts already uses it. Scope: wire LAFS wrapMCPResult() into CLEO MCP gateway (src/mcp/), replace manual envelope construction. Also use x-cleo-transport extension for provenance."
       ],
       "createdAt": "2026-02-18T19:18:26.967Z",
-      "updatedAt": "2026-02-19T02:05:32.695Z"
+      "updatedAt": "2026-02-19T14:29:20.474Z",
+      "completedAt": "2026-02-19T14:29:20.474Z"
     },
     {
       "id": "T4665",
       "title": "8.2: Integrate resolveOutputFormat() from LAFS into CLI flag parsing",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5678,7 +5679,8 @@
       "position": 2,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:18:27.577Z",
-      "updatedAt": "2026-02-18T19:18:27.577Z"
+      "updatedAt": "2026-02-19T14:29:17.987Z",
+      "completedAt": "2026-02-19T14:29:17.987Z"
     },
     {
       "id": "T4666",
@@ -5699,7 +5701,7 @@
     {
       "id": "T4667",
       "title": "8.4: Ensure all CLI formatSuccess/formatError paths pass operation param (full LAFS envelope)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5707,7 +5709,8 @@
       "position": 4,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:18:28.921Z",
-      "updatedAt": "2026-02-18T19:18:28.921Z"
+      "updatedAt": "2026-02-19T14:29:18.804Z",
+      "completedAt": "2026-02-19T14:29:18.804Z"
     },
     {
       "id": "T4668",
@@ -5767,7 +5770,7 @@
     {
       "id": "T4672",
       "title": "8.9: Unify dual envelope shape (backward-compat vs full LAFS) into single LAFS shape",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5775,7 +5778,8 @@
       "position": 9,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:18:32.141Z",
-      "updatedAt": "2026-02-18T19:18:32.141Z"
+      "updatedAt": "2026-02-19T14:29:19.650Z",
+      "completedAt": "2026-02-19T14:29:19.650Z"
     },
     {
       "id": "T4673",
@@ -5865,7 +5869,7 @@
     {
       "id": "T4678",
       "title": "8.15: Deduplicate caamp-adapter.ts (src/mcp/engine/ and mcp-server/src/engine/)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5877,12 +5881,13 @@
         "2026-02-19 02:23:25 UTC: SCOPE: 1) Deduplicate src/mcp/engine/caamp-adapter.ts vs mcp-server/src/engine/caamp-adapter.ts (byte-identical copies). Keep src/mcp/ version, delete mcp-server/ copy or symlink. 2) Update adapter to use CAAMP v1.0.4 new imports. DOES NOT BLOCK Wave 2."
       ],
       "createdAt": "2026-02-18T19:18:36.055Z",
-      "updatedAt": "2026-02-19T02:23:25.965Z"
+      "updatedAt": "2026-02-19T14:29:22.252Z",
+      "completedAt": "2026-02-19T14:29:22.252Z"
     },
     {
       "id": "T4679",
       "title": "8.16: Consolidate skill discovery to use CAAMP parseSkillFile() instead of manual YAML",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5894,12 +5899,13 @@
         "2026-02-19 02:23:28 UTC: SCOPE: Evaluate src/core/skills/discovery.ts functions vs CAAMP parseSkillFile(), discoverSkills(), validateSkill(). Where CAAMP is comprehensive, delegate. Keep CLEO-specific extensions (manifest generation, template resolution). Not blocking for Wave 2-3."
       ],
       "createdAt": "2026-02-18T19:19:14.470Z",
-      "updatedAt": "2026-02-19T02:23:28.681Z"
+      "updatedAt": "2026-02-19T14:29:23.123Z",
+      "completedAt": "2026-02-19T14:29:23.123Z"
     },
     {
       "id": "T4680",
       "title": "8.17: Unify skill version tracking on CAAMP skills-lock as primary",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5911,7 +5917,8 @@
         "2026-02-19 02:23:29 UTC: SCOPE: Evaluate src/core/skills/version.ts vs CAAMP lock file management (recordSkillInstall, getTrackedSkills, checkSkillUpdate, removeSkillFromLock). CAAMP uses ~/.agents/.caamp-lock.json. CLEO uses .cleo/installed-skills.json. Unify on CAAMP. Not blocking for Wave 2-3."
       ],
       "createdAt": "2026-02-18T19:19:15.134Z",
-      "updatedAt": "2026-02-19T02:23:29.550Z"
+      "updatedAt": "2026-02-19T14:29:23.949Z",
+      "completedAt": "2026-02-19T14:29:23.949Z"
     },
     {
       "id": "T4681",
@@ -6020,7 +6027,7 @@
     {
       "id": "T4688",
       "title": "8.25: Design hybrid CLEO-INJECTION.md with MVI progressive disclosure (minimal/standard/orchestrator)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6031,7 +6038,8 @@
         "2026-02-19 02:06:32 UTC: UPDATED: Per decision - NOT skills-first minimal reference. Full hybrid injection with 3 MVI tiers: minimal (all agents: identity, MCP tools, core commands), standard (lead: session, RCSD-IVTR, research), orchestrator (full: ORC constraints, spawn, lifecycle gates). MCP-first + CLI fallback for all commands. LAFS MVI levels map to tiers."
       ],
       "createdAt": "2026-02-18T19:19:20.364Z",
-      "updatedAt": "2026-02-19T02:06:32.273Z"
+      "updatedAt": "2026-02-19T14:29:08.997Z",
+      "completedAt": "2026-02-19T14:29:08.997Z"
     },
     {
       "id": "T4689",
@@ -6200,7 +6208,7 @@
     {
       "id": "T4700",
       "title": "8.36: Update createCliMeta() - specVersion 1.2.3, add mvi/sessionId/contextVersion fields",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6208,7 +6216,8 @@
       "position": 36,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:07:43.082Z",
-      "updatedAt": "2026-02-19T02:07:43.082Z"
+      "updatedAt": "2026-02-19T14:29:16.280Z",
+      "completedAt": "2026-02-19T14:29:16.280Z"
     },
     {
       "id": "T4701",
@@ -6239,7 +6248,7 @@
     {
       "id": "T4703",
       "title": "8.39: Create shared CLI middleware for --human/--json/--quiet flag resolution via LAFS resolveOutputFormat()",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6247,12 +6256,13 @@
       "position": 39,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:07:45.993Z",
-      "updatedAt": "2026-02-19T02:07:45.993Z"
+      "updatedAt": "2026-02-19T14:29:17.155Z",
+      "completedAt": "2026-02-19T14:29:17.155Z"
     },
     {
       "id": "T4704",
       "title": "8.40: Add CAAMP catalog.* namespace integration to skills domain (ct-skills API)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6263,12 +6273,13 @@
         "2026-02-19 02:23:27 UTC: SCOPE: Wire CAAMP catalog.* namespace into src/mcp/domains/skills.ts as alternative to direct @cleocode/ct-skills imports. Functions: catalog.getSkills(), getDispatchMatrix(), resolveProfile(), resolveDependencyTree(), validateAll(), etc. Not blocking for Wave 2-3."
       ],
       "createdAt": "2026-02-19T02:07:57.682Z",
-      "updatedAt": "2026-02-19T02:23:27.743Z"
+      "updatedAt": "2026-02-19T14:29:24.796Z",
+      "completedAt": "2026-02-19T14:29:24.796Z"
     },
     {
       "id": "T4705",
       "title": "8.41: Add CAAMP batch/orchestration functions to adapter (installBatchWithRollback, configureProviderGlobalAndProject)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6279,7 +6290,8 @@
         "2026-02-19 02:23:26 UTC: SCOPE: Add to caamp-adapter.ts: installBatchWithRollback(), configureProviderGlobalAndProject(), updateInstructionsSingleOperation(), detectMcpConfigConflicts(), applyMcpInstallWithPolicy(), selectProvidersByMinimumPriority(). These are needed by init (Wave 4) but NOT by Wave 2 or 3. Can be deferred to Wave 4 pre-work."
       ],
       "createdAt": "2026-02-19T02:07:58.739Z",
-      "updatedAt": "2026-02-19T02:23:26.832Z"
+      "updatedAt": "2026-02-19T14:29:25.704Z",
+      "completedAt": "2026-02-19T14:29:25.704Z"
     },
     {
       "id": "T4706",
@@ -6310,7 +6322,7 @@
     {
       "id": "T4708",
       "title": "8.44: Write CLEO-INJECTION.md minimal scope (all agents: identity, MCP tools, CLI fallback, core commands)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6318,12 +6330,13 @@
       "position": 44,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:25.116Z",
-      "updatedAt": "2026-02-19T02:08:25.116Z"
+      "updatedAt": "2026-02-19T14:29:09.989Z",
+      "completedAt": "2026-02-19T14:29:09.989Z"
     },
     {
       "id": "T4709",
       "title": "8.45: Write CLEO-INJECTION.md standard scope (lead agents: session protocol, RCSD-IVTR, research, tokens)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6331,12 +6344,13 @@
       "position": 45,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:26.152Z",
-      "updatedAt": "2026-02-19T02:08:26.152Z"
+      "updatedAt": "2026-02-19T14:29:11.013Z",
+      "completedAt": "2026-02-19T14:29:11.013Z"
     },
     {
       "id": "T4710",
       "title": "8.46: Write CLEO-INJECTION.md orchestrator scope (ORC constraints, spawn pipeline, lifecycle gates)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6344,12 +6358,13 @@
       "position": 46,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:27.140Z",
-      "updatedAt": "2026-02-19T02:08:27.140Z"
+      "updatedAt": "2026-02-19T14:29:11.858Z",
+      "completedAt": "2026-02-19T14:29:11.858Z"
     },
     {
       "id": "T4711",
       "title": "8.47: Absorb AGENT-INJECTION.md into CLEO-INJECTION.md standard scope, delete separate template",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6357,12 +6372,13 @@
       "position": 47,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:28.198Z",
-      "updatedAt": "2026-02-19T02:08:28.198Z"
+      "updatedAt": "2026-02-19T14:29:12.715Z",
+      "completedAt": "2026-02-19T14:29:12.715Z"
     },
     {
       "id": "T4712",
       "title": "8.48: Port missing skill-dispatch TS functions (skill_prepare_spawn_multi, ti_set_full_context, orchestrator_spawn_batch, etc)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6370,7 +6386,8 @@
       "position": 48,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:29.213Z",
-      "updatedAt": "2026-02-19T02:08:29.213Z"
+      "updatedAt": "2026-02-19T14:28:48.879Z",
+      "completedAt": "2026-02-19T14:28:48.879Z"
     },
     {
       "id": "T4713",
