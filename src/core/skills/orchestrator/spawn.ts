@@ -199,6 +199,57 @@ export function canParallelize(
 }
 
 // ============================================================================
-// Helpers
+// Batch Spawn
 // ============================================================================
+
+/** Result of a single spawn within a batch. */
+export interface BatchSpawnEntry {
+  taskId: string;
+  success: boolean;
+  result?: SpawnPromptResult & { spawnTimestamp: string };
+  error?: string;
+}
+
+/** Result of a batch spawn operation. */
+export interface BatchSpawnResult {
+  count: number;
+  succeeded: number;
+  failed: number;
+  spawns: BatchSpawnEntry[];
+}
+
+/**
+ * Spawn prompts for multiple tasks in a batch.
+ * Ports orchestrator_spawn_batch from lib/skills/orchestrator-spawn.sh.
+ *
+ * Iterates over task IDs, building spawn prompts for each. Individual failures
+ * are captured per-entry rather than aborting the entire batch.
+ *
+ * @task T4712
+ * @epic T4663
+ */
+export function spawnBatch(
+  taskIds: string[],
+  templateName?: string,
+  cwd?: string,
+): BatchSpawnResult {
+  const spawns: BatchSpawnEntry[] = [];
+
+  for (const taskId of taskIds) {
+    try {
+      const result = spawn(taskId, templateName, cwd);
+      spawns.push({ taskId, success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      spawns.push({ taskId, success: false, error: message });
+    }
+  }
+
+  return {
+    count: spawns.length,
+    succeeded: spawns.filter(s => s.success).length,
+    failed: spawns.filter(s => !s.success).length,
+    spawns,
+  };
+}
 

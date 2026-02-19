@@ -115,7 +115,9 @@ program
   .name('cleo')
   .description('CLEO V2 - Task management for AI coding agents')
   .version(CLI_VERSION)
-  .option('--json', 'Output in JSON format (default, accepted for compatibility)');
+  .option('--json', 'Output in JSON format (default)')
+  .option('--human', 'Output in human-readable format')
+  .option('--quiet', 'Suppress non-essential output for scripting');
 
 program
   .command('version')

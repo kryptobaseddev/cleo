@@ -173,6 +173,10 @@ describe('SkillsHandler', () => {
         'dispatch',
         'verify',
         'dependencies',
+        'catalog.protocols',
+        'catalog.profiles',
+        'catalog.resources',
+        'catalog.info',
       ]);
     });
 
@@ -661,7 +665,7 @@ describe('SkillsHandler', () => {
       expect(result._meta.gateway).toBe('cleo_query');
       expect(result._meta.domain).toBe('skills');
       expect(result._meta.operation).toBe('list');
-      expect(result._meta.specVersion).toBe('1.1.0');
+      expect(result._meta.specVersion).toBe('1.2.3');
       expect(result._meta.timestamp).toBeDefined();
       expect(result._meta.duration_ms).toBeGreaterThanOrEqual(0);
     });

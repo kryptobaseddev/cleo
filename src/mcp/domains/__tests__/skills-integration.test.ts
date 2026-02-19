@@ -295,12 +295,12 @@ describe('Skills Domain Integration', () => {
       }
     });
 
-    it('_meta.specVersion is 1.1.0 for all operations', async () => {
+    it('_meta.specVersion is 1.2.3 for all operations', async () => {
       const queryResult = await handler.query('list', {});
-      expect(queryResult._meta.specVersion).toBe('1.1.0');
+      expect(queryResult._meta.specVersion).toBe('1.2.3');
 
       const errorResult = await handler.query('unknown-op', {});
-      expect(errorResult._meta.specVersion).toBe('1.1.0');
+      expect(errorResult._meta.specVersion).toBe('1.2.3');
     });
 
     it('_meta.timestamp is valid ISO 8601', async () => {
