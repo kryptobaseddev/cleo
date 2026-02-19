@@ -240,7 +240,8 @@ async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<P
 
 /**
  * Detect the configured storage engine from .cleo/config.json.
- * Falls back to 'json' if no config or if tasks.db doesn't exist yet.
+ * Falls back to 'sqlite' for new projects (CLEO V2 default).
+ * Auto-detects 'json' for existing projects with todo.json but no tasks.db.
  * @task T4647
  */
 export function detectStoreEngine(cwd?: string): StoreEngine {
@@ -258,12 +259,16 @@ export function detectStoreEngine(cwd?: string): StoreEngine {
     }
   }
 
-  // Auto-detect: if tasks.db exists, use sqlite; otherwise json
+  // Auto-detect: if tasks.db exists, use sqlite
   const dbPath = join(cleoDir, 'tasks.db');
   if (existsSync(dbPath)) return 'sqlite';
 
-  // Default: json (backward compatible)
-  return 'json';
+  // Backward compat: if todo.json exists (but no tasks.db), keep json
+  const todoPath = join(cleoDir, 'todo.json');
+  if (existsSync(todoPath)) return 'json';
+
+  // Default: sqlite (CLEO V2 default for new projects)
+  return 'sqlite';
 }
 
 /**

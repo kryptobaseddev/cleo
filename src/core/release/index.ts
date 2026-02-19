@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import { readJsonRequired, saveJson, computeChecksum, readJson } from '../../store/json.js';
+import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
 import { atomicWrite } from '../../store/atomic.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
@@ -12,7 +12,12 @@ import type { Release, TodoFile } from '../../types/task.js';
 import { getTodoPath, getBackupDir, getLogPath, getProjectRoot } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { bumpVersionFromConfig, isVersionBumpConfigured } from './version-bump.js';
+import type { BumpResult } from './version-bump.js';
 
 /** Options for creating a release. */
 export interface CreateReleaseOptions {
@@ -187,17 +192,26 @@ export async function planRelease(options: PlanReleaseOptions, cwd?: string, acc
   return release;
 }
 
-/**
- * Ship a release - mark as released and generate changelog.
- * @task T4467
- */
-export async function shipRelease(options: ShipReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<{
+/** Result of shipping a release. */
+export interface ShipReleaseResult {
   release: Release;
   changelog: string;
   dryRun: boolean;
-}> {
+  bumpResults?: BumpResult[];
+  changelogWritten?: boolean;
+  gitCommit?: string;
+  gitTag?: string;
+  gitPushed?: boolean;
+}
+
+/**
+ * Ship a release - mark as released, generate changelog, bump versions, and optionally git commit/tag/push.
+ * @task T4467
+ */
+export async function shipRelease(options: ShipReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<ShipReleaseResult> {
   const version = normalizeVersion(options.version);
   const todoPath = getTodoPath(cwd);
+  const projectRoot = getProjectRoot(cwd);
   const data = accessor
     ? await accessor.loadTodoFile()
     : await readJsonRequired<TodoFile>(todoPath);
@@ -225,7 +239,28 @@ export async function shipRelease(options: ShipReleaseOptions, cwd?: string, acc
   const changelog = generateChangelog(version, release.tasks, data);
 
   if (options.dryRun) {
-    return { release, changelog, dryRun: true };
+    const result: ShipReleaseResult = { release, changelog, dryRun: true };
+
+    // Show what version bump would do
+    if (options.bumpVersion) {
+      if (isVersionBumpConfigured(cwd)) {
+        const { results } = bumpVersionFromConfig(version, { dryRun: true }, cwd);
+        result.bumpResults = results;
+      } else {
+        // Default: VERSION file + package.json if it exists
+        const bumpResults: BumpResult[] = [
+          { file: 'VERSION', strategy: 'plain', success: true, newVersion: version },
+        ];
+        const pkgPath = join(projectRoot, 'package.json');
+        if (existsSync(pkgPath)) {
+          bumpResults.push({ file: 'package.json', strategy: 'json', success: true, newVersion: version });
+        }
+        result.bumpResults = bumpResults;
+      }
+      result.changelogWritten = true;
+    }
+
+    return result;
   }
 
   // Mark as released
@@ -247,27 +282,170 @@ export async function shipRelease(options: ShipReleaseOptions, cwd?: string, acc
     await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
   }
 
-  // Write VERSION file if bumping
+  const result: ShipReleaseResult = { release, changelog, dryRun: false };
+
+  // Bump version files
   if (options.bumpVersion) {
-    try {
-      const versionPath = join(getProjectRoot(cwd), 'VERSION');
-      await atomicWrite(versionPath, version + '\n');
-    } catch {
-      // VERSION file write failure is non-fatal
+    if (isVersionBumpConfigured(cwd)) {
+      // Use config-driven bump (handles VERSION, package.json, and any other configured files)
+      try {
+        const { results } = bumpVersionFromConfig(version, {}, cwd);
+        result.bumpResults = results;
+      } catch {
+        // Config-driven bump failed, fall back to direct writes
+        result.bumpResults = await bumpVersionFallback(version, projectRoot);
+      }
+    } else {
+      // No config: fall back to direct VERSION + package.json writes
+      result.bumpResults = await bumpVersionFallback(version, projectRoot);
     }
   }
 
   // Write CHANGELOG.md
-  try {
-    const changelogPath = join(getProjectRoot(cwd), 'CHANGELOG.md');
-    const existingChangelog = await readJson<string>(changelogPath);
-    const newContent = `# ${version}\n\n${changelog}\n\n${existingChangelog ?? ''}`;
-    await atomicWrite(changelogPath, newContent);
-  } catch {
-    // Changelog write failure is non-fatal
+  result.changelogWritten = await writeChangelogFile(version, changelog, projectRoot);
+
+  // Git operations: commit, tag, push
+  if (options.createTag || options.push) {
+    const gitResult = performGitOperations(version, projectRoot, {
+      createTag: options.createTag,
+      push: options.push,
+    });
+    result.gitCommit = gitResult.commit;
+    result.gitTag = gitResult.tag;
+    result.gitPushed = gitResult.pushed;
+  } else if (options.bumpVersion) {
+    // Even without explicit --create-tag/--push, commit version metadata files
+    const gitResult = performGitOperations(version, projectRoot, {
+      createTag: false,
+      push: false,
+    });
+    result.gitCommit = gitResult.commit;
   }
 
-  return { release, changelog, dryRun: false };
+  return result;
+}
+
+/**
+ * Fallback version bump: write VERSION file + package.json directly.
+ * Used when no config-driven bump targets are defined.
+ * @task T4467
+ */
+async function bumpVersionFallback(version: string, projectRoot: string): Promise<BumpResult[]> {
+  const results: BumpResult[] = [];
+
+  // Write VERSION file
+  try {
+    const versionPath = join(projectRoot, 'VERSION');
+    await atomicWrite(versionPath, version + '\n');
+    results.push({ file: 'VERSION', strategy: 'plain', success: true, newVersion: version });
+  } catch (err) {
+    results.push({ file: 'VERSION', strategy: 'plain', success: false, error: String(err) });
+  }
+
+  // Update package.json if it exists
+  const pkgPath = join(projectRoot, 'package.json');
+  if (existsSync(pkgPath)) {
+    try {
+      const pkgContent = await readFile(pkgPath, 'utf-8');
+      const pkg = JSON.parse(pkgContent);
+      const previousVersion = pkg.version;
+      pkg.version = version;
+      await atomicWrite(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+      results.push({ file: 'package.json', strategy: 'json', success: true, previousVersion, newVersion: version });
+    } catch (err) {
+      results.push({ file: 'package.json', strategy: 'json', success: false, error: String(err) });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Write CHANGELOG.md, prepending the new release section.
+ * Reads existing file as plain text (not JSON).
+ * @task T4467
+ */
+async function writeChangelogFile(version: string, changelog: string, projectRoot: string): Promise<boolean> {
+  try {
+    const changelogPath = join(projectRoot, 'CHANGELOG.md');
+    let existingContent = '';
+    try {
+      existingContent = await readFile(changelogPath, 'utf-8');
+    } catch {
+      // File doesn't exist yet, start fresh
+    }
+    const newSection = `# ${version}\n\n${changelog}\n`;
+    const newContent = existingContent
+      ? `${newSection}\n${existingContent}`
+      : newSection;
+    await atomicWrite(changelogPath, newContent);
+    return true;
+  } catch {
+    // Changelog write failure is non-fatal
+    return false;
+  }
+}
+
+/**
+ * Perform git operations: stage version files, commit, tag, push.
+ * @task T4467
+ */
+function performGitOperations(
+  version: string,
+  projectRoot: string,
+  opts: { createTag?: boolean; push?: boolean },
+): { commit?: string; tag?: string; pushed?: boolean } {
+  const result: { commit?: string; tag?: string; pushed?: boolean } = {};
+
+  try {
+    // Stage version-related files (only those that exist)
+    const filesToStage = [
+      'VERSION',
+      'CHANGELOG.md',
+      'package.json',
+      '.cleo/todo.json',
+    ].filter(f => existsSync(join(projectRoot, f)));
+
+    if (filesToStage.length === 0) return result;
+
+    execFileSync('git', ['add', ...filesToStage], { cwd: projectRoot, stdio: 'pipe' });
+
+    // Check if there are staged changes
+    try {
+      execFileSync('git', ['diff', '--cached', '--quiet'], { cwd: projectRoot, stdio: 'pipe' });
+      // Exit code 0 means no staged changes -- nothing to commit
+      return result;
+    } catch {
+      // Exit code 1 means there are staged changes -- proceed with commit
+    }
+
+    // Commit
+    const commitMsg = `release: v${version}`;
+    execFileSync('git', ['commit', '-m', commitMsg], { cwd: projectRoot, stdio: 'pipe' });
+    const commitHash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectRoot, stdio: 'pipe' })
+      .toString().trim();
+    result.commit = commitHash;
+
+    // Tag
+    if (opts.createTag) {
+      const tagName = `v${version}`;
+      execFileSync('git', ['tag', '-a', tagName, '-m', `Release ${tagName}`], { cwd: projectRoot, stdio: 'pipe' });
+      result.tag = tagName;
+    }
+
+    // Push
+    if (opts.push) {
+      execFileSync('git', ['push'], { cwd: projectRoot, stdio: 'pipe' });
+      if (opts.createTag) {
+        execFileSync('git', ['push', '--tags'], { cwd: projectRoot, stdio: 'pipe' });
+      }
+      result.pushed = true;
+    }
+  } catch {
+    // Git operations are non-fatal; return what we managed
+  }
+
+  return result;
 }
 
 /**
