@@ -1,3 +1,10 @@
+# 2026.2.4
+
+### Features
+
+- Add pre-flight migration check to core - detect JSON data needing SQLite migration (T4699)
+
+
 # 2026.2.3
 
 ### Features
