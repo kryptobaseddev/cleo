@@ -6,7 +6,7 @@
     "version": "2.10.0"
   },
   "project": {
-    "name": "claude-todo",
+    "name": "cleo",
     "currentPhase": "core"
   },
   "multiSession": {
