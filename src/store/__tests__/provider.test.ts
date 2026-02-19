@@ -43,7 +43,13 @@ describe('detectStoreEngine', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('returns json when no config or tasks.db exists', () => {
+  it('returns sqlite when no config or tasks.db exists (V2 default)', () => {
+    const engine = detectStoreEngine(tempDir);
+    expect(engine).toBe('sqlite');
+  });
+
+  it('returns json when todo.json exists but no tasks.db (backward compat)', async () => {
+    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify({ tasks: [] }));
     const engine = detectStoreEngine(tempDir);
     expect(engine).toBe('json');
   });

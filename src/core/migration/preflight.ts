@@ -166,6 +166,19 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     summary = `tasks.db exists but appears empty (${details.tasksDbSize} bytes). `
       + `${details.todoJsonTaskCount} active tasks found in JSON files need migration.`;
     fix = 'rm .cleo/tasks.db && cleo migrate-storage --to-sqlite --verify';
+  } else if (
+    details.configEngine === null
+    && jsonHasData
+    && !details.tasksDbExists
+  ) {
+    // No explicit config, JSON data exists but no SQLite DB.
+    // User is upgrading from JSON era — SQLite is now the default in CLEO V2.
+    const totalTasks = details.todoJsonTaskCount + details.archiveJsonTaskCount;
+    migrationNeeded = true;
+    summary = `Found ${totalTasks} task(s) in JSON files but no SQLite database. `
+      + `SQLite is the default storage engine in CLEO V2. `
+      + `Run migration to upgrade, or set storage.engine to 'json' in .cleo/config.json to keep using JSON.`;
+    fix = 'cleo migrate-storage --to-sqlite --verify';
   } else if (!jsonHasData && !details.tasksDbExists) {
     summary = 'No data found. Run cleo init to set up a new project.';
   } else {

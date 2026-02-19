@@ -88,6 +88,7 @@ export {
   showRelease,
   getChangelog,
 } from './core/release/index.js';
+export type { ShipReleaseResult } from './core/release/index.js';
 
 // Migration
 export {
