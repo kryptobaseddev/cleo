@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { readJson } from '../../store/json.js';
+import { getAgentOutputsAbsolute } from '../../core/paths.js';
 
 /** Drift detection result. */
 interface DriftResult {
@@ -89,8 +90,8 @@ interface GapEntry {
  * Run gap-check validation for review docs.
  * @task T4551
  */
-async function runGapCheck(projectRoot: string, filterId?: string): Promise<GapEntry[]> {
-  const reviewDir = join(projectRoot, 'claudedocs', 'agent-outputs');
+async function runGapCheck(_projectRoot: string, filterId?: string): Promise<GapEntry[]> {
+  const reviewDir = getAgentOutputsAbsolute();
   const results: GapEntry[] = [];
 
   try {

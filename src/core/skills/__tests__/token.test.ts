@@ -170,6 +170,6 @@ describe('buildDefaults', () => {
     expect(defaults['TASK_SHOW_CMD']).toBe('cleo show');
     expect(defaults['TASK_FOCUS_CMD']).toBe('cleo focus set');
     expect(defaults['DASH_CMD']).toBe('cleo dash');
-    expect(defaults['OUTPUT_DIR']).toBe('claudedocs/agent-outputs');
+    expect(defaults['OUTPUT_DIR']).toBe('.cleo/agent-outputs');
   });
 });

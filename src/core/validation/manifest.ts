@@ -76,7 +76,7 @@ export interface ComplianceEntry {
 // Defaults
 // ============================================================================
 
-const DEFAULT_MANIFEST_PATH = 'claudedocs/agent-outputs/MANIFEST.jsonl';
+const DEFAULT_MANIFEST_PATH = '.cleo/agent-outputs/MANIFEST.jsonl';
 const DEFAULT_COMPLIANCE_PATH = '.cleo/metrics/COMPLIANCE.jsonl';
 
 // ============================================================================

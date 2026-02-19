@@ -9,6 +9,7 @@ import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { getTodoPath, getConfigPath, getArchivePath, getLogPath, getCleoHome, getCleoDirAbsolute, getProjectRoot } from '../../core/paths.js';
+import { checkCleoGitignore, checkVitalFilesTracked, checkLegacyAgentOutputs } from '../../core/validation/doctor/checks.js';
 import { stat, access, readFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
@@ -173,7 +174,33 @@ export function registerDoctorCommand(program: Command): void {
           }
         }
 
-        // 5. Environment
+        // 5. Gitignore integrity, vital files, legacy paths
+        const projRootChecks = getProjectRoot();
+        const gitignoreCheck = checkCleoGitignore(projRootChecks);
+        checks.push({
+          check: gitignoreCheck.id,
+          status: gitignoreCheck.status === 'passed' ? 'ok' : gitignoreCheck.status === 'warning' ? 'warning' : 'error',
+          message: gitignoreCheck.message,
+          ...(gitignoreCheck.fix ? { details: { fix: gitignoreCheck.fix } } : {}),
+        });
+
+        const vitalCheck = checkVitalFilesTracked(projRootChecks);
+        checks.push({
+          check: vitalCheck.id,
+          status: vitalCheck.status === 'passed' ? 'ok' : vitalCheck.status === 'info' ? 'ok' : 'warning',
+          message: vitalCheck.message,
+          ...(vitalCheck.fix ? { details: { fix: vitalCheck.fix } } : {}),
+        });
+
+        const legacyCheck = checkLegacyAgentOutputs(projRootChecks);
+        checks.push({
+          check: legacyCheck.id,
+          status: legacyCheck.status === 'passed' ? 'ok' : 'warning',
+          message: legacyCheck.message,
+          ...(legacyCheck.fix ? { details: { fix: legacyCheck.fix } } : {}),
+        });
+
+        // 6. Environment
         checks.push({
           check: 'node_version',
           status: 'ok',

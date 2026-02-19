@@ -17,54 +17,10 @@ import {
   mkdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { getProjectRoot } from '../../paths.js';
+import { getAgentOutputsDir, getAgentOutputsAbsolute, getManifestPath } from '../../paths.js';
 import type { ManifestEntry } from '../types.js';
 import { CleoError } from '../../errors.js';
 import { ExitCode } from '../../../types/exit-codes.js';
-
-// ============================================================================
-// Configuration
-// ============================================================================
-
-/**
- * Get agent outputs directory from config or default.
- */
-function getOutputDir(cwd?: string): string {
-  const projectRoot = getProjectRoot(cwd);
-  const configPath = join(projectRoot, '.cleo', 'config.json');
-
-  if (existsSync(configPath)) {
-    try {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      return config.agentOutputs?.directory ?? config.research?.outputDir ?? 'claudedocs/agent-outputs';
-    } catch {
-      // fallback
-    }
-  }
-
-  return 'claudedocs/agent-outputs';
-}
-
-/**
- * Get the absolute manifest path.
- */
-function getManifestPath(cwd?: string): string {
-  const outputDir = getOutputDir(cwd);
-  const projectRoot = getProjectRoot(cwd);
-  const configPath = join(projectRoot, '.cleo', 'config.json');
-
-  let manifestFile = 'MANIFEST.jsonl';
-  if (existsSync(configPath)) {
-    try {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      manifestFile = config.agentOutputs?.manifestFile ?? config.research?.manifestFile ?? 'MANIFEST.jsonl';
-    } catch {
-      // fallback
-    }
-  }
-
-  return join(projectRoot, outputDir, manifestFile);
-}
 
 // ============================================================================
 // Initialization
@@ -75,13 +31,12 @@ function getManifestPath(cwd?: string): string {
  * @task T4520
  */
 export function ensureOutputs(cwd?: string): { created: string[] } {
-  const outputDir = getOutputDir(cwd);
-  const projectRoot = getProjectRoot(cwd);
+  const outputDir = getAgentOutputsDir(cwd);
+  const absOutputDir = getAgentOutputsAbsolute(cwd);
   const manifestPath = getManifestPath(cwd);
-  const archiveDir = join(projectRoot, outputDir, 'archive');
+  const archiveDir = join(absOutputDir, 'archive');
   const created: string[] = [];
 
-  const absOutputDir = join(projectRoot, outputDir);
   if (!existsSync(absOutputDir)) {
     mkdirSync(absOutputDir, { recursive: true });
     created.push(outputDir);
@@ -291,9 +246,8 @@ export function rotateManifest(maxEntries: number = 100, cwd?: string): number {
   if (entries.length <= maxEntries) return 0;
 
   const manifestPath = getManifestPath(cwd);
-  const projectRoot = getProjectRoot(cwd);
-  const outputDir = getOutputDir(cwd);
-  const archiveDir = join(projectRoot, outputDir, 'archive');
+  const absOutputDir = getAgentOutputsAbsolute(cwd);
+  const archiveDir = join(absOutputDir, 'archive');
 
   // Archive older entries
   const toKeep = entries.slice(-maxEntries);

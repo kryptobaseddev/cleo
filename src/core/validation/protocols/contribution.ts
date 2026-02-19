@@ -30,7 +30,7 @@ export async function validateContributionTask(
   taskId: string,
   opts: { strict?: boolean },
 ): Promise<ValidationResult> {
-  const manifestPath = 'claudedocs/agent-outputs/MANIFEST.jsonl';
+  const manifestPath = '.cleo/agent-outputs/MANIFEST.jsonl';
   const entry = findManifestEntry(taskId, manifestPath);
   if (!entry) {
     throw new CleoError(ExitCode.NOT_FOUND, `No manifest entry found for task ${taskId}`);

@@ -11,7 +11,7 @@
 
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { existsSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 
 /**
  * Get the global CLEO home directory.
@@ -154,6 +154,112 @@ export function getBackupDir(cwd?: string): string {
 export function getGlobalConfigPath(): string {
   return join(getCleoHome(), 'config.json');
 }
+
+// ============================================================================
+// Agent Outputs
+// ============================================================================
+
+const DEFAULT_AGENT_OUTPUTS_DIR = '.cleo/agent-outputs';
+
+/**
+ * Get the agent outputs directory (relative path) from config or default.
+ *
+ * Config lookup priority:
+ *   1. config.agentOutputs.directory
+ *   2. config.research.outputDir (deprecated)
+ *   3. config.directories.agentOutputs (deprecated)
+ *   4. Default: '.cleo/agent-outputs'
+ *
+ * @task T4700
+ */
+export function getAgentOutputsDir(cwd?: string): string {
+  const projectRoot = getProjectRoot(cwd);
+  const configPath = join(projectRoot, '.cleo', 'config.json');
+
+  if (existsSync(configPath)) {
+    try {
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+
+      // Priority 1: agentOutputs.directory (canonical)
+      if (typeof config.agentOutputs === 'object' && config.agentOutputs?.directory) {
+        return config.agentOutputs.directory;
+      }
+      // Also support agentOutputs as a plain string
+      if (typeof config.agentOutputs === 'string' && config.agentOutputs) {
+        return config.agentOutputs;
+      }
+
+      // Priority 2: research.outputDir (deprecated)
+      if (config.research?.outputDir) {
+        return config.research.outputDir;
+      }
+
+      // Priority 3: directories.agentOutputs (deprecated)
+      if (config.directories?.agentOutputs) {
+        return config.directories.agentOutputs;
+      }
+    } catch {
+      // fallback to default
+    }
+  }
+
+  return DEFAULT_AGENT_OUTPUTS_DIR;
+}
+
+/**
+ * Get the absolute path to the agent outputs directory.
+ * @task T4700
+ */
+export function getAgentOutputsAbsolute(cwd?: string): string {
+  const dir = getAgentOutputsDir(cwd);
+  if (isAbsolutePath(dir)) {
+    return dir;
+  }
+  return resolve(getProjectRoot(cwd), dir);
+}
+
+/**
+ * Get the absolute path to the MANIFEST.jsonl file.
+ *
+ * Checks config.agentOutputs.manifestFile for custom filename,
+ * defaults to 'MANIFEST.jsonl'.
+ *
+ * @task T4700
+ */
+export function getManifestPath(cwd?: string): string {
+  const outputDir = getAgentOutputsDir(cwd);
+  const projectRoot = getProjectRoot(cwd);
+  const configPath = join(projectRoot, '.cleo', 'config.json');
+
+  let manifestFile = 'MANIFEST.jsonl';
+  if (existsSync(configPath)) {
+    try {
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      const customFile = config.agentOutputs?.manifestFile ?? config.research?.manifestFile;
+      if (customFile) {
+        manifestFile = customFile;
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  return resolve(projectRoot, outputDir, manifestFile);
+}
+
+/**
+ * Get the absolute path to the MANIFEST.archive.jsonl file.
+ * @task T4700
+ */
+export function getManifestArchivePath(cwd?: string): string {
+  const outputDir = getAgentOutputsDir(cwd);
+  const projectRoot = getProjectRoot(cwd);
+  return resolve(projectRoot, outputDir, 'MANIFEST.archive.jsonl');
+}
+
+// ============================================================================
+// Path Utilities
+// ============================================================================
 
 /**
  * Check if a path is absolute (POSIX or Windows).

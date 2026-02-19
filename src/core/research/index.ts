@@ -9,7 +9,7 @@ import { safeReadFile } from '../../store/atomic.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { TodoFile } from '../../types/task.js';
-import { getTodoPath, getBackupDir, getLogPath, getCleoDirAbsolute } from '../paths.js';
+import { getTodoPath, getBackupDir, getLogPath, getCleoDirAbsolute, getManifestPath as getCentralManifestPath } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -77,7 +77,7 @@ function getResearchPath(cwd?: string): string {
  * @task T4465
  */
 function getManifestPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), '..', 'claudedocs', 'agent-outputs', 'MANIFEST.jsonl');
+  return getCentralManifestPath(cwd);
 }
 
 /**

@@ -7,6 +7,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
   getCleoHome,
   getCleoDir,
@@ -17,6 +19,10 @@ import {
   getConfigPath,
   getBackupDir,
   getGlobalConfigPath,
+  getAgentOutputsDir,
+  getAgentOutputsAbsolute,
+  getManifestPath,
+  getManifestArchivePath,
   isAbsolutePath,
 } from '../paths.js';
 
@@ -166,6 +172,174 @@ describe('path helper functions', () => {
     expect(getGlobalConfigPath()).toBe(join(homedir(), '.cleo', 'config.json'));
     if (origHome !== undefined) process.env['CLEO_HOME'] = origHome;
     else delete process.env['CLEO_HOME'];
+  });
+});
+
+// ============================================================================
+// Agent Outputs Path Tests
+// ============================================================================
+
+describe('getAgentOutputsDir', () => {
+  const origEnv = process.env['CLEO_DIR'];
+  let tempDir: string;
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (origEnv !== undefined) {
+      process.env['CLEO_DIR'] = origEnv;
+    } else {
+      delete process.env['CLEO_DIR'];
+    }
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('returns default when no config exists', () => {
+    expect(getAgentOutputsDir(tempDir)).toBe('.cleo/agent-outputs');
+  });
+
+  it('reads agentOutputs.directory from config', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      agentOutputs: { directory: 'custom/outputs' },
+    }));
+    expect(getAgentOutputsDir(tempDir)).toBe('custom/outputs');
+  });
+
+  it('reads agentOutputs as plain string from config', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      agentOutputs: 'my-outputs',
+    }));
+    expect(getAgentOutputsDir(tempDir)).toBe('my-outputs');
+  });
+
+  it('falls back to research.outputDir (deprecated)', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      research: { outputDir: 'research/out' },
+    }));
+    expect(getAgentOutputsDir(tempDir)).toBe('research/out');
+  });
+
+  it('falls back to directories.agentOutputs (deprecated)', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      directories: { agentOutputs: 'dirs/out' },
+    }));
+    expect(getAgentOutputsDir(tempDir)).toBe('dirs/out');
+  });
+
+  it('uses priority order: agentOutputs > research > directories', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      agentOutputs: { directory: 'first' },
+      research: { outputDir: 'second' },
+      directories: { agentOutputs: 'third' },
+    }));
+    expect(getAgentOutputsDir(tempDir)).toBe('first');
+  });
+
+  it('falls back to default on invalid config JSON', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), 'not valid json');
+    expect(getAgentOutputsDir(tempDir)).toBe('.cleo/agent-outputs');
+  });
+});
+
+describe('getAgentOutputsAbsolute', () => {
+  const origEnv = process.env['CLEO_DIR'];
+  let tempDir: string;
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (origEnv !== undefined) {
+      process.env['CLEO_DIR'] = origEnv;
+    } else {
+      delete process.env['CLEO_DIR'];
+    }
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('resolves default to absolute path', () => {
+    const result = getAgentOutputsAbsolute(tempDir);
+    expect(result).toBe(join(tempDir, '.cleo', 'agent-outputs'));
+  });
+
+  it('returns absolute config path as-is', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      agentOutputs: { directory: '/absolute/outputs' },
+    }));
+    expect(getAgentOutputsAbsolute(tempDir)).toBe('/absolute/outputs');
+  });
+});
+
+describe('getManifestPath', () => {
+  const origEnv = process.env['CLEO_DIR'];
+  let tempDir: string;
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (origEnv !== undefined) {
+      process.env['CLEO_DIR'] = origEnv;
+    } else {
+      delete process.env['CLEO_DIR'];
+    }
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('returns default manifest path', () => {
+    const result = getManifestPath(tempDir);
+    expect(result).toBe(join(tempDir, '.cleo', 'agent-outputs', 'MANIFEST.jsonl'));
+  });
+
+  it('respects custom output directory', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      agentOutputs: { directory: 'custom/out' },
+    }));
+    const result = getManifestPath(tempDir);
+    expect(result).toBe(join(tempDir, 'custom', 'out', 'MANIFEST.jsonl'));
+  });
+
+  it('respects custom manifest filename', () => {
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), JSON.stringify({
+      agentOutputs: { manifestFile: 'custom-manifest.jsonl' },
+    }));
+    const result = getManifestPath(tempDir);
+    expect(result).toBe(join(tempDir, '.cleo', 'agent-outputs', 'custom-manifest.jsonl'));
+  });
+});
+
+describe('getManifestArchivePath', () => {
+  const origEnv = process.env['CLEO_DIR'];
+  let tempDir: string;
+
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+    tempDir = join(tmpdir(), `cleo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (origEnv !== undefined) {
+      process.env['CLEO_DIR'] = origEnv;
+    } else {
+      delete process.env['CLEO_DIR'];
+    }
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('returns default archive path', () => {
+    const result = getManifestArchivePath(tempDir);
+    expect(result).toBe(join(tempDir, '.cleo', 'agent-outputs', 'MANIFEST.archive.jsonl'));
   });
 });
 

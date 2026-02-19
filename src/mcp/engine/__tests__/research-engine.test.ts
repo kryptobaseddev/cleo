@@ -22,7 +22,7 @@ import {
 } from '../research-engine.js';
 
 const TEST_ROOT = join(process.cwd(), '.test-research-engine');
-const MANIFEST_DIR = join(TEST_ROOT, 'claudedocs', 'agent-outputs');
+const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
 const MANIFEST_PATH = join(MANIFEST_DIR, 'MANIFEST.jsonl');
 
 const SAMPLE_ENTRIES = [

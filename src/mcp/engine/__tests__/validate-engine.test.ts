@@ -21,7 +21,7 @@ import {
 const TEST_ROOT = join(process.cwd(), '.test-validate-engine');
 const CLEO_DIR = join(TEST_ROOT, '.cleo');
 const METRICS_DIR = join(CLEO_DIR, 'metrics');
-const MANIFEST_DIR = join(TEST_ROOT, 'claudedocs', 'agent-outputs');
+const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
 
 function writeTodoJson(tasks: any[]): void {
   mkdirSync(CLEO_DIR, { recursive: true });

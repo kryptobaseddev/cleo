@@ -13,6 +13,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync} from 'fs';
 import { resolve, dirname } from 'path';
 import { resolveProjectRoot} from './store.js';
+import { getManifestPath as getCentralManifestPath, getManifestArchivePath } from '../../core/paths.js';
 
 /**
  * Manifest entry as stored in MANIFEST.jsonl
@@ -61,17 +62,10 @@ interface EngineResult<T = unknown> {
  * Get the manifest file path
  */
 function getManifestPath(projectRoot?: string): string {
-  const root = projectRoot || resolveProjectRoot();
-  return resolve(root, 'claudedocs/agent-outputs/MANIFEST.jsonl');
+  return getCentralManifestPath(projectRoot);
 }
 
-/**
- * Get the manifest archive path
- */
-function getManifestArchivePath(projectRoot?: string): string {
-  const root = projectRoot || resolveProjectRoot();
-  return resolve(root, 'claudedocs/agent-outputs/MANIFEST.archive.jsonl');
-}
+
 
 /**
  * Read all manifest entries from MANIFEST.jsonl
@@ -513,7 +507,7 @@ export function researchManifestAppend(
     data: {
       appended: true,
       entryId: entry.id,
-      file: 'claudedocs/agent-outputs/MANIFEST.jsonl',
+      file: getCentralManifestPath(),
     },
   };
 }
@@ -571,7 +565,7 @@ export function researchManifestArchive(
     data: {
       archived: toArchive.length,
       remaining: toKeep.length,
-      archiveFile: 'claudedocs/agent-outputs/MANIFEST.archive.jsonl',
+      archiveFile: getManifestArchivePath(),
     },
   };
 }

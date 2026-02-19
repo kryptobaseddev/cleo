@@ -281,7 +281,7 @@ const SAMPLE_SESSION = {
 const SAMPLE_MANIFEST_ENTRIES = [
   {
     id: 'T101-infra-research',
-    file: 'claudedocs/agent-outputs/T101-infra.md',
+    file: '.cleo/agent-outputs/T101-infra.md',
     title: 'Infrastructure Research',
     date: '2026-01-03',
     status: 'complete',
@@ -294,7 +294,7 @@ const SAMPLE_MANIFEST_ENTRIES = [
   },
   {
     id: 'T102-core-spec',
-    file: 'claudedocs/agent-outputs/T102-spec.md',
+    file: '.cleo/agent-outputs/T102-spec.md',
     title: 'Core Module Specification',
     date: '2026-01-04',
     status: 'complete',
@@ -307,7 +307,7 @@ const SAMPLE_MANIFEST_ENTRIES = [
   },
   {
     id: 'T103-test-plan',
-    file: 'claudedocs/agent-outputs/T103-tests.md',
+    file: '.cleo/agent-outputs/T103-tests.md',
     title: 'Integration Test Plan',
     date: '2026-01-05',
     status: 'complete',
@@ -320,7 +320,7 @@ const SAMPLE_MANIFEST_ENTRIES = [
   },
   {
     id: 'T104-deploy-research',
-    file: 'claudedocs/agent-outputs/T104-deploy.md',
+    file: '.cleo/agent-outputs/T104-deploy.md',
     title: 'Deployment Strategy Research',
     date: '2026-01-06',
     status: 'complete',

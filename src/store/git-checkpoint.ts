@@ -20,14 +20,24 @@ import { readJson } from './json.js';
 
 const execFileAsync = promisify(execFile);
 
-/** State files eligible for checkpointing (relative to .cleo/). */
+/**
+ * State files eligible for checkpointing (relative to .cleo/).
+ * Includes both JSON and SQLite data files — `getChangedStateFiles()` skips
+ * files that don't exist on disk, so listing both engines is safe.
+ */
 const STATE_FILES = [
+  // Core data (JSON engine)
   'todo.json',
-  'todo-log.jsonl',
-  'sessions.json',
   'todo-archive.json',
+  'sessions.json',
+  // Core data (SQLite engine)
+  'tasks.db',
+  // Always-present files
   'config.json',
+  'todo-log.jsonl',
   '.sequence',
+  'project-context.json',
+  // Metrics
   'metrics/COMPLIANCE.jsonl',
   'metrics/SESSIONS.jsonl',
   'metrics/TOKEN_USAGE.jsonl',

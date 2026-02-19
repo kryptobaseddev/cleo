@@ -9,6 +9,7 @@
  */
 
 import { existsSync, readFileSync, accessSync, constants, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -259,6 +260,233 @@ export function checkRootGitignore(
 }
 
 // ============================================================================
+// Check: .cleo/.gitignore integrity
+// ============================================================================
+
+/**
+ * Check if .cleo/.gitignore exists and matches the template.
+ * @task T4700
+ */
+export function checkCleoGitignore(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const gitignorePath = join(root, '.cleo', '.gitignore');
+
+  if (!existsSync(gitignorePath)) {
+    return {
+      id: 'cleo_gitignore',
+      category: 'configuration',
+      status: 'warning',
+      message: '.cleo/.gitignore not found',
+      details: { path: gitignorePath, exists: false },
+      fix: 'cleo init --force',
+    };
+  }
+
+  // Load installed content
+  let installedContent: string;
+  try {
+    installedContent = readFileSync(gitignorePath, 'utf-8');
+  } catch {
+    return {
+      id: 'cleo_gitignore',
+      category: 'configuration',
+      status: 'warning',
+      message: '.cleo/.gitignore exists but is not readable',
+      details: { path: gitignorePath, readable: false },
+      fix: `chmod +r ${gitignorePath}`,
+    };
+  }
+
+  // Load template
+  let templateContent: string | null = null;
+  try {
+    const { getGitignoreTemplate } = require('../../cli/commands/init.js') as { getGitignoreTemplate: () => string };
+    templateContent = getGitignoreTemplate();
+  } catch {
+    // If we can't load the template, try the file directly
+    try {
+      const templatePaths = [
+        join(root, 'templates', 'cleo-gitignore'),
+        join(homedir(), '.cleo', 'templates', 'cleo-gitignore'),
+      ];
+      for (const tp of templatePaths) {
+        if (existsSync(tp)) {
+          templateContent = readFileSync(tp, 'utf-8');
+          break;
+        }
+      }
+    } catch {
+      // Can't load template
+    }
+  }
+
+  if (!templateContent) {
+    return {
+      id: 'cleo_gitignore',
+      category: 'configuration',
+      status: 'passed',
+      message: '.cleo/.gitignore exists (cannot verify against template)',
+      details: { path: gitignorePath, exists: true, templateAvailable: false },
+      fix: null,
+    };
+  }
+
+  // Compare
+  const normalizeContent = (s: string) => s.trim().replace(/\r\n/g, '\n');
+  const isMatch = normalizeContent(installedContent) === normalizeContent(templateContent);
+
+  return {
+    id: 'cleo_gitignore',
+    category: 'configuration',
+    status: isMatch ? 'passed' : 'warning',
+    message: isMatch
+      ? '.cleo/.gitignore matches template'
+      : '.cleo/.gitignore has drifted from template',
+    details: {
+      path: gitignorePath,
+      matchesTemplate: isMatch,
+      ...(!isMatch ? { fix: 'cleo upgrade' } : {}),
+    },
+    fix: isMatch ? null : 'cleo upgrade',
+  };
+}
+
+// ============================================================================
+// Check: Vital files tracked by git
+// ============================================================================
+
+/**
+ * Detect the storage engine from project config.
+ * Returns 'sqlite' | 'json' | 'dual' | 'unknown'.
+ */
+function detectStorageEngine(projectRoot: string): string {
+  const configPath = join(projectRoot, '.cleo', 'config.json');
+  if (existsSync(configPath)) {
+    try {
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      if (config.storage?.engine) return config.storage.engine;
+    } catch { /* fallback */ }
+  }
+  // Auto-detect: if tasks.db exists, assume sqlite
+  if (existsSync(join(projectRoot, '.cleo', 'tasks.db'))) return 'sqlite';
+  if (existsSync(join(projectRoot, '.cleo', 'todo.json'))) return 'json';
+  return 'unknown';
+}
+
+/**
+ * Check that vital CLEO files are tracked by git.
+ * Engine-aware: checks the right data files based on storage.engine config.
+ * @task T4700
+ */
+export function checkVitalFilesTracked(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const gitDir = join(root, '.git');
+
+  if (!existsSync(gitDir)) {
+    return {
+      id: 'vital_files_tracked',
+      category: 'configuration',
+      status: 'info',
+      message: 'Not a git repository (skipping vital file tracking check)',
+      details: { gitDir, isGitRepo: false },
+      fix: null,
+    };
+  }
+
+  // Build vital file list based on storage engine
+  const engine = detectStorageEngine(root);
+  const vitalFiles: string[] = [
+    '.cleo/config.json',
+    '.cleo/.gitignore',
+  ];
+
+  // Add engine-specific data files
+  if (engine === 'sqlite' || engine === 'dual') {
+    vitalFiles.push('.cleo/tasks.db');
+  }
+  if (engine === 'json' || engine === 'dual') {
+    vitalFiles.push('.cleo/todo.json');
+  }
+  // Always check common files
+  vitalFiles.push('.cleo/todo-log.jsonl');
+
+  const untracked: string[] = [];
+
+  for (const file of vitalFiles) {
+    const fullPath = join(root, file);
+    if (!existsSync(fullPath)) continue; // file doesn't exist, that's fine
+
+    try {
+      execFileSync('git', ['ls-files', '--error-unmatch', file], {
+        cwd: root,
+        stdio: 'pipe',
+      });
+    } catch {
+      untracked.push(file);
+    }
+  }
+
+  if (untracked.length > 0) {
+    return {
+      id: 'vital_files_tracked',
+      category: 'configuration',
+      status: 'warning',
+      message: `${untracked.length} vital file(s) not tracked by git: ${untracked.join(', ')}`,
+      details: { engine, untracked },
+      fix: `git add ${untracked.join(' ')}`,
+    };
+  }
+
+  return {
+    id: 'vital_files_tracked',
+    category: 'configuration',
+    status: 'passed',
+    message: `All vital CLEO files are tracked by git (engine: ${engine})`,
+    details: { engine, checkedFiles: vitalFiles },
+    fix: null,
+  };
+}
+
+// ============================================================================
+// Check: Legacy agent-outputs path
+// ============================================================================
+
+/**
+ * Check if legacy claudedocs/agent-outputs/ directory still exists.
+ * @task T4700
+ */
+export function checkLegacyAgentOutputs(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const legacyPath = join(root, 'claudedocs', 'agent-outputs');
+
+  if (existsSync(legacyPath)) {
+    return {
+      id: 'legacy_agent_outputs',
+      category: 'configuration',
+      status: 'warning',
+      message: 'Legacy agent-outputs directory found at claudedocs/agent-outputs/',
+      details: { path: legacyPath, exists: true },
+      fix: 'cleo upgrade',
+    };
+  }
+
+  return {
+    id: 'legacy_agent_outputs',
+    category: 'configuration',
+    status: 'passed',
+    message: 'No legacy agent-outputs directory found',
+    details: { path: legacyPath, exists: false },
+    fix: null,
+  };
+}
+
+// ============================================================================
 // Run All Checks
 // ============================================================================
 
@@ -278,6 +506,9 @@ export function runAllGlobalChecks(
     checkDocsAccessibility(home),
     checkAtReferenceResolution(home),
     checkRootGitignore(projectRoot),
+    checkCleoGitignore(projectRoot),
+    checkVitalFilesTracked(projectRoot),
+    checkLegacyAgentOutputs(projectRoot),
   ];
 }
 
