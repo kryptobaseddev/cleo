@@ -1,152 +1,56 @@
 /**
  * CLI upgrade command - unified project maintenance.
- * Schema migration, structural repair, doc updates.
- * @task T4454
+ *
+ * Delegates to core upgrade logic. Handles:
+ *   - Storage migration (JSON → SQLite, automatic)
+ *   - Schema version upgrades
+ *   - Structural repairs (checksums, missing fields)
+ *   - Global ~/.cleo data checks
+ *
+ * @task T4699
+ * @epic T4454
  */
 
 import { Command } from 'commander';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
-
-import { getAccessor } from '../../store/data-accessor.js';
-import { computeChecksum } from '../../store/json.js';
-
-interface UpgradeAction {
-  action: string;
-  status: 'applied' | 'skipped' | 'preview';
-  details: string;
-}
+import { runUpgrade } from '../../core/upgrade.js';
 
 export function registerUpgradeCommand(program: Command): void {
   program
     .command('upgrade')
-    .description('Unified project maintenance (schema migration, structural repair)')
+    .description('Unified project maintenance (storage migration, schema repair, structural fixes)')
     .option('--status', 'Show what needs updating without making changes')
     .option('--dry-run', 'Preview changes without applying')
-    .option('--force', 'Skip confirmation prompts')
+    .option('--include-global', 'Also check global ~/.cleo data')
+    .option('--no-auto-migrate', 'Skip automatic JSON→SQLite migration')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
-
-        const actions: UpgradeAction[] = [];
         const isDryRun = !!opts['dryRun'] || !!opts['status'];
+        const includeGlobal = !!opts['includeGlobal'];
+        const autoMigrate = opts['autoMigrate'] !== false;
 
-        // 1. Check schema version
-        const schemaVersion = data._meta?.schemaVersion;
-        const currentVersion = '2.10.0';
-        if (!schemaVersion) {
-          if (isDryRun) {
-            actions.push({
-              action: 'add_schema_version',
-              status: 'preview',
-              details: `Would set _meta.schemaVersion to ${currentVersion}`,
-            });
-          } else {
-            data._meta = data._meta ?? {} as typeof data._meta;
-            data._meta.schemaVersion = currentVersion;
-            actions.push({
-              action: 'add_schema_version',
-              status: 'applied',
-              details: `Set _meta.schemaVersion to ${currentVersion}`,
-            });
-          }
-        } else if (schemaVersion !== currentVersion) {
-          actions.push({
-            action: 'schema_version_check',
-            status: isDryRun ? 'preview' : 'skipped',
-            details: `Schema version ${schemaVersion} differs from current ${currentVersion}`,
-          });
-        } else {
-          actions.push({
-            action: 'schema_version_check',
-            status: 'skipped',
-            details: 'Schema version up to date',
-          });
-        }
-
-        // 2. Check and fix checksum
-        const storedChecksum = data._meta?.checksum;
-        const computedChecksum = computeChecksum(data.tasks);
-        if (storedChecksum !== computedChecksum) {
-          if (isDryRun) {
-            actions.push({
-              action: 'fix_checksum',
-              status: 'preview',
-              details: `Would update checksum from ${storedChecksum ?? 'none'} to ${computedChecksum}`,
-            });
-          } else {
-            data._meta.checksum = computedChecksum;
-            actions.push({
-              action: 'fix_checksum',
-              status: 'applied',
-              details: `Updated checksum to ${computedChecksum}`,
-            });
-          }
-        }
-
-        // 3. Check done tasks missing completedAt
-        const doneMissingDate = data.tasks.filter((t) => t.status === 'done' && !t.completedAt);
-        if (doneMissingDate.length > 0) {
-          if (isDryRun) {
-            actions.push({
-              action: 'fix_completed_at',
-              status: 'preview',
-              details: `Would set completedAt for ${doneMissingDate.length} done task(s)`,
-            });
-          } else {
-            const now = new Date().toISOString();
-            for (const t of doneMissingDate) {
-              t.completedAt = now;
-            }
-            actions.push({
-              action: 'fix_completed_at',
-              status: 'applied',
-              details: `Set completedAt for ${doneMissingDate.length} done task(s)`,
-            });
-          }
-        }
-
-        // 4. Check missing size fields
-        const missingSizes = data.tasks.filter((t) => !t.size);
-        if (missingSizes.length > 0) {
-          if (isDryRun) {
-            actions.push({
-              action: 'fix_missing_sizes',
-              status: 'preview',
-              details: `Would set size='medium' for ${missingSizes.length} task(s)`,
-            });
-          } else {
-            for (const t of missingSizes) {
-              t.size = 'medium';
-            }
-            actions.push({
-              action: 'fix_missing_sizes',
-              status: 'applied',
-              details: `Set size='medium' for ${missingSizes.length} task(s)`,
-            });
-          }
-        }
-
-        // Save if changes were made
-        const applied = actions.filter((a) => a.status === 'applied');
-        if (applied.length > 0 && !isDryRun) {
-          data._meta.checksum = computeChecksum(data.tasks);
-          data.lastUpdated = new Date().toISOString();
-          await accessor.saveTodoFile(data);
-        }
-
-        const needsWork = actions.some((a) => a.status === 'applied' || a.status === 'preview');
+        const result = await runUpgrade({
+          dryRun: isDryRun,
+          includeGlobal,
+          autoMigrate,
+        });
 
         console.log(formatSuccess({
-          upToDate: !needsWork,
-          dryRun: isDryRun,
-          actions,
-          applied: applied.length,
+          upToDate: result.upToDate,
+          dryRun: result.dryRun,
+          actions: result.actions,
+          applied: result.applied,
+          errors: result.errors.length > 0 ? result.errors : undefined,
+          storageMigration: result.storageMigration,
         }));
 
-        if (applied.length > 0) {
+        if (result.applied > 0) {
           process.exit(2); // exit 2 = changes applied (per bash convention)
+        }
+
+        if (!result.success) {
+          process.exit(1);
         }
       } catch (err) {
         if (err instanceof CleoError) {
