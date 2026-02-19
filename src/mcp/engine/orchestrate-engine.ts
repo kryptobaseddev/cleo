@@ -9,8 +9,9 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'fs';
-import { join, resolve, dirname } from 'path';
+import { join, dirname } from 'path';
 import { resolveProjectRoot } from './store.js';
+import { getManifestPath as getCentralManifestPath } from '../../core/paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { TaskRecord } from './task-engine.js';
 import { taskNext, taskBlockers } from './task-engine.js';
@@ -468,7 +469,7 @@ export async function orchestrateContext(
   const estimatedTokens = taskCount * 100;
 
   // Check manifest size
-  const manifestPath = resolve(root, 'claudedocs/agent-outputs/MANIFEST.jsonl');
+  const manifestPath = getCentralManifestPath(root);
   let manifestEntries = 0;
   if (existsSync(manifestPath)) {
     try {

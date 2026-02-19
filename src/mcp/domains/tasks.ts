@@ -18,6 +18,7 @@ import { createGatewayMeta } from '../lib/gateway-meta.js';
 // import { formatSuccess, formatError, createError } from '../lib/formatter.js';
 import { ManifestReader } from '../lib/manifest.js';
 import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import { getManifestPath as getCentralManifestPath } from '../../core/paths.js';
 import type { ResolvedMode } from '../lib/mode-detector.js';
 import {
   taskShow as nativeTaskShow,
@@ -195,10 +196,10 @@ export class TasksHandler implements DomainHandler {
 
   constructor(
     private executor: CLIExecutor,
-    manifestPath: string = 'claudedocs/agent-outputs/MANIFEST.jsonl',
+    manifestPath?: string,
     executionMode: ResolvedMode = 'cli'
   ) {
-    this.manifestReader = new ManifestReader(manifestPath);
+    this.manifestReader = new ManifestReader(manifestPath ?? getCentralManifestPath());
     this.executionMode = executionMode;
     this.projectRoot = resolveProjectRoot();
   }

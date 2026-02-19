@@ -13,9 +13,9 @@
  * @epic T4454
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoDirAbsolute, getCleoHome } from './paths.js';
+import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
 
 /** A single upgrade action with status. */
@@ -338,6 +338,215 @@ export async function runUpgrade(options: {
     } catch {
       // Global check is best-effort
     }
+  }
+
+  // ── Step 4: Gitignore integrity repair ───────────────────────────
+  try {
+    const gitignorePath = join(cleoDir, '.gitignore');
+    let templateContent: string | null = null;
+
+    // Try loading template
+    try {
+      const { getGitignoreTemplate } = await import('../cli/commands/init.js');
+      templateContent = getGitignoreTemplate();
+    } catch {
+      // Template loading not available
+    }
+
+    if (templateContent) {
+      const normalizeContent = (s: string) => s.trim().replace(/\r\n/g, '\n');
+
+      if (!existsSync(gitignorePath)) {
+        if (isDryRun) {
+          actions.push({
+            action: 'gitignore_integrity',
+            status: 'preview',
+            details: 'Would create .cleo/.gitignore from template',
+          });
+        } else {
+          writeFileSync(gitignorePath, templateContent);
+          actions.push({
+            action: 'gitignore_integrity',
+            status: 'applied',
+            details: 'Created .cleo/.gitignore from template',
+          });
+        }
+      } else {
+        const installedContent = readFileSync(gitignorePath, 'utf-8');
+        if (normalizeContent(installedContent) !== normalizeContent(templateContent)) {
+          if (isDryRun) {
+            actions.push({
+              action: 'gitignore_integrity',
+              status: 'preview',
+              details: 'Would update .cleo/.gitignore to match template',
+            });
+          } else {
+            writeFileSync(gitignorePath, templateContent);
+            actions.push({
+              action: 'gitignore_integrity',
+              status: 'applied',
+              details: 'Updated .cleo/.gitignore to match template',
+            });
+          }
+        } else {
+          actions.push({
+            action: 'gitignore_integrity',
+            status: 'skipped',
+            details: '.cleo/.gitignore matches template',
+          });
+        }
+      }
+    }
+  } catch {
+    // Gitignore repair is best-effort
+  }
+
+  // ── Step 5: Agent-outputs migration ─────────────────────────────
+  try {
+    const projectRoot = getProjectRoot(options.cwd);
+    const legacyDir = join(projectRoot, 'claudedocs', 'agent-outputs');
+    const newDir = join(cleoDir, 'agent-outputs');
+
+    if (existsSync(legacyDir)) {
+      if (existsSync(newDir)) {
+        // Both exist — warn, do not overwrite
+        actions.push({
+          action: 'agent_outputs_migration',
+          status: 'skipped',
+          details: 'Both claudedocs/agent-outputs/ and .cleo/agent-outputs/ exist. Manual cleanup needed.',
+        });
+      } else {
+        if (isDryRun) {
+          actions.push({
+            action: 'agent_outputs_migration',
+            status: 'preview',
+            details: 'Would copy claudedocs/agent-outputs/ to .cleo/agent-outputs/',
+          });
+        } else {
+          // Copy all files from old to new
+          mkdirSync(newDir, { recursive: true });
+          const files = readdirSync(legacyDir);
+          for (const file of files) {
+            const srcPath = join(legacyDir, file);
+            const dstPath = join(newDir, file);
+            try {
+              copyFileSync(srcPath, dstPath);
+            } catch {
+              // Skip files that can't be copied (e.g., directories)
+              try {
+                // If it's a directory, mkdir and copy contents
+                const stat = (await import('node:fs')).statSync(srcPath);
+                if (stat.isDirectory()) {
+                  mkdirSync(dstPath, { recursive: true });
+                  const subFiles = readdirSync(srcPath);
+                  for (const sf of subFiles) {
+                    try { copyFileSync(join(srcPath, sf), join(dstPath, sf)); } catch { /* skip */ }
+                  }
+                }
+              } catch { /* skip */ }
+            }
+          }
+
+          // Update config if it still points to legacy path
+          const configPath = join(cleoDir, 'config.json');
+          if (existsSync(configPath)) {
+            try {
+              const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+              const currentDir = config.agentOutputs?.directory ?? config.agentOutputs;
+              if (currentDir === 'claudedocs/agent-outputs') {
+                if (typeof config.agentOutputs === 'object') {
+                  config.agentOutputs.directory = '.cleo/agent-outputs';
+                } else {
+                  config.agentOutputs = { directory: '.cleo/agent-outputs' };
+                }
+                writeFileSync(configPath, JSON.stringify(config, null, 2));
+              }
+            } catch { /* config update is best-effort */ }
+          }
+
+          actions.push({
+            action: 'agent_outputs_migration',
+            status: 'applied',
+            details: `Copied ${files.length} items from claudedocs/agent-outputs/ to .cleo/agent-outputs/`,
+          });
+        }
+      }
+    } else {
+      actions.push({
+        action: 'agent_outputs_migration',
+        status: 'skipped',
+        details: 'No legacy claudedocs/agent-outputs/ directory found',
+      });
+    }
+  } catch {
+    // Agent outputs migration is best-effort
+  }
+
+  // ── Step 6: Project context re-detection ────────────────────────
+  try {
+    const projectRoot = getProjectRoot(options.cwd);
+    const contextPath = join(cleoDir, 'project-context.json');
+
+    if (!existsSync(contextPath)) {
+      if (isDryRun) {
+        actions.push({
+          action: 'project_context_detection',
+          status: 'preview',
+          details: 'Would detect and create project-context.json',
+        });
+      } else {
+        try {
+          const { detectProjectType } = await import('../store/project-detect.js');
+          const info = detectProjectType(projectRoot);
+          const context = {
+            ...info,
+            detectedAt: new Date().toISOString(),
+          };
+          writeFileSync(contextPath, JSON.stringify(context, null, 2));
+          actions.push({
+            action: 'project_context_detection',
+            status: 'applied',
+            details: `Detected project type: ${info.type} (${info.testFramework})`,
+          });
+        } catch (err) {
+          actions.push({
+            action: 'project_context_detection',
+            status: 'error',
+            details: `Project detection failed: ${String(err)}`,
+          });
+        }
+      }
+    } else {
+      // Check if stale (older than 30 days)
+      try {
+        const context = JSON.parse(readFileSync(contextPath, 'utf-8'));
+        if (context.detectedAt) {
+          const detectedDate = new Date(context.detectedAt);
+          const daysSinceDetection = (Date.now() - detectedDate.getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSinceDetection > 30) {
+            actions.push({
+              action: 'project_context_detection',
+              status: 'skipped',
+              details: `project-context.json is ${Math.round(daysSinceDetection)} days old. Consider re-running 'cleo init --detect'.`,
+            });
+          } else {
+            actions.push({
+              action: 'project_context_detection',
+              status: 'skipped',
+              details: 'project-context.json is up to date',
+            });
+          }
+        }
+      } catch {
+        actions.push({
+          action: 'project_context_detection',
+          status: 'skipped',
+          details: 'project-context.json exists',
+        });
+      }
+    }
+  } catch {
+    // Project context detection is best-effort
   }
 
   const applied = actions.filter((a) => a.status === 'applied');

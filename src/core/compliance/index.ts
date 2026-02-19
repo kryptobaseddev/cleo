@@ -6,6 +6,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { getManifestPath as getManifestPathFromPaths } from '../paths.js';
 // CleoError and ExitCode available if needed for future error cases
 
 function getCleoDir(cwd?: string): string {
@@ -219,7 +220,7 @@ export async function getValueMetrics(
 ): Promise<Record<string, unknown>> {
   const cleoDir = getCleoDir(cwd);
   const compliancePath = join(cleoDir, 'metrics', 'COMPLIANCE.jsonl');
-  const manifestPath = join(cwd ?? process.cwd(), 'claudedocs', 'agent-outputs', 'MANIFEST.jsonl');
+  const manifestPath = getManifestPathFromPaths(cwd);
 
   let manifestEntries = 0;
   if (existsSync(manifestPath)) {

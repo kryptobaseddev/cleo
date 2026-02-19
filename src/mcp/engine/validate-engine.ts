@@ -14,6 +14,7 @@ import { readFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join, dirname, resolve } from 'path';
 import { resolveProjectRoot, readJsonFile } from './store.js';
+import { getManifestPath as getCentralManifestPath } from '../../core/paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { validateSchema as ajvValidateSchema, type SchemaType } from './schema-validator.js';
 import {
@@ -278,7 +279,7 @@ export function validateManifest(
   projectRoot?: string
 ): EngineResult {
   const root = projectRoot || resolveProjectRoot();
-  const manifestPath = resolve(root, 'claudedocs/agent-outputs/MANIFEST.jsonl');
+  const manifestPath = getCentralManifestPath(root);
 
   if (!existsSync(manifestPath)) {
     return {

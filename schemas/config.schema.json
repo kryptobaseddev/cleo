@@ -124,7 +124,7 @@
         },
         "agentOutputs": {
           "type": "string",
-          "default": "claudedocs/agent-outputs",
+          "default": ".cleo/agent-outputs",
           "description": "Agent manifest outputs (MANIFEST.jsonl location)"
         },
         "metrics": {
@@ -1281,7 +1281,7 @@
       "properties": {
         "directory": {
           "type": "string",
-          "default": "claudedocs/agent-outputs",
+          "default": ".cleo/agent-outputs",
           "description": "Directory for agent outputs relative to project root.",
           "x-deprecated-alias": "research.outputDir"
         },
@@ -1344,7 +1344,7 @@
       "properties": {
         "outputDir": {
           "type": "string",
-          "default": "claudedocs/agent-outputs",
+          "default": ".cleo/agent-outputs",
           "description": "DEPRECATED: Use agentOutputs.directory instead. Directory for research outputs relative to project root.",
           "x-deprecated": true,
           "x-deprecated-by": "agentOutputs.directory"

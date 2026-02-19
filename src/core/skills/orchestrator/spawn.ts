@@ -13,8 +13,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { getTodoPath, getProjectRoot } from '../../paths.js';
+import { getTodoPath, getAgentOutputsDir } from '../../paths.js';
 import { findSkill, mapSkillName } from '../discovery.js';
 import { injectTokens, type TokenValues } from '../injection/token.js';
 import type { Task } from '../../../types/task.js';
@@ -68,7 +67,7 @@ export function buildPrompt(
     .toLowerCase()
     .replace(/^-|-$/g, '');
 
-  const outputDir = getAgentOutputDir(cwd);
+  const outputDir = getAgentOutputsDir(cwd);
   const manifestPath = `${outputDir}/MANIFEST.jsonl`;
 
   // Get epic info
@@ -203,22 +202,3 @@ export function canParallelize(
 // Helpers
 // ============================================================================
 
-/**
- * Get agent output directory (from config or default).
- */
-function getAgentOutputDir(cwd?: string): string {
-  const projectRoot = getProjectRoot(cwd);
-  const configPath = join(projectRoot, '.cleo', 'config.json');
-
-  if (existsSync(configPath)) {
-    try {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      const dir = config.agentOutputs?.directory ?? config.research?.outputDir;
-      if (dir) return dir;
-    } catch {
-      // fallback
-    }
-  }
-
-  return 'claudedocs/agent-outputs';
-}

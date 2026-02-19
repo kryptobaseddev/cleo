@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getTodoPath, getProjectRoot } from '../../paths.js';
+import { getTodoPath, getAgentOutputsAbsolute, getManifestPath as getManifestPathFromPaths } from '../../paths.js';
 import type { Task } from '../../../types/task.js';
 import type {
   ManifestEntry,
@@ -36,32 +36,9 @@ const VALID_STATUSES = new Set(['complete', 'partial', 'blocked', 'archived']);
 // Manifest Helpers
 // ============================================================================
 
-/**
- * Get agent output directory from config.
- */
-function getOutputDir(cwd?: string): string {
-  const projectRoot = getProjectRoot(cwd);
-  const configPath = join(projectRoot, '.cleo', 'config.json');
-
-  if (existsSync(configPath)) {
-    try {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      return config.agentOutputs?.directory ?? config.research?.outputDir ?? 'claudedocs/agent-outputs';
-    } catch {
-      // fallback
-    }
-  }
-
-  return 'claudedocs/agent-outputs';
-}
-
-/**
- * Get manifest file path.
- */
+/** Alias for centralized getManifestPath to avoid name conflicts with local usages. */
 function getManifestPath(cwd?: string): string {
-  const outputDir = getOutputDir(cwd);
-  const projectRoot = getProjectRoot(cwd);
-  return join(projectRoot, outputDir, 'MANIFEST.jsonl');
+  return getManifestPathFromPaths(cwd);
 }
 
 /**
@@ -158,9 +135,8 @@ export function validateSubagentOutput(
 
   // Check output file exists
   if (entry.file) {
-    const outputDir = getOutputDir(cwd);
-    const projectRoot = getProjectRoot(cwd);
-    const filePath = join(projectRoot, outputDir, entry.file);
+    const absOutputDir = getAgentOutputsAbsolute(cwd);
+    const filePath = join(absOutputDir, entry.file);
     if (!existsSync(filePath)) {
       issues.push(`FILE_NOT_FOUND: Expected file at ${filePath}`);
     }
@@ -223,9 +199,8 @@ export function validateManifestIntegrity(cwd?: string): ManifestValidationResul
 
     // Check file exists
     if (entry.file) {
-      const outputDir = getOutputDir(cwd);
-      const projectRoot = getProjectRoot(cwd);
-      const filePath = join(projectRoot, outputDir, entry.file);
+      const absOutputDir = getAgentOutputsAbsolute(cwd);
+      const filePath = join(absOutputDir, entry.file);
       if (!existsSync(filePath)) {
         issues.push(`LINE_${lineNum}_FILE_MISSING: ${entry.file} does not exist`);
       }

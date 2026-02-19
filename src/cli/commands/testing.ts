@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { getManifestPath } from '../../core/paths.js';
 
 /** Violation entry from protocol validation. */
 interface Violation {
@@ -106,7 +107,7 @@ export function registerTestingCommand(program: Command): void {
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       try {
         const strict = opts['strict'] as boolean ?? false;
-        const manifestPath = 'claudedocs/agent-outputs/MANIFEST.jsonl';
+        const manifestPath = getManifestPath();
 
         let manifestContent: string;
         try {

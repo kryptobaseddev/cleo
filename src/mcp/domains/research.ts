@@ -16,8 +16,8 @@ import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { ManifestReader, ManifestEntry, ManifestFilter } from '../lib/manifest.js';
 import { validateEntry, serializeEntry } from '../lib/manifest-parser.js';
 import { appendFile, writeFile } from 'fs/promises';
-import { resolve } from 'path';
 import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import { getManifestPath as getCentralManifestPath, getManifestArchivePath } from '../../core/paths.js';
 import type { ResolvedMode } from '../lib/mode-detector.js';
 import {
   researchShow as nativeResearchShow,
@@ -162,10 +162,10 @@ export class ResearchHandler implements DomainHandler {
 
   constructor(
     private executor: CLIExecutor,
-    manifestPath: string = 'claudedocs/agent-outputs/MANIFEST.jsonl',
+    manifestPath?: string,
     executionMode: ResolvedMode = 'cli'
   ) {
-    this.manifestReader = new ManifestReader(manifestPath);
+    this.manifestReader = new ManifestReader(manifestPath ?? getCentralManifestPath());
     this.executionMode = executionMode;
     this.projectRoot = resolveProjectRoot();
   }
@@ -941,7 +941,7 @@ export class ResearchHandler implements DomainHandler {
 
       // Serialize and append
       const serialized = serializeEntry(params.entry as ManifestEntry);
-      const manifestPath = resolve(process.cwd(), 'claudedocs/agent-outputs/MANIFEST.jsonl');
+      const manifestPath = getCentralManifestPath();
       await appendFile(manifestPath, serialized + '\n', 'utf-8');
 
       return {
@@ -950,7 +950,7 @@ export class ResearchHandler implements DomainHandler {
         data: {
           appended: true,
           entryId: params.entry.id,
-          file: 'claudedocs/agent-outputs/MANIFEST.jsonl',
+          file: manifestPath,
         },
       };
     } catch (error) {
@@ -1001,12 +1001,12 @@ export class ResearchHandler implements DomainHandler {
       }
 
       // Write archived entries to archive file
-      const archivePath = resolve(process.cwd(), 'claudedocs/agent-outputs/MANIFEST.archive.jsonl');
+      const archivePath = getManifestArchivePath();
       const archiveContent = toArchive.map((e) => JSON.stringify(e)).join('\n') + '\n';
       await appendFile(archivePath, archiveContent, 'utf-8');
 
       // Rewrite main manifest with remaining entries
-      const manifestPath = resolve(process.cwd(), 'claudedocs/agent-outputs/MANIFEST.jsonl');
+      const manifestPath = getCentralManifestPath();
       const remainingContent = toKeep.length > 0
         ? toKeep.map((e) => JSON.stringify(e)).join('\n') + '\n'
         : '';
@@ -1018,7 +1018,7 @@ export class ResearchHandler implements DomainHandler {
         data: {
           archived: toArchive.length,
           remaining: toKeep.length,
-          archiveFile: 'claudedocs/agent-outputs/MANIFEST.archive.jsonl',
+          archiveFile: archivePath,
         },
       };
     } catch (error) {

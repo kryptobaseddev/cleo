@@ -79,8 +79,8 @@ const CLEO_DEFAULTS: TokenValues = {
   RESEARCH_PENDING_CMD: 'cleo research pending',
   RESEARCH_INJECT_CMD: 'cleo research inject',
   DASH_CMD: 'cleo dash',
-  OUTPUT_DIR: 'claudedocs/agent-outputs',
-  MANIFEST_PATH: 'claudedocs/agent-outputs/MANIFEST.jsonl',
+  OUTPUT_DIR: '.cleo/agent-outputs',
+  MANIFEST_PATH: '.cleo/agent-outputs/MANIFEST.jsonl',
 };
 
 // ============================================================================
