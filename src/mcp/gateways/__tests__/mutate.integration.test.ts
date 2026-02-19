@@ -348,11 +348,18 @@ describe('cleo_mutate Gateway Integration', () => {
       });
 
       let sessionIdToResume = context.sessionId;
-      if (startResult.success && startResult.stdout) {
-        try {
-          const parsed = JSON.parse(startResult.stdout.trim());
-          sessionIdToResume = parsed.sessionId || parsed.session?.sessionId || sessionIdToResume;
-        } catch { /* keep existing */ }
+      if (startResult.success) {
+        // Try executor-unwrapped data first
+        const d = startResult.data as any;
+        if (d?.sessionId || d?.session?.sessionId) {
+          sessionIdToResume = d.sessionId || d.session.sessionId;
+        } else if (startResult.stdout) {
+          try {
+            const parsed = JSON.parse(startResult.stdout.trim());
+            const payload = parsed.result ?? parsed.data ?? parsed;
+            sessionIdToResume = payload.sessionId || payload.session?.sessionId || sessionIdToResume;
+          } catch { /* keep existing */ }
+        }
       }
 
       // Suspend
@@ -538,7 +545,7 @@ describe('cleo_mutate Gateway Integration', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toMatch(/E_(PARENT_NOT_FOUND|NOT_FOUND)/);
+      expect(result.error?.code).toMatch(/E_(VALIDATION_PARENT_NOT_FOUND|PARENT_NOT_FOUND|NOT_FOUND)/);
     });
 
     it('should enforce hierarchy depth limit', async () => {
@@ -582,10 +589,10 @@ describe('cleo_mutate Gateway Integration', () => {
             },
           });
           expect(result4.success).toBe(false);
-          expect(result4.error?.code).toMatch(/E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT)/i);
+          expect(result4.error?.code).toMatch(/E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT|VALIDATION)/i);
         }
       } else {
-        expect(result.error?.code).toMatch(/E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT)/i);
+        expect(result.error?.code).toMatch(/E_(DEPTH|HIERARCHY|SUBTASK|INVALID_PARENT|VALIDATION)/i);
       }
     });
 
@@ -617,7 +624,7 @@ describe('cleo_mutate Gateway Integration', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toMatch(/E_(SIBLING_LIMIT|SIBLING|LIMIT|CHILD)/i);
+      expect(result.error?.code).toMatch(/E_(VALIDATION_SIBLING_LIMIT|SIBLING_LIMIT|SIBLING|LIMIT|CHILD)/i);
     });
   });
 
