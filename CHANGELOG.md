@@ -1,3 +1,10 @@
+# 2026.2.3
+
+### Features
+
+- Add pre-flight migration check to core - detect JSON data needing SQLite migration (T4699)
+
+
 # Changelog
 
 All notable changes to the CLEO system will be documented in this file.
