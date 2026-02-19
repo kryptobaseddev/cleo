@@ -17,7 +17,7 @@
   ],
   "requiredSections": {
     "Architecture Overview": "^## Architecture Overview",
-    "Time Estimates Prohibited": "^## Time Estimates",
+    "Time Estimates Prohibited": "^##+ Time Estimates",
     "Protocol Types": "^## Protocol Types|^### Protocol"
   },
   "visionDocs": [
