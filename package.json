@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.2.1",
+  "version": "2026.2.2",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "type": "module",
   "bin": {
@@ -40,9 +40,9 @@
     "completions"
   ],
   "dependencies": {
-    "@cleocode/caamp": "^1.0.0",
+    "@cleocode/caamp": "^1.0.4",
     "@cleocode/ct-skills": "^2.0.0",
-    "@cleocode/lafs-protocol": "^1.1.0",
+    "@cleocode/lafs-protocol": "^1.2.3",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
