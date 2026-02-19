@@ -101,6 +101,10 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     // Disable cancellation reason requirement for delete tests
     await cleoExec(cliPath, tmpBase, 'config set cancellation.requireReason false --json');
 
+    // Explicitly set storage engine to json for test environments (@task T4699)
+    // Prevents pre-flight migration warning from firing during test CLI calls
+    await cleoExec(cliPath, tmpBase, 'config set storage.engine json --json');
+
     // Set hierarchy limits for validation gate tests
     // Use a limit of 15 - enough for test task creation but low enough
     // for the sibling limit test to trigger within reasonable iteration count.

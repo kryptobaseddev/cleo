@@ -137,11 +137,33 @@ export interface VersionBumpTarget {
   pattern?: string;     // For sed strategy (with {{VERSION}} placeholder)
 }
 
-/** Get version bump configuration. */
+/** Raw config entry shape from .cleo/config.json (uses path/jsonPath/sedPattern). */
+interface RawVersionBumpEntry {
+  path?: string;
+  file?: string;
+  strategy: 'plain' | 'json' | 'toml' | 'sed';
+  jsonPath?: string;
+  field?: string;
+  key?: string;
+  section?: string;
+  sedPattern?: string;
+  pattern?: string;
+  optional?: boolean;
+  description?: string;
+}
+
+/** Get version bump configuration, mapping config field names to VersionBumpTarget. */
 export function getVersionBumpConfig(cwd?: string): VersionBumpTarget[] {
   try {
-    const targets = readConfigValueSync('release.versionBump.files', [], cwd) as VersionBumpTarget[];
-    return targets;
+    const raw = readConfigValueSync('release.versionBump.files', [], cwd) as RawVersionBumpEntry[];
+    return raw.map(entry => ({
+      file: entry.path ?? entry.file ?? '',
+      strategy: entry.strategy,
+      field: entry.jsonPath?.replace(/^\./, '') ?? entry.field,
+      key: entry.key,
+      section: entry.section,
+      pattern: entry.sedPattern ?? entry.pattern,
+    })).filter(t => t.file !== '');
   } catch {
     return [];
   }
