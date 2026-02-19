@@ -1,14 +1,16 @@
 /**
  * Skills Domain Handler
  *
- * Implements all 12 skills operations for CLEO MCP server:
- * - Query (6): list, show, search, dispatch, verify, dependencies
+ * Implements skills operations for CLEO MCP server:
+ * - Query (10): list, show, search, dispatch, verify, dependencies,
+ *               catalog.protocols, catalog.profiles, catalog.resources, catalog.info
  * - Mutate (6): install, uninstall, enable, disable, configure, refresh
  *
  * Uses @cleocode/ct-skills for skill metadata and dispatch simulation.
- * Uses @cleocode/lafs-protocol for envelope conformance types.
+ * Uses @cleocode/caamp catalog namespace for protocol/profile/resource access.
  *
  * @task T4387
+ * @task T4704
  */
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
@@ -27,6 +29,7 @@ import {
   manifest as skillManifest,
   version as ctSkillsVersion,
 } from '@cleocode/ct-skills';
+import { catalog } from '@cleocode/caamp';
 import type {
   SkillEntry,
   ManifestSkill,
@@ -134,6 +137,14 @@ export class SkillsHandler implements DomainHandler {
           return this.queryVerify(params as unknown as SkillsVerifyParams, startTime);
         case 'dependencies':
           return this.queryDependencies(params as unknown as SkillsDependenciesParams, startTime);
+        case 'catalog.protocols':
+          return this.queryCatalogProtocols(startTime);
+        case 'catalog.profiles':
+          return this.queryCatalogProfiles(startTime);
+        case 'catalog.resources':
+          return this.queryCatalogResources(startTime);
+        case 'catalog.info':
+          return this.queryCatalogInfo(startTime);
         default:
           return this.createErrorResponse(
             'cleo_query',
@@ -201,10 +212,14 @@ export class SkillsHandler implements DomainHandler {
 
   /**
    * Get supported operations
+   * @task T4704
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'show', 'search', 'dispatch', 'verify', 'dependencies'],
+      query: [
+        'list', 'show', 'search', 'dispatch', 'verify', 'dependencies',
+        'catalog.protocols', 'catalog.profiles', 'catalog.resources', 'catalog.info',
+      ],
       mutate: ['install', 'uninstall', 'enable', 'disable', 'configure', 'refresh'],
     };
   }
@@ -589,6 +604,111 @@ export class SkillsHandler implements DomainHandler {
         resolved: resolvedTree.filter((n) => n !== params.name),
       },
     };
+  }
+
+  // ===== Catalog Operations (T4704) =====
+
+  /**
+   * catalog.protocols - List available RCSD-IVTR protocols
+   * @task T4704
+   */
+  private queryCatalogProtocols(startTime: number): DomainResponse {
+    try {
+      const protocols = catalog.listProtocols();
+      const details = protocols.map((name) => ({
+        name,
+        path: catalog.getProtocolPath(name) ?? null,
+      }));
+
+      return {
+        _meta: createGatewayMeta('cleo_query', 'skills', 'catalog.protocols', startTime),
+        success: true,
+        data: { protocols: details },
+      };
+    } catch (error) {
+      return this.handleError('cleo_query', 'skills', 'catalog.protocols', error, startTime);
+    }
+  }
+
+  /**
+   * catalog.profiles - List available skill profiles
+   * @task T4704
+   */
+  private queryCatalogProfiles(startTime: number): DomainResponse {
+    try {
+      const profileNames = catalog.listProfiles();
+      const profiles = profileNames.map((name) => {
+        const profile = catalog.getProfile(name);
+        return {
+          name,
+          description: profile?.description ?? '',
+          extends: profile?.extends,
+          skillCount: profile?.skills.length ?? 0,
+          skills: profile?.skills ?? [],
+        };
+      });
+
+      return {
+        _meta: createGatewayMeta('cleo_query', 'skills', 'catalog.profiles', startTime),
+        success: true,
+        data: { profiles },
+      };
+    } catch (error) {
+      return this.handleError('cleo_query', 'skills', 'catalog.profiles', error, startTime);
+    }
+  }
+
+  /**
+   * catalog.resources - List available shared resources
+   * @task T4704
+   */
+  private queryCatalogResources(startTime: number): DomainResponse {
+    try {
+      const resources = catalog.listSharedResources();
+      const details = resources.map((name) => ({
+        name,
+        path: catalog.getSharedResourcePath(name) ?? null,
+      }));
+
+      return {
+        _meta: createGatewayMeta('cleo_query', 'skills', 'catalog.resources', startTime),
+        success: true,
+        data: { resources: details },
+      };
+    } catch (error) {
+      return this.handleError('cleo_query', 'skills', 'catalog.resources', error, startTime);
+    }
+  }
+
+  /**
+   * catalog.info - Get catalog metadata (version, availability, library root)
+   * @task T4704
+   */
+  private queryCatalogInfo(startTime: number): DomainResponse {
+    try {
+      const available = catalog.isCatalogAvailable();
+      const version = available ? catalog.getVersion() : null;
+      const libraryRoot = available ? catalog.getLibraryRoot() : null;
+      const skillCount = available ? catalog.getSkills().length : 0;
+      const protocolCount = available ? catalog.listProtocols().length : 0;
+      const profileCount = available ? catalog.listProfiles().length : 0;
+
+      return {
+        _meta: createGatewayMeta('cleo_query', 'skills', 'catalog.info', startTime),
+        success: true,
+        data: {
+          available,
+          version,
+          libraryRoot,
+          skillCount,
+          protocolCount,
+          profileCount,
+          ctSkillsVersion,
+        },
+      };
+    } catch (error) {
+      return this.handleError('cleo_query', 'skills', 'catalog.info', error, startTime);
+    }
   }
 
   // ===== Mutate Operations =====

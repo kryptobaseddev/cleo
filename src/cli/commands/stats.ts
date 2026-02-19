@@ -21,7 +21,6 @@ export function registerStatsCommand(program: Command): void {
     .description('Project statistics (counts, completion rates, velocity)')
     .option('-p, --period <period>', 'Analysis period: today/week/month/quarter/year or days', '30')
     .option('-v, --verbose', 'Show detailed breakdowns per category')
-    .option('-q, --quiet', 'Suppress decorative output')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const result = await getProjectStats({

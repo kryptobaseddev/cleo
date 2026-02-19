@@ -24,7 +24,6 @@ export function registerLogCommand(program: Command): void {
     .option('--operation <op>', 'Filter by operation type')
     .option('--task <id>', 'Filter by task ID')
     .option('--since <date>', 'Filter entries since date')
-    .option('-q, --quiet', 'Suppress decorative output')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const result = await getLogEntries({

@@ -143,17 +143,19 @@ describe('Exit Code Parity', () => {
 // ============================================================
 
 describe('LAFS Envelope Format', () => {
-  it('success envelope matches Bash CLI format', () => {
+  it('success envelope is full LAFS with $schema and _meta', () => {
     const result = formatSuccess({ task: { id: 'T001', title: 'Test' } });
     const parsed = JSON.parse(result);
 
-    // Bash CLI format: { success: true, data: {...} }
+    // Full LAFS envelope: { $schema, _meta, success: true, result: {...} }
+    expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
+    expect(parsed._meta).toBeDefined();
     expect(parsed.success).toBe(true);
-    expect(parsed.data).toBeDefined();
-    expect(parsed.data.task).toBeDefined();
+    expect(parsed.result).toBeDefined();
+    expect(parsed.result.task).toBeDefined();
   });
 
-  it('error envelope matches Bash CLI format', () => {
+  it('error envelope is full LAFS with $schema and _meta', () => {
     const err = new CleoError(ExitCode.NOT_FOUND, 'Task T999 not found', {
       fix: 'Use cleo list to find tasks',
       alternatives: [{ action: 'Search', command: 'cleo find query' }],
@@ -161,14 +163,15 @@ describe('LAFS Envelope Format', () => {
     const result = formatError(err);
     const parsed = JSON.parse(result);
 
-    // Bash CLI format: { success: false, error: { code, name, message, fix?, alternatives? } }
+    // Full LAFS envelope: { $schema, _meta, success: false, result: null, error: {...} }
+    expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
+    expect(parsed._meta).toBeDefined();
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBeDefined();
-    expect(parsed.error.code).toBe(4);
-    expect(parsed.error.name).toBe('NOT_FOUND');
+    expect(parsed.error.code).toMatch(/^E_NOT_FOUND/);
     expect(parsed.error.message).toBe('Task T999 not found');
-    expect(parsed.error.fix).toBe('Use cleo list to find tasks');
-    expect(parsed.error.alternatives).toHaveLength(1);
+    expect(parsed.error.details.fix).toBe('Use cleo list to find tasks');
+    expect(parsed.error.details.alternatives).toHaveLength(1);
   });
 
   it('CleoError.toJSON matches LAFS envelope', () => {

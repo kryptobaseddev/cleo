@@ -46,7 +46,6 @@ export function registerConfigCommand(program: Command): void {
   config
     .command('get <key>')
     .description('Get a configuration value')
-    .option('--json', 'Output in JSON format (default)')
     .action(async (key: string) => {
       try {
         const resolved = await getConfigValue<unknown>(key);
@@ -68,7 +67,6 @@ export function registerConfigCommand(program: Command): void {
     .command('set <key> <value>')
     .description('Set a configuration value')
     .option('--global', 'Set in global config instead of project config')
-    .option('--json', 'Output in JSON format (default)')
     .action(async (key: string, value: string, opts: Record<string, unknown>) => {
       try {
         const configPath = opts['global'] ? getGlobalConfigPath() : getConfigPath();
@@ -96,7 +94,6 @@ export function registerConfigCommand(program: Command): void {
   config
     .command('list')
     .description('Show all resolved configuration')
-    .option('--json', 'Output in JSON format (default)')
     .action(async () => {
       try {
         const resolved = await loadConfig();

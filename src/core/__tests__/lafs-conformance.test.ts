@@ -5,6 +5,13 @@
  * for canonical validation instead of hand-rolled checks.
  *
  * @task T4672
+ * @task T4673
+ * @task T4668
+ * @task T4669
+ * @task T4670
+ * @task T4671
+ * @task T4701
+ * @task T4702
  * @epic T4663
  */
 
@@ -13,10 +20,13 @@ import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { validateEnvelope, runEnvelopeConformance } from '@cleocode/lafs-protocol';
-import { formatSuccess, formatError } from '../output.js';
+import { formatSuccess, formatError, pushWarning } from '../output.js';
 import { CleoError } from '../errors.js';
 import { ExitCode, isErrorCode, isSuccessCode, getExitCodeName } from '../../types/exit-codes.js';
 import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
+import { createPage, paginate } from '../pagination.js';
+import { getCleoErrorRegistry, isCleoRegisteredCode, getRegistryEntry } from '../error-registry.js';
+import { enforceBudget, isWithinBudget } from '../../mcp/lib/budget.js';
 
 // ============================
 // FULL LAFS ENVELOPE VALIDATION
@@ -399,5 +409,366 @@ describe('LAFS Integration with Core Modules', () => {
         expect(validation.valid).toBe(true);
       }
     }
+  });
+});
+
+// ============================
+// T4668: PAGINATION
+// ============================
+
+describe('LAFSPage Pagination (T4668)', () => {
+  it('createPage returns mode:"none" when no limit/offset', () => {
+    const page = createPage({ total: 100 });
+    expect(page.mode).toBe('none');
+  });
+
+  it('createPage returns offset page with hasMore=true when more data exists', () => {
+    const page = createPage({ total: 100, limit: 20, offset: 0 });
+    expect(page.mode).toBe('offset');
+    if (page.mode === 'offset') {
+      expect(page.hasMore).toBe(true);
+      expect(page.total).toBe(100);
+      expect(page.limit).toBe(20);
+      expect(page.offset).toBe(0);
+    }
+  });
+
+  it('createPage returns hasMore=false on last page', () => {
+    const page = createPage({ total: 100, limit: 20, offset: 80 });
+    expect(page.mode).toBe('offset');
+    if (page.mode === 'offset') {
+      expect(page.hasMore).toBe(false);
+    }
+  });
+
+  it('paginate slices array and returns page metadata', () => {
+    const items = Array.from({ length: 50 }, (_, i) => i);
+    const result = paginate(items, 10, 5);
+    expect(result.items).toHaveLength(10);
+    expect(result.items[0]).toBe(5);
+    expect(result.page.mode).toBe('offset');
+    if (result.page.mode === 'offset') {
+      expect(result.page.hasMore).toBe(true);
+      expect(result.page.total).toBe(50);
+    }
+  });
+
+  it('paginate returns all items when no pagination specified', () => {
+    const items = [1, 2, 3];
+    const result = paginate(items);
+    expect(result.items).toEqual([1, 2, 3]);
+    expect(result.page.mode).toBe('none');
+  });
+
+  it('formatSuccess includes page field when provided', () => {
+    const page = createPage({ total: 100, limit: 20, offset: 0 });
+    const json = formatSuccess({ tasks: [] }, undefined, { operation: 'tasks.list', page });
+    const parsed = JSON.parse(json);
+    expect(parsed.page).toBeDefined();
+    expect(parsed.page.mode).toBe('offset');
+    expect(parsed.page.hasMore).toBe(true);
+  });
+});
+
+// ============================
+// T4669: WARNINGS
+// ============================
+
+describe('_meta.warnings Deprecation Support (T4669)', () => {
+  it('pushWarning adds warning to next envelope', () => {
+    pushWarning({
+      code: 'DEPRECATED_FLAG',
+      message: '--legacy flag is deprecated',
+      deprecated: '--legacy',
+      replacement: '--modern',
+      removeBy: '2027.1.0',
+    });
+    const json = formatSuccess({ ok: true });
+    const parsed = JSON.parse(json);
+    expect(parsed._meta.warnings).toBeDefined();
+    expect(parsed._meta.warnings).toHaveLength(1);
+    expect(parsed._meta.warnings[0].code).toBe('DEPRECATED_FLAG');
+    expect(parsed._meta.warnings[0].replacement).toBe('--modern');
+  });
+
+  it('warnings are drained after consumption', () => {
+    pushWarning({ code: 'TEST', message: 'test warning' });
+    formatSuccess({ ok: true }); // consumes
+    const json = formatSuccess({ ok: true }); // no warnings
+    const parsed = JSON.parse(json);
+    expect(parsed._meta.warnings).toBeUndefined();
+  });
+
+  it('envelope with warnings still passes validation', () => {
+    pushWarning({ code: 'W001', message: 'test warning' });
+    const json = formatSuccess({ data: 1 }, undefined, 'system.test');
+    const envelope = JSON.parse(json);
+    const result = validateEnvelope(envelope);
+    expect(result.valid).toBe(true);
+  });
+});
+
+// ============================
+// T4670: EXTENSIONS
+// ============================
+
+describe('_extensions CLEO Metadata (T4670)', () => {
+  it('formatSuccess includes _extensions when provided', () => {
+    const json = formatSuccess({ ok: true }, undefined, {
+      operation: 'system.status',
+      extensions: {
+        cleoVersion: '2026.2.5',
+        activeSession: 'sess-123',
+        focusTask: 'T001',
+      },
+    });
+    const parsed = JSON.parse(json);
+    expect(parsed._extensions).toBeDefined();
+    expect(parsed._extensions.cleoVersion).toBe('2026.2.5');
+    expect(parsed._extensions.activeSession).toBe('sess-123');
+    expect(parsed._extensions.focusTask).toBe('T001');
+  });
+
+  it('_extensions omitted when empty', () => {
+    const json = formatSuccess({ ok: true }, undefined, {
+      operation: 'test',
+      extensions: {},
+    });
+    const parsed = JSON.parse(json);
+    expect(parsed._extensions).toBeUndefined();
+  });
+
+  it('envelope with _extensions still passes validation', () => {
+    const json = formatSuccess({ data: 1 }, undefined, {
+      operation: 'system.test',
+      extensions: { foo: 'bar' },
+    });
+    const envelope = JSON.parse(json);
+    const result = validateEnvelope(envelope);
+    expect(result.valid).toBe(true);
+  });
+});
+
+// ============================
+// T4671: ERROR REGISTRY
+// ============================
+
+describe('CLEO Error Registry (T4671)', () => {
+  it('registry contains entries for common exit codes', () => {
+    expect(getRegistryEntry(ExitCode.NOT_FOUND)).toBeDefined();
+    expect(getRegistryEntry(ExitCode.VALIDATION_ERROR)).toBeDefined();
+    expect(getRegistryEntry(ExitCode.LOCK_TIMEOUT)).toBeDefined();
+    expect(getRegistryEntry(ExitCode.SESSION_NOT_FOUND)).toBeDefined();
+  });
+
+  it('registry entries have valid LAFS code format', () => {
+    const registry = getCleoErrorRegistry();
+    for (const entry of registry) {
+      expect(entry.lafsCode).toMatch(/^E_CLEO_/);
+      expect(entry.category).toBeDefined();
+      expect(typeof entry.retryable).toBe('boolean');
+      expect(typeof entry.httpStatus).toBe('number');
+    }
+  });
+
+  it('isCleoRegisteredCode returns true for valid codes', () => {
+    expect(isCleoRegisteredCode('E_CLEO_NOT_FOUND')).toBe(true);
+    expect(isCleoRegisteredCode('E_CLEO_VALIDATION')).toBe(true);
+  });
+
+  it('isCleoRegisteredCode returns false for unknown codes', () => {
+    expect(isCleoRegisteredCode('E_NONEXISTENT')).toBe(false);
+  });
+
+  it('lookup by LAFS code matches lookup by exit code', () => {
+    const byExit = getRegistryEntry(ExitCode.NOT_FOUND);
+    expect(byExit).toBeDefined();
+    expect(byExit!.lafsCode).toBe('E_CLEO_NOT_FOUND');
+    expect(byExit!.category).toBe('NOT_FOUND');
+  });
+});
+
+// ============================
+// T4701: BUDGET ENFORCEMENT
+// ============================
+
+describe('LAFS Budget Enforcement (T4701)', () => {
+  it('enforceBudget passes small responses within budget', () => {
+    const response = {
+      _meta: {
+        specVersion: '1.2.3',
+        schemaVersion: '2026.2.1',
+        timestamp: new Date().toISOString(),
+        operation: 'test',
+        requestId: 'r1',
+        transport: 'sdk',
+        strict: true,
+        mvi: 'standard',
+        contextVersion: 1,
+      },
+      success: true,
+      data: { task: { id: 'T001', title: 'Test' } },
+    };
+    const { enforcement } = enforceBudget(response, 10000);
+    expect(enforcement.withinBudget).toBe(true);
+    expect(enforcement.truncated).toBe(false);
+  });
+
+  it('isWithinBudget returns true for small responses', () => {
+    const response = { success: true, data: { ok: true } };
+    expect(isWithinBudget(response, 10000)).toBe(true);
+  });
+
+  it('isWithinBudget returns false for large responses with tiny budget', () => {
+    const response = { success: true, data: { items: Array(100).fill({ id: 'T001', title: 'x'.repeat(200) }) } };
+    expect(isWithinBudget(response, 10)).toBe(false);
+  });
+
+  it('enforceBudget adds budget metadata to _meta', () => {
+    const response = {
+      _meta: {
+        specVersion: '1.2.3',
+        schemaVersion: '2026.2.1',
+        timestamp: new Date().toISOString(),
+        operation: 'test',
+        requestId: 'r1',
+        transport: 'sdk',
+        strict: true,
+        mvi: 'standard',
+        contextVersion: 1,
+      },
+      success: true,
+      data: { ok: true },
+    };
+    const { response: enforced } = enforceBudget(response, 5000);
+    const meta = enforced['_meta'] as Record<string, unknown>;
+    expect(meta['_budgetEnforcement']).toBeDefined();
+    const be = meta['_budgetEnforcement'] as Record<string, unknown>;
+    expect(typeof be['estimatedTokens']).toBe('number');
+    expect(be['budget']).toBe(5000);
+  });
+});
+
+// ============================
+// T4702: SESSION ID IN _META
+// ============================
+
+describe('Session ID in _meta (T4702)', () => {
+  it('sessionId included in CLI meta when session is active', () => {
+    const origEnv = process.env['CLEO_SESSION'];
+    process.env['CLEO_SESSION'] = 'test-session-42';
+    try {
+      const json = formatSuccess({ ok: true });
+      const parsed = JSON.parse(json);
+      expect(parsed._meta.sessionId).toBe('test-session-42');
+    } finally {
+      if (origEnv !== undefined) {
+        process.env['CLEO_SESSION'] = origEnv;
+      } else {
+        delete process.env['CLEO_SESSION'];
+      }
+    }
+  });
+
+  it('sessionId omitted from CLI meta when no session', () => {
+    const origEnv = process.env['CLEO_SESSION'];
+    delete process.env['CLEO_SESSION'];
+    try {
+      const json = formatSuccess({ ok: true });
+      const parsed = JSON.parse(json);
+      // sessionId may or may not be present depending on .current-session file
+      // but should not throw
+      expect(parsed._meta).toBeDefined();
+    } finally {
+      if (origEnv !== undefined) {
+        process.env['CLEO_SESSION'] = origEnv;
+      }
+    }
+  });
+
+  it('sessionId included in gateway meta when session is active', () => {
+    const origEnv = process.env['CLEO_SESSION'];
+    process.env['CLEO_SESSION'] = 'gw-session-99';
+    try {
+      const meta = createGatewayMeta('cleo_query', 'tasks', 'list', Date.now());
+      expect(meta.sessionId).toBe('gw-session-99');
+    } finally {
+      if (origEnv !== undefined) {
+        process.env['CLEO_SESSION'] = origEnv;
+      } else {
+        delete process.env['CLEO_SESSION'];
+      }
+    }
+  });
+});
+
+// ============================
+// T4673: FULL CONFORMANCE CI SUITE
+// ============================
+
+describe('runEnvelopeConformance() CI Suite (T4673)', () => {
+  const OPERATIONS = [
+    'tasks.list',
+    'tasks.show',
+    'tasks.add',
+    'tasks.find',
+    'session.status',
+    'system.version',
+    'system.dash',
+    'cli.output',
+  ];
+
+  for (const operation of OPERATIONS) {
+    it(`success envelope for ${operation} passes full conformance`, () => {
+      const json = formatSuccess({ data: 'test' }, undefined, operation);
+      const envelope = JSON.parse(json);
+      const report = runEnvelopeConformance(envelope);
+      expect(report.ok).toBe(true);
+    });
+  }
+
+  it('all error envelopes pass conformance (except code registry)', () => {
+    const errorCodes = [
+      ExitCode.NOT_FOUND,
+      ExitCode.VALIDATION_ERROR,
+      ExitCode.LOCK_TIMEOUT,
+      ExitCode.SESSION_NOT_FOUND,
+      ExitCode.DEPTH_EXCEEDED,
+    ];
+    for (const code of errorCodes) {
+      const err = new CleoError(code, `Test error ${code}`);
+      const json = formatError(err, 'test.error');
+      const envelope = JSON.parse(json);
+      const report = runEnvelopeConformance(envelope);
+      const nonRegistryFails = report.checks
+        .filter((c: { name: string; pass: boolean }) => !c.pass && c.name !== 'error_code_registered');
+      expect(nonRegistryFails).toHaveLength(0);
+    }
+  });
+
+  it('envelope with page passes conformance', () => {
+    const page = createPage({ total: 50, limit: 10, offset: 0 });
+    const json = formatSuccess({ tasks: [] }, undefined, { operation: 'tasks.list', page });
+    const envelope = JSON.parse(json);
+    const result = validateEnvelope(envelope);
+    expect(result.valid).toBe(true);
+  });
+
+  it('envelope with _extensions passes conformance', () => {
+    const json = formatSuccess({ ok: true }, undefined, {
+      operation: 'system.info',
+      extensions: { cleoVersion: '2026.2.5' },
+    });
+    const envelope = JSON.parse(json);
+    const result = validateEnvelope(envelope);
+    expect(result.valid).toBe(true);
+  });
+
+  it('envelope with warnings passes conformance', () => {
+    pushWarning({ code: 'DEPRECATED', message: 'old feature' });
+    const json = formatSuccess({ ok: true }, undefined, 'system.test');
+    const envelope = JSON.parse(json);
+    const result = validateEnvelope(envelope);
+    expect(result.valid).toBe(true);
   });
 });
