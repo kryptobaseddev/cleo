@@ -81,7 +81,7 @@ jq 'select(.linkedTask != null and (.linkedTask | startswith("T")))' .cleo/metri
 ```
 src/                # TypeScript source (primary codebase)
   src/cli/          #   CLI entry point (Commander.js) and command registrations
-  src/cli/commands/ #   74 command handlers (parse args -> core -> format output)
+  src/cli/commands/ #   75 command handlers (parse args -> core -> format output)
   src/core/         #   Shared business logic (tasks, sessions, lifecycle, etc.)
   src/mcp/          #   MCP server (domains, engine adapters)
   src/mcp/domains/  #     MCP tool definitions and routing
@@ -101,6 +101,7 @@ lib/                # Legacy Bash helpers (deprecated, pending removal)
 ```
 
 ### Key Architecture Principles
+- **MCP is the PRIMARY entry point**; CLI is the backup interface
 - **src/core/** is the single source of truth for all business logic
 - **Both CLI and MCP** delegate to `src/core/` (shared-core pattern, verified by T4565/T4566 audit)
 - **src/cli/commands/** contains thin handlers: parse args -> call core -> format output

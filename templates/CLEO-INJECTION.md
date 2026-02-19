@@ -20,7 +20,8 @@
 
 CLEO is the task management protocol for AI coding agents. It provides structured task tracking, session management, and multi-agent coordination with anti-hallucination validation.
 
-**Time Estimates -- PROHIBITED (RFC 2119)**:
+### Time Estimates Prohibited (RFC 2119)
+
 - **MUST NOT** estimate hours, days, weeks, or temporal duration
 - **MUST** use relative sizing: `small` / `medium` / `large`
 - **SHOULD** describe scope, complexity, dependencies when asked
@@ -43,7 +44,7 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `orchestrate` | `next` | Next task suggestion (`params: { epicId }`) |
 | `research` | `list` | Research manifest entries |
 | `research` | `show` | Research entry details (`params: { entryId }`) |
-| `validate` | `check` | Validate task data integrity |
+| `validate` | `report` | Validate task data integrity |
 | `system` | `dash` | Project overview dashboard |
 | `system` | `context` | Context window usage |
 | `skills` | `list` | Available skills |
@@ -59,7 +60,9 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `session` | `start` | Start session (`params: { scope, name, autoFocus? }`) |
 | `session` | `end` | End session (`params: { note? }`) |
 | `session` | `resume` | Resume session (`params: { sessionId }`) |
+| `session` | `focus-set` | Set active focus task (`params: { taskId }`) |
 | `research` | `link` | Link research to task (`params: { taskId, entryId }`) |
+| `orchestrate` | `spawn` | Generate spawn prompt for subagent (`params: { taskId }`) |
 
 ## CLI Fallback
 

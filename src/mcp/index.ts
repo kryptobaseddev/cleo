@@ -32,6 +32,7 @@ import { QueryCache } from './lib/cache.js';
 import { BackgroundJobManager } from './lib/background-jobs.js';
 import { detectExecutionMode, type ResolvedMode } from './lib/mode-detector.js';
 import { generateCapabilityReport } from './engine/capability-matrix.js';
+import { enforceBudget } from './lib/budget.js';
 
 /**
  * Server state for cleanup
@@ -242,10 +243,23 @@ async function main(): Promise<void> {
         }
 
         // Route to domain handler
-        const result = await router.routeOperation(domainRequest);
+        let result = await router.routeOperation(domainRequest);
 
         if (config.logLevel === 'debug') {
           console.error(`[CLEO MCP] Result:`, JSON.stringify(result, null, 2));
+        }
+
+        // Apply LAFS token budget enforcement (@task T4701)
+        const tokenBudget = (args.params as Record<string, unknown> | undefined)?.tokenBudget as number | undefined;
+        if (tokenBudget) {
+          const { response: enforced, enforcement } = enforceBudget(
+            result as unknown as Record<string, unknown>,
+            tokenBudget,
+          );
+          result = enforced as unknown as typeof result;
+          if (config.logLevel === 'debug') {
+            console.error(`[CLEO MCP] Budget enforcement: ${enforcement.estimatedTokens}/${tokenBudget} tokens (${enforcement.truncated ? 'truncated' : 'ok'})`);
+          }
         }
 
         // Cache successful query results
