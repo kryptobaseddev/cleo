@@ -1,3 +1,10 @@
+# 2026.2.5
+
+### Other Changes
+
+- Infrastructure consolidation: agent-outputs, gitignore, init, upgrade (T001)
+
+
 # 2026.2.4
 
 ### Features

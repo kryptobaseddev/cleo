@@ -1,4 +1,4 @@
-<p alis|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.4-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.3-|gn="center">
+<p alis|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.5-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.4-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.3-|gn="center">
   <img src="docs/images/banner.png" alt="CLEO banner" width="900">
 </p>
 
