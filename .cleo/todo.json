@@ -1,5 +1,5 @@
 {
-  "version": "2026.2.2",
+  "version": "2026.2.3",
   "project": {
     "name": "project",
     "currentPhase": null,
@@ -16,10 +16,21 @@
         "targetDate": null,
         "releasedAt": "2026-02-19T00:03:47.280Z",
         "changelog": "### Features\n\n- Add pre-flight migration check to core - detect JSON data needing SQLite migration (T4699)\n"
+      },
+      {
+        "version": "2026.2.3",
+        "status": "released",
+        "tasks": [
+          "T4699"
+        ],
+        "notes": null,
+        "targetDate": null,
+        "releasedAt": "2026-02-19T00:32:20.006Z",
+        "changelog": "### Features\n\n- Add pre-flight migration check to core - detect JSON data needing SQLite migration (T4699)\n"
       }
     ]
   },
-  "lastUpdated": "2026-02-19T00:03:47.280Z",
+  "lastUpdated": "2026-02-19T00:32:20.006Z",
   "_meta": {
     "schemaVersion": "2.10.0",
     "checksum": "a9e5077d2c19c319",
