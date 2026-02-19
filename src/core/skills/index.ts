@@ -70,6 +70,10 @@ export {
   toSkillSummary,
   generateManifest,
   resolveTemplatePath,
+  // CAAMP delegated discovery (T4679)
+  caampParseSkillFile,
+  caampDiscoverSkill,
+  caampDiscoverSkills,
 } from './discovery.js';
 
 // Dispatch
@@ -78,7 +82,9 @@ export {
   dispatchExplicit,
   getProtocolForDispatch,
   prepareSpawnContext,
+  prepareSpawnMulti,
 } from './dispatch.js';
+export type { MultiSkillComposition } from './dispatch.js';
 
 // Validation
 export {
@@ -106,7 +112,8 @@ export {
 } from './orchestrator/startup.js';
 export type { SessionInitResult, PauseStatus } from './orchestrator/startup.js';
 
-export { buildPrompt, spawn, canParallelize } from './orchestrator/spawn.js';
+export { buildPrompt, spawn, canParallelize, spawnBatch } from './orchestrator/spawn.js';
+export type { BatchSpawnEntry, BatchSpawnResult } from './orchestrator/spawn.js';
 
 export {
   validateSubagentOutput,
@@ -151,6 +158,7 @@ export {
   validateTokenValue,
   buildDefaults,
   loadPlaceholders,
+  setFullContext,
 } from './injection/token.js';
 export type { TokenValues } from './injection/token.js';
 
@@ -180,7 +188,7 @@ export {
 } from './marketplace.js';
 export type { SkillsMpConfig, MarketplaceSkill } from './marketplace.js';
 
-// Version tracking
+// Version tracking (CAAMP primary, CLEO local fallback - T4680)
 export {
   readInstalledSkills,
   saveInstalledSkills,
@@ -188,6 +196,7 @@ export {
   recordSkillVersion,
   getInstalledVersion,
   getInstalledVersionAsync,
+  checkSkillUpdateAsync,
   checkSkillUpdates,
   applySkillUpdates,
 } from './version.js';

@@ -6,17 +6,16 @@
  * every domain handler.
  *
  * Uses the canonical GatewayMeta type from src/types/lafs.ts (which
- * extends LAFSMeta from @cleocode/lafs-protocol) to ensure LAFS v1.1
- * conformance.  The transport value 'mcp' is not yet in the upstream
- * LAFSTransport union — we cast through `string` until lafs-protocol
- * >=1.2 adds it.
+ * extends LAFSMeta from @cleocode/lafs-protocol) to ensure LAFS v1.2.3
+ * conformance.  Transport is 'sdk' per LAFS spec (MCP uses the SDK transport).
  *
- * @epic T4654
- * @task T4655
+ * @epic T4663
+ * @task T4700
  */
 
 import { randomUUID } from 'node:crypto';
 import type { GatewayMeta } from '../../types/lafs.js';
+import { getCurrentSessionId } from '../../core/sessions/context-alert.js';
 
 /**
  * GatewayMeta with an index signature for DomainResponse._meta
@@ -36,7 +35,8 @@ export type GatewayMetaRecord = GatewayMeta & Record<string, unknown>;
  * @param startTime - Timestamp from Date.now() at start of request
  * @returns GatewayMeta with all LAFS and CLEO-specific fields
  *
- * @task T4655
+ * @task T4700
+ * @epic T4663
  */
 export function createGatewayMeta(
   gateway: string,
@@ -44,22 +44,23 @@ export function createGatewayMeta(
   operation: string,
   startTime: number,
 ): GatewayMetaRecord {
+  const sessionId = getCurrentSessionId();
   return {
     // LAFS canonical fields
-    specVersion: '1.1.0',
+    specVersion: '1.2.3',
     schemaVersion: '2026.2.1',
     timestamp: new Date().toISOString(),
     operation,
     requestId: randomUUID(),
-    // 'mcp' is the correct transport for MCP gateway; cast through string
-    // until @cleocode/lafs-protocol >=1.2 adds 'mcp' to LAFSTransport.
-    transport: 'mcp' as unknown as GatewayMeta['transport'],
+    transport: 'sdk',
     strict: true,
     mvi: 'standard',
     contextVersion: 1,
+    ...(sessionId && { sessionId }),
     // CLEO gateway extensions
     gateway,
     domain,
     duration_ms: Date.now() - startTime,
+    'x-cleo-transport': 'stdio',
   };
 }

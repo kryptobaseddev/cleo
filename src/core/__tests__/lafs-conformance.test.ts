@@ -4,8 +4,8 @@
  * Uses @cleocode/lafs-protocol's validateEnvelope() and runEnvelopeConformance()
  * for canonical validation instead of hand-rolled checks.
  *
- * @task T4655
- * @epic T4654
+ * @task T4672
+ * @epic T4663
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -19,22 +19,29 @@ import { ExitCode, isErrorCode, isSuccessCode, getExitCodeName } from '../../typ
 import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
 
 // ============================
-// BACKWARD-COMPATIBLE VALIDATION
+// FULL LAFS ENVELOPE VALIDATION
 // ============================
 
 /**
- * Validate a backward-compatible CLI envelope (no $schema / _meta).
- * These envelopes pre-date the full LAFS spec and use a simpler shape.
+ * Validate a full LAFS envelope has required structural fields.
+ *
+ * @task T4672
  */
-function isValidBackwardCompatEnvelope(json: string): { valid: boolean; error?: string } {
+function isValidLafsEnvelope(json: string): { valid: boolean; error?: string } {
   try {
     const parsed = JSON.parse(json);
+    if (typeof parsed.$schema !== 'string') {
+      return { valid: false, error: 'Missing $schema field' };
+    }
+    if (!parsed._meta || typeof parsed._meta !== 'object') {
+      return { valid: false, error: 'Missing _meta object' };
+    }
     if (typeof parsed.success !== 'boolean') {
       return { valid: false, error: 'Missing or non-boolean "success" field' };
     }
     if (parsed.success) {
-      if (!('data' in parsed)) {
-        return { valid: false, error: 'Success envelope missing "data" field' };
+      if (!('result' in parsed)) {
+        return { valid: false, error: 'Success envelope missing "result" field' };
       }
     } else {
       if (!parsed.error || typeof parsed.error !== 'object') {
@@ -55,7 +62,7 @@ function isValidBackwardCompatEnvelope(json: string): { valid: boolean; error?: 
 // ============================
 
 describe('LAFS Protocol Conformance (full envelope)', () => {
-  describe('formatSuccess with operation (full LAFS envelope)', () => {
+  describe('formatSuccess with explicit operation', () => {
     it('passes protocol validateEnvelope()', () => {
       const json = formatSuccess({ task: { id: 'T001' } }, undefined, 'tasks.show');
       const envelope = JSON.parse(json);
@@ -73,7 +80,7 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
       const json = formatSuccess({ count: 5 }, undefined, 'tasks.list');
       const parsed = JSON.parse(json);
       expect(parsed._meta).toBeDefined();
-      expect(parsed._meta.specVersion).toBe('1.1.0');
+      expect(parsed._meta.specVersion).toBe('1.2.3');
       expect(parsed._meta.timestamp).toBeDefined();
       expect(parsed._meta.operation).toBe('tasks.list');
       expect(parsed._meta.requestId).toBeDefined();
@@ -91,7 +98,42 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
     });
   });
 
-  describe('formatError with operation (full LAFS envelope)', () => {
+  describe('formatSuccess without operation (defaults to cli.output)', () => {
+    it('produces full LAFS envelope with default operation', () => {
+      const json = formatSuccess({ task: { id: 'T001', title: 'Test' } });
+      const parsed = JSON.parse(json);
+      expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
+      expect(parsed._meta).toBeDefined();
+      expect(parsed._meta.operation).toBe('cli.output');
+      expect(parsed.success).toBe(true);
+      expect(parsed.result).toEqual({ task: { id: 'T001', title: 'Test' } });
+    });
+
+    it('passes protocol validateEnvelope() even without explicit operation', () => {
+      const json = formatSuccess({ items: [1, 2] });
+      const envelope = JSON.parse(json);
+      const result = validateEnvelope(envelope);
+      expect(result.valid).toBe(true);
+    });
+
+    it('includes optional message', () => {
+      const result = formatSuccess({ id: 'T001' }, 'Task created');
+      const parsed = JSON.parse(result);
+      expect(parsed.message).toBe('Task created');
+    });
+
+    it('handles null data', () => {
+      const result = formatSuccess(null);
+      expect(isValidLafsEnvelope(result).valid).toBe(true);
+    });
+
+    it('handles array data', () => {
+      const result = formatSuccess([1, 2, 3]);
+      expect(isValidLafsEnvelope(result).valid).toBe(true);
+    });
+  });
+
+  describe('formatError with explicit operation', () => {
     it('passes protocol validateEnvelope()', () => {
       const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
       const json = formatError(err, 'tasks.show');
@@ -109,6 +151,41 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
       expect(parsed.error.code).toMatch(/^E_/);
       expect(parsed.error.category).toBe('NOT_FOUND');
       expect(typeof parsed.error.retryable).toBe('boolean');
+    });
+  });
+
+  describe('formatError without operation (defaults to cli.output)', () => {
+    it('produces full LAFS envelope with default operation', () => {
+      const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
+      const json = formatError(err);
+      const parsed = JSON.parse(json);
+      expect(parsed.$schema).toBe('https://lafs.dev/schemas/v1/envelope.schema.json');
+      expect(parsed._meta).toBeDefined();
+      expect(parsed._meta.operation).toBe('cli.output');
+      expect(parsed.success).toBe(false);
+      expect(parsed.error.code).toMatch(/^E_/);
+    });
+
+    it('passes protocol validateEnvelope() even without explicit operation', () => {
+      const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
+      const json = formatError(err);
+      const envelope = JSON.parse(json);
+      const result = validateEnvelope(envelope);
+      expect(result.valid).toBe(true);
+    });
+
+    it('includes LAFS error details', () => {
+      const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found', {
+        fix: 'Use cleo list to find tasks',
+        alternatives: [
+          { action: 'List tasks', command: 'cleo list' },
+          { action: 'Search', command: 'cleo find query' },
+        ],
+      });
+      const json = formatError(err);
+      const parsed = JSON.parse(json);
+      expect(parsed.error.details.fix).toBe('Use cleo list to find tasks');
+      expect(parsed.error.details.alternatives).toHaveLength(2);
     });
   });
 
@@ -133,72 +210,12 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
         .filter((c: { name: string; pass: boolean }) => !c.pass && c.name !== 'error_code_registered');
       expect(failedChecks).toHaveLength(0);
     });
-  });
-});
 
-// ============================
-// BACKWARD COMPATIBLE ENVELOPE
-// ============================
-
-describe('LAFS Backward-Compatible Envelope (no operation)', () => {
-  describe('formatSuccess', () => {
-    it('produces valid backward-compat success envelope', () => {
-      const result = formatSuccess({ task: { id: 'T001', title: 'Test' } });
-      expect(isValidBackwardCompatEnvelope(result).valid).toBe(true);
-      const parsed = JSON.parse(result);
-      expect(parsed.success).toBe(true);
-      expect(parsed.data).toBeDefined();
-    });
-
-    it('includes optional message', () => {
-      const result = formatSuccess({ id: 'T001' }, 'Task created');
-      expect(isValidBackwardCompatEnvelope(result).valid).toBe(true);
-      const parsed = JSON.parse(result);
-      expect(parsed.message).toBe('Task created');
-    });
-
-    it('handles null data', () => {
-      const result = formatSuccess(null);
-      expect(isValidBackwardCompatEnvelope(result).valid).toBe(true);
-    });
-
-    it('handles array data', () => {
-      const result = formatSuccess([1, 2, 3]);
-      expect(isValidBackwardCompatEnvelope(result).valid).toBe(true);
-    });
-  });
-
-  describe('formatError', () => {
-    it('produces valid backward-compat error envelope', () => {
-      const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found');
-      const result = formatError(err);
-      expect(isValidBackwardCompatEnvelope(result).valid).toBe(true);
-      const parsed = JSON.parse(result);
-      expect(parsed.success).toBe(false);
-      expect(parsed.error.code).toBe(ExitCode.NOT_FOUND);
-    });
-
-    it('includes fix suggestion', () => {
-      const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found', {
-        fix: 'Use cleo list to find tasks',
-      });
-      const result = formatError(err);
-      expect(isValidBackwardCompatEnvelope(result).valid).toBe(true);
-      const parsed = JSON.parse(result);
-      expect(parsed.error.fix).toBeDefined();
-    });
-
-    it('includes alternatives', () => {
-      const err = new CleoError(ExitCode.NOT_FOUND, 'Task not found', {
-        alternatives: [
-          { action: 'List tasks', command: 'cleo list' },
-          { action: 'Search', command: 'cleo find query' },
-        ],
-      });
-      const result = formatError(err);
-      expect(isValidBackwardCompatEnvelope(result).valid).toBe(true);
-      const parsed = JSON.parse(result);
-      expect(parsed.error.alternatives).toHaveLength(2);
+    it('conformance passes for envelope without explicit operation', () => {
+      const json = formatSuccess({ data: 'test' });
+      const envelope = JSON.parse(json);
+      const report = runEnvelopeConformance(envelope);
+      expect(report.ok).toBe(true);
     });
   });
 });
@@ -211,12 +228,12 @@ describe('MCP Gateway Meta', () => {
   it('createGatewayMeta includes all LAFS fields', () => {
     const startTime = Date.now();
     const meta = createGatewayMeta('cleo_query', 'tasks', 'list', startTime);
-    expect(meta.specVersion).toBe('1.1.0');
+    expect(meta.specVersion).toBe('1.2.3');
     expect(meta.schemaVersion).toBe('2026.2.1');
     expect(meta.timestamp).toBeDefined();
     expect(meta.operation).toBe('list');
     expect(meta.requestId).toBeDefined();
-    expect(meta.transport).toBe('mcp');
+    expect(meta.transport).toBe('sdk');
     expect(meta.strict).toBe(true);
     expect(meta.mvi).toBe('standard');
     expect(meta.contextVersion).toBe(1);
@@ -239,7 +256,7 @@ describe('MCP Gateway Meta', () => {
 });
 
 // ============================
-// CLEO ERROR → LAFS ERROR
+// CLEO ERROR -> LAFS ERROR
 // ============================
 
 describe('CleoError LAFS Shape', () => {
@@ -343,14 +360,17 @@ describe('LAFS Integration with Core Modules', () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
-  it('addTask result produces valid backward-compat LAFS', async () => {
+  it('addTask result produces valid full LAFS envelope (no operation)', async () => {
     const { addTask } = await import('../tasks/add.js');
     const result = await addTask({ title: 'New task' });
     const json = formatSuccess({ task: result.task });
-    expect(isValidBackwardCompatEnvelope(json).valid).toBe(true);
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
+    const envelope = JSON.parse(json);
+    const validation = validateEnvelope(envelope);
+    expect(validation.valid).toBe(true);
   });
 
-  it('addTask result produces valid full LAFS envelope', async () => {
+  it('addTask result produces valid full LAFS envelope (explicit operation)', async () => {
     const { addTask } = await import('../tasks/add.js');
     const result = await addTask({ title: 'Full LAFS task' });
     const json = formatSuccess({ task: result.task }, undefined, 'tasks.add');
@@ -363,7 +383,7 @@ describe('LAFS Integration with Core Modules', () => {
     const { listPhases } = await import('../phases/index.js');
     const result = await listPhases();
     const json = formatSuccess(result);
-    expect(isValidBackwardCompatEnvelope(json).valid).toBe(true);
+    expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
 
   it('error from showTask produces valid LAFS', async () => {
@@ -373,7 +393,10 @@ describe('LAFS Integration with Core Modules', () => {
     } catch (err) {
       if (err instanceof CleoError) {
         const json = formatError(err);
-        expect(isValidBackwardCompatEnvelope(json).valid).toBe(true);
+        expect(isValidLafsEnvelope(json).valid).toBe(true);
+        const envelope = JSON.parse(json);
+        const validation = validateEnvelope(envelope);
+        expect(validation.valid).toBe(true);
       }
     }
   });

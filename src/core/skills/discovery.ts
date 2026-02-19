@@ -3,14 +3,25 @@
  * Delegates canonical path resolution and standard discovery to @cleocode/caamp.
  * Keeps CLEO-specific discovery logic (local project skill scanning, name mapping).
  *
+ * CAAMP integration notes (T4679):
+ * - Path resolution: uses CAAMP's getCanonicalSkillsDir() for standard locations
+ * - Basic metadata: CAAMP's parseSkillFile() returns SkillMetadata (name, desc, version)
+ * - Extended metadata: CLEO's parseFrontmatter() adds tags, triggers, protocol, etc.
+ * - discoverSkill() uses parseFrontmatter() because CLEO needs the extended fields
+ * - For external/marketplace skills needing only basic metadata, use caampParseSkillFile()
+ *
  * @epic T4454
  * @task T4516
+ * @task T4679
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import {
   getCanonicalSkillsDir,
+  parseSkillFile as caampParseSkillFile,
+  discoverSkill as caampDiscoverSkill,
+  discoverSkills as caampDiscoverSkills,
 } from '@cleocode/caamp';
 import type {
   Skill,
@@ -354,3 +365,17 @@ export function resolveTemplatePath(name: string, cwd?: string): string | null {
   const skill = findSkill(name, cwd);
   return skill?.skillMdPath ?? null;
 }
+
+// ============================================================================
+// CAAMP Skill Discovery Re-exports (T4679)
+// ============================================================================
+
+/**
+ * Parse a SKILL.md file using CAAMP's parser.
+ * Returns basic SkillMetadata (name, description, version, license, etc.).
+ * Use this for external/marketplace skills that don't need CLEO-specific fields.
+ * For CLEO skills requiring tags/triggers/protocol, use parseFrontmatter() instead.
+ *
+ * @task T4679
+ */
+export { caampParseSkillFile, caampDiscoverSkill, caampDiscoverSkills };

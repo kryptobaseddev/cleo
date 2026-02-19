@@ -261,3 +261,68 @@ export function loadAndInject(
 
   return { content, unresolvedTokens };
 }
+
+// ============================================================================
+// Full Context Resolution
+// ============================================================================
+
+/**
+ * Build a complete TokenValues map from a task, resolving all standard tokens.
+ * Ports ti_set_full_context from lib/skills/token-inject.sh.
+ *
+ * This is the primary entry point for orchestrators to prepare token values
+ * before spawning subagents. It populates: TASK_ID, DATE, TOPIC_SLUG, EPIC_ID,
+ * TITLE, TASK_TITLE, TASK_DESCRIPTION, TOPICS_JSON, DEPENDS_LIST, RESEARCH_ID,
+ * OUTPUT_DIR, MANIFEST_PATH, and all command defaults.
+ *
+ * @task T4712
+ * @epic T4663
+ */
+export function setFullContext(
+  task: { id: string; title: string; description?: string; parentId?: string; labels?: string[]; depends?: string[] },
+  options?: { date?: string; topicSlug?: string; outputDir?: string; manifestPath?: string },
+): TokenValues {
+  const dateToday = options?.date ?? new Date().toISOString().split('T')[0];
+
+  const topicSlug = options?.topicSlug ?? (task.title
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .toLowerCase()
+    .replace(/^-|-$/g, '') || `task-${task.id}`);
+
+  const outputDir = options?.outputDir ?? '.cleo/agent-outputs';
+  const manifestPath = options?.manifestPath ?? `${outputDir}/MANIFEST.jsonl`;
+
+  const values: TokenValues = {
+    // Required tokens
+    TASK_ID: task.id,
+    DATE: dateToday,
+    TOPIC_SLUG: topicSlug,
+
+    // Context tokens
+    EPIC_ID: task.parentId ?? '',
+    PARENT_ID: task.parentId ?? '',
+    TITLE: task.title,
+    TASK_TITLE: task.title,
+    TASK_NAME: task.title,
+    TASK_DESCRIPTION: task.description ?? '',
+    RESEARCH_ID: `${topicSlug}-${dateToday}`,
+
+    // Output tokens
+    OUTPUT_DIR: outputDir,
+    MANIFEST_PATH: manifestPath,
+    MANIFEST_ID: `${topicSlug}-${dateToday}`,
+    MANIFEST_FILE: `${dateToday}_${topicSlug}.md`,
+    MANIFEST_TITLE: task.title,
+  };
+
+  // Task-specific tokens
+  if (task.labels?.length) {
+    values['TOPICS_JSON'] = JSON.stringify(task.labels);
+  }
+  if (task.depends?.length) {
+    values['DEPENDS_LIST'] = task.depends.join(', ');
+  }
+
+  // Merge with CLEO command defaults
+  return { ...buildDefaults(), ...values };
+}
