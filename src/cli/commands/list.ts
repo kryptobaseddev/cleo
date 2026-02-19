@@ -1,6 +1,7 @@
 /**
  * CLI list command.
  * @task T4460
+ * @task T4668
  * @epic T4454
  */
 
@@ -10,11 +11,13 @@ import { listTasks } from '../../core/tasks/list.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { createPage } from '../../core/pagination.js';
 import type { TaskStatus, TaskPriority, TaskType } from '../../types/task.js';
 
 /**
  * Register the list command.
  * @task T4460
+ * @task T4668
  */
 export function registerListCommand(program: Command): void {
   program
@@ -33,6 +36,8 @@ export function registerListCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
+        const limit = opts['limit'] as number | undefined;
+        const offset = opts['offset'] as number | undefined;
         const result = await listTasks({
           status: opts['status'] as TaskStatus | undefined,
           priority: opts['priority'] as TaskPriority | undefined,
@@ -41,8 +46,8 @@ export function registerListCommand(program: Command): void {
           phase: opts['phase'] as string | undefined,
           label: opts['label'] as string | undefined,
           children: opts['children'] as boolean | undefined,
-          limit: opts['limit'] as number | undefined,
-          offset: opts['offset'] as number | undefined,
+          limit,
+          offset,
         }, undefined, accessor);
 
         if (result.tasks.length === 0) {
@@ -50,7 +55,8 @@ export function registerListCommand(program: Command): void {
           process.exit(ExitCode.NO_DATA);
         }
 
-        console.log(formatSuccess(result));
+        const page = createPage({ total: result.total ?? result.tasks.length, limit, offset });
+        console.log(formatSuccess(result, undefined, { operation: 'tasks.list', page }));
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

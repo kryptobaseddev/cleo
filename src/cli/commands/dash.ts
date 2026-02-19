@@ -24,7 +24,6 @@ export function registerDashCommand(program: Command): void {
     .option('--no-chart', 'Disable ASCII charts/progress bars')
     .option('--sections <list>', 'Comma-separated list of sections to show')
     .option('-v, --verbose', 'Show full task details')
-    .option('-q, --quiet', 'Suppress decorative output')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const result = await getDashboard({

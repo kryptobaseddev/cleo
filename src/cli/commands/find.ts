@@ -1,6 +1,7 @@
 /**
  * CLI find command.
  * @task T4460
+ * @task T4668
  * @epic T4454
  */
 
@@ -10,11 +11,13 @@ import { findTasks } from '../../core/tasks/find.js';
 import { formatSuccess, formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { createPage } from '../../core/pagination.js';
 import type { TaskStatus } from '../../types/task.js';
 
 /**
  * Register the find command.
  * @task T4460
+ * @task T4668
  */
 export function registerFindCommand(program: Command): void {
   program
@@ -31,6 +34,8 @@ export function registerFindCommand(program: Command): void {
     .action(async (query: string | undefined, opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
+        const limit = opts['limit'] as number | undefined;
+        const offset = opts['offset'] as number | undefined;
         const result = await findTasks({
           query,
           id: opts['id'] as string | undefined,
@@ -38,8 +43,8 @@ export function registerFindCommand(program: Command): void {
           status: opts['status'] as TaskStatus | undefined,
           field: opts['field'] as string | undefined,
           includeArchive: opts['includeArchive'] as boolean | undefined,
-          limit: opts['limit'] as number | undefined,
-          offset: opts['offset'] as number | undefined,
+          limit,
+          offset,
         }, undefined, accessor);
 
         if (result.results.length === 0) {
@@ -47,7 +52,8 @@ export function registerFindCommand(program: Command): void {
           process.exit(ExitCode.NO_DATA);
         }
 
-        console.log(formatSuccess(result));
+        const page = createPage({ total: result.total ?? result.results.length, limit, offset });
+        console.log(formatSuccess(result, undefined, { operation: 'tasks.find', page }));
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -7,10 +7,10 @@
     "phaseHistory": [],
     "releases": []
   },
-  "lastUpdated": "2026-02-19T14:29:25.704Z",
+  "lastUpdated": "2026-02-19T14:40:14.983Z",
   "_meta": {
     "schemaVersion": "2.10.0",
-    "checksum": "b4c8bd4a9efed891",
+    "checksum": "d6f004394a1b0d22",
     "configVersion": "1.0.0"
   },
   "focus": {
@@ -5923,7 +5923,7 @@
     {
       "id": "T4681",
       "title": "8.18: Complete init - create sessions.json, schemas/, .sequence, project-info.json",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5931,12 +5931,13 @@
       "position": 18,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:15.799Z",
-      "updatedAt": "2026-02-18T19:19:15.799Z"
+      "updatedAt": "2026-02-19T14:40:00.031Z",
+      "completedAt": "2026-02-19T14:40:00.031Z"
     },
     {
       "id": "T4682",
       "title": "8.19: Init injection - inject single CLEO-INJECTION.md with MVI progressive disclosure via CAAMP",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5947,7 +5948,8 @@
         "2026-02-19 02:06:12 UTC: UPDATED: Per decision - single CLEO-INJECTION.md replaces both CLEO-INJECTION.md and AGENT-INJECTION.md. MVI tiers (minimal/standard/orchestrator) with scope markers. CAAMP injectAll() handles provider file injection (CLAUDE.md, AGENTS.md, GEMINI.md). No separate AGENT-INJECTION.md."
       ],
       "createdAt": "2026-02-18T19:19:16.449Z",
-      "updatedAt": "2026-02-19T02:06:12.972Z"
+      "updatedAt": "2026-02-19T14:40:01.837Z",
+      "completedAt": "2026-02-19T14:40:01.837Z"
     },
     {
       "id": "T4683",
@@ -5969,7 +5971,7 @@
     {
       "id": "T4684",
       "title": "8.21: Init project registration - call nexus register, create project-info.json",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5977,12 +5979,13 @@
       "position": 21,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:17.749Z",
-      "updatedAt": "2026-02-18T19:19:17.749Z"
+      "updatedAt": "2026-02-19T14:40:03.849Z",
+      "completedAt": "2026-02-19T14:40:03.849Z"
     },
     {
       "id": "T4685",
       "title": "8.22: Init agent definitions - install cleo-subagent.md to ~/.agents/agents/ (symlink)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5993,12 +5996,13 @@
         "2026-02-19 02:06:14 UTC: UPDATED: Use CAAMP path helpers: getAgentsHome() + agents/ subdir. Symlink from templates/agents/cleo-subagent.md to ~/.agents/agents/cleo-subagent.md. CAAMP manages provider-specific distribution."
       ],
       "createdAt": "2026-02-18T19:19:18.429Z",
-      "updatedAt": "2026-02-19T02:06:14.937Z"
+      "updatedAt": "2026-02-19T14:40:05.829Z",
+      "completedAt": "2026-02-19T14:40:05.829Z"
     },
     {
       "id": "T4686",
       "title": "8.23: Implement --update-docs flag in init (refresh all injections)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6006,12 +6010,13 @@
       "position": 23,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:19.083Z",
-      "updatedAt": "2026-02-18T19:19:19.083Z"
+      "updatedAt": "2026-02-19T14:40:07.538Z",
+      "completedAt": "2026-02-19T14:40:07.538Z"
     },
     {
       "id": "T4687",
       "title": "8.24: Implement --detect flag in init (project context detection)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6022,7 +6027,8 @@
         "2026-02-19 02:06:16 UTC: UPDATED: Uses CAAMP detectProjectProviders(). Creates project-info.json with detected stack info (language, framework, package manager, etc). Bumped from low to medium."
       ],
       "createdAt": "2026-02-18T19:19:19.721Z",
-      "updatedAt": "2026-02-19T02:06:16.002Z"
+      "updatedAt": "2026-02-19T14:40:09.664Z",
+      "completedAt": "2026-02-19T14:40:09.664Z"
     },
     {
       "id": "T4688",
@@ -6044,7 +6050,7 @@
     {
       "id": "T4689",
       "title": "8.26: Ensure CLEO skill installed to ~/.agents/skills/ and verified on init",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6055,7 +6061,8 @@
         "2026-02-19 02:06:33 UTC: UPDATED: Moved scope to init track. Uses CAAMP installSkill() + catalog.getCoreSkills() + catalog.validateAll(). Will be covered by new init task for core skills installation."
       ],
       "createdAt": "2026-02-18T19:19:21.035Z",
-      "updatedAt": "2026-02-19T02:06:33.159Z"
+      "updatedAt": "2026-02-19T14:40:11.412Z",
+      "completedAt": "2026-02-19T14:40:11.412Z"
     },
     {
       "id": "T4690",
@@ -6296,7 +6303,7 @@
     {
       "id": "T4706",
       "title": "8.42: Init MCP server config - install cleo-mcp to all detected providers via CAAMP",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6304,12 +6311,13 @@
       "position": 42,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:09.091Z",
-      "updatedAt": "2026-02-19T02:08:09.091Z"
+      "updatedAt": "2026-02-19T14:40:13.258Z",
+      "completedAt": "2026-02-19T14:40:13.258Z"
     },
     {
       "id": "T4707",
       "title": "8.43: Init core skills - install CLEO core skills to ~/.agents/skills/ via CAAMP installSkill + catalog",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6317,7 +6325,8 @@
       "position": 43,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:10.172Z",
-      "updatedAt": "2026-02-19T02:08:10.172Z"
+      "updatedAt": "2026-02-19T14:40:14.983Z",
+      "completedAt": "2026-02-19T14:40:14.983Z"
     },
     {
       "id": "T4708",
