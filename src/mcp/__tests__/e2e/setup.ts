@@ -10,6 +10,20 @@
 import { setupIntegrationTest, cleanupIntegrationTest, IntegrationTestContext } from '../integration-setup.js';
 
 /**
+ * Extract data payload from an ExecutorResult, handling LAFS envelope.
+ *
+ * When the executor can't unwrap the LAFS `result` field, ExecutorResult.data
+ * may contain the full LAFS envelope. Detect and unwrap that case.
+ */
+export function getResponseData(result: any): any {
+  const d = result.data;
+  if (d && typeof d === 'object' && !Array.isArray(d) && 'result' in d && 'success' in d) {
+    return d.result;
+  }
+  return d;
+}
+
+/**
  * Global test context shared across E2E tests
  */
 let globalContext: IntegrationTestContext | null = null;
@@ -67,10 +81,11 @@ export function extractTaskId(result: any): string {
   // - Single field unwrapped: data = {id, title, ...}
   // - Multiple fields: data = {task: {id,...}, duplicate: true, ...}
   // - Direct taskId: data = {taskId: "T123"}
+  const d = getResponseData(result);
   const taskId =
-    result.data?.taskId ||
-    result.data?.id ||
-    result.data?.task?.id;
+    d?.taskId ||
+    d?.id ||
+    d?.task?.id;
   if (!taskId) {
     throw new Error(`No task ID found in result`);
   }
@@ -89,11 +104,12 @@ export function extractSessionId(result: any): string {
   // Handle multiple response shapes from CLEO CLI:
   // - session start: data = {sessionId, scope, ...}
   // - session status: data = {session: {sessionId,...}}
+  const sd = getResponseData(result);
   const sessionId =
-    result.data?.sessionId ||
-    result.data?.id ||
-    result.data?.session?.sessionId ||
-    result.data?.session?.id;
+    sd?.sessionId ||
+    sd?.id ||
+    sd?.session?.sessionId ||
+    sd?.session?.id;
   if (!sessionId) {
     throw new Error('No session ID found in result');
   }

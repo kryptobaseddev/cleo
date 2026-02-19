@@ -388,7 +388,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'fast' });
       expect(result.success).toBe(true);
 
-      const brain = result.data!;
+      const brain = ((result as any).result ?? result.data)!;
       expect(brain._meta).toBeDefined();
       expect(brain._meta.speed).toBe('fast');
       expect(brain._meta.version).toBe('1.0.0');
@@ -413,7 +413,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'full' });
       expect(result.success).toBe(true);
 
-      const brain = result.data!;
+      const brain = ((result as any).result ?? result.data)!;
       expect(brain._meta.speed).toBe('full');
 
       // Full tier includes progress
@@ -433,7 +433,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'complete' });
       expect(result.success).toBe(true);
 
-      const brain = result.data!;
+      const brain = ((result as any).result ?? result.data)!;
       expect(brain._meta.speed).toBe('complete');
       expect(brain.progress).toBeDefined();
       // complete includes all full-tier fields
@@ -444,7 +444,7 @@ describe('E2E: Brain Operations', () => {
 
       const result = await orchestrateBootstrap(TEST_ROOT);
       expect(result.success).toBe(true);
-      expect(result.data!._meta.speed).toBe('fast');
+      expect(((result as any).result ?? result.data)!._meta.speed).toBe('fast');
     });
 
     it('should include nextSuggestion when pending tasks exist', async () => {
@@ -454,10 +454,10 @@ describe('E2E: Brain Operations', () => {
       expect(result.success).toBe(true);
 
       // T105 and T107 are pending with no unmet deps, so a suggestion should exist
-      expect(result.data!.nextSuggestion).toBeDefined();
-      expect(result.data!.nextSuggestion!.id).toBeDefined();
-      expect(result.data!.nextSuggestion!.title).toBeDefined();
-      expect(typeof result.data!.nextSuggestion!.score).toBe('number');
+      expect(((result as any).result ?? result.data)!.nextSuggestion).toBeDefined();
+      expect(((result as any).result ?? result.data)!.nextSuggestion!.id).toBeDefined();
+      expect(((result as any).result ?? result.data)!.nextSuggestion!.title).toBeDefined();
+      expect(typeof ((result as any).result ?? result.data)!.nextSuggestion!.score).toBe('number');
     });
   });
 
@@ -472,7 +472,7 @@ describe('E2E: Brain Operations', () => {
       const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T107' });
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       expect(data.size).toBe('small');
       expect(data.score).toBeLessThanOrEqual(3);
       expect(data.dependencyDepth).toBe(0);
@@ -490,7 +490,7 @@ describe('E2E: Brain Operations', () => {
       const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T102' });
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       // Score should be higher due to multiple factors
       expect(data.score).toBeGreaterThan(3);
       expect(['medium', 'large']).toContain(data.size);
@@ -513,7 +513,7 @@ describe('E2E: Brain Operations', () => {
       // T104 depends on T103, which depends on T102, which depends on T101
       const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T104' });
       expect(result.success).toBe(true);
-      expect(result.data!.dependencyDepth).toBeGreaterThanOrEqual(3);
+      expect(((result as any).result ?? result.data)!.dependencyDepth).toBeGreaterThanOrEqual(3);
     });
   });
 
@@ -550,7 +550,7 @@ describe('E2E: Brain Operations', () => {
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       expect(data.coherent).toBe(false);
       expect(data.issues.length).toBeGreaterThan(0);
 
@@ -581,7 +581,7 @@ describe('E2E: Brain Operations', () => {
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       expect(data.coherent).toBe(false);
 
       const orphaned = data.issues.find(
@@ -620,7 +620,7 @@ describe('E2E: Brain Operations', () => {
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       expect(data.coherent).toBe(false);
 
       const inconsistency = data.issues.find(
@@ -658,8 +658,8 @@ describe('E2E: Brain Operations', () => {
 
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
-      expect(result.data!.coherent).toBe(true);
-      expect(result.data!.issues.length).toBe(0);
+      expect(((result as any).result ?? result.data)!.coherent).toBe(true);
+      expect(((result as any).result ?? result.data)!.issues.length).toBe(0);
     });
   });
 
@@ -673,7 +673,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateCriticalPath(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data as any;
+      const data = ((result as any).result ?? result.data) as any;
       // The longest chain is T101 -> T102 -> T103 -> T104 (length 4)
       expect(data.length).toBeGreaterThanOrEqual(4);
       expect(data.path.length).toBe(data.length);
@@ -706,7 +706,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateCriticalPath(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data as any;
+      const data = ((result as any).result ?? result.data) as any;
       expect(data.path).toHaveLength(0);
       expect(data.length).toBe(0);
     });
@@ -722,7 +722,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data as any;
+      const data = ((result as any).result ?? result.data) as any;
 
       // T106 depends only on T105 (single blocker)
       const singleBlockers = data.singleBlocker;
@@ -741,7 +741,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data as any;
+      const data = ((result as any).result ?? result.data) as any;
 
       // T102 blocks T103 which blocks T104, plus T102 blocks T108/T109 indirectly
       // so completing T102 would unblock several tasks
@@ -783,7 +783,7 @@ describe('E2E: Brain Operations', () => {
       const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data as any;
+      const data = ((result as any).result ?? result.data) as any;
       expect(data.singleBlocker).toHaveLength(0);
       expect(data.commonBlockers).toHaveLength(0);
     });
@@ -834,7 +834,7 @@ describe('E2E: Brain Operations', () => {
       const result = await sessionDecisionLog(TEST_ROOT, { taskId: 'T102' });
       expect(result.success).toBe(true);
 
-      const decisions = result.data!;
+      const decisions = ((result as any).result ?? result.data)!;
       expect(decisions.length).toBe(1);
       expect(decisions[0].taskId).toBe('T102');
       expect(decisions[0].decision).toBe(
@@ -848,7 +848,7 @@ describe('E2E: Brain Operations', () => {
 
       const result = await sessionDecisionLog(TEST_ROOT);
       expect(result.success).toBe(true);
-      expect(result.data!.length).toBe(SAMPLE_DECISIONS.length);
+      expect(((result as any).result ?? result.data)!.length).toBe(SAMPLE_DECISIONS.length);
     });
 
     it('should return empty array when no decisions exist', async () => {
@@ -856,7 +856,7 @@ describe('E2E: Brain Operations', () => {
 
       const result = await sessionDecisionLog(TEST_ROOT);
       expect(result.success).toBe(true);
-      expect(result.data!).toHaveLength(0);
+      expect(((result as any).result ?? result.data)!).toHaveLength(0);
     });
   });
 
@@ -876,7 +876,7 @@ describe('E2E: Brain Operations', () => {
 
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       expect(data.id).toMatch(/^asm-/);
       expect(data.sessionId).toBe('test-session-001');
       expect(data.taskId).toBe('T102');
@@ -947,7 +947,7 @@ describe('E2E: Brain Operations', () => {
       const result = await sessionContextDrift(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       expect(typeof data.score).toBe('number');
       expect(data.score).toBeGreaterThanOrEqual(0);
       expect(data.score).toBeLessThanOrEqual(100);
@@ -973,7 +973,7 @@ describe('E2E: Brain Operations', () => {
 
       const result = await sessionContextDrift(TEST_ROOT);
       expect(result.success).toBe(true);
-      expect(result.data!.score).toBe(0);
+      expect(((result as any).result ?? result.data)!.score).toBe(0);
     });
 
     it('should calculate drift for multi-session scope', async () => {
@@ -1001,7 +1001,7 @@ describe('E2E: Brain Operations', () => {
       });
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
       expect(typeof data.score).toBe('number');
       // The scope includes T100 and its descendants
       expect(data.totalInScope).toBeGreaterThan(0);
@@ -1027,7 +1027,7 @@ describe('E2E: Brain Operations', () => {
       const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const data = result.data!;
+      const data = ((result as any).result ?? result.data)!;
 
       // Must be a non-empty string
       expect(typeof data.injection).toBe('string');
@@ -1068,7 +1068,7 @@ describe('E2E: Brain Operations', () => {
       const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);
 
-      const mvi = result.data!.injection;
+      const mvi = ((result as any).result ?? result.data)!.injection;
       // The MVI should include session or focus info
       expect(mvi).toContain('Session');
     });
@@ -1080,8 +1080,8 @@ describe('E2E: Brain Operations', () => {
       expect(result.success).toBe(true);
 
       // Should still generate valid MVI
-      expect(result.data!.injection.length).toBeGreaterThan(0);
-      expect(result.data!.sizeBytes).toBeLessThan(5 * 1024);
+      expect(((result as any).result ?? result.data)!.injection.length).toBeGreaterThan(0);
+      expect(((result as any).result ?? result.data)!.sizeBytes).toBeLessThan(5 * 1024);
     });
   });
 });

@@ -7,10 +7,10 @@
     "phaseHistory": [],
     "releases": []
   },
-  "lastUpdated": "2026-02-19T14:40:14.983Z",
+  "lastUpdated": "2026-02-19T14:53:27.846Z",
   "_meta": {
     "schemaVersion": "2.10.0",
-    "checksum": "d6f004394a1b0d22",
+    "checksum": "20c8021357a97acf",
     "configVersion": "1.0.0"
   },
   "focus": {
@@ -5641,7 +5641,7 @@
     {
       "id": "T4663",
       "title": "EPIC: Wave 8 - Full System Integration (LAFS + CAAMP + Init + Output)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "epic",
       "size": "medium",
@@ -5649,7 +5649,8 @@
       "positionVersion": 0,
       "description": "Wave 8: Full system integration audit and remediation. LAFS protocol conformance, CAAMP provider/injection integration, CLI output flags (--human/--format/--quiet), init command completion, agents/skills canonical path architecture, error envelope unification. Ensures CLEO V2 TypeScript system reaches full parity with bash system design intent while adopting SOLID/DRY architecture through proper CAAMP and LAFS delegation.",
       "createdAt": "2026-02-18T19:17:38.121Z",
-      "updatedAt": "2026-02-18T19:17:48.279Z"
+      "updatedAt": "2026-02-19T14:53:27.846Z",
+      "completedAt": "2026-02-19T14:53:27.846Z"
     },
     {
       "id": "T4664",
@@ -5685,7 +5686,7 @@
     {
       "id": "T4666",
       "title": "8.3: Add --human, --json, --quiet flags to all CLI commands (LAFS v1.2.3 flag semantics)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5696,7 +5697,8 @@
         "2026-02-19 02:05:33 UTC: UPDATED: LAFS v1.2.3 dictates only two formats: json (default) and human. No --format flag with multiple values. Use resolveOutputFormat(FlagInput) -> FlagResolution. Flags: --human, --json (mutually exclusive, E_FORMAT_CONFLICT), --quiet."
       ],
       "createdAt": "2026-02-18T19:18:28.241Z",
-      "updatedAt": "2026-02-19T02:05:33.542Z"
+      "updatedAt": "2026-02-19T14:52:44.831Z",
+      "completedAt": "2026-02-19T14:52:44.831Z"
     },
     {
       "id": "T4667",
@@ -5715,7 +5717,7 @@
     {
       "id": "T4668",
       "title": "8.5: Add LAFSPage pagination to list commands (cursor/offset modes)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5723,12 +5725,13 @@
       "position": 5,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:18:29.570Z",
-      "updatedAt": "2026-02-18T19:18:29.570Z"
+      "updatedAt": "2026-02-19T14:52:45.721Z",
+      "completedAt": "2026-02-19T14:52:45.721Z"
     },
     {
       "id": "T4669",
       "title": "8.6: Add _meta.warnings support for deprecation notices",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5736,12 +5739,13 @@
       "position": 6,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:18:30.240Z",
-      "updatedAt": "2026-02-18T19:18:30.240Z"
+      "updatedAt": "2026-02-19T14:52:46.569Z",
+      "completedAt": "2026-02-19T14:52:46.569Z"
     },
     {
       "id": "T4670",
       "title": "8.7: Add _extensions support for CLEO-specific metadata",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5749,12 +5753,13 @@
       "position": 7,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:18:30.881Z",
-      "updatedAt": "2026-02-18T19:18:30.881Z"
+      "updatedAt": "2026-02-19T14:52:47.413Z",
+      "completedAt": "2026-02-19T14:52:47.413Z"
     },
     {
       "id": "T4671",
       "title": "8.8: Register CLEO error codes in LAFS error registry or map to canonical codes",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -5765,7 +5770,8 @@
         "2026-02-19 02:05:34 UTC: UPDATED: LAFS v1.2.3 has 12 registered error codes. CLEO should MAP its exit codes to these rather than register new ones. E.g. ExitCode.NOT_FOUND -> E_NOT_FOUND_RESOURCE, ExitCode.VALIDATION -> E_VALIDATION_SCHEMA. See errors.ts exitCodeToLafsCode()."
       ],
       "createdAt": "2026-02-18T19:18:31.490Z",
-      "updatedAt": "2026-02-19T02:05:34.458Z"
+      "updatedAt": "2026-02-19T14:52:48.266Z",
+      "completedAt": "2026-02-19T14:52:48.266Z"
     },
     {
       "id": "T4672",
@@ -5784,7 +5790,7 @@
     {
       "id": "T4673",
       "title": "8.10: Add runEnvelopeConformance() CI test for all command outputs",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -5795,7 +5801,8 @@
         "2026-02-19 02:05:35 UTC: UPDATED: LAFS v1.2.3 has 8 envelope conformance checks + 3 flag conformance checks. Must run both runEnvelopeConformance() and runFlagConformance(). Add as CI gate."
       ],
       "createdAt": "2026-02-18T19:18:32.758Z",
-      "updatedAt": "2026-02-19T02:05:35.381Z"
+      "updatedAt": "2026-02-19T14:52:49.121Z",
+      "completedAt": "2026-02-19T14:52:49.121Z"
     },
     {
       "id": "T4674",
@@ -6118,7 +6125,7 @@
     {
       "id": "T4693",
       "title": "8.30: Review LAFS mcpAdapter strict_mode_behavior bug",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6126,12 +6133,13 @@
       "position": 30,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:23.708Z",
-      "updatedAt": "2026-02-18T19:19:23.708Z"
+      "updatedAt": "2026-02-19T14:52:49.988Z",
+      "completedAt": "2026-02-19T14:52:49.988Z"
     },
     {
       "id": "T4694",
       "title": "8.31: E2E dogfood test - cleo init in fresh project, verify all files created",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6139,12 +6147,13 @@
       "position": 31,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:24.374Z",
-      "updatedAt": "2026-02-18T19:19:24.374Z"
+      "updatedAt": "2026-02-19T14:52:50.838Z",
+      "completedAt": "2026-02-19T14:52:50.838Z"
     },
     {
       "id": "T4695",
       "title": "8.32: Verify CLEO MCP server auto-installed to detected providers on init",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6152,12 +6161,13 @@
       "position": 32,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:25.070Z",
-      "updatedAt": "2026-02-18T19:19:25.070Z"
+      "updatedAt": "2026-02-19T14:52:51.747Z",
+      "completedAt": "2026-02-19T14:52:51.747Z"
     },
     {
       "id": "T4696",
       "title": "8.33: Verify --human output renders correctly for all major commands",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6168,12 +6178,13 @@
         "2026-02-19 02:06:47 UTC: UPDATED: Only --human and --json flags (no --format). Test resolveOutputFormat() integration, quiet mode suppression, E_FORMAT_CONFLICT on conflict."
       ],
       "createdAt": "2026-02-18T19:19:25.700Z",
-      "updatedAt": "2026-02-19T02:06:47.796Z"
+      "updatedAt": "2026-02-19T14:52:52.579Z",
+      "completedAt": "2026-02-19T14:52:52.579Z"
     },
     {
       "id": "T4697",
       "title": "8.34: Golden parity test - compare TS vs bash output envelopes for key commands",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6181,12 +6192,13 @@
       "position": 34,
       "positionVersion": 0,
       "createdAt": "2026-02-18T19:19:26.398Z",
-      "updatedAt": "2026-02-18T19:19:26.398Z"
+      "updatedAt": "2026-02-19T14:52:53.420Z",
+      "completedAt": "2026-02-19T14:52:53.420Z"
     },
     {
       "id": "T4698",
       "title": "8.35: Full LAFS conformance gate - all commands pass runEnvelopeConformance()",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6197,7 +6209,8 @@
         "2026-02-19 02:06:48 UTC: UPDATED: Run both runEnvelopeConformance() (8 checks) and runFlagConformance() (3 checks) from LAFS v1.2.3. All commands must pass all 11 checks."
       ],
       "createdAt": "2026-02-18T19:19:27.026Z",
-      "updatedAt": "2026-02-19T02:06:48.746Z"
+      "updatedAt": "2026-02-19T14:52:54.296Z",
+      "completedAt": "2026-02-19T14:52:54.296Z"
     },
     {
       "id": "T4699",
@@ -6229,7 +6242,7 @@
     {
       "id": "T4701",
       "title": "8.37: Integrate LAFS token budget enforcement (applyBudgetEnforcement/withBudget) for MCP responses",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6237,12 +6250,13 @@
       "position": 37,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:07:44.051Z",
-      "updatedAt": "2026-02-19T02:07:44.051Z"
+      "updatedAt": "2026-02-19T14:52:55.207Z",
+      "completedAt": "2026-02-19T14:52:55.207Z"
     },
     {
       "id": "T4702",
       "title": "8.38: Wire LAFS sessionId into _meta from active CLEO session",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6250,7 +6264,8 @@
       "position": 38,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:07:45.004Z",
-      "updatedAt": "2026-02-19T02:07:45.004Z"
+      "updatedAt": "2026-02-19T14:52:56.055Z",
+      "completedAt": "2026-02-19T14:52:56.055Z"
     },
     {
       "id": "T4703",
@@ -6401,7 +6416,7 @@
     {
       "id": "T4713",
       "title": "8.49: Rewrite ct-orchestrator SKILL.md for MCP-first + CLI fallback (remove bash lib refs)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6409,12 +6424,13 @@
       "position": 49,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:41.729Z",
-      "updatedAt": "2026-02-19T02:08:41.729Z"
+      "updatedAt": "2026-02-19T14:53:22.290Z",
+      "completedAt": "2026-02-19T14:53:22.290Z"
     },
     {
       "id": "T4714",
       "title": "8.50: Update ct-orchestrator spawn section to reference TS-native dispatch via CAAMP catalog",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6422,12 +6438,13 @@
       "position": 50,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:42.741Z",
-      "updatedAt": "2026-02-19T02:08:42.741Z"
+      "updatedAt": "2026-02-19T14:53:23.183Z",
+      "completedAt": "2026-02-19T14:53:23.183Z"
     },
     {
       "id": "T4715",
       "title": "8.51: Add MVI scope annotations to ct-orchestrator SKILL.md",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6435,12 +6452,13 @@
       "position": 51,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:43.793Z",
-      "updatedAt": "2026-02-19T02:08:43.793Z"
+      "updatedAt": "2026-02-19T14:53:27.007Z",
+      "completedAt": "2026-02-19T14:53:27.007Z"
     },
     {
       "id": "T4716",
       "title": "8.52: Install updated ct-orchestrator to ~/.agents/skills/ via CAAMP (canonical + symlinks)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6448,12 +6466,13 @@
       "position": 52,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:44.820Z",
-      "updatedAt": "2026-02-19T02:08:44.820Z"
+      "updatedAt": "2026-02-19T14:53:27.846Z",
+      "completedAt": "2026-02-19T14:53:27.846Z"
     },
     {
       "id": "T4717",
       "title": "8.53: Test CLEO-INJECTION progressive disclosure at all 3 MVI tiers",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4663",
@@ -6461,12 +6480,13 @@
       "position": 53,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:57.306Z",
-      "updatedAt": "2026-02-19T02:08:57.306Z"
+      "updatedAt": "2026-02-19T14:52:56.876Z",
+      "completedAt": "2026-02-19T14:52:56.876Z"
     },
     {
       "id": "T4718",
       "title": "8.54: Test CAAMP skill install + integrity check end-to-end (installSkill -> symlinks -> validateAll)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4663",
@@ -6474,7 +6494,8 @@
       "position": 54,
       "positionVersion": 0,
       "createdAt": "2026-02-19T02:08:58.325Z",
-      "updatedAt": "2026-02-19T02:08:58.325Z"
+      "updatedAt": "2026-02-19T14:52:57.682Z",
+      "completedAt": "2026-02-19T14:52:57.682Z"
     },
     {
       "id": "T4719",
