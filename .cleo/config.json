@@ -97,7 +97,7 @@
     "mode": "advisory"
   },
   "hierarchy": {
-    "maxSiblings": 15
+    "maxSiblings": 60
   },
   "storage": {
     "engine": "sqlite"

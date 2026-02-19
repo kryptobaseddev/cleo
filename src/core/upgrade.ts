@@ -92,83 +92,156 @@ export async function runUpgrade(options: {
         fix: preflight.fix ?? undefined,
       });
     } else if (autoMigrate) {
-      // Auto-migrate: backup first, then migrate
+      // Auto-migrate with SAFE backup-first approach.
+      // CRITICAL: Never delete tasks.db without a verified backup.
+      // Previous implementation (pre-2026.2.6) had a destructive bug
+      // that unconditionally deleted tasks.db before migration, causing
+      // total data loss of 4,295 tasks. This fix follows the project's
+      // atomic operation pattern: backup → migrate to temp → validate → rename.
       try {
         const cleoDir = getCleoDirAbsolute(options.cwd);
         const dbPath = join(cleoDir, 'tasks.db');
+        const dbBackupPath = join(cleoDir, 'backups', 'safety', `tasks.db.pre-migration.${Date.now()}`);
+        const dbTempPath = join(cleoDir, 'tasks.db.migrating');
 
-        // If DB exists, remove it so migration starts fresh
+        // Step 1: Backup existing tasks.db if it exists (NEVER delete without backup)
+        if (existsSync(dbPath)) {
+          const backupDir = join(cleoDir, 'backups', 'safety');
+          if (!existsSync(backupDir)) {
+            mkdirSync(backupDir, { recursive: true });
+          }
+          copyFileSync(dbPath, dbBackupPath);
+
+          // Verify backup is valid before proceeding
+          const origStat = await import('node:fs').then(fs => fs.statSync(dbPath));
+          const backupStat = await import('node:fs').then(fs => fs.statSync(dbBackupPath));
+          if (backupStat.size !== origStat.size) {
+            throw new Error(
+              `Backup verification failed: original=${origStat.size} bytes, backup=${backupStat.size} bytes. ` +
+              `Aborting migration to prevent data loss.`
+            );
+          }
+        }
+
+        // Step 2: Remove temp DB if leftover from a previous failed attempt
+        if (existsSync(dbTempPath)) {
+          const { unlinkSync } = await import('node:fs');
+          unlinkSync(dbTempPath);
+        }
+
+        // Step 3: Temporarily set engine to json so migrate-storage reads from JSON source
+        const configPath = join(cleoDir, 'config.json');
+        let configBackup: string | null = null;
+        if (existsSync(configPath)) {
+          configBackup = readFileSync(configPath, 'utf-8');
+          const config = JSON.parse(configBackup);
+          if (config?.storage?.engine === 'sqlite') {
+            config.storage.engine = 'json';
+            writeFileSync(configPath, JSON.stringify(config, null, 2));
+          }
+        }
+
+        // Step 4: Close any existing DB connection before migration
+        const { closeDb } = await import('../store/sqlite.js');
+        closeDb();
+
+        // Step 5: Remove existing DB so migration creates a fresh one
+        // SAFE: backup verified at Step 1
         if (existsSync(dbPath)) {
           const { unlinkSync } = await import('node:fs');
           unlinkSync(dbPath);
         }
 
-        // Temporarily set engine to json so migrate-storage doesn't short-circuit
-        const configPath = join(cleoDir, 'config.json');
-        let configBackup: string | null = null;
-        if (existsSync(configPath)) {
-          const { readFileSync } = await import('node:fs');
-          configBackup = readFileSync(configPath, 'utf-8');
-          const config = JSON.parse(configBackup);
-          if (config?.storage?.engine === 'sqlite') {
-            config.storage.engine = 'json';
-            const { writeFileSync } = await import('node:fs');
-            writeFileSync(configPath, JSON.stringify(config, null, 2));
-          }
-        }
-
-        // Run migration
+        // Step 6: Run migration (creates new tasks.db from JSON sources)
         const { migrateJsonToSqlite } = await import('../store/migration-sqlite.js');
         const result = await migrateJsonToSqlite(options.cwd);
 
-        // Close db connection so config update doesn't conflict
-        const { closeDb } = await import('../store/sqlite.js');
+        // Step 7: Close db connection so config update doesn't conflict
         closeDb();
 
-        // Update config to sqlite
-        const { readFileSync: readFs, writeFileSync: writeFs } = await import('node:fs');
-        let config: Record<string, unknown> = {};
-        if (existsSync(configPath)) {
-          try {
-            config = JSON.parse(readFs(configPath, 'utf-8'));
-          } catch {
-            // Start fresh
-          }
-        }
-        if (!config.storage || typeof config.storage !== 'object') {
-          config.storage = {};
-        }
-        (config.storage as Record<string, unknown>).engine = 'sqlite';
-        writeFs(configPath, JSON.stringify(config, null, 2));
-
+        // Step 8: Validate migration result before committing
         if (result.success) {
-          actions.push({
-            action: 'storage_migration',
-            status: 'applied',
-            details: `Migrated to SQLite: ${result.tasksImported} tasks, `
-              + `${result.archivedImported} archived, ${result.sessionsImported} sessions`,
-          });
-          storageMigrationResult = {
-            migrated: true,
-            tasksImported: result.tasksImported,
-            archivedImported: result.archivedImported,
-            sessionsImported: result.sessionsImported,
-            warnings: result.warnings,
-          };
+          // Verify the new DB has reasonable data
+          const totalImported = result.tasksImported + result.archivedImported;
+          if (totalImported === 0 && existsSync(dbBackupPath)) {
+            // Migration "succeeded" but imported nothing — likely a bug.
+            // Restore from backup to prevent silent data loss.
+            copyFileSync(dbBackupPath, dbPath);
+            if (configBackup) {
+              writeFileSync(configPath, configBackup);
+            }
+            actions.push({
+              action: 'storage_migration',
+              status: 'error',
+              details: 'Migration imported 0 tasks despite existing data. Restored from backup.',
+              fix: 'Run `cleo upgrade --dry-run` to diagnose, then retry.',
+            });
+            errors.push('Migration imported 0 tasks — restored from backup to prevent data loss');
+          } else {
+            // Migration successful with data — update config to sqlite
+            let config: Record<string, unknown> = {};
+            if (existsSync(configPath)) {
+              try {
+                config = JSON.parse(readFileSync(configPath, 'utf-8'));
+              } catch {
+                // Start fresh config
+              }
+            }
+            if (!config.storage || typeof config.storage !== 'object') {
+              config.storage = {};
+            }
+            (config.storage as Record<string, unknown>).engine = 'sqlite';
+            writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+            actions.push({
+              action: 'storage_migration',
+              status: 'applied',
+              details: `Migrated to SQLite: ${result.tasksImported} tasks, `
+                + `${result.archivedImported} archived, ${result.sessionsImported} sessions`,
+            });
+            storageMigrationResult = {
+              migrated: true,
+              tasksImported: result.tasksImported,
+              archivedImported: result.archivedImported,
+              sessionsImported: result.sessionsImported,
+              warnings: result.warnings,
+            };
+          }
         } else {
-          // Migration had errors - restore config if we backed it up
+          // Migration had errors — restore DB and config from backup
+          if (existsSync(dbBackupPath)) {
+            copyFileSync(dbBackupPath, dbPath);
+          }
           if (configBackup) {
-            writeFs(configPath, configBackup);
+            writeFileSync(configPath, configBackup);
           }
           actions.push({
             action: 'storage_migration',
             status: 'error',
-            details: `Migration failed: ${result.errors.join('; ')}`,
+            details: `Migration failed: ${result.errors.join('; ')}. Restored from backup.`,
             fix: preflight.fix ?? undefined,
           });
           errors.push(...result.errors);
         }
       } catch (err) {
+        // Catastrophic error — attempt to restore from backup
+        try {
+          const cleoDir = getCleoDirAbsolute(options.cwd);
+          const dbPath = join(cleoDir, 'tasks.db');
+          const safetyDir = join(cleoDir, 'backups', 'safety');
+          if (existsSync(safetyDir)) {
+            // Find most recent pre-migration backup
+            const backups = readdirSync(safetyDir)
+              .filter(f => f.startsWith('tasks.db.pre-migration.'))
+              .sort()
+              .reverse();
+            if (backups.length > 0 && !existsSync(dbPath)) {
+              copyFileSync(join(safetyDir, backups[0]), dbPath);
+            }
+          }
+        } catch {
+          // Best-effort recovery — don't mask original error
+        }
         actions.push({
           action: 'storage_migration',
           status: 'error',

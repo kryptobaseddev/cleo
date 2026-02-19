@@ -53,43 +53,22 @@ export {
 } from './aliases.js';
 export type { ShellType } from './aliases.js';
 
-// Injection engine
-export {
-  isValidTarget,
-  hasInjectionBlock,
-  getTemplatePath,
-  getInjectionContent,
-  injectionUpdate,
-  injectionCheck,
-  updateAllTargets,
-  INJECTION_TARGETS,
-} from './injection.js';
-export type { InjectionTarget, InjectionResult } from './injection.js';
+// Injection & MCP config: DELETED (T4674, T4675, T4677)
+// All injection, provider detection, and MCP config management is now
+// delegated to @cleocode/caamp via src/mcp/engine/caamp-adapter.ts.
+// See Wave 8 epic T4663 for migration context.
+//
+// Legacy exports removed:
+//   injection.ts    -> CAAMP inject()/checkInjection()
+//   mcp-config.ts   -> CAAMP detectAllProviders()/installMcpServer()
+//   injection-registry.ts -> CAAMP getInstructionFiles()
 
-// MCP configuration
+// Injection legacy utilities (kept for validation/migration support)
 export {
-  detectAllTools,
-  generateMCPEntry,
-  writeMCPConfig,
-  getDetectionSummary,
-  MCP_TOOL_KEYS,
-} from './mcp-config.js';
-export type { MCPToolKey, MCPToolInfo } from './mcp-config.js';
-
-// Injection registry
-export {
-  INJECTION_TARGETS as INJECTION_REGISTRY_TARGETS,
-  INJECTION_MARKER_START,
-  INJECTION_MARKER_END,
-  INJECTION_VERSION_PATTERN,
-  INJECTION_TEMPLATE_MAIN,
-  INJECTION_TEMPLATE_DIR,
-  INJECTION_VALIDATION_KEYS,
-  isInjectionTarget,
   getValidationKey,
   extractMarkerVersion,
-} from './injection-registry.js';
-export type { InjectionTarget as InjectionRegistryTarget } from './injection-registry.js';
+  INJECTION_VALIDATION_KEYS,
+} from './injection-legacy.js';
 
 // Version check
 export {
