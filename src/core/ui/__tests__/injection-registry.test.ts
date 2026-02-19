@@ -1,71 +1,38 @@
 /**
- * Tests for injection registry (injection-registry.ts).
- * @task T4552
- * @epic T4545
+ * Tests for injection legacy utilities (injection-legacy.ts).
+ *
+ * These test the remaining utility functions kept from the deleted
+ * injection-registry.ts for backward compatibility.
+ *
+ * @task T4677
+ * @epic T4663
  */
 
 import { describe, it, expect } from 'vitest';
 import {
-  INJECTION_TARGETS,
-  INJECTION_MARKER_START,
-  INJECTION_MARKER_END,
   INJECTION_VALIDATION_KEYS,
-  isInjectionTarget,
   getValidationKey,
   extractMarkerVersion,
-} from '../injection-registry.js';
-
-describe('INJECTION_TARGETS', () => {
-  it('should contain exactly 3 targets', () => {
-    expect(INJECTION_TARGETS).toHaveLength(3);
-  });
-
-  it('should include CLAUDE.md, AGENTS.md, and GEMINI.md', () => {
-    expect(INJECTION_TARGETS).toContain('CLAUDE.md');
-    expect(INJECTION_TARGETS).toContain('AGENTS.md');
-    expect(INJECTION_TARGETS).toContain('GEMINI.md');
-  });
-});
-
-describe('INJECTION_MARKER_START', () => {
-  it('should be the correct marker', () => {
-    expect(INJECTION_MARKER_START).toBe('<!-- CLEO:START');
-  });
-});
-
-describe('INJECTION_MARKER_END', () => {
-  it('should be the correct marker', () => {
-    expect(INJECTION_MARKER_END).toBe('<!-- CLEO:END -->');
-  });
-});
-
-describe('isInjectionTarget', () => {
-  it('should return true for valid targets', () => {
-    expect(isInjectionTarget('CLAUDE.md')).toBe(true);
-    expect(isInjectionTarget('AGENTS.md')).toBe(true);
-    expect(isInjectionTarget('GEMINI.md')).toBe(true);
-  });
-
-  it('should return false for invalid targets', () => {
-    expect(isInjectionTarget('README.md')).toBe(false);
-    expect(isInjectionTarget('CODEX.md')).toBe(false);
-    expect(isInjectionTarget('')).toBe(false);
-  });
-});
+} from '../injection-legacy.js';
 
 describe('getValidationKey', () => {
-  it('should return correct keys for each target', () => {
+  it('should return correct keys for known targets', () => {
     expect(getValidationKey('CLAUDE.md')).toBe('claude_md');
     expect(getValidationKey('AGENTS.md')).toBe('agents_md');
     expect(getValidationKey('GEMINI.md')).toBe('gemini_md');
   });
+
+  it('should generate a key for unknown targets', () => {
+    expect(getValidationKey('CODEX.md')).toBe('codex_md');
+    expect(getValidationKey('README.md')).toBe('readme_md');
+  });
 });
 
 describe('INJECTION_VALIDATION_KEYS', () => {
-  it('should have entries for all targets', () => {
-    for (const target of INJECTION_TARGETS) {
-      expect(INJECTION_VALIDATION_KEYS[target]).toBeDefined();
-    }
+  it('should have entries for the 3 known targets', () => {
+    expect(INJECTION_VALIDATION_KEYS['CLAUDE.md']).toBe('claude_md');
+    expect(INJECTION_VALIDATION_KEYS['AGENTS.md']).toBe('agents_md');
+    expect(INJECTION_VALIDATION_KEYS['GEMINI.md']).toBe('gemini_md');
   });
 });
 
