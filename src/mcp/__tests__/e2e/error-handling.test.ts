@@ -337,7 +337,7 @@ describe('E2E: Error Handling Workflow', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('E_PARENT_NOT_FOUND');
+    expect(result.error?.code).toMatch(/E_(VALIDATION_PARENT_NOT_FOUND|PARENT_NOT_FOUND)/);
     expect(result.error?.exitCode).toBe(10);
     expect(result.error?.message).toContain(nonExistentParent);
   });

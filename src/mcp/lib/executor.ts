@@ -295,9 +295,10 @@ export class CLIExecutor {
 
             let data: T;
 
-            // Determine raw payload: V2 wraps in .data, V1 puts fields at top
+            // Determine raw payload: V2 wraps in .data, LAFS wraps in .result, V1 puts fields at top
             const rawPayload: Record<string, unknown> =
-              parsed.data !== undefined ? (parsed.data as Record<string, unknown>) : parsed;
+              parsed.data !== undefined ? (parsed.data as Record<string, unknown>) :
+              parsed.result !== undefined ? (parsed.result as Record<string, unknown>) : parsed;
 
             // V2 and V1 both need primary field unwrapping
             if (rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload)) {

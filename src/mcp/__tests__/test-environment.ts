@@ -118,7 +118,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
       'add "Test Epic" --description "Epic for integration testing" --json'
     );
     const epicParsed = JSON.parse(epicResult.stdout.trim());
-    const epicId = epicParsed.data?.task?.id ?? epicParsed.task?.id;
+    const epicId = epicParsed.result?.task?.id ?? epicParsed.data?.task?.id ?? epicParsed.task?.id;
     if (!epicId) {
       throw new Error(`Failed to create test epic: ${epicResult.stdout}`);
     }
@@ -140,7 +140,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
         `add "${task.title}" --description "${task.desc}" --parent ${epicId} --json`
       );
       const parsed = JSON.parse(result.stdout.trim());
-      const taskId = parsed.data?.task?.id ?? parsed.task?.id;
+      const taskId = parsed.result?.task?.id ?? parsed.data?.task?.id ?? parsed.task?.id;
       if (taskId) {
         taskIds.push(taskId);
       }
