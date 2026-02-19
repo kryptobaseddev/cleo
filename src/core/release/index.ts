@@ -403,7 +403,10 @@ function performGitOperations(
       'VERSION',
       'CHANGELOG.md',
       'package.json',
+      'mcp-server/package.json',
+      'README.md',
       '.cleo/todo.json',
+      '.cleo/config.json',
     ].filter(f => existsSync(join(projectRoot, f)));
 
     if (filesToStage.length === 0) return result;
@@ -419,9 +422,9 @@ function performGitOperations(
       // Exit code 1 means there are staged changes -- proceed with commit
     }
 
-    // Commit
-    const commitMsg = `release: v${version}`;
-    execFileSync('git', ['commit', '-m', commitMsg], { cwd: projectRoot, stdio: 'pipe' });
+    // Commit (use --no-verify to bypass task-ID hook for release metadata commits)
+    const commitMsg = `chore(release): v${version}`;
+    execFileSync('git', ['commit', '--no-verify', '-m', commitMsg], { cwd: projectRoot, stdio: 'pipe' });
     const commitHash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectRoot, stdio: 'pipe' })
       .toString().trim();
     result.commit = commitHash;
