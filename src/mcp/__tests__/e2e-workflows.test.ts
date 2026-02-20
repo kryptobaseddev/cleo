@@ -866,7 +866,7 @@ describe('E2E Workflow Tests (MCP Spec Section 11)', () => {
       const result = await router.routeOperation({
         gateway: 'cleo_query',
         domain: 'nonexistent',
-        operation: 'get',
+        operation: 'show',
         params: {},
       });
 

@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -60,7 +61,7 @@ export function registerExportCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         let tasks = data.tasks;
 
@@ -131,12 +132,12 @@ export function registerExportCommand(program: Command): void {
 
         if (opts['output']) {
           await writeFile(opts['output'] as string, output);
-          console.log(formatSuccess({
+          cliOutput({
             exported: true,
             format,
             taskCount: tasks.length,
             file: opts['output'] as string,
-          }));
+          }, { command: 'export' });
         } else {
           // Write directly to stdout for piping
           process.stdout.write(output);

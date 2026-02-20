@@ -8,7 +8,8 @@ import { Command } from 'commander';
 import {
   getCompletionHistory,
 } from '../../core/stats/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -30,7 +31,7 @@ export function registerHistoryCommand(program: Command): void {
           since: opts['since'] as string | undefined,
           until: opts['until'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'history' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

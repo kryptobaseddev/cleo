@@ -6,7 +6,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import {
@@ -38,11 +39,11 @@ export function registerSkillsCommand(program: Command): void {
         const skills = await discoverAllSkills();
         const summaries: SkillSummary[] = skills.map(toSkillSummary);
 
-        console.log(formatSuccess({
+        cliOutput({
           scope: opts['global'] ? 'global' : 'project',
           count: summaries.length,
           skills: summaries,
-        }));
+        }, { command: 'skills' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -90,7 +91,7 @@ export function registerSkillsCommand(program: Command): void {
           }
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           query,
           source: opts['mp'] ? 'skillsmp' : opts['all'] ? 'all' : 'local',
           counts: {
@@ -102,7 +103,7 @@ export function registerSkillsCommand(program: Command): void {
             ...localResults.map(s => ({ ...s, source: 'local' })),
             ...mpResults,
           ],
-        }));
+        }, { command: 'skills' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -121,12 +122,12 @@ export function registerSkillsCommand(program: Command): void {
         const projectSkills = await discoverAllSkills();
         const summaries = projectSkills.map(toSkillSummary);
 
-        console.log(formatSuccess({
+        cliOutput({
           project: {
             count: summaries.length,
             skills: summaries,
           },
-        }));
+        }, { command: 'skills' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -144,10 +145,10 @@ export function registerSkillsCommand(program: Command): void {
       try {
         const result = validateSkill(skillName);
 
-        console.log(formatSuccess({
+        cliOutput({
           skill: skillName,
           validation: result,
-        }));
+        }, { command: 'skills' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -171,10 +172,10 @@ export function registerSkillsCommand(program: Command): void {
         }
 
         const summary = toSkillSummary(skill);
-        console.log(formatSuccess({
+        cliOutput({
           skill: skillName,
           info: summary,
-        }));
+        }, { command: 'skills' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -199,10 +200,10 @@ export function registerSkillsCommand(program: Command): void {
           });
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           skill: skillName,
           installedTo: result.path,
-        }));
+        }, { command: 'skills' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -219,11 +220,11 @@ export function registerSkillsCommand(program: Command): void {
         const skills = await discoverAllSkills();
         const summaries = skills.map(toSkillSummary);
 
-        console.log(formatSuccess({
+        cliOutput({
           scope: 'project',
           count: summaries.length,
           skills: summaries,
-        }));
+        }, { command: 'skills' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -7,7 +7,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import {
@@ -205,7 +206,7 @@ export function registerIssueCommand(program: Command): void {
     .action(async () => {
       try {
         const diag = collectDiagnostics();
-        console.log(formatSuccess({ diagnostics: diag }));
+        cliOutput({ diagnostics: diag }, { command: 'issue' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -241,14 +242,14 @@ async function handleIssueType(
     const fullBody = buildIssueBody(issueType, body, severity, area);
 
     if (dryRun) {
-      console.log(formatSuccess({
+      cliOutput({
         dryRun: true,
         type: issueType,
         repo: CLEO_REPO,
         title: fullTitle,
         labels: labels.split(','),
         body: fullBody,
-      }));
+      }, { command: 'issue' });
       return;
     }
 
@@ -266,13 +267,13 @@ async function handleIssueType(
       }
     }
 
-    console.log(formatSuccess({
+    cliOutput({
       type: issueType,
       url: issueUrl,
       number: parseInt(issueNumber, 10) || issueNumber,
       title: fullTitle,
       labels: labels.split(','),
-    }));
+    }, { command: 'issue' });
   } catch (err) {
     if (err instanceof CleoError) {
       console.error(formatError(err));

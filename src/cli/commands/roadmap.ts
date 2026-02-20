@@ -8,7 +8,8 @@ import { Command } from 'commander';
 import {
   getRoadmap,
 } from '../../core/roadmap/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -27,7 +28,7 @@ export function registerRoadmapCommand(program: Command): void {
           includeHistory: opts['includeHistory'] as boolean | undefined,
           upcomingOnly: opts['upcomingOnly'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'roadmap' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

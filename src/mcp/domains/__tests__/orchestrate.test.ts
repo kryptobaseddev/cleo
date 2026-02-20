@@ -21,12 +21,12 @@ describe('OrchestrateHandler', () => {
   describe('getSupportedOperations', () => {
     it('returns correct query operations', () => {
       const ops = handler.getSupportedOperations();
-      expect(ops.query).toEqual(['status', 'ready', 'next', 'waves', 'context', 'progress', 'skill.list', 'analyze', 'bootstrap', 'critical-path', 'unblock-opportunities']);
+      expect(ops.query).toEqual(['status', 'ready', 'next', 'waves', 'context', 'progress', 'skill.list', 'analyze', 'bootstrap', 'critical.path', 'unblock.opportunities']);
     });
 
     it('returns correct mutate operations', () => {
       const ops = handler.getSupportedOperations();
-      expect(ops.mutate).toEqual(['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'startup', 'check', 'skill.inject']);
+      expect(ops.mutate).toEqual(['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'check', 'skill.inject']);
     });
   });
 

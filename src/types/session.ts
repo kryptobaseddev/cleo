@@ -17,11 +17,14 @@ export interface SessionScope {
   epicId?: string;
 }
 
-/** Focus state within a session. */
-export interface SessionFocus {
+/** Active task work state within a session. */
+export interface SessionTaskWork {
   taskId: string | null;
   setAt: string | null;
 }
+
+/** @deprecated Use SessionTaskWork instead. */
+export type SessionFocus = SessionTaskWork;
 
 /** A CLEO session. */
 export interface Session {
@@ -29,7 +32,9 @@ export interface Session {
   name: string;
   status: SessionStatus;
   scope: SessionScope;
-  focus: SessionFocus;
+  taskWork: SessionTaskWork;
+  /** @deprecated Use taskWork instead. */
+  focus?: SessionTaskWork;
   startedAt: string;
   endedAt?: string | null;
   agent?: string | null;

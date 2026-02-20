@@ -7,8 +7,9 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { completeTask } from '../../core/tasks/complete.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the complete command.
@@ -35,7 +36,7 @@ export function registerCompleteCommand(program: Command): void {
           data['autoCompleted'] = result.autoCompleted;
         }
 
-        console.log(formatSuccess(data));
+        cliOutput(data, { command: 'complete', operation: 'tasks.complete' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -5,7 +5,7 @@
  * and validation checks. Never modifies state.
  *
  * Domains: tasks, session, orchestrate, research, lifecycle, validate, system, issues, skills
- * Total operations: 63
+ * Total operations: 75
  *
  * @task T2915
  */
@@ -32,26 +32,26 @@ export type QueryResponse = DomainResponse;
  */
 export const QUERY_OPERATIONS: Record<string, string[]> = {
   tasks: [
-    'get',        // Get single task details
+    'show',       // Get single task details
     'list',       // List tasks with filters
     'find',       // Fuzzy search tasks
     'exists',     // Check task existence
     'tree',       // Hierarchical task view
     'blockers',   // Get blocking tasks
-    'deps',       // Get dependencies
+    'depends',    // Get dependencies
     'analyze',    // Triage analysis
     'next',       // Next task suggestion
     'relates',              // Query task relationships
-    'complexity-estimate',  // Deterministic complexity scoring
+    'complexity.estimate',  // Deterministic complexity scoring
+    'current',              // Get currently active task
   ],
   session: [
     'status',       // Current session status
     'list',         // List all sessions
     'show',         // Session details
-    'focus.get',    // Get focused task
     'history',      // Session history
-    'decision-log',   // Decision audit log
-    'context-drift',  // Session context drift analysis
+    'decision.log',   // Decision audit log
+    'context.drift',  // Session context drift analysis
   ],
   orchestrate: [
     'status',     // Orchestrator status
@@ -62,13 +62,13 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'waves',      // Wave computation
     'skill.list', // Available skills
     'bootstrap',  // Brain state bootstrap
-    'unblock-opportunities', // Unblocking opportunities analysis
-    'critical-path', // Longest dependency chain analysis
+    'unblock.opportunities', // Unblocking opportunities analysis
+    'critical.path', // Longest dependency chain analysis
   ],
   research: [
     'show',           // Research entry details
     'list',           // List research entries
-    'query',          // Search research
+    'search',         // Search research
     'pending',        // Pending research
     'stats',            // Research statistics
     'manifest.read',    // Read manifest entries
@@ -76,7 +76,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'superseded',       // Find superseded research entries
   ],
   lifecycle: [
-    'check',          // Check stage prerequisites
+    'validate',       // Check stage prerequisites
     'status',         // Current lifecycle state
     'history',        // Stage transition history
     'gates',          // All gate statuses
@@ -92,11 +92,11 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'compliance.violations', // List violations
     'test.status',          // Test suite status
     'test.coverage',        // Coverage metrics
-    'coherence-check',      // Task graph consistency
+    'coherence.check',      // Task graph consistency
   ],
   system: [
     'version',        // CLEO version
-    'doctor',         // Health check
+    'health',         // Health check
     'config.get',     // Get config value
     'stats',          // Project statistics
     'context',        // Context window info
@@ -107,7 +107,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'labels',         // Label listing and stats
     'compliance',     // Compliance metrics
     'log',            // Audit log entries
-    'archive-stats',  // Archive analytics
+    'archive.stats',  // Archive analytics
     'sequence',       // ID sequence inspection
   ],
   issues: [
@@ -124,7 +124,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
   providers: [
     'list',           // List all registered providers
     'detect',         // Detect installed providers
-    'inject_status',  // Check injection status
+    'inject.status',  // Check injection status
   ],
 };
 

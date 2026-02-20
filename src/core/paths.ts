@@ -91,10 +91,18 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
 }
 
 /**
+ * Get the path to the project's tasks.json file.
+ */
+export function getTaskPath(cwd?: string): string {
+  return join(getCleoDirAbsolute(cwd), 'tasks.json');
+}
+
+/**
  * Get the path to the project's todo.json file.
+ * @deprecated Use getTaskPath() instead.
  */
 export function getTodoPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'todo.json');
+  return getTaskPath(cwd);
 }
 
 /**
@@ -115,17 +123,17 @@ export function getSessionsPath(cwd?: string): string {
  * Get the path to the project's archive file.
  */
 export function getArchivePath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'todo-archive.json');
+  return join(getCleoDirAbsolute(cwd), 'tasks-archive.json');
 }
 
 /**
  * Get the path to the project's log file.
- * Auto-migrates legacy todo-log.json to todo-log.jsonl if needed.
+ * Auto-migrates legacy todo-log.json to tasks-log.jsonl if needed.
  * @task T4644
  */
 export function getLogPath(cwd?: string): string {
   const cleoDir = getCleoDirAbsolute(cwd);
-  const newPath = join(cleoDir, 'todo-log.jsonl');
+  const newPath = join(cleoDir, 'tasks-log.jsonl');
   const legacyPath = join(cleoDir, 'todo-log.json');
 
   // Auto-migrate: rename legacy file if new file doesn't exist

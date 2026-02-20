@@ -8,8 +8,8 @@ import { readJsonRequired, saveJson, appendJsonl, readJson } from '../../store/j
 import { safeReadFile } from '../../store/atomic.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TodoFile } from '../../types/task.js';
-import { getTodoPath, getBackupDir, getLogPath, getCleoDirAbsolute, getManifestPath as getCentralManifestPath } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
+import { getTaskPath, getBackupDir, getLogPath, getCleoDirAbsolute, getManifestPath as getCentralManifestPath } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -96,8 +96,8 @@ async function readResearch(cwd?: string): Promise<{ entries: ResearchEntry[] }>
  */
 export async function addResearch(options: AddResearchOptions, cwd?: string, accessor?: DataAccessor): Promise<ResearchEntry> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
 
   // Validate task exists
   const task = data.tasks.find(t => t.id === options.taskId);
@@ -194,8 +194,8 @@ export async function linkResearch(
 
   // Validate task exists
   const todoData = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const task = todoData.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);

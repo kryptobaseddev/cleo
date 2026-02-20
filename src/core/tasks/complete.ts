@@ -7,10 +7,14 @@
 import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TodoFile } from '../../types/task.js';
-import { getTodoPath, getLogPath, getBackupDir } from '../paths.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import {
+  safeSaveTaskFile,
+  safeAppendLog,
+} from '../../store/data-safety-central.js';
 
 /** Options for completing a task. */
 export interface CompleteTaskOptions {
@@ -31,13 +35,13 @@ export interface CompleteTaskResult {
  * @task T4461
  */
 export async function completeTask(options: CompleteTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<CompleteTaskResult> {
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
 
   const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -128,8 +132,8 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
   data.lastUpdated = now;
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
-    await accessor.appendLog({
+    await safeSaveTaskFile(accessor, data, cwd);
+    await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_completed',
@@ -138,7 +142,7 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
       details: { title: task.title, previousStatus: before.status },
       before: null,
       after: { title: task.title, previousStatus: before.status },
-    });
+    }, cwd);
   } else {
     await saveJson(todoPath, data, { backupDir });
     await logOperation(logPath, 'task_completed', options.taskId, {

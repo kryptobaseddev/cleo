@@ -7,9 +7,10 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { updateTask } from '../../core/tasks/update.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import type { TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the update command.
@@ -63,7 +64,7 @@ export function registerUpdateCommand(program: Command): void {
           noAutoComplete: opts['autoComplete'] === false ? true : undefined,
         }, undefined, accessor);
 
-        console.log(formatSuccess({ task: result.task, changes: result.changes }));
+        cliOutput({ task: result.task, changes: result.changes }, { command: 'update', operation: 'tasks.update' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -252,8 +252,6 @@ export class ResearchHandler implements DomainHandler {
           return await this.queryShow(params as unknown as ResearchShowParams);
         case 'pending':
           return await this.queryPending(params as unknown as ResearchPendingParams);
-        case 'query':
-          return await this.querySearch(params as unknown as ResearchSearchParams);
         case 'contradictions':
           return this.wrapNativeResult(nativeResearchContradictions(this.projectRoot, params as any), 'cleo_query', operation, startTime);
         case 'superseded':
@@ -282,7 +280,6 @@ export class ResearchHandler implements DomainHandler {
         return this.wrapNativeResult(nativeResearchShow(params?.researchId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'list':
         return this.wrapNativeResult(nativeResearchList(params as any, this.projectRoot), 'cleo_query', operation, startTime);
-      case 'query':
       case 'search':
         return this.wrapNativeResult(
           nativeResearchQuery(params?.query as string, { confidence: params?.confidence as number, limit: params?.limit as number }, this.projectRoot),
@@ -400,7 +397,7 @@ export class ResearchHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'query', 'contradictions', 'superseded'],
+      query: ['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'contradictions', 'superseded'],
       mutate: ['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive', 'compact', 'validate'],
     };
   }

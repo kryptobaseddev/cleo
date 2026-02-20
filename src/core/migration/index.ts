@@ -8,10 +8,67 @@
 export { checkStorageMigration } from './preflight.js';
 export type { PreflightResult } from './preflight.js';
 
+// Re-export checksum utilities for backup verification (@task T4728)
+export {
+  computeChecksum,
+  verifyBackup,
+  compareChecksums,
+} from './checksum.js';
+export type { VerificationResult } from './checksum.js';
+
+// Re-export pre-migration validation (@task T4725)
+export {
+  validateSourceFiles,
+  formatValidationResult,
+  checkTaskCountMismatch,
+} from './validate.js';
+export type { 
+  JsonValidationResult, 
+  JsonFileValidation 
+} from './validate.js';
+
+// Re-export migration state tracking (@task T4726)
+export {
+  createMigrationState,
+  updateMigrationState,
+  updateMigrationPhase,
+  updateMigrationProgress,
+  addMigrationError,
+  addMigrationWarning,
+  loadMigrationState,
+  isMigrationInProgress,
+  canResumeMigration,
+  completeMigration,
+  failMigration,
+  clearMigrationState,
+  getMigrationSummary,
+  verifySourceIntegrity,
+} from './state.js';
+export type {
+  MigrationState,
+  MigrationPhase,
+  MigrationProgress,
+  SourceFileInfo
+} from './state.js';
+
+// Re-export migration logger (@task T4727)
+export {
+  MigrationLogger,
+  createMigrationLogger,
+  readMigrationLog,
+  logFileExists,
+  getLatestMigrationLog,
+} from './logger.js';
+export type {
+  MigrationLogEntry,
+  LogLevel,
+  MigrationLoggerConfig,
+} from './logger.js';
+
 import { readJson, saveJson } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getTodoPath, getBackupDir, getCleoDirAbsolute, getConfigPath } from '../paths.js';
+import { getTaskPath, getBackupDir, getCleoDirAbsolute, getConfigPath } from '../paths.js';
 import { join } from 'node:path';
 
 /** Schema version info. */
@@ -180,7 +237,7 @@ export async function getMigrationStatus(cwd?: string): Promise<MigrationStatus>
 
   // Check todo.json
   try {
-    const todoData = await readJson(getTodoPath(cwd));
+    const todoData = await readJson(getTaskPath(cwd));
     if (todoData) {
       const current = detectVersion(todoData);
       const target = TARGET_VERSIONS['todo']!;
@@ -240,7 +297,7 @@ export async function runMigration(
   cwd?: string,
 ): Promise<MigrationResult> {
   const filePaths: Record<string, string> = {
-    todo: getTodoPath(cwd),
+    todo: getTaskPath(cwd),
     config: getConfigPath(cwd),
     archive: join(getCleoDirAbsolute(cwd), 'todo-archive.json'),
   };

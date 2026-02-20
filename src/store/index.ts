@@ -3,6 +3,7 @@
  * @epic T4454
  * @task T4457
  * @task T4645
+ * @task T4745
  */
 
 export { atomicWrite, atomicWriteJson, safeReadFile } from './atomic.js';
@@ -34,9 +35,28 @@ export type {
   ListTasksOptions, ListTasksResult,
   ArchiveTasksOptions, ArchiveTasksResult,
   FocusShowResult, FocusSetResult, FocusHistoryEntry,
+  TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry,
   AnalysisResult,
 } from './provider.js';
 export { createJsonStoreProvider } from './json-provider.js';
+
+// Safety-enabled DataAccessor exports (@task T4745)
+export {
+  SafetyDataAccessor,
+  wrapWithSafety,
+  isSafetyEnabled,
+  getSafetyStatus,
+} from './safety-data-accessor.js';
+export type { SafetyOptions } from './data-safety-central.js';
+export {
+  DataSafetyError,
+  getSafetyStats,
+  resetSafetyStats,
+  runDataIntegrityCheck,
+  forceSafetyCheckpoint,
+  disableSafety,
+  enableSafety,
+} from './data-safety-central.js';
 
 /**
  * Get a StoreProvider instance for the given working directory.

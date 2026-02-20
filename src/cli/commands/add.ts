@@ -7,9 +7,10 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { addTask } from '../../core/tasks/add.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import type { TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the add command.
@@ -57,17 +58,17 @@ export function registerAddCommand(program: Command): void {
         }, undefined, accessor);
 
         if (result.duplicate) {
-          console.log(formatSuccess(
+          cliOutput(
             { task: result.task, duplicate: true },
-            `Task with identical title was created recently`,
-          ));
+            { command: 'add', message: 'Task with identical title was created recently', operation: 'tasks.add' },
+          );
         } else if (result.dryRun) {
-          console.log(formatSuccess(
-            { wouldCreate: result.task, dryRun: true },
-            'Dry run - no changes made',
-          ));
+          cliOutput(
+            { task: result.task, dryRun: true },
+            { command: 'add', message: 'Dry run - no changes made', operation: 'tasks.add' },
+          );
         } else {
-          console.log(formatSuccess({ task: result.task }));
+          cliOutput({ task: result.task }, { command: 'add', operation: 'tasks.add' });
         }
       } catch (err) {
         if (err instanceof CleoError) {

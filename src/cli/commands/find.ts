@@ -8,11 +8,12 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { findTasks } from '../../core/tasks/find.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createPage } from '../../core/pagination.js';
 import type { TaskStatus } from '../../types/task.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the find command.
@@ -48,12 +49,12 @@ export function registerFindCommand(program: Command): void {
         }, undefined, accessor);
 
         if (result.results.length === 0) {
-          console.log(formatSuccess(result, 'No matching tasks found'));
+          cliOutput(result, { command: 'find', message: 'No matching tasks found', operation: 'tasks.find' });
           process.exit(ExitCode.NO_DATA);
         }
 
         const page = createPage({ total: result.total ?? result.results.length, limit, offset });
-        console.log(formatSuccess(result, undefined, { operation: 'tasks.find', page }));
+        cliOutput(result, { command: 'find', operation: 'tasks.find', page });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

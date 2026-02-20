@@ -1,6 +1,7 @@
 /**
- * Focus management operations.
+ * Task work management operations (start/stop/current).
  * @task T4462
+ * @task T4750
  * @epic T4454
  */
 
@@ -12,32 +13,33 @@ import { getTodoPath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
-/** Result of getting focus. */
-export interface FocusShowResult {
+/** Result of getting current task. */
+export interface TaskCurrentResult {
   currentTask: string | null;
   currentPhase: string | null;
   sessionNote: string | null;
   nextAction: string | null;
 }
 
-/** Result of focus set. */
-export interface FocusSetResult {
+/** Result of starting work on a task. */
+export interface TaskStartResult {
   taskId: string;
   taskTitle: string;
   previousTask: string | null;
 }
 
-/** Focus history entry. */
-export interface FocusHistoryEntry {
+/** Task work history entry. */
+export interface TaskWorkHistoryEntry {
   taskId: string;
   timestamp: string;
 }
 
 /**
- * Show current focus state.
+ * Show current task work state.
  * @task T4462
+ * @task T4750
  */
-export async function showFocus(cwd?: string, accessor?: DataAccessor): Promise<FocusShowResult> {
+export async function currentTask(cwd?: string, accessor?: DataAccessor): Promise<TaskCurrentResult> {
   const data = accessor
     ? await accessor.loadTodoFile()
     : await readJsonRequired<TodoFile>(getTodoPath(cwd));
@@ -53,10 +55,11 @@ export async function showFocus(cwd?: string, accessor?: DataAccessor): Promise<
 }
 
 /**
- * Set focus to a specific task.
+ * Start working on a specific task.
  * @task T4462
+ * @task T4750
  */
-export async function setFocus(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<FocusSetResult> {
+export async function startTask(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskStartResult> {
   if (!taskId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Task ID is required');
   }
@@ -88,9 +91,9 @@ export async function setFocus(taskId: string, cwd?: string, accessor?: DataAcce
   data.focus.currentTask = taskId;
   data.focus.currentPhase = task.phase ?? null;
 
-  // Add to session notes for focus history tracking
+  // Add to session notes for work history tracking
   const noteEntry = {
-    note: `Focus set to ${taskId}: ${task.title}`,
+    note: `Started work on ${taskId}: ${task.title}`,
     timestamp: new Date().toISOString(),
   };
   if (!data.focus.sessionNotes) {
@@ -109,7 +112,7 @@ export async function setFocus(taskId: string, cwd?: string, accessor?: DataAcce
     await saveJson(todoPath, data, { backupDir });
   }
 
-  await logOperation(logPath, 'focus_set', taskId, {
+  await logOperation(logPath, 'task_start', taskId, {
     previousTask,
     title: task.title,
   }, accessor);
@@ -122,10 +125,11 @@ export async function setFocus(taskId: string, cwd?: string, accessor?: DataAcce
 }
 
 /**
- * Clear current focus.
+ * Stop working on the current task.
  * @task T4462
+ * @task T4750
  */
-export async function clearFocus(cwd?: string, accessor?: DataAccessor): Promise<{ previousTask: string | null }> {
+export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{ previousTask: string | null }> {
   const todoPath = getTodoPath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
@@ -153,7 +157,7 @@ export async function clearFocus(cwd?: string, accessor?: DataAccessor): Promise
     await saveJson(todoPath, data, { backupDir });
   }
 
-  await logOperation(logPath, 'focus_cleared', previousTask ?? 'none', {
+  await logOperation(logPath, 'task_stop', previousTask ?? 'none', {
     previousTask,
   }, accessor);
 
@@ -161,19 +165,21 @@ export async function clearFocus(cwd?: string, accessor?: DataAccessor): Promise
 }
 
 /**
- * Get focus history from session notes.
+ * Get task work history from session notes.
  * @task T4462
+ * @task T4750
  */
-export async function getFocusHistory(cwd?: string, accessor?: DataAccessor): Promise<FocusHistoryEntry[]> {
+export async function getWorkHistory(cwd?: string, accessor?: DataAccessor): Promise<TaskWorkHistoryEntry[]> {
   const data = accessor
     ? await accessor.loadTodoFile()
     : await readJsonRequired<TodoFile>(getTodoPath(cwd));
 
   const notes = data.focus?.sessionNotes ?? [];
-  const history: FocusHistoryEntry[] = [];
+  const history: TaskWorkHistoryEntry[] = [];
 
   for (const note of notes) {
-    const match = note.note.match(/^Focus set to (T\d+)/);
+    // Match both old "Focus set to" and new "Started work on" patterns
+    const match = note.note.match(/^(?:Focus set to|Started work on) (T\d+)/);
     if (match) {
       history.push({
         taskId: match[1]!,
@@ -184,3 +190,21 @@ export async function getFocusHistory(cwd?: string, accessor?: DataAccessor): Pr
 
   return history.reverse(); // Most recent first
 }
+
+// ---- Backward-compatible aliases (deprecated) ----
+
+/** @deprecated Use TaskCurrentResult instead. */
+export type FocusShowResult = TaskCurrentResult;
+/** @deprecated Use TaskStartResult instead. */
+export type FocusSetResult = TaskStartResult;
+/** @deprecated Use TaskWorkHistoryEntry instead. */
+export type FocusHistoryEntry = TaskWorkHistoryEntry;
+
+/** @deprecated Use currentTask() instead. */
+export const showFocus = currentTask;
+/** @deprecated Use startTask() instead. */
+export const setFocus = startTask;
+/** @deprecated Use stopTask() instead. */
+export const clearFocus = stopTask;
+/** @deprecated Use getWorkHistory() instead. */
+export const getFocusHistory = getWorkHistory;

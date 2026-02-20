@@ -4,8 +4,9 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
+import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';
@@ -48,7 +49,7 @@ export function registerBlockersCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
 
@@ -105,20 +106,20 @@ export function registerBlockersCommand(program: Command): void {
           });
 
         if (blockerInfos.length === 0) {
-          console.log(formatSuccess({
+          cliOutput({
             blockedTasks: [],
             criticalBlockers: [],
             summary: 'No blocked tasks found',
-          }));
+          }, { command: 'blockers', operation: 'tasks.blockers' });
           process.exit(ExitCode.NO_DATA);
           return;
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           blockedTasks: blockerInfos,
           criticalBlockers,
           summary: `${blockerInfos.length} blocked task(s)`,
-        }));
+        }, { command: 'blockers', operation: 'tasks.blockers' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

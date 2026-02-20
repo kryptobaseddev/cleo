@@ -10,7 +10,8 @@ import {
   checkSequence,
   repairSequence,
 } from '../../core/sequence/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -28,7 +29,7 @@ export function registerSequenceCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await showSequence();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'sequence' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -44,7 +45,7 @@ export function registerSequenceCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await checkSequence();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'sequence' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -60,7 +61,7 @@ export function registerSequenceCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await repairSequence();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'sequence' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -12,7 +12,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../../core/paths.js';
@@ -85,7 +86,7 @@ export function registerSelfUpdateCommand(program: Command): void {
         if (isDev && !opts['force']) {
           // For dev installs, still run post-update diagnostics
           const preflight = checkStorageMigration();
-          console.log(formatSuccess({
+          cliOutput({
             devMode: true,
             currentVersion,
             message: 'Dev install detected. Use git pull to update.',
@@ -94,7 +95,7 @@ export function registerSelfUpdateCommand(program: Command): void {
               summary: preflight.summary,
               fix: preflight.fix,
             },
-          }));
+          }, { command: 'self-update' });
           if (preflight.migrationNeeded) {
             process.stderr.write(
               `\n⚠ Storage migration needed: ${preflight.summary}\n`
@@ -115,7 +116,7 @@ export function registerSelfUpdateCommand(program: Command): void {
           const updateAvailable = latest !== currentVersion;
           const preflight = checkStorageMigration();
 
-          console.log(formatSuccess({
+          cliOutput({
             currentVersion,
             latestVersion: latest,
             updateAvailable,
@@ -124,7 +125,7 @@ export function registerSelfUpdateCommand(program: Command): void {
               summary: preflight.summary,
               fix: preflight.fix,
             },
-          }));
+          }, { command: 'self-update' });
 
           if (opts['check'] && updateAvailable) {
             process.exit(1); // exit 1 means update available for scripting
@@ -141,21 +142,21 @@ export function registerSelfUpdateCommand(program: Command): void {
         if (latest === currentVersion && !opts['force']) {
           // Up to date - still run post-update diagnostics
           await runPostUpdateDiagnostics();
-          console.log(formatSuccess({
+          cliOutput({
             currentVersion,
             upToDate: true,
-          }, 'Already up to date'));
+          }, { command: 'self-update', message: 'Already up to date' });
           return;
         }
 
         // For the TS port, self-update delegates the heavy lifting
         // to the install script since we need to replace files on disk
-        console.log(formatSuccess({
+        cliOutput({
           currentVersion,
           targetVersion: latest,
           message: 'Run the install script to update: curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/install.sh | bash',
           postUpdate: 'After updating, run: cleo self-update --post-update',
-        }));
+        }, { command: 'self-update' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -187,7 +188,7 @@ async function runPostUpdateDiagnostics(): Promise<void> {
 
     const result = await runUpgrade({ autoMigrate: true });
 
-    console.log(formatSuccess({
+    cliOutput({
       postUpdate: true,
       upgrade: {
         success: result.success,
@@ -196,7 +197,7 @@ async function runPostUpdateDiagnostics(): Promise<void> {
         storageMigration: result.storageMigration,
         errors: result.errors.length > 0 ? result.errors : undefined,
       },
-    }, result.success ? 'Post-update upgrade complete.' : 'Post-update upgrade had errors.'));
+    }, { command: 'self-update', message: result.success ? 'Post-update upgrade complete.' : 'Post-update upgrade had errors.' });
 
     if (!result.success) {
       process.stderr.write(
@@ -205,12 +206,12 @@ async function runPostUpdateDiagnostics(): Promise<void> {
       );
     }
   } else {
-    console.log(formatSuccess({
+    cliOutput({
       postUpdate: true,
       storagePreflight: {
         migrationNeeded: false,
         summary: preflight.summary,
       },
-    }, 'No post-update actions needed.'));
+    }, { command: 'self-update', message: 'No post-update actions needed.' });
   }
 }

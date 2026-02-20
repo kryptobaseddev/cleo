@@ -9,7 +9,8 @@ import { Command } from 'commander';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { getCleoDir } from '../../core/paths.js';
 import { readJson, computeChecksum } from '../../store/json.js';
@@ -104,7 +105,7 @@ export function registerSafestopCommand(program: Command): void {
 
         // Get focused task
         const accessor = await getAccessor();
-        const todoData = await accessor.loadTodoFile();
+        const todoData = await accessor.loadTaskFile();
         const taskId = todoData?.focus?.currentTask ?? null;
         const taskTitle = taskId
           ? todoData?.tasks.find((t) => t.id === taskId)?.title ?? null
@@ -119,14 +120,14 @@ export function registerSafestopCommand(program: Command): void {
           if (handoffFile) actions.push(`Generate handoff to ${handoffFile}`);
           if (endSession) actions.push('End CLEO session');
 
-          console.log(formatSuccess({
+          cliOutput({
             dryRun: true,
             reason,
             contextPercentage: percentage,
             focusedTask: taskId ? { id: taskId, title: taskTitle } : null,
             gitStatus: gitStatus.summary,
             wouldPerform: actions,
-          }));
+          }, { command: 'safestop' });
           return;
         }
 
@@ -203,15 +204,15 @@ export function registerSafestopCommand(program: Command): void {
         if (taskId && todoData) {
           todoData._meta.checksum = computeChecksum(todoData.tasks);
           todoData.lastUpdated = new Date().toISOString();
-          await accessor.saveTodoFile(todoData);
+          await accessor.saveTaskFile(todoData);
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           reason,
           contextPercentage: percentage,
           focusedTask: taskId ? { id: taskId, title: taskTitle } : null,
           performed,
-        }, 'Safestop complete'));
+        }, { command: 'safestop', message: 'Safestop complete' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

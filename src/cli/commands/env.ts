@@ -8,7 +8,7 @@ import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { formatSuccess } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 
 /** Parsed VERSION file data. */
 interface VersionInfo {
@@ -176,7 +176,7 @@ export function registerEnvCommand(program: Command): void {
     .description('Show current environment mode and runtime info')
     .action(async () => {
       const result = await getEnvStatus();
-      console.log(formatSuccess(result));
+      cliOutput(result, { command: 'env' });
     });
 
   env
@@ -184,6 +184,6 @@ export function registerEnvCommand(program: Command): void {
     .description('Show detailed environment info including binary paths and compilation status')
     .action(async () => {
       const result = await getEnvInfo();
-      console.log(formatSuccess(result));
+      cliOutput(result, { command: 'env' });
     });
 }

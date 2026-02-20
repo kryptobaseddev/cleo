@@ -14,8 +14,9 @@ import {
   detectCycles,
   getTaskTree,
 } from '../../core/phases/deps.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the deps command.
@@ -32,7 +33,7 @@ export function registerDepsCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await getDepsOverview();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'deps', operation: 'tasks.depends' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -48,7 +49,7 @@ export function registerDepsCommand(program: Command): void {
     .action(async (taskId: string) => {
       try {
         const result = await getTaskDeps(taskId);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'deps', operation: 'tasks.depends' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -64,7 +65,7 @@ export function registerDepsCommand(program: Command): void {
     .action(async (epicId?: string) => {
       try {
         const result = await getExecutionWaves(epicId);
-        console.log(formatSuccess({ waves: result }));
+        cliOutput({ waves: result }, { command: 'deps', operation: 'tasks.depends' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -80,7 +81,7 @@ export function registerDepsCommand(program: Command): void {
     .action(async (taskId: string) => {
       try {
         const result = await getCriticalPath(taskId);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'deps', operation: 'tasks.depends' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -98,7 +99,7 @@ export function registerDepsCommand(program: Command): void {
       try {
         const depth = parseInt(opts['depth'] as string, 10);
         const result = await getImpact(taskId, depth);
-        console.log(formatSuccess({ taskId, impacted: result, count: result.length }));
+        cliOutput({ taskId, impacted: result, count: result.length }, { command: 'deps', operation: 'tasks.depends' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -114,7 +115,7 @@ export function registerDepsCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await detectCycles();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'deps', operation: 'tasks.depends' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -136,7 +137,7 @@ export function registerTreeCommand(program: Command): void {
     .action(async (rootId?: string) => {
       try {
         const result = await getTaskTree(rootId);
-        console.log(formatSuccess({ tree: result }));
+        cliOutput({ tree: result }, { command: 'tree', operation: 'tasks.tree' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

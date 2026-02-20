@@ -13,7 +13,8 @@ import {
   getRealTokenUsage,
   clearOtelData,
 } from '../../core/otel/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -31,7 +32,7 @@ export function registerOtelCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await getOtelStatus();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'otel' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -47,7 +48,7 @@ export function registerOtelCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await getOtelSummary();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'otel' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -68,7 +69,7 @@ export function registerOtelCommand(program: Command): void {
           session: opts['session'] as string | undefined,
           task: opts['task'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'otel' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -89,7 +90,7 @@ export function registerOtelCommand(program: Command): void {
           task: opts['task'] as string | undefined,
           epic: opts['epic'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'otel' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -110,7 +111,7 @@ export function registerOtelCommand(program: Command): void {
           session: opts['session'] as string | undefined,
           since: opts['since'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'otel' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -126,7 +127,7 @@ export function registerOtelCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await clearOtelData();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'otel' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor, type DataAccessor } from '../../store/data-accessor.js';
@@ -12,8 +13,8 @@ import { getAccessor, type DataAccessor } from '../../store/data-accessor.js';
 /**
  * Check if a task exists in the todo file via accessor.
  */
-async function taskExistsInTodoFile(taskId: string, accessor: DataAccessor): Promise<boolean> {
-  const data = await accessor.loadTodoFile();
+async function taskExistsInTaskFile(taskId: string, accessor: DataAccessor): Promise<boolean> {
+  const data = await accessor.loadTaskFile();
   return data.tasks.some((t) => t.id === taskId);
 }
 
@@ -45,30 +46,30 @@ export function registerExistsCommand(program: Command): void {
         let found = false;
         let location = '';
 
-        if (await taskExistsInTodoFile(taskId, accessor)) {
+        if (await taskExistsInTaskFile(taskId, accessor)) {
           found = true;
-          location = 'todo.json';
+          location = 'tasks.json';
         }
 
         if (!found && opts['includeArchive']) {
           if (await taskExistsInArchive(taskId, accessor)) {
             found = true;
-            location = 'todo-archive.json';
+            location = 'tasks-archive.json';
           }
         }
 
         if (found) {
-          console.log(formatSuccess({
+          cliOutput({
             exists: true,
             taskId,
             location,
-          }));
+          }, { command: 'exists' });
         } else {
-          console.log(formatSuccess({
+          cliOutput({
             exists: false,
             taskId,
             searchedArchive: !!opts['includeArchive'],
-          }));
+          }, { command: 'exists' });
           process.exit(ExitCode.NOT_FOUND);
         }
       } catch (err) {

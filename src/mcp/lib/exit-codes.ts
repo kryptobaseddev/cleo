@@ -518,9 +518,9 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     category: ErrorCategory.SESSION,
     severity: ErrorSeverity.ERROR,
     retryable: false,
-    fixTemplate: 'Start session first: cleo session start --scope epic:{epicId} --auto-focus',
+    fixTemplate: 'Start session first: cleo session start --scope epic:{epicId} --auto-start',
     alternatives: [
-      { action: 'Start session', command: 'cleo session start --scope epic:{epicId} --auto-focus' },
+      { action: 'Start session', command: 'cleo session start --scope epic:{epicId} --auto-start' },
       { action: 'Resume session', command: 'cleo session resume {sessionId}' },
     ],
   },

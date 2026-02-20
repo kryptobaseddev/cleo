@@ -14,7 +14,8 @@ import {
   validateSpawnOutput,
   getOrchestratorContext,
 } from '../../core/orchestration/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -32,7 +33,7 @@ export function registerOrchestrateCommand(program: Command): void {
     .action(async (epicId: string) => {
       try {
         const result = await startOrchestration(epicId);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'orchestrate' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -48,7 +49,7 @@ export function registerOrchestrateCommand(program: Command): void {
     .action(async (epicId: string) => {
       try {
         const result = await analyzeEpic(epicId);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'orchestrate' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -64,7 +65,7 @@ export function registerOrchestrateCommand(program: Command): void {
     .action(async (epicId: string) => {
       try {
         const result = await getReadyTasks(epicId);
-        console.log(formatSuccess({ tasks: result, count: result.length }));
+        cliOutput({ tasks: result, count: result.length }, { command: 'orchestrate' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -81,9 +82,9 @@ export function registerOrchestrateCommand(program: Command): void {
       try {
         const result = await getNextTask(epicId);
         if (!result) {
-          console.log(formatSuccess({ task: null, message: 'No ready tasks' }));
+          cliOutput({ task: null, message: 'No ready tasks' }, { command: 'orchestrate' });
         } else {
-          console.log(formatSuccess({ task: result }));
+          cliOutput({ task: result }, { command: 'orchestrate' });
         }
       } catch (err) {
         if (err instanceof CleoError) {
@@ -100,7 +101,7 @@ export function registerOrchestrateCommand(program: Command): void {
     .action(async (taskId: string) => {
       try {
         const result = await prepareSpawn(taskId);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'orchestrate' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -121,7 +122,7 @@ export function registerOrchestrateCommand(program: Command): void {
           file: opts['file'] as string | undefined,
           manifestEntry: opts['manifest'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'orchestrate' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -137,7 +138,7 @@ export function registerOrchestrateCommand(program: Command): void {
     .action(async (epicId: string) => {
       try {
         const result = await getOrchestratorContext(epicId);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'orchestrate' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

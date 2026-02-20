@@ -11,7 +11,8 @@
 
 import { Command } from 'commander';
 import { detectEnvMode, generateMcpServerEntry } from '../../core/mcp/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import {
   getInstalledProviders,
@@ -52,7 +53,7 @@ export function registerMcpInstallCommand(program: Command): void {
             })),
             count: providers.length,
           };
-          console.log(formatSuccess(result));
+          cliOutput(result, { command: 'mcp-install' });
           return;
         }
 
@@ -74,19 +75,19 @@ export function registerMcpInstallCommand(program: Command): void {
           }
 
           if (opts['dryRun']) {
-            console.log(formatSuccess({
+            cliOutput({
               env: { mode: env.mode, source: env.source },
               serverEntry,
               results: [{ target: provider.id, action: 'would_write' }],
               dryRun: true,
-            }));
+            }, { command: 'mcp-install' });
             return;
           }
 
           const result = await installMcpServer(
             provider, 'cleo', serverEntry, scope, projectDir,
           );
-          console.log(formatSuccess({
+          cliOutput({
             env: { mode: env.mode, source: env.source },
             serverEntry,
             results: [{
@@ -95,7 +96,7 @@ export function registerMcpInstallCommand(program: Command): void {
               path: result.configPath,
               error: result.error,
             }],
-          }));
+          }, { command: 'mcp-install' });
           return;
         }
 
@@ -110,14 +111,14 @@ export function registerMcpInstallCommand(program: Command): void {
         }
 
         if (opts['dryRun']) {
-          console.log(formatSuccess({
+          cliOutput({
             env: { mode: env.mode, source: env.source },
             serverEntry,
             results: providers.map(p => ({
               target: p.id, action: 'would_write',
             })),
             dryRun: true,
-          }));
+          }, { command: 'mcp-install' });
           return;
         }
 
@@ -125,7 +126,7 @@ export function registerMcpInstallCommand(program: Command): void {
           providers, 'cleo', serverEntry, scope, projectDir,
         );
 
-        console.log(formatSuccess({
+        cliOutput({
           env: { mode: env.mode, source: env.source },
           serverEntry,
           results: results.map(r => ({
@@ -134,7 +135,7 @@ export function registerMcpInstallCommand(program: Command): void {
             path: r.configPath,
             error: r.error,
           })),
-        }));
+        }, { command: 'mcp-install' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

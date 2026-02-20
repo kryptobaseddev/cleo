@@ -7,7 +7,8 @@
 
 import { Command } from 'commander';
 import { writeFile } from 'node:fs/promises';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -135,7 +136,7 @@ export function registerExportTasksCommand(program: Command): void {
     .action(async (taskIds: string[], opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
-        const todoData = await accessor.loadTodoFile();
+        const todoData = await accessor.loadTaskFile();
 
         const allTasks = todoData.tasks;
         const subtreeMode = opts['subtree'] as boolean ?? false;
@@ -200,12 +201,12 @@ export function registerExportTasksCommand(program: Command): void {
 
         // Dry run
         if (dryRun) {
-          console.log(formatSuccess({
+          cliOutput({
             dryRun: true,
             exportMode,
             taskCount: selectedTasks.length,
             taskIds: selectedTasks.map((t) => t.id),
-          }, `Would export ${selectedTasks.length} task(s)`));
+          }, { command: 'export-tasks', message: `Would export ${selectedTasks.length} task(s)` });
           return;
         }
 
@@ -221,11 +222,11 @@ export function registerExportTasksCommand(program: Command): void {
 
         if (outputFile) {
           await writeFile(outputFile, output);
-          console.log(formatSuccess({
+          cliOutput({
             exportMode,
             taskCount: selectedTasks.length,
             outputPath: outputFile,
-          }));
+          }, { command: 'export-tasks' });
         } else {
           process.stdout.write(output);
           if (!output.endsWith('\n')) process.stdout.write('\n');

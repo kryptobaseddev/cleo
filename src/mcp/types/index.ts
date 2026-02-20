@@ -42,7 +42,7 @@ export {
 } from './error.js';
 export type { ErrorCode } from './error.js';
 
-// Tasks domain (19 operations)
+// Tasks domain (22 operations)
 export type {
   TaskStatus,
   TaskPriority,
@@ -72,6 +72,8 @@ export type {
   TasksNextParams,
   SuggestedTask,
   TasksNextResult,
+  TasksCurrentParams,
+  TasksCurrentResult,
   // Mutate operations
   TasksCreateParams,
   TasksCreateResult,
@@ -93,12 +95,15 @@ export type {
   TasksReorderResult,
   TasksReopenParams,
   TasksReopenResult,
+  TasksStartParams,
+  TasksStartResult,
+  TasksStopParams,
+  TasksStopResult,
 } from './operations/tasks.js';
 
-// Session domain (12 operations)
+// Session domain (9 operations)
 export type {
   Session,
-  FocusInfo,
   // Query operations
   SessionStatusParams,
   SessionStatusResult,
@@ -106,8 +111,6 @@ export type {
   SessionListResult,
   SessionShowParams,
   SessionShowResult,
-  SessionFocusGetParams,
-  SessionFocusGetResult,
   SessionHistoryParams,
   SessionHistoryEntry,
   SessionHistoryResult,
@@ -120,10 +123,6 @@ export type {
   SessionResumeResult,
   SessionSuspendParams,
   SessionSuspendResult,
-  SessionFocusSetParams,
-  SessionFocusSetResult,
-  SessionFocusClearParams,
-  SessionFocusClearResult,
   SessionGcParams,
   SessionGcResult,
 } from './operations/session.js';

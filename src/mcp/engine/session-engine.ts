@@ -8,8 +8,10 @@
  * Uses StoreProvider (via getStore()) for task/session data access where possible,
  * falling back to direct JSON for complex mutate operations that need locking.
  *
- * Supports: status, list, show, focus.get, focus.set, focus.clear, start, end,
- *           resume, gc, suspend, history, cleanup
+ * Supports: status, list, show, start, end, resume, gc, suspend, history, cleanup
+ *
+ * Task-work operations (taskCurrentGet, taskStart, taskStop) are also defined here
+ * but routed via the tasks domain.
  *
  * @task T4657
  * @epic T4654
@@ -322,12 +324,13 @@ export async function sessionShow(
 }
 
 /**
- * Get current focus.
+ * Get current task being worked on.
  * Uses DataAccessor for domain data access.
  * @task T4657
+ * @task T4750
  * @epic T4654
  */
-export async function focusGet(
+export async function taskCurrentGet(
   projectRoot: string
 ): Promise<EngineResult<{ currentTask: string | null; currentPhase: string | null }>> {
   try {
@@ -351,9 +354,10 @@ export async function focusGet(
 }
 
 /**
- * Set focus to a specific task
+ * Start working on a specific task.
+ * @task T4750
  */
-export async function focusSet(
+export async function taskStart(
   projectRoot: string,
   taskId: string
 ): Promise<EngineResult<{ taskId: string; previousTask: string | null }>> {
@@ -403,9 +407,10 @@ export async function focusSet(
 }
 
 /**
- * Clear current focus
+ * Stop working on the current task.
+ * @task T4750
  */
-export async function focusClear(
+export async function taskStop(
   projectRoot: string
 ): Promise<EngineResult<{ cleared: boolean; previousTask: string | null }>> {
   try {
@@ -443,7 +448,7 @@ export async function sessionStart(
   params: {
     scope: string;
     name?: string;
-    autoFocus?: boolean;
+    autoStart?: boolean;
     focus?: string;
   }
 ): Promise<EngineResult<SessionRecord>> {
@@ -486,7 +491,7 @@ export async function sessionStart(
         includeDescendants: true,
       },
       focus: {
-        currentTask: params.focus || (params.autoFocus ? rootTaskId : null),
+        currentTask: params.focus || (params.autoStart ? rootTaskId : null),
         currentPhase: null,
         previousTask: null,
       },
@@ -518,7 +523,7 @@ export async function sessionStart(
 
     if (params.focus) {
       current.focus.currentTask = params.focus;
-    } else if (params.autoFocus) {
+    } else if (params.autoStart) {
       current.focus.currentTask = rootTaskId;
     }
 
@@ -1764,8 +1769,10 @@ export async function sessionArchive(
     await accessor.saveSessions(sessions as any);
   }
 
-  return {
+   return {
     success: true,
     data: { archived: archivedIds, count: archivedIds.length },
   };
 }
+
+

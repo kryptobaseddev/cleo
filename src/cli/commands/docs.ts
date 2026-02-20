@@ -8,7 +8,8 @@
 import { Command } from 'commander';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { readJson } from '../../store/json.js';
 import { getAgentOutputsAbsolute } from '../../core/paths.js';
@@ -149,12 +150,12 @@ export function registerDocsCommand(program: Command): void {
         const projectRoot = process.cwd();
         const result = await detectDrift(projectRoot);
 
-        console.log(formatSuccess({
+        cliOutput({
           status: result.status,
           missingFromIndex: result.missingFromIndex,
           missingFromScripts: result.missingFromScripts,
           warnings: result.warnings,
-        }, result.status === 'clean' ? 'Documentation is in sync' : `Drift detected: ${result.warnings.join('; ')}`));
+        }, { command: 'docs', message: result.status === 'clean' ? 'Documentation is in sync' : `Drift detected: ${result.warnings.join('; ')}` });
 
         if (opts['strict'] && result.status !== 'clean') {
           process.exit(result.status === 'error' ? 2 : 1);
@@ -180,15 +181,15 @@ export function registerDocsCommand(program: Command): void {
         const gaps = await runGapCheck(projectRoot, filterId);
 
         if (gaps.length === 0) {
-          console.log(formatSuccess(
+          cliOutput(
             { gapCount: 0, results: [] },
-            'No documentation gaps found',
-          ));
+            { command: 'docs', message: 'No documentation gaps found' },
+          );
         } else {
-          console.log(formatSuccess({
+          cliOutput({
             gapCount: gaps.length,
             results: gaps,
-          }, `Found ${gaps.length} document(s) with gaps`));
+          }, { command: 'docs', message: `Found ${gaps.length} document(s) with gaps` });
         }
       } catch (err) {
         if (err instanceof CleoError) {

@@ -8,11 +8,12 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { listTasks } from '../../core/tasks/list.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createPage } from '../../core/pagination.js';
 import type { TaskStatus, TaskPriority, TaskType } from '../../types/task.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the list command.
@@ -51,12 +52,12 @@ export function registerListCommand(program: Command): void {
         }, undefined, accessor);
 
         if (result.tasks.length === 0) {
-          console.log(formatSuccess(result, 'No tasks found'));
+          cliOutput(result, { command: 'list', message: 'No tasks found', operation: 'tasks.list' });
           process.exit(ExitCode.NO_DATA);
         }
 
         const page = createPage({ total: result.total ?? result.tasks.length, limit, offset });
-        console.log(formatSuccess(result, undefined, { operation: 'tasks.list', page }));
+        cliOutput(result, { command: 'list', operation: 'tasks.list', page });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

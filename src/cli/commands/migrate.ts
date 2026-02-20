@@ -10,7 +10,8 @@ import {
   runMigration,
   runAllMigrations,
 } from '../../core/migration/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -28,7 +29,7 @@ export function registerMigrateCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await getMigrationStatus();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'migrate' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -48,12 +49,12 @@ export function registerMigrateCommand(program: Command): void {
           const result = await runMigration(fileType, {
             dryRun: opts['dryRun'] as boolean | undefined,
           });
-          console.log(formatSuccess(result));
+          cliOutput(result, { command: 'migrate' });
         } else {
           const results = await runAllMigrations({
             dryRun: opts['dryRun'] as boolean | undefined,
           });
-          console.log(formatSuccess({ migrations: results, count: results.length }));
+          cliOutput({ migrations: results, count: results.length }, { command: 'migrate' });
         }
       } catch (err) {
         if (err instanceof CleoError) {

@@ -1,7 +1,7 @@
 /**
  * SQLite-backed session store operations.
  *
- * CRUD operations for sessions and focus tracking backed by tasks.db.
+ * CRUD operations for sessions and task work tracking backed by tasks.db.
  *
  * @epic T4454
  * @task W1-T4
@@ -21,9 +21,9 @@ function rowToSession(row: SessionRow): Session {
     name: row.name,
     status: row.status as SessionStatus,
     scope: parseJson<SessionScope>(row.scopeJson) ?? { type: 'global' },
-    focus: {
-      taskId: row.currentFocus,
-      setAt: row.focusSetAt,
+    taskWork: {
+      taskId: row.currentTask,
+      setAt: row.taskStartedAt,
     },
     startedAt: row.startedAt,
     endedAt: row.endedAt,
@@ -55,8 +55,8 @@ export async function createSession(session: Session, cwd?: string): Promise<Ses
     name: session.name,
     status: session.status,
     scopeJson: JSON.stringify(session.scope),
-    currentFocus: session.focus?.taskId,
-    focusSetAt: session.focus?.setAt,
+    currentTask: session.taskWork?.taskId,
+    taskStartedAt: session.taskWork?.setAt,
     agent: session.agent,
     notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
     tasksCompletedJson: session.tasksCompleted ? JSON.stringify(session.tasksCompleted) : '[]',
@@ -153,10 +153,10 @@ export async function endSession(
   return updateSession(sessionId, updates, cwd);
 }
 
-// === FOCUS OPERATIONS ===
+// === TASK WORK OPERATIONS ===
 
-/** Set focus to a task within a session. */
-export async function setFocus(
+/** Start working on a task within a session. */
+export async function startTask(
   sessionId: string,
   taskId: string,
   cwd?: string,
@@ -164,79 +164,79 @@ export async function setFocus(
   const db = await getDb(cwd);
   const now = new Date().toISOString();
 
-  // Clear previous focus history entry (set clearedAt)
-  db.update(schema.sessionFocusHistory)
+  // Clear previous work history entry (set clearedAt)
+  db.update(schema.taskWorkHistory)
     .set({ clearedAt: now })
     .where(and(
-      eq(schema.sessionFocusHistory.sessionId, sessionId),
-      eq(schema.sessionFocusHistory.clearedAt, ''),
+      eq(schema.taskWorkHistory.sessionId, sessionId),
+      eq(schema.taskWorkHistory.clearedAt, ''),
     ))
     .run();
 
-  // Record new focus in history
-  db.insert(schema.sessionFocusHistory)
+  // Record new task work in history
+  db.insert(schema.taskWorkHistory)
     .values({ sessionId, taskId, setAt: now })
     .run();
 
-  // Update session's current focus
+  // Update session's current task
   db.update(schema.sessions)
-    .set({ currentFocus: taskId, focusSetAt: now })
+    .set({ currentTask: taskId, taskStartedAt: now })
     .where(eq(schema.sessions.id, sessionId))
     .run();
 
   saveToFile();
 }
 
-/** Get current focus for a session. */
-export async function getFocus(
+/** Get current task for a session. */
+export async function getCurrentTask(
   sessionId: string,
   cwd?: string,
 ): Promise<{ taskId: string | null; since: string | null }> {
   const db = await getDb(cwd);
   const rows = db.select({
-    currentFocus: schema.sessions.currentFocus,
-    focusSetAt: schema.sessions.focusSetAt,
+    currentTask: schema.sessions.currentTask,
+    taskStartedAt: schema.sessions.taskStartedAt,
   }).from(schema.sessions)
     .where(eq(schema.sessions.id, sessionId))
     .all();
 
   if (rows.length === 0) return { taskId: null, since: null };
-  return { taskId: rows[0]!.currentFocus, since: rows[0]!.focusSetAt };
+  return { taskId: rows[0]!.currentTask, since: rows[0]!.taskStartedAt };
 }
 
-/** Clear focus for a session. */
-export async function clearFocus(sessionId: string, cwd?: string): Promise<void> {
+/** Stop working on the current task for a session. */
+export async function stopTask(sessionId: string, cwd?: string): Promise<void> {
   const db = await getDb(cwd);
   const now = new Date().toISOString();
 
-  // Close current focus history entry
-  db.update(schema.sessionFocusHistory)
+  // Close current work history entry
+  db.update(schema.taskWorkHistory)
     .set({ clearedAt: now })
     .where(and(
-      eq(schema.sessionFocusHistory.sessionId, sessionId),
-      eq(schema.sessionFocusHistory.clearedAt, ''),
+      eq(schema.taskWorkHistory.sessionId, sessionId),
+      eq(schema.taskWorkHistory.clearedAt, ''),
     ))
     .run();
 
-  // Clear session focus
+  // Clear session's current task
   db.update(schema.sessions)
-    .set({ currentFocus: null, focusSetAt: null })
+    .set({ currentTask: null, taskStartedAt: null })
     .where(eq(schema.sessions.id, sessionId))
     .run();
 
   saveToFile();
 }
 
-/** Get focus history for a session. */
-export async function focusHistory(
+/** Get work history for a session. */
+export async function workHistory(
   sessionId: string,
   limit: number = 50,
   cwd?: string,
 ): Promise<Array<{ taskId: string; setAt: string; clearedAt: string | null }>> {
   const db = await getDb(cwd);
-  const rows = db.select().from(schema.sessionFocusHistory)
-    .where(eq(schema.sessionFocusHistory.sessionId, sessionId))
-    .orderBy(desc(schema.sessionFocusHistory.setAt))
+  const rows = db.select().from(schema.taskWorkHistory)
+    .where(eq(schema.taskWorkHistory.sessionId, sessionId))
+    .orderBy(desc(schema.taskWorkHistory.setAt))
     .limit(limit)
     .all();
 

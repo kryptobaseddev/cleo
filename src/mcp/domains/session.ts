@@ -1,9 +1,12 @@
 /**
  * Session Domain Handler
  *
- * Implements all 17 session operations for CLEO MCP server:
- * - Query (7): status, list, show, focus-show, focus.get, history, stats
- * - Mutate (10): start, end, resume, switch, focus-set, focus.set, focus-clear, focus.clear, archive, cleanup, suspend, gc
+ * Implements all 11 session operations for CLEO MCP server:
+ * - Query (5): status, list, show, history, stats
+ * - Mutate (6): start, end, resume, switch, archive, cleanup, suspend, gc
+ *
+ * Focus/task-work operations have moved to the tasks domain
+ * (tasks.start, tasks.stop, tasks.current).
  *
  * Each operation maps to corresponding CLEO CLI commands with proper
  * parameter validation and error handling.
@@ -20,9 +23,6 @@ import {
   sessionStatus as nativeSessionStatus,
   sessionList as nativeSessionList,
   sessionShow as nativeSessionShow,
-  focusGet as nativeFocusGet,
-  focusSet as nativeFocusSet,
-  focusClear as nativeFocusClear,
   sessionStart as nativeSessionStart,
   sessionEnd as nativeSessionEnd,
   sessionResume as nativeSessionResume,
@@ -49,8 +49,6 @@ import type {
   SessionListResult,
   SessionShowParams,
   SessionShowResult,
-  SessionFocusGetParams,
-  SessionFocusGetResult,
   SessionHistoryParams,
   SessionHistoryResult,
   SessionStartParams,
@@ -61,10 +59,6 @@ import type {
   SessionResumeResult,
   SessionSuspendParams,
   SessionSuspendResult,
-  SessionFocusSetParams,
-  SessionFocusSetResult,
-  SessionFocusClearParams,
-  SessionFocusClearResult,
   SessionGcParams,
   SessionGcResult,
 } from '../types/index.js';
@@ -161,18 +155,14 @@ export class SessionHandler implements DomainHandler {
           return await this.queryList(params as unknown as SessionListParams);
         case 'show':
           return await this.queryShow(params as unknown as SessionShowParams);
-        case 'focus-show':
-          return await this.queryFocusShow(params as unknown as SessionFocusGetParams);
-        case 'focus.get':
-          return await this.queryFocusShow(params as unknown as SessionFocusGetParams);
         case 'history':
           return await this.queryHistory(params as unknown as SessionHistoryParams);
         case 'stats':
           return await this.queryStats(params as unknown as SessionStatsParams);
-        case 'decision-log':
-          return this.queryNative('decision-log', params, startTime);
-        case 'context-drift':
-          return this.queryNative('context-drift', params, startTime);
+        case 'decision.log':
+          return this.queryNative('decision.log', params, startTime);
+        case 'context.drift':
+          return this.queryNative('context.drift', params, startTime);
         default:
           return this.createErrorResponse(
             'cleo_query',
@@ -217,9 +207,6 @@ export class SessionHandler implements DomainHandler {
         }
         return this.wrapNativeResult(await nativeSessionShow(this.projectRoot, sessionId), 'cleo_query', operation, startTime);
       }
-      case 'focus-show':
-      case 'focus.get':
-        return this.wrapNativeResult(await nativeFocusGet(this.projectRoot), 'cleo_query', operation, startTime);
       case 'history': {
         const p = params as unknown as SessionHistoryParams;
         return this.wrapNativeResult(
@@ -227,7 +214,7 @@ export class SessionHandler implements DomainHandler {
           'cleo_query', operation, startTime
         );
       }
-      case 'decision-log': {
+      case 'decision.log': {
         const p = params as Record<string, unknown> | undefined;
         return this.wrapNativeResult(
           await nativeSessionDecisionLog(this.projectRoot, {
@@ -237,7 +224,7 @@ export class SessionHandler implements DomainHandler {
           'cleo_query', operation, startTime
         );
       }
-      case 'context-drift': {
+      case 'context.drift': {
         const p = params as Record<string, unknown> | undefined;
         return this.wrapNativeResult(
           await nativeSessionContextDrift(this.projectRoot, {
@@ -289,10 +276,6 @@ export class SessionHandler implements DomainHandler {
           return await this.mutateResume(params as unknown as SessionResumeParams);
         case 'switch':
           return await this.mutateSwitch(params as unknown as SessionSwitchParams);
-        case 'focus-set':
-          return await this.mutateFocusSet(params as unknown as SessionFocusSetParams);
-        case 'focus-clear':
-          return await this.mutateFocusClear(params as unknown as SessionFocusClearParams);
         case 'archive':
           return await this.mutateArchive(params as unknown as SessionGcParams);
         case 'cleanup':
@@ -301,14 +284,10 @@ export class SessionHandler implements DomainHandler {
           return await this.mutateSuspend(params as unknown as SessionSuspendParams);
         case 'gc':
           return await this.mutateGc(params as unknown as SessionGcParams);
-        case 'focus.set':
-          return await this.mutateFocusSet(params as unknown as SessionFocusSetParams);
-        case 'focus.clear':
-          return await this.mutateFocusClear(params as unknown as SessionFocusClearParams);
-        case 'record-decision':
-          return await this.mutateNative('record-decision', params, startTime);
-        case 'record-assumption':
-          return await this.mutateNative('record-assumption', params, startTime);
+        case 'record.decision':
+          return await this.mutateNative('record.decision', params, startTime);
+        case 'record.assumption':
+          return await this.mutateNative('record.assumption', params, startTime);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -345,28 +324,14 @@ export class SessionHandler implements DomainHandler {
         const result = await nativeSessionStart(this.projectRoot, {
           scope: p.scope,
           name: p.name,
-          autoFocus: p.autoFocus,
-          focus: p.focus,
+          autoStart: p.autoStart,
+          focus: p.startTask,
         });
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
       case 'end': {
         const p = params as unknown as SessionEndParams;
         const result = await nativeSessionEnd(this.projectRoot, p?.notes);
-        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
-      }
-      case 'focus-set':
-      case 'focus.set': {
-        const taskId = (params as unknown as SessionFocusSetParams)?.taskId;
-        if (!taskId) {
-          return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
-        }
-        const result = await nativeFocusSet(this.projectRoot, taskId);
-        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
-      }
-      case 'focus-clear':
-      case 'focus.clear': {
-        const result = await nativeFocusClear(this.projectRoot);
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
       case 'resume': {
@@ -398,7 +363,7 @@ export class SessionHandler implements DomainHandler {
         const result = await nativeSessionCleanup(this.projectRoot);
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
-      case 'record-decision': {
+      case 'record.decision': {
         const p = params as Record<string, unknown> | undefined;
         if (!p?.sessionId || !p?.taskId || !p?.decision || !p?.rationale) {
           return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT',
@@ -413,7 +378,7 @@ export class SessionHandler implements DomainHandler {
         });
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
-      case 'record-assumption': {
+      case 'record.assumption': {
         const p = params as Record<string, unknown> | undefined;
         if (!p?.assumption || !p?.confidence) {
           return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT',
@@ -450,14 +415,12 @@ export class SessionHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'focus-show', 'focus.get', 'history', 'stats', 'decision-log', 'context-drift'],
+      query: ['status', 'list', 'show', 'history', 'stats', 'decision.log', 'context.drift'],
       mutate: [
         'start', 'end', 'resume', 'switch',
-        'focus-set', 'focus.set',
-        'focus-clear', 'focus.clear',
         'archive', 'cleanup',
         'suspend', 'gc',
-        'record-decision', 'record-assumption',
+        'record.decision', 'record.assumption',
       ],
     };
   }
@@ -545,22 +508,6 @@ export class SessionHandler implements DomainHandler {
   }
 
   /**
-   * focus-show - Get current focused task
-   * CLI: cleo focus show
-   */
-  private async queryFocusShow(_params: SessionFocusGetParams): Promise<DomainResponse> {
-    const startTime = Date.now();
-
-    const result = await this.executor!.execute<SessionFocusGetResult>({
-      domain: 'focus',
-      operation: 'show',
-      flags: { json: true },
-    });
-
-    return this.wrapExecutorResult(result, 'cleo_query', 'session', 'focus-show', startTime);
-  }
-
-  /**
    * history - Session history
    * CLI: cleo session history [--limit <n>]
    */
@@ -622,8 +569,8 @@ export class SessionHandler implements DomainHandler {
     };
 
     if (params?.name) flags.name = params.name;
-    if (params?.autoFocus) flags['auto-focus'] = true;
-    if (params?.focus) flags.focus = params.focus;
+    if (params?.autoStart) flags['auto-focus'] = true;
+    if (params?.startTask) flags.focus = params.startTask;
 
     const result = await this.executor!.execute<SessionStartResult>({
       domain: 'session',
@@ -707,50 +654,6 @@ export class SessionHandler implements DomainHandler {
     });
 
     return this.wrapExecutorResult(result, 'cleo_mutate', 'session', 'switch', startTime);
-  }
-
-  /**
-   * focus-set - Set focused task
-   * CLI: cleo focus set <taskId>
-   */
-  private async mutateFocusSet(params: SessionFocusSetParams): Promise<DomainResponse> {
-    const startTime = Date.now();
-
-    if (!params?.taskId) {
-      return this.createErrorResponse(
-        'cleo_mutate',
-        'session',
-        'focus-set',
-        'E_INVALID_INPUT',
-        'taskId is required',
-        startTime
-      );
-    }
-
-    const result = await this.executor!.execute<SessionFocusSetResult>({
-      domain: 'focus',
-      operation: 'set',
-      args: [params.taskId],
-      flags: { json: true },
-    });
-
-    return this.wrapExecutorResult(result, 'cleo_mutate', 'session', 'focus-set', startTime);
-  }
-
-  /**
-   * focus-clear - Clear focused task
-   * CLI: cleo focus clear
-   */
-  private async mutateFocusClear(_params: SessionFocusClearParams): Promise<DomainResponse> {
-    const startTime = Date.now();
-
-    const result = await this.executor!.execute<SessionFocusClearResult>({
-      domain: 'focus',
-      operation: 'clear',
-      flags: { json: true },
-    });
-
-    return this.wrapExecutorResult(result, 'cleo_mutate', 'session', 'focus-clear', startTime);
   }
 
   /**

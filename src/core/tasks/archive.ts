@@ -5,10 +5,15 @@
  */
 
 import { readJsonRequired, readJson, saveJson, computeChecksum } from '../../store/json.js';
-import type { Task, TodoFile } from '../../types/task.js';
-import { getTodoPath, getArchivePath, getLogPath, getBackupDir } from '../paths.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getTaskPath, getArchivePath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import {
+  safeSaveTaskFile,
+  safeSaveArchive,
+  safeAppendLog,
+} from '../../store/data-safety-central.js';
 
 /** Options for archiving tasks. */
 export interface ArchiveTasksOptions {
@@ -36,14 +41,14 @@ export interface ArchiveTasksResult {
  * @task T4461
  */
 export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ArchiveTasksResult> {
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
   const includeCancelled = options.includeCancelled ?? true;
 
   // Determine which tasks to archive
@@ -135,9 +140,9 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   data.lastUpdated = now;
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
-    await accessor.saveArchive(archiveData);
-    await accessor.appendLog({
+    await safeSaveTaskFile(accessor, data, cwd);
+    await safeSaveArchive(accessor, archiveData, cwd);
+    await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'tasks_archived',
@@ -146,7 +151,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
       details: { count: archived.length, ids: archived },
       before: null,
       after: { count: archived.length, ids: archived },
-    });
+    }, cwd);
   } else {
     await saveJson(todoPath, data, { backupDir });
     await saveJson(archivePath, archiveData, { backupDir });
