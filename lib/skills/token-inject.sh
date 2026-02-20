@@ -175,7 +175,7 @@ _ti_set_fallback_defaults() {
         "TASK_ID" "DATE" "TOPIC_SLUG"
         "EPIC_ID" "SESSION_ID" "RESEARCH_ID" "TITLE" "PARENT_ID"
         # Task system commands
-        "TASK_SHOW_CMD" "TASK_FOCUS_CMD" "TASK_FOCUS_SHOW_CMD" "TASK_COMPLETE_CMD"
+        "TASK_SHOW_CMD" "TASK_START_CMD" "TASK_CURRENT_CMD" "TASK_COMPLETE_CMD"
         "TASK_LINK_CMD" "TASK_LIST_CMD" "TASK_FIND_CMD" "TASK_ADD_CMD"
         "TASK_EXISTS_CMD" "TASK_PHASE_CMD" "TASK_TREE_CMD"
         # Session commands
@@ -200,8 +200,8 @@ _ti_set_fallback_defaults() {
     _TI_CLEO_DEFAULTS=(
         # Task commands
         ["TASK_SHOW_CMD"]="cleo show"
-        ["TASK_FOCUS_CMD"]="cleo focus set"
-        ["TASK_FOCUS_SHOW_CMD"]="cleo focus show"
+        ["TASK_START_CMD"]="cleo start"
+        ["TASK_CURRENT_CMD"]="cleo current"
         ["TASK_COMPLETE_CMD"]="cleo complete"
         ["TASK_LINK_CMD"]="cleo research link"
         ["TASK_LIST_CMD"]="cleo list"
@@ -1082,10 +1082,10 @@ ti_set_task_context() {
 ti_extract_next_task_ids() {
     local task_id="${1:-${TI_TASK_ID:-}}"
 
-    # If no task ID provided, try to get from focus
+    # If no task ID provided, try to get from current task
     if [[ -z "$task_id" ]]; then
         if command -v cleo &>/dev/null; then
-            task_id=$(cleo focus show --quiet 2>/dev/null || true)
+            task_id=$(cleo current --quiet 2>/dev/null || true)
         fi
     fi
 

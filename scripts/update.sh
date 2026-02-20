@@ -1015,7 +1015,7 @@ if [[ "$NEW_STATUS" == "active" && "$CURRENT_STATUS" != "active" ]]; then
     if [[ "$active_count" -gt 0 ]]; then
       current_active=$(jq -r '[.tasks[] | select(.status == "active")][0].id' "$TODO_FILE")
       if [[ "$FORMAT" == "json" ]]; then
-        output_error "$E_VALIDATION_REQUIRED" "Cannot set status to active: only ONE active task allowed (current: $current_active)" "$EXIT_VALIDATION_ERROR" true "Use 'cleo focus set $TASK_ID' to change active task"
+        output_error "$E_VALIDATION_REQUIRED" "Cannot set status to active: only ONE active task allowed (current: $current_active)" "$EXIT_VALIDATION_ERROR" true "Use 'cleo start $TASK_ID' to change active task"
       else
         log_error "Cannot set status to active: only ONE active task allowed"
         echo "Current active task: $current_active" >&2

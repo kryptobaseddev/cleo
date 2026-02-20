@@ -629,7 +629,7 @@ get_session_error_suggestion() {
             echo "Complete all tasks in scope before closing, or use 'cleo session end' to end without closing"
             ;;
         E_FOCUS_REQUIRED|38)
-            echo "Set focus first: cleo focus set <task-id>"
+            echo "Start a task first: cleo start <task-id>"
             ;;
         E_NOTES_REQUIRED|39)
             echo "Add notes with --note 'Your session summary'"
@@ -734,7 +734,7 @@ get_session_error_fix() {
             echo "cleo list --status pending"
             ;;
         E_FOCUS_REQUIRED|38)
-            echo "cleo focus set <task-id>"
+            echo "cleo start <task-id>"
             ;;
         E_NOTES_REQUIRED|39)
             echo "cleo session end --note 'Your session summary'"
@@ -780,7 +780,7 @@ get_session_error_alternatives() {
             echo '[{"action":"Start session","command":"cleo session start --scope epic:<EPIC_ID>"},{"action":"List available epics","command":"cleo list --type epic"}]'
             ;;
         E_FOCUS_REQUIRED|38)
-            echo '[{"action":"Set focus","command":"cleo focus set <task-id>"},{"action":"List pending tasks","command":"cleo list --status pending"}]'
+            echo '[{"action":"Start task","command":"cleo start <task-id>"},{"action":"List pending tasks","command":"cleo list --status pending"}]'
             ;;
         E_SESSION_DISCOVERY_MODE|100)
             echo '[{"action":"Check session status","command":"cleo session status"},{"action":"Run command directly","command":"Session already active - run your command without session start"},{"action":"List active sessions","command":"cleo session list --status active"}]'

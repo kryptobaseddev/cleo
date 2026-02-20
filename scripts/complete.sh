@@ -865,14 +865,14 @@ if [[ -f "$LOG_SCRIPT" ]]; then
   fi
 fi
 
-# Check if current focus was this task and clear it
+# Check if current task was this task and clear it
 FOCUS_CLEARED=false
 CURRENT_FOCUS=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
 if [[ "$CURRENT_FOCUS" == "$TASK_ID" ]]; then
   updated_todo=$(jq '.focus.currentTask = null' "$TODO_FILE")
   save_json "$TODO_FILE" "$updated_todo"
   FOCUS_CLEARED=true
-  [[ "$FORMAT" != "json" ]] && log_info "Clearing focus from completed task"
+  [[ "$FORMAT" != "json" ]] && log_info "Stopped working on completed task"
 fi
 
 # Check auto-archive configuration using config.sh library for priority resolution

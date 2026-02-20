@@ -947,7 +947,7 @@ else
             if [[ "$CURRENT_FOCUS" == "$deleted_id" ]]; then
                 FOCUS_CLEARED=true
                 PREVIOUS_FOCUS="$CURRENT_FOCUS"
-                FOCUS_WARNING="Active focused task was cancelled"
+                FOCUS_WARNING="Active current task was cancelled"
                 break
             fi
         done
@@ -1001,7 +1001,7 @@ fi
 
 # Log focus clearing if it happened
 if [[ "$FOCUS_CLEARED" == true ]]; then
-    [[ "$FORMAT" != "json" ]] && log_info "Cleared focus from cancelled task"
+    [[ "$FORMAT" != "json" ]] && log_info "Stopped working on cancelled task"
     if [[ "$PHASE_CLEARED" == true && "$FORMAT" != "json" ]]; then
         log_info "Cleared phase (no remaining tasks in phase)"
     fi
