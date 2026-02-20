@@ -104,6 +104,7 @@ build/
 *.o
 *.so
 *.dylib
+tsconfig.tsbuildinfo
 
 # Package files
 *.tar.gz
