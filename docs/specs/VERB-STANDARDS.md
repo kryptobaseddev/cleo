@@ -238,16 +238,38 @@ cleo exportTasks
 
 ### Parameter Naming
 
-#### Standard Flags
+#### Standard Flags (LAFS Protocol)
+
+**Global Output Format Flags** (apply to all commands):
+| Purpose | Flag | Description |
+|---------|------|-------------|
+| JSON output | `--json` | Output in JSON format (default) |
+| Human-readable | `--human` | Output in human-readable format |
+| Quiet mode | `--quiet` | Suppress non-essential output for scripting |
+
+**Common Utility Flags**:
 | Purpose | Short | Long |
 |---------|-------|------|
 | Help | `-h` | `--help` |
 | Version | `-V` | `--version` |
 | Dry run | `-n` | `--dry-run` |
 | Force | `-f` | `--force` |
-| Quiet | `-q` | `--quiet` |
 | Verbose | `-v` | `--verbose` |
-| JSON output | `-j` | `--json` |
+
+**LAFS Protocol Compliance**:
+All CLI commands MUST respect the `--json`, `--human`, and `--quiet` flags:
+- `--json` (default): Machine-readable JSON output following LAFS envelope schema
+- `--human`: Formatted text output for human consumption
+- `--quiet`: Minimal output suitable for scripting (exit codes only where possible)
+
+```bash
+# ✅ CORRECT - LAFS protocol output flags
+cleo list --json              # Default: JSON envelope output
+cleo list --human             # Human-readable table format
+cleo list --quiet             # Silent operation, exit code only
+cleo show T123 --human        # Pretty-printed task details
+cleo complete T123 --quiet    # No output, check exit code
+```
 
 #### Entity References
 ```bash
