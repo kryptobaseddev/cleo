@@ -303,7 +303,7 @@ describe('JSON to SQLite migration', () => {
       const result2 = await migrateJsonToSqlite();
 
       // Second migration should report warning about existing db
-      expect(result2.warnings.some(w => w.includes('already exists'))).toBe(true);
+      expect(result2.warnings.some(w => w.includes('already contains migrated data'))).toBe(true);
 
       // Should still have only 1 task
       const { countTasks } = await import('../task-store.js');

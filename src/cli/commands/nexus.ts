@@ -33,7 +33,8 @@ import {
 import {
   nexusDeps,
 } from '../../core/nexus/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 
@@ -54,10 +55,10 @@ export function registerNexusCommand(program: Command): void {
     .action(async () => {
       try {
         await nexusInit();
-        console.log(formatSuccess(
+        cliOutput(
           { initialized: true, path: '~/.cleo/nexus/' },
-          'Nexus initialized',
-        ));
+          { command: 'nexus', message: 'Nexus initialized' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -80,14 +81,14 @@ export function registerNexusCommand(program: Command): void {
         const name = opts['name'] as string | undefined;
         const hash = await nexusRegister(projectPath, name, permissions);
         const project = await nexusGetProject(hash);
-        console.log(formatSuccess({
+        cliOutput({
           project: {
             hash,
             name: project?.name ?? name ?? projectPath.split('/').pop(),
             path: projectPath,
             permissions,
           },
-        }));
+        }, { command: 'nexus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -105,10 +106,10 @@ export function registerNexusCommand(program: Command): void {
     .action(async (nameOrHash: string) => {
       try {
         await nexusUnregister(nameOrHash);
-        console.log(formatSuccess(
+        cliOutput(
           { unregistered: nameOrHash },
-          'Project unregistered',
-        ));
+          { command: 'nexus', message: 'Project unregistered' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -126,10 +127,10 @@ export function registerNexusCommand(program: Command): void {
     .action(async () => {
       try {
         const projects = await nexusList();
-        console.log(formatSuccess({
+        cliOutput({
           projects,
           total: projects.length,
-        }));
+        }, { command: 'nexus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -148,10 +149,10 @@ export function registerNexusCommand(program: Command): void {
       try {
         const registry = await readRegistry();
         if (!registry) {
-          console.log(formatSuccess(
+          cliOutput(
             { initialized: false, projectCount: 0 },
-            'Nexus not initialized',
-          ));
+            { command: 'nexus', message: 'Nexus not initialized' },
+          );
           process.exit(ExitCode.NO_DATA);
         }
         const projects = Object.values(registry.projects);
@@ -159,14 +160,14 @@ export function registerNexusCommand(program: Command): void {
         for (const p of projects) {
           healthCounts[p.healthStatus]++;
         }
-        console.log(formatSuccess({
+        cliOutput({
           initialized: true,
           schemaVersion: registry.schemaVersion,
           lastUpdated: registry.lastUpdated,
           projectCount: projects.length,
           health: healthCounts,
           totalTasks: projects.reduce((sum, p) => sum + p.taskCount, 0),
-        }));
+        }, { command: 'nexus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -176,18 +177,19 @@ export function registerNexusCommand(program: Command): void {
       }
     });
 
-  // ── nexus query ─────────────────────────────────────────────────────
+  // ── nexus show ─────────────────────────────────────────────────────
 
   nexus
-    .command('query <queryString>')
-    .description('Query a task across projects (project:T### or T###)')
-    .action(async (queryString: string) => {
+    .command('show <taskId>')
+    .alias('query')
+    .description('Show a task across projects (project:T### or T###)')
+    .action(async (taskId: string) => {
       try {
-        const result = await resolveTask(queryString);
-        console.log(formatSuccess({
-          query: queryString,
+        const result = await resolveTask(taskId);
+        cliOutput({
+          query: taskId,
           task: result,
-        }));
+        }, { command: 'nexus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -209,12 +211,12 @@ export function registerNexusCommand(program: Command): void {
         const method = opts['method'] as string;
         const limit = opts['limit'] as number;
         const results = await discoverRelatedTasks(taskQuery, method, limit);
-        console.log(formatSuccess({
+        cliOutput({
           query: taskQuery,
           method,
           results,
           total: results.length,
-        }));
+        }, { command: 'nexus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -236,11 +238,11 @@ export function registerNexusCommand(program: Command): void {
         const projectFilter = opts['project'] as string | undefined;
         const limit = opts['limit'] as number;
         const results = await searchAcrossProjects(pattern, projectFilter, limit);
-        console.log(formatSuccess({
+        cliOutput({
           pattern,
           results,
           resultCount: results.length,
-        }));
+        }, { command: 'nexus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -260,11 +262,11 @@ export function registerNexusCommand(program: Command): void {
       try {
         const direction = opts['reverse'] ? 'reverse' as const : 'forward' as const;
         const result = await nexusDeps(taskQuery, direction);
-        console.log(formatSuccess({
+        cliOutput({
           query: taskQuery,
           direction,
           dependencies: result,
-        }));
+        }, { command: 'nexus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -283,13 +285,13 @@ export function registerNexusCommand(program: Command): void {
       try {
         if (project) {
           await nexusSync(project);
-          console.log(formatSuccess(
+          cliOutput(
             { project, synced: true },
-            `Synced project: ${project}`,
-          ));
+            { command: 'nexus', message: `Synced project: ${project}` },
+          );
         } else {
           const result = await nexusSyncAll();
-          console.log(formatSuccess(result));
+          cliOutput(result, { command: 'nexus' });
         }
       } catch (err) {
         if (err instanceof CleoError) {

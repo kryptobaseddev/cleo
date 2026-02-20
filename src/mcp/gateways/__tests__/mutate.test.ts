@@ -19,9 +19,9 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 64 operations', () => {
+  it('should have exactly 65 operations', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(64);
+    expect(totalCount).toBe(65);
   });
 
   it('should have all 11 domains', () => {
@@ -42,8 +42,8 @@ describe('MUTATE_OPERATIONS', () => {
   });
 
   it('should have correct operation counts per domain', () => {
-    expect(MUTATE_OPERATIONS.tasks.length).toBe(11);
-    expect(MUTATE_OPERATIONS.session.length).toBe(9);
+    expect(MUTATE_OPERATIONS.tasks.length).toBe(14);
+    expect(MUTATE_OPERATIONS.session.length).toBe(7);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
     expect(MUTATE_OPERATIONS.research.length).toBe(4);
     expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
@@ -61,7 +61,7 @@ describe('validateMutateParams', () => {
     it('should reject invalid domain', () => {
       const request: MutateRequest = {
         domain: 'invalid' as any,
-        operation: 'create',
+        operation: 'add',
       };
 
       const result = validateMutateParams(request);
@@ -132,10 +132,10 @@ describe('validateMutateParams', () => {
   });
 
   describe('tasks domain parameter validation', () => {
-    it('should reject create without title and description', () => {
+    it('should reject add without title and description', () => {
       const request: MutateRequest = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: {},
       };
 
@@ -144,10 +144,10 @@ describe('validateMutateParams', () => {
       expect(result.error?.error?.code).toBe('E_VALIDATION_FAILED');
     });
 
-    it('should reject create with same title and description', () => {
+    it('should reject add with same title and description', () => {
       const request: MutateRequest = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: {
           title: 'Same text',
           description: 'Same text',
@@ -159,10 +159,10 @@ describe('validateMutateParams', () => {
       expect(result.error?.error?.message).toContain('must be different');
     });
 
-    it('should accept create with valid title and description', () => {
+    it('should accept add with valid title and description', () => {
       const request: MutateRequest = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: {
           title: 'Task title',
           description: 'Task description that is different',
@@ -225,10 +225,10 @@ describe('validateMutateParams', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('should reject focus.set without taskId', () => {
+    it('should reject tasks start without taskId', () => {
       const request: MutateRequest = {
-        domain: 'session',
-        operation: 'focus.set',
+        domain: 'tasks',
+        operation: 'start',
         params: {},
       };
 
@@ -239,10 +239,10 @@ describe('validateMutateParams', () => {
   });
 
   describe('orchestrate domain parameter validation', () => {
-    it('should reject startup without epicId', () => {
+    it('should reject start without epicId', () => {
       const request: MutateRequest = {
         domain: 'orchestrate',
-        operation: 'startup',
+        operation: 'start',
         params: {},
       };
 
@@ -329,10 +329,10 @@ describe('validateMutateParams', () => {
   });
 
   describe('lifecycle domain parameter validation', () => {
-    it('should reject progress without required params', () => {
+    it('should reject record without required params', () => {
       const request: MutateRequest = {
         domain: 'lifecycle',
-        operation: 'progress',
+        operation: 'record',
         params: {},
       };
 
@@ -455,13 +455,12 @@ describe('isIdempotentOperation', () => {
     expect(isIdempotentOperation('tasks', 'complete')).toBe(true);
     expect(isIdempotentOperation('tasks', 'archive')).toBe(true);
     expect(isIdempotentOperation('session', 'end')).toBe(true);
-    expect(isIdempotentOperation('session', 'focus.clear')).toBe(true);
-    expect(isIdempotentOperation('lifecycle', 'progress')).toBe(true);
+    expect(isIdempotentOperation('lifecycle', 'record')).toBe(true);
     expect(isIdempotentOperation('system', 'init')).toBe(true);
   });
 
   it('should identify non-idempotent operations', () => {
-    expect(isIdempotentOperation('tasks', 'create')).toBe(false);
+    expect(isIdempotentOperation('tasks', 'add')).toBe(false);
     expect(isIdempotentOperation('tasks', 'delete')).toBe(false);
     expect(isIdempotentOperation('session', 'start')).toBe(false);
   });
@@ -469,12 +468,11 @@ describe('isIdempotentOperation', () => {
 
 describe('requiresSession', () => {
   it('should identify operations requiring session', () => {
-    expect(requiresSession('tasks', 'create')).toBe(true);
+    expect(requiresSession('tasks', 'add')).toBe(true);
     expect(requiresSession('tasks', 'update')).toBe(true);
     expect(requiresSession('tasks', 'complete')).toBe(true);
     expect(requiresSession('session', 'start')).toBe(true);
-    expect(requiresSession('session', 'focus.set')).toBe(true);
-    expect(requiresSession('orchestrate', 'startup')).toBe(true);
+    expect(requiresSession('orchestrate', 'start')).toBe(true);
     expect(requiresSession('orchestrate', 'spawn')).toBe(true);
   });
 
@@ -487,12 +485,12 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(64);
+    expect(getMutateOperationCount()).toBe(65);
   });
 
   it('should return domain-specific counts', () => {
-    expect(getMutateOperationCount('tasks')).toBe(11);
-    expect(getMutateOperationCount('session')).toBe(9);
+    expect(getMutateOperationCount('tasks')).toBe(14);
+    expect(getMutateOperationCount('session')).toBe(7);
     expect(getMutateOperationCount('orchestrate')).toBe(5);
     expect(getMutateOperationCount('research')).toBe(4);
     expect(getMutateOperationCount('lifecycle')).toBe(5);
@@ -511,14 +509,14 @@ describe('getMutateOperationCount', () => {
 
 describe('isMutateOperation', () => {
   it('should identify valid mutate operations', () => {
-    expect(isMutateOperation('tasks', 'create')).toBe(true);
+    expect(isMutateOperation('tasks', 'add')).toBe(true);
     expect(isMutateOperation('session', 'start')).toBe(true);
     expect(isMutateOperation('orchestrate', 'spawn')).toBe(true);
   });
 
   it('should reject invalid operations', () => {
     expect(isMutateOperation('tasks', 'invalid')).toBe(false);
-    expect(isMutateOperation('unknown', 'create')).toBe(false);
+    expect(isMutateOperation('unknown', 'add')).toBe(false);
   });
 });
 
@@ -544,10 +542,10 @@ describe('getMutateDomains', () => {
 describe('getMutateOperations', () => {
   it('should return operations for specific domain', () => {
     const taskOps = getMutateOperations('tasks');
-    expect(taskOps).toContain('create');
+    expect(taskOps).toContain('add');
     expect(taskOps).toContain('update');
     expect(taskOps).toContain('complete');
-    expect(taskOps.length).toBe(11);
+    expect(taskOps.length).toBe(14);
   });
 
   it('should return empty array for unknown domain', () => {

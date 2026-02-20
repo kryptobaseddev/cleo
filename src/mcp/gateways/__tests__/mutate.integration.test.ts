@@ -172,10 +172,10 @@ describe('cleo_mutate Gateway Integration', () => {
         flags: { json: true },
       });
 
-      // Unarchive
+      // Restore from archive
       const result = await context.executor.execute({
         domain: 'tasks',
-        operation: 'unarchive',
+        operation: 'restore',
         args: [taskId],
         flags: { json: true },
       });

@@ -9,7 +9,8 @@ import { Command } from 'commander';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../../core/paths.js';
@@ -192,12 +193,12 @@ export function registerWebCommand(program: Command): void {
           throw new CleoError(ExitCode.GENERAL_ERROR, 'Server failed to start within 15 seconds');
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           pid: serverProcess.pid,
           port,
           host,
           url: `http://${host}:${port}`,
-        }, `CLEO Web UI running on port ${port}`));
+        }, { command: 'web', message: `CLEO Web UI running on port ${port}` });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -218,10 +219,10 @@ export function registerWebCommand(program: Command): void {
         if (!status.running || !status.pid) {
           // Clean up stale PID file
           await rm(pidFile, { force: true });
-          console.log(formatSuccess(
+          cliOutput(
             { running: false },
-            'Server is not running',
-          ));
+            { command: 'web', message: 'Server is not running' },
+          );
           return;
         }
 
@@ -241,10 +242,10 @@ export function registerWebCommand(program: Command): void {
 
         await rm(pidFile, { force: true });
 
-        console.log(formatSuccess(
+        cliOutput(
           { stopped: true },
-          'CLEO Web UI stopped',
-        ));
+          { command: 'web', message: 'CLEO Web UI stopped' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -260,7 +261,7 @@ export function registerWebCommand(program: Command): void {
     .action(async () => {
       try {
         const status = await getStatus();
-        console.log(formatSuccess(status));
+        cliOutput(status, { command: 'web' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -294,10 +295,10 @@ export function registerWebCommand(program: Command): void {
           // Can't open browser
         }
 
-        console.log(formatSuccess(
+        cliOutput(
           { url },
-          `Open browser to: ${url}`,
-        ));
+          { command: 'web', message: `Open browser to: ${url}` },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

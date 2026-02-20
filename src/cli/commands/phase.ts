@@ -15,7 +15,8 @@ import {
   renamePhase,
   deletePhase,
 } from '../../core/phases/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -33,7 +34,7 @@ export function registerPhaseCommand(program: Command): void {
     .action(async (slug?: string) => {
       try {
         const result = await showPhase(slug);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -49,7 +50,7 @@ export function registerPhaseCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await listPhases();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -73,7 +74,7 @@ export function registerPhaseCommand(program: Command): void {
           force: opts['force'] as boolean | undefined,
           dryRun: opts['dryRun'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -89,7 +90,7 @@ export function registerPhaseCommand(program: Command): void {
     .action(async (slug: string) => {
       try {
         const result = await startPhase(slug);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -105,7 +106,7 @@ export function registerPhaseCommand(program: Command): void {
     .action(async (slug: string) => {
       try {
         const result = await completePhase(slug);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -122,7 +123,7 @@ export function registerPhaseCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       try {
         const result = await advancePhase(opts['force'] as boolean | undefined);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -138,7 +139,7 @@ export function registerPhaseCommand(program: Command): void {
     .action(async (oldName: string, newName: string) => {
       try {
         const result = await renamePhase(oldName, newName);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -159,7 +160,7 @@ export function registerPhaseCommand(program: Command): void {
           reassignTo: opts['reassignTo'] as string | undefined,
           force: opts['force'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phase' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

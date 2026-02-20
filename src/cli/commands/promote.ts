@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -23,7 +24,7 @@ export function registerPromoteCommand(program: Command): void {
         }
 
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const taskIndex = data.tasks.findIndex((t) => t.id === taskId);
         if (taskIndex === -1) {
@@ -32,7 +33,7 @@ export function registerPromoteCommand(program: Command): void {
 
         const task = data.tasks[taskIndex]!;
         if (!task.parentId) {
-          console.log(formatSuccess({ task: taskId, promoted: false }, 'Task is already root-level'));
+          cliOutput({ task: taskId, promoted: false }, { command: 'promote', message: 'Task is already root-level' });
           process.exit(ExitCode.NO_CHANGE);
           return;
         }
@@ -53,14 +54,14 @@ export function registerPromoteCommand(program: Command): void {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
 
-        await accessor.saveTodoFile(data);
+        await accessor.saveTaskFile(data);
 
-        console.log(formatSuccess({
+        cliOutput({
           task: taskId,
           promoted: true,
           previousParent: oldParent,
           typeChanged,
-        }));
+        }, { command: 'promote' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

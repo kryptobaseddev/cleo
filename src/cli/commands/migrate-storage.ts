@@ -6,19 +6,105 @@
  *   --to-json: Export SQLite data back to JSON files
  *   --dry-run: Preview what would be migrated
  *   --verify: Verify migration integrity after completion
+ *   --confirm: Confirm destructive operations (or use interactive prompt)
+ *   --force: Skip confirmation prompts (requires --confirm)
  *
  * @task T4648
+ * @task T4730 - Added user confirmation requirements
  * @epic T4638
  */
 
 import { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import * as readline from 'node:readline';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoDirAbsolute } from '../../core/paths.js';
-import { detectStoreEngine } from '../../store/provider.js';
+
+/**
+ * Format bytes to human-readable string.
+ * @task T4730
+ */
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(2)} ${units[unitIndex]}`;
+}
+
+/**
+ * Prompt user for confirmation with details about the destructive operation.
+ * @task T4730
+ */
+async function promptConfirmation(details: {
+  jsonCounts: { tasks: number; archived: number; sessions: number };
+  existingDbSize?: number;
+  existingDbTaskCount?: number;
+  backupPath: string;
+}): Promise<boolean> {
+  console.log('\n⚠️  DESTRUCTIVE OPERATION WARNING ⚠️\n');
+  console.log('This operation will:');
+  console.log(`  • Read ${details.jsonCounts.tasks} tasks from JSON`);
+  console.log(`  • Read ${details.jsonCounts.archived} archived tasks from JSON`);
+  console.log(`  • Read ${details.jsonCounts.sessions} sessions from JSON`);
+
+  if (details.existingDbSize && details.existingDbTaskCount !== undefined) {
+    console.log(`  • REPLACE existing SQLite database:`);
+    console.log(`    - Size: ${formatBytes(details.existingDbSize)}`);
+    console.log(`    - Tasks: ${details.existingDbTaskCount}`);
+  }
+
+  console.log(`  • Create backup at: ${details.backupPath}\n`);
+
+  console.log('The existing database will be preserved as a backup.\n');
+
+  const answer = await question('Type "yes" to proceed: ');
+  return answer.toLowerCase().trim() === 'yes';
+}
+
+/**
+ * Ask a question via readline.
+ * @task T4730
+ */
+async function question(promptText: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(promptText, (answer: string) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+/**
+ * Get task count from existing SQLite database.
+ * @task T4730
+ */
+async function getDbTaskCount(cwd?: string): Promise<number> {
+  try {
+    const { count } = await import('drizzle-orm');
+    const { getDb } = await import('../../store/sqlite.js');
+    const { tasks } = await import('../../store/schema.js');
+    const db = await getDb(cwd);
+    const result = db.select({ count: count() })
+      .from(tasks)
+      .get();
+    return result?.count ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Count records in JSON files for dry-run or verification.
@@ -90,7 +176,45 @@ function updateConfigEngine(cleoDir: string, engine: string): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
-/** @task T4648 */
+/**
+ * Check for and handle resumable migration state.
+ * @task T4726
+ */
+async function checkResumableMigration(cleoDir: string): Promise<{
+  shouldResume: boolean;
+  state: Awaited<ReturnType<typeof canResumeMigration>>;
+}> {
+  const { canResumeMigration, getMigrationSummary } = await import('../../core/migration/state.js');
+  const state = await canResumeMigration(cleoDir);
+
+  if (!state) {
+    return { shouldResume: false, state: null };
+  }
+
+  if (state.phase === 'complete') {
+    console.log('✅ Previous migration completed successfully.');
+    return { shouldResume: false, state };
+  }
+
+  if (state.phase === 'failed') {
+    console.log('\n❌ Previous migration failed with errors:');
+    state.errors.forEach((err: string) => console.log(`   - ${err}`));
+    console.log('\nMigration state preserved for debugging.');
+    console.log('To retry, run: cleo migrate-storage --to-sqlite --force --confirm\n');
+    return { shouldResume: false, state };
+  }
+
+  // Migration is in progress - show status and offer resume
+  console.log('\n⏳ A migration is currently in progress:');
+  const summary = await getMigrationSummary(cleoDir);
+  if (summary) {
+    console.log(summary);
+  }
+
+  return { shouldResume: true, state };
+}
+
+/** @task T4648 @task T4730 @task T4726 */
 export function registerMigrateStorageCommand(program: Command): void {
   program
     .command('migrate-storage')
@@ -99,12 +223,34 @@ export function registerMigrateStorageCommand(program: Command): void {
     .option('--to-json', 'Export SQLite data back to JSON')
     .option('--dry-run', 'Show what would be migrated without making changes')
     .option('--verify', 'Verify migration integrity after completion')
+    .option('--force', 'Force re-import even if data already exists (requires --confirm)')
+    .option('--confirm', 'Confirm destructive operations')
+    .option('--resume', 'Resume interrupted migration from last checkpoint')
+    .option('--status', 'Show migration status and exit')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const toSqlite = !!opts['toSqlite'];
         const toJson = !!opts['toJson'];
         const dryRun = !!opts['dryRun'];
         const verify = !!opts['verify'];
+        const force = !!opts['force'];
+        const confirm = !!opts['confirm'];
+        const resume = !!opts['resume'];
+        const showStatus = !!opts['status'];
+
+        const cleoDir = getCleoDirAbsolute();
+
+        // Handle --status flag first
+        if (showStatus) {
+          const { getMigrationSummary } = await import('../../core/migration/state.js');
+          const summary = await getMigrationSummary(cleoDir);
+          if (summary) {
+            console.log(summary);
+          } else {
+            console.log('No migration in progress.');
+          }
+          return;
+        }
 
         if (!toSqlite && !toJson) {
           throw new CleoError(
@@ -122,13 +268,40 @@ export function registerMigrateStorageCommand(program: Command): void {
           );
         }
 
-        const cleoDir = getCleoDirAbsolute();
-        const currentEngine = detectStoreEngine();
+        // --force requires --confirm for destructive operations
+        if (force && !confirm && !dryRun) {
+          throw new CleoError(
+            ExitCode.INVALID_INPUT,
+            '--force requires --confirm flag for destructive operations',
+            { fix: 'cleo migrate-storage --to-sqlite --confirm or cleo migrate-storage --to-sqlite --dry-run' },
+          );
+        }
+
+        // Check for resumable migration state (T4726)
+        if (toSqlite && !resume && !force) {
+          const { shouldResume, state } = await checkResumableMigration(cleoDir);
+
+          if (state?.phase === 'failed') {
+            // Don't proceed if previous migration failed
+            return;
+          }
+
+          if (shouldResume) {
+            console.log('\nUse --resume to continue this migration, or --force to start fresh.');
+            return;
+          }
+        }
+
+        // Clear any existing state if starting fresh with --force
+        if (force && !resume) {
+          const { clearMigrationState } = await import('../../core/migration/state.js');
+          await clearMigrationState(cleoDir);
+        }
 
         if (toSqlite) {
-          await handleToSqlite(cleoDir, currentEngine, dryRun, verify);
+          await handleToSqlite(cleoDir, dryRun, verify, force, confirm, resume);
         } else {
-          await handleToJson(cleoDir, currentEngine, dryRun);
+          await handleToJson(cleoDir, dryRun, confirm);
         }
       } catch (err) {
         if (err instanceof CleoError) {
@@ -143,49 +316,106 @@ export function registerMigrateStorageCommand(program: Command): void {
 /**
  * Handle --to-sqlite migration.
  * @task T4648
+ * @task T4730 - Added user confirmation flow
+ * @task T4726 - Added resume support
  */
 async function handleToSqlite(
   cleoDir: string,
-  currentEngine: string,
   dryRun: boolean,
   verify: boolean,
+  force: boolean,
+  confirm: boolean,
+  resume: boolean,
 ): Promise<void> {
-  const counts = countJsonRecords(cleoDir);
+  const dbPath = join(cleoDir, 'tasks.db');
+  
+  // Check for resumable migration if resume flag is set
+  if (resume) {
+    const { loadMigrationState } = await import('../../core/migration/state.js');
+    const state = await loadMigrationState(cleoDir);
+    if (state && state.phase !== 'complete') {
+      console.log(`Resuming migration from phase: ${state.phase}`);
+      console.log(`Progress: ${state.progress.tasksImported} tasks imported`);
+    } else if (state && state.phase === 'complete') {
+      console.log('Migration already complete. Use --force to restart.');
+      return;
+    } else {
+      console.log('No resumable migration found. Starting fresh.');
+    }
+  }
+  
+  const jsonCounts = countJsonRecords(cleoDir);
 
+  // Enhanced dry-run output showing detailed plan
   if (dryRun) {
-    console.log(formatSuccess({
-      action: 'dry-run',
-      from: 'json',
-      to: 'sqlite',
-      wouldMigrate: {
-        tasks: counts.tasks,
-        archived: counts.archived,
-        sessions: counts.sessions,
-        total: counts.tasks + counts.archived + counts.sessions,
-      },
-      currentEngine,
-    }, 'Dry run complete. No changes made.'));
+    console.log('\n📋 MIGRATION PLAN (DRY RUN)\n');
+    console.log('Source Data:');
+    console.log(`  • Tasks: ${jsonCounts.tasks}`);
+    console.log(`  • Archived: ${jsonCounts.archived}`);
+    console.log(`  • Sessions: ${jsonCounts.sessions}`);
+    console.log(`  • Total: ${jsonCounts.tasks + jsonCounts.archived + jsonCounts.sessions}\n`);
+
+    if (existsSync(dbPath)) {
+      const stats = statSync(dbPath);
+      const existingTaskCount = await getDbTaskCount();
+      console.log('Existing Database:');
+      console.log(`  • Size: ${formatBytes(stats.size)}`);
+      console.log(`  • Tasks: ${existingTaskCount}`);
+      console.log(`  • Will be: Backed up and replaced\n`);
+    }
+
+    console.log('Safety Measures:');
+    console.log('  ✓ JSON validation will run');
+    console.log('  ✓ Checksum verification will run');
+    console.log('  ✓ Atomic rename will be used');
+    console.log('  ✓ File lock will be acquired\n');
+
+    console.log('No changes will be made. Run without --dry-run to execute.\n');
     return;
   }
 
-  if (currentEngine === 'sqlite' && !verify) {
-    console.log(formatSuccess({
-      action: 'no-op',
-      currentEngine: 'sqlite',
-      message: 'Already using SQLite storage engine',
-    }));
-    return;
+  // Require confirmation for destructive migration to SQLite
+  if (!confirm && !dryRun) {
+    const existingDbSize = existsSync(dbPath) ? statSync(dbPath).size : undefined;
+    const existingDbTaskCount = existsSync(dbPath) ? await getDbTaskCount() : undefined;
+    const backupPath = join(cleoDir, 'backups', 'safety', `tasks.db.pre-migration.${Date.now()}`);
+
+    const details = {
+      jsonCounts,
+      existingDbSize,
+      existingDbTaskCount,
+      backupPath,
+    };
+
+    const confirmed = await promptConfirmation(details);
+    if (!confirmed) {
+      console.log('\n❌ Migration cancelled by user.\n');
+      process.exit(0);
+    }
   }
 
-  // Perform migration
+  // Perform migration with options
   const { migrateJsonToSqlite } = await import('../../store/migration-sqlite.js');
-  const result = await migrateJsonToSqlite();
+  const result = await migrateJsonToSqlite(undefined, { force, dryRun });
 
   if (!result.success) {
     throw new CleoError(
       ExitCode.FILE_ERROR,
       `Migration failed with ${result.errors.length} error(s): ${result.errors.join('; ')}`,
     );
+  }
+
+  // Check if migration was skipped due to idempotency
+  if (result.tasksImported === 0 && result.archivedImported === 0 && result.sessionsImported === 0) {
+    cliOutput({
+      action: 'skipped',
+      from: 'json',
+      to: 'sqlite',
+      reason: result.warnings[0] ?? 'No data to import',
+      existingCounts: result.existingCounts,
+      jsonCounts: result.jsonCounts,
+    }, { command: 'migrate-storage', message: 'Migration skipped.' });
+    return;
   }
 
   // Update config to use sqlite
@@ -197,7 +427,7 @@ async function handleToSqlite(
     verification = await verifyMigration(cleoDir);
   }
 
-  console.log(formatSuccess({
+  cliOutput({
     action: 'migrated',
     from: 'json',
     to: 'sqlite',
@@ -208,7 +438,7 @@ async function handleToSqlite(
     },
     warnings: result.warnings.length > 0 ? result.warnings : undefined,
     ...(verification ? { verification } : {}),
-  }, 'Migration to SQLite complete.'));
+  }, { command: 'migrate-storage', message: 'Migration to SQLite complete.' });
 
   // Close the database connection
   const { closeDb } = await import('../../store/sqlite.js');
@@ -218,29 +448,46 @@ async function handleToSqlite(
 /**
  * Handle --to-json export.
  * @task T4648
+ * @task T4730 - Added confirmation support
  */
 async function handleToJson(
   cleoDir: string,
-  currentEngine: string,
   dryRun: boolean,
+  confirm: boolean,
 ): Promise<void> {
-  if (currentEngine === 'json') {
-    console.log(formatSuccess({
-      action: 'no-op',
-      currentEngine: 'json',
-      message: 'Already using JSON storage engine',
-    }));
-    return;
-  }
-
   if (dryRun) {
-    console.log(formatSuccess({
+    cliOutput({
       action: 'dry-run',
       from: 'sqlite',
       to: 'json',
       message: 'Would export SQLite data to JSON files',
-    }, 'Dry run complete. No changes made.'));
+    }, { command: 'migrate-storage', message: 'Dry run complete. No changes made.' });
     return;
+  }
+
+  // Require confirmation for destructive export (overwrites existing JSON)
+  if (!confirm) {
+    const todoPath = join(cleoDir, 'todo.json');
+    const archivePath = join(cleoDir, 'todo-archive.json');
+    const sessionsPath = join(cleoDir, 'sessions.json');
+
+    let existingFiles = 0;
+    if (existsSync(todoPath)) existingFiles++;
+    if (existsSync(archivePath)) existingFiles++;
+    if (existsSync(sessionsPath)) existingFiles++;
+
+    if (existingFiles > 0) {
+      console.log('\n⚠️  DESTRUCTIVE OPERATION WARNING ⚠️\n');
+      console.log('This operation will:');
+      console.log(`  • Export all SQLite data to JSON files`);
+      console.log(`  • OVERWRITE ${existingFiles} existing JSON file(s)\n`);
+
+      const answer = await question('Type "yes" to proceed: ');
+      if (answer.toLowerCase().trim() !== 'yes') {
+        console.log('\n❌ Export cancelled by user.\n');
+        process.exit(0);
+      }
+    }
   }
 
   // Export SQLite data to JSON
@@ -282,7 +529,7 @@ async function handleToJson(
   const { closeDb } = await import('../../store/sqlite.js');
   closeDb();
 
-  console.log(formatSuccess({
+  cliOutput({
     action: 'exported',
     from: 'sqlite',
     to: 'json',
@@ -291,7 +538,7 @@ async function handleToJson(
       archived: exported.archived.length,
       sessions: exported.sessions.length,
     },
-  }, 'Export to JSON complete.'));
+  }, { command: 'migrate-storage', message: 'Export to JSON complete.' });
 }
 
 /**

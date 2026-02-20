@@ -8,7 +8,8 @@
 import { Command } from 'commander';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoDir, getConfigPath } from '../../core/paths.js';
@@ -19,9 +20,9 @@ import { readJson } from '../../store/json.js';
  * @task T4551
  */
 const CHECKPOINT_FILES = [
-  'todo.json',
-  'todo-log.jsonl',
-  'todo-archive.json',
+  'tasks.json',
+  'tasks-log.jsonl',
+  'tasks-archive.json',
   'config.json',
   'sessions.json',
 ];
@@ -162,7 +163,7 @@ export function registerCheckpointCommand(program: Command): void {
           const lastCheckpoint = getLastCheckpointTime(config.messagePrefix);
           const changedFiles = getChangedCleoFiles();
 
-          console.log(formatSuccess({
+          cliOutput({
             config: {
               enabled: config.enabled,
               debounceMinutes: config.debounceMinutes,
@@ -172,45 +173,45 @@ export function registerCheckpointCommand(program: Command): void {
             lastCheckpoint,
             pendingFiles: changedFiles.length,
             changedFiles,
-          }));
+          }, { command: 'checkpoint' });
           return;
         }
 
         if (opts['dryRun']) {
           const changedFiles = getChangedCleoFiles();
 
-          console.log(formatSuccess({
+          cliOutput({
             dryRun: true,
             wouldCommit: changedFiles,
             fileCount: changedFiles.length,
-          }, changedFiles.length === 0 ? 'No CLEO files to checkpoint' : `Would checkpoint ${changedFiles.length} file(s)`));
+          }, { command: 'checkpoint', message: changedFiles.length === 0 ? 'No CLEO files to checkpoint' : `Would checkpoint ${changedFiles.length} file(s)` });
           return;
         }
 
         // Force checkpoint mode
         if (!config.enabled) {
-          console.log(formatSuccess(
+          cliOutput(
             { enabled: false },
-            'Git checkpoint is disabled. Enable with: cleo config set gitCheckpoint.enabled true',
-          ));
+            { command: 'checkpoint', message: 'Git checkpoint is disabled. Enable with: cleo config set gitCheckpoint.enabled true' },
+          );
           return;
         }
 
         const changedFiles = getChangedCleoFiles();
         if (changedFiles.length === 0) {
-          console.log(formatSuccess(
+          cliOutput(
             { noChange: true },
-            'No CLEO files to checkpoint',
-          ));
+            { command: 'checkpoint', message: 'No CLEO files to checkpoint' },
+          );
           return;
         }
 
         performCheckpoint(changedFiles, config);
 
-        console.log(formatSuccess({
+        cliOutput({
           checkpointed: changedFiles.length,
           files: changedFiles,
-        }, 'Checkpoint complete'));
+        }, { command: 'checkpoint', message: 'Checkpoint complete' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

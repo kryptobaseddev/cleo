@@ -37,8 +37,8 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { saveJson } from '../store/json.js';
-import { getCleoDirAbsolute, getTodoPath, getConfigPath, getProjectRoot, getCleoHome } from './paths.js';
-import type { TodoFile } from '../types/task.js';
+import { getCleoDirAbsolute, getTaskPath, getConfigPath, getProjectRoot, getCleoHome } from './paths.js';
+import type { TaskFile } from '../types/task.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ async function fileExists(path: string): Promise<boolean> {
  * Create default todo.json content.
  * @task T4681
  */
-function createDefaultTodo(projectName: string): TodoFile {
+function createDefaultTodo(projectName: string): TaskFile {
   const now = new Date().toISOString();
   return {
     version: '2.10.0',
@@ -127,7 +127,7 @@ function createDefaultConfig(): Record<string, unknown> {
       maxSiblings: 7,
     },
     session: {
-      autoFocus: false,
+      autoStart: false,
       multiSession: false,
     },
     lifecycle: {
@@ -283,7 +283,7 @@ async function initCoreFiles(
   await mkdir(cleoDir, { recursive: true });
 
   // Create todo.json
-  const todoPath = getTodoPath();
+  const todoPath = getTaskPath();
   if (await fileExists(todoPath) && !force) {
     skipped.push('todo.json');
   } else {

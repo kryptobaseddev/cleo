@@ -7,8 +7,9 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { deleteTask } from '../../core/tasks/delete.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the delete command.
@@ -35,7 +36,7 @@ export function registerDeleteCommand(program: Command): void {
           data['cascadeDeleted'] = result.cascadeDeleted;
         }
 
-        console.log(formatSuccess(data));
+        cliOutput(data, { command: 'delete', operation: 'tasks.delete' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

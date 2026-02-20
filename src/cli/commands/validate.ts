@@ -6,7 +6,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -22,14 +23,14 @@ interface CheckDetail {
 export function registerValidateCommand(program: Command): void {
   program
     .command('validate')
-    .description('Validate todo.json against schema and business rules')
+    .description('Validate tasks.json against schema and business rules')
     .option('--strict', 'Treat warnings as errors')
     .option('--fix', 'Auto-fix simple issues')
     .option('--dry-run', 'Preview fixes without applying')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const details: CheckDetail[] = [];
         let errors = 0;
@@ -57,9 +58,9 @@ export function registerValidateCommand(program: Command): void {
         }
         const duplicateIds = [...idCounts.entries()].filter(([, c]) => c > 1).map(([id]) => id);
         if (duplicateIds.length > 0) {
-          addError('duplicate_ids_todo', `Duplicate task IDs in todo.json: ${duplicateIds.join(', ')}`);
+          addError('duplicate_ids_todo', `Duplicate task IDs in tasks.json: ${duplicateIds.join(', ')}`);
         } else {
-          addOk('duplicate_ids_todo', 'No duplicate task IDs in todo.json');
+          addOk('duplicate_ids_todo', 'No duplicate task IDs in tasks.json');
         }
 
         // 2b. Cross-file duplicates with archive
@@ -69,7 +70,7 @@ export function registerValidateCommand(program: Command): void {
           const todoIds = new Set(data.tasks.map((t) => t.id));
           const crossDups = [...todoIds].filter((id) => archiveIds.has(id));
           if (crossDups.length > 0) {
-            addError('duplicate_ids_cross', `IDs exist in both todo.json and archive: ${crossDups.join(', ')}`);
+            addError('duplicate_ids_cross', `IDs exist in both tasks.json and archive: ${crossDups.join(', ')}`);
           } else {
             addOk('duplicate_ids_cross', 'No cross-file duplicate IDs');
           }
@@ -197,14 +198,14 @@ export function registerValidateCommand(program: Command): void {
         const valid = errors === 0;
         const strict = !!opts['strict'];
 
-        console.log(formatSuccess({
+        cliOutput({
           valid,
           schemaVersion: schemaVersion ?? 'unknown',
           errors,
           warnings,
           details,
           dryRun: !!opts['dryRun'],
-        }));
+        }, { command: 'validate' });
 
         if (!valid || (strict && warnings > 0)) {
           process.exit(ExitCode.VALIDATION_ERROR);

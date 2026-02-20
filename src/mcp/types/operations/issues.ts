@@ -2,7 +2,7 @@
  * Issues Domain Operations (4 operations)
  *
  * Query operations: 1 (diagnostics)
- * Mutate operations: 3 (create_bug, create_feature, create_help)
+ * Mutate operations: 3 (create.bug, create.feature, create.help)
  *
  * @task T4494
  */
@@ -39,7 +39,7 @@ export interface IssuesDiagnosticsResult {
  * Mutate Operations
  */
 
-// issues.create_bug
+// issues.create.bug
 export interface IssuesCreateBugParams {
   title: string;
   body: string;
@@ -55,7 +55,7 @@ export interface IssuesCreateBugResult {
   labels: string[];
 }
 
-// issues.create_feature
+// issues.create.feature
 export interface IssuesCreateFeatureParams {
   title: string;
   body: string;
@@ -70,7 +70,7 @@ export interface IssuesCreateFeatureResult {
   labels: string[];
 }
 
-// issues.create_help
+// issues.create.help
 export interface IssuesCreateHelpParams {
   title: string;
   body: string;

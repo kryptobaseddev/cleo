@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -63,16 +64,16 @@ export function registerImportCommand(program: Command): void {
         }
 
         if (importTasks.length === 0) {
-          console.log(formatSuccess({
+          cliOutput({
             imported: 0,
             message: 'No tasks to import',
-          }));
+          }, { command: 'import' });
           return;
         }
 
         // Load existing data
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const existingIds = new Set(data.tasks.map((t) => t.id));
         const duplicateStrategy = (opts['onDuplicate'] as DuplicateStrategy) || 'skip';
@@ -143,26 +144,26 @@ export function registerImportCommand(program: Command): void {
         }
 
         if (opts['dryRun']) {
-          console.log(formatSuccess({
+          cliOutput({
             dryRun: true,
             wouldImport: imported.length,
             wouldSkip: skipped.length,
             wouldRename: renamed,
-          }, 'Dry run - no changes made'));
+          }, { command: 'import', message: 'Dry run - no changes made' });
           return;
         }
 
         // Save
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
-        await accessor.saveTodoFile(data);
+        await accessor.saveTaskFile(data);
 
-        console.log(formatSuccess({
+        cliOutput({
           imported: imported.length,
           skipped: skipped.length,
           renamed,
           totalTasks: data.tasks.length,
-        }));
+        }, { command: 'import' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

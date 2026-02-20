@@ -530,24 +530,25 @@ describe('TasksHandler', () => {
     it('should return all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toHaveLength(19);
-      expect(ops.mutate).toHaveLength(15);
+      expect(ops.query).toHaveLength(18);
+      expect(ops.mutate).toHaveLength(14);
       expect(ops.query).toContain('show');
-      expect(ops.query).toContain('get');
       expect(ops.query).toContain('list');
       expect(ops.query).toContain('find');
       expect(ops.query).toContain('tree');
       expect(ops.query).toContain('blockers');
-      expect(ops.query).toContain('deps');
+      expect(ops.query).toContain('depends');
       expect(ops.query).toContain('analyze');
+      expect(ops.query).toContain('current');
       expect(ops.mutate).toContain('add');
-      expect(ops.mutate).toContain('create');
       expect(ops.mutate).toContain('update');
       expect(ops.mutate).toContain('complete');
       expect(ops.mutate).toContain('reparent');
       expect(ops.mutate).toContain('promote');
       expect(ops.mutate).toContain('reopen');
-      expect(ops.mutate).toContain('unarchive');
+      expect(ops.mutate).toContain('restore');
+      expect(ops.mutate).toContain('start');
+      expect(ops.mutate).toContain('stop');
     });
   });
 });

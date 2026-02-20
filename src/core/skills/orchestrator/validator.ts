@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getTodoPath, getAgentOutputsAbsolute, getManifestPath as getManifestPathFromPaths } from '../../paths.js';
+import { getTaskPath, getAgentOutputsAbsolute, getManifestPath as getManifestPathFromPaths } from '../../paths.js';
 import type { Task } from '../../../types/task.js';
 import type {
   ManifestEntry,
@@ -328,7 +328,7 @@ export function validateOrchestratorCompliance(
 
   // Check dependency order (ORC-004) for completed tasks
   if (epicId) {
-    const todoPath = getTodoPath(cwd);
+    const todoPath = getTaskPath(cwd);
     if (existsSync(todoPath)) {
       try {
         const data = JSON.parse(readFileSync(todoPath, 'utf-8'));

@@ -13,7 +13,8 @@ import {
   checkGate,
 } from '../../core/lifecycle/index.js';
 import type { LifecycleStage } from '../../core/lifecycle/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -31,7 +32,7 @@ export function registerLifecycleCommand(program: Command): void {
     .action(async (epicId: string) => {
       try {
         const result = await getLifecycleState(epicId);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'lifecycle' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -47,7 +48,7 @@ export function registerLifecycleCommand(program: Command): void {
     .action(async (epicId: string, stage: string) => {
       try {
         const result = await startStage(epicId, stage as LifecycleStage);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'lifecycle' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -68,7 +69,7 @@ export function registerLifecycleCommand(program: Command): void {
           ? (opts['artifacts'] as string).split(',').map(s => s.trim())
           : undefined;
         const result = await completeStage(epicId, stage as LifecycleStage, artifacts);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'lifecycle' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -85,7 +86,7 @@ export function registerLifecycleCommand(program: Command): void {
     .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
       try {
         const result = await skipStage(epicId, stage as LifecycleStage, opts['reason'] as string);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'lifecycle' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -101,7 +102,7 @@ export function registerLifecycleCommand(program: Command): void {
     .action(async (epicId: string, stage: string) => {
       try {
         const result = await checkGate(epicId, stage as LifecycleStage);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'lifecycle' });
         if (!result.allowed) {
           process.exit(80); // LIFECYCLE_GATE_FAILED
         }

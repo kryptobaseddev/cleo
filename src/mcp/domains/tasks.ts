@@ -1,12 +1,12 @@
 /**
  * Tasks Domain Handler
  *
- * Implements all 30 task operations for CLEO MCP server:
- * - Query (16): show, get, list, find, exists, next, depends, deps, stats, export, history, lint, batch-validate, manifest, tree, blockers, analyze
- * - Mutate (14): add, create, update, complete, delete, archive, restore, unarchive, import, reorder, reparent, promote, reopen, uncancel
+ * Implements all task operations for CLEO MCP server:
+ * - Query (15): show, list, find, exists, next, depends, stats, export, history, lint, batch.validate, manifest, tree, blockers, analyze, relates, complexity.estimate, current
+ * - Mutate (14): add, update, complete, delete, archive, restore, import, reorder, reparent, promote, reopen, relates.add, uncancel, start, stop
  *
- * Each operation maps to corresponding CLEO CLI commands with proper
- * parameter validation and error handling.
+ * Each operation maps to corresponding CLEO CLI commands or native engine
+ * functions with proper parameter validation and error handling.
  *
  * @task T2916
  */
@@ -33,11 +33,9 @@ import {
   taskNext as nativeTaskNext,
   taskBlockers as nativeTaskBlockers,
   taskTree as nativeTaskTree,
-  taskDeps as nativeTaskDeps,
   taskRelates as nativeTaskRelates,
   taskAnalyze as nativeTaskAnalyze,
   taskRestore as nativeTaskRestore,
-  taskUnarchive as nativeTaskUnarchive,
   taskReorder as nativeTaskReorder,
   taskReparent as nativeTaskReparent,
   taskPromote as nativeTaskPromote,
@@ -51,6 +49,9 @@ import {
   taskLint as nativeTaskLint,
   taskBatchValidate as nativeTaskBatchValidate,
   taskImport as nativeTaskImport,
+  taskCurrentGet as nativeTaskCurrentGet,
+  taskStart as nativeTaskStart,
+  taskStop as nativeTaskStop,
   resolveProjectRoot,
   isProjectInitialized,
 } from '../engine/index.js';
@@ -63,6 +64,9 @@ import type {
   TasksFindParams,
   TasksExistsParams,
   TasksNextParams,
+  TasksCurrentParams,
+  TasksStartParams,
+  TasksStopParams,
   TasksCreateParams,
   TasksUpdateParams,
   TasksCompleteParams,
@@ -280,7 +284,7 @@ export class TasksHandler implements DomainHandler {
           return await this.queryHistory(params as unknown as TasksHistoryParams);
         case 'lint':
           return await this.queryLint(params as unknown as TasksLintParams);
-        case 'batch-validate':
+        case 'batch.validate':
           return await this.queryBatchValidate(params as unknown as TasksBatchValidateParams);
         case 'manifest':
           return await this.queryManifest(params as { taskId: string });
@@ -290,14 +294,12 @@ export class TasksHandler implements DomainHandler {
           return await this.queryBlockers(params as unknown as TasksBlockersParams);
         case 'analyze':
           return await this.queryAnalyze(params as unknown as TasksAnalyzeParams);
-        case 'get':
-          return await this.queryShow(params as unknown as TasksGetParams);
-        case 'deps':
-          return await this.queryDepends(params as unknown as TasksDependsParams);
         case 'relates':
           return await this.queryRelates(params as unknown as TasksRelatesParams);
-        case 'complexity-estimate':
+        case 'complexity.estimate':
           return await this.queryComplexityEstimate(params as unknown as { taskId: string });
+        case 'current':
+          return await this.queryCurrent(params as unknown as TasksCurrentParams);
         default:
           return this.createErrorResponse(
             'cleo_query',
@@ -358,14 +360,14 @@ export class TasksHandler implements DomainHandler {
           return await this.mutatePromote(params as unknown as TasksPromoteParams);
         case 'reopen':
           return await this.mutateReopen(params as unknown as TasksReopenParams);
-        case 'create':
-          return await this.mutateAdd(params as unknown as TasksCreateParams);
-        case 'unarchive':
-          return await this.mutateRestore(params as unknown as TasksUnarchiveParams);
         case 'relates.add':
           return await this.mutateRelatesAdd(params as unknown as TasksRelatesParams);
         case 'uncancel':
           return await this.mutateUncancel(params as unknown as TasksUncancelParams);
+        case 'start':
+          return await this.mutateStart(params as unknown as TasksStartParams);
+        case 'stop':
+          return await this.mutateStop(params as unknown as TasksStopParams);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -388,34 +390,31 @@ export class TasksHandler implements DomainHandler {
     return {
       query: [
         'show',
-        'get',
         'list',
         'find',
         'exists',
         'next',
         'depends',
-        'deps',
         'stats',
         'export',
         'history',
         'lint',
-        'batch-validate',
+        'batch.validate',
         'manifest',
         'tree',
         'blockers',
         'analyze',
         'relates',
-        'complexity-estimate',
+        'complexity.estimate',
+        'current',
       ],
       mutate: [
         'add',
-        'create',
         'update',
         'complete',
         'delete',
         'archive',
         'restore',
-        'unarchive',
         'import',
         'reorder',
         'reparent',
@@ -423,6 +422,8 @@ export class TasksHandler implements DomainHandler {
         'reopen',
         'relates.add',
         'uncancel',
+        'start',
+        'stop',
       ],
     };
   }
@@ -675,7 +676,7 @@ export class TasksHandler implements DomainHandler {
   }
 
   /**
-   * batch-validate - Validate multiple tasks
+   * batch.validate - Validate multiple tasks
    * CLI: cleo validate <id1> <id2> ... [--mode <mode>]
    */
   private async queryBatchValidate(params: TasksBatchValidateParams): Promise<DomainResponse> {
@@ -685,7 +686,7 @@ export class TasksHandler implements DomainHandler {
       return this.createErrorResponse(
         'cleo_query',
         'tasks',
-        'batch-validate',
+        'batch.validate',
         'E_INVALID_INPUT',
         'taskIds array is required',
         startTime
@@ -702,7 +703,7 @@ export class TasksHandler implements DomainHandler {
       flags,
     });
 
-    return this.wrapExecutorResult(result, 'cleo_query', 'tasks', 'batch-validate', startTime);
+    return this.wrapExecutorResult(result, 'cleo_query', 'tasks', 'batch.validate', startTime);
   }
 
   /**
@@ -1168,7 +1169,7 @@ export class TasksHandler implements DomainHandler {
   }
 
   /**
-   * complexity-estimate - Deterministic complexity scoring
+   * complexity.estimate - Deterministic complexity scoring
    * Native only (no CLI equivalent)
    */
   private async queryComplexityEstimate(params: { taskId: string }): Promise<DomainResponse> {
@@ -1178,7 +1179,7 @@ export class TasksHandler implements DomainHandler {
       return this.createErrorResponse(
         'cleo_query',
         'tasks',
-        'complexity-estimate',
+        'complexity.estimate',
         'E_INVALID_INPUT',
         'taskId is required',
         startTime
@@ -1186,7 +1187,7 @@ export class TasksHandler implements DomainHandler {
     }
 
     const result = await nativeTaskComplexityEstimate(this.projectRoot, { taskId: params.taskId });
-    return this.wrapNativeResult(result, 'cleo_query', 'complexity-estimate', startTime);
+    return this.wrapNativeResult(result, 'cleo_query', 'complexity.estimate', startTime);
   }
 
   /**
@@ -1262,6 +1263,62 @@ export class TasksHandler implements DomainHandler {
     return this.wrapExecutorResult(result, 'cleo_mutate', 'tasks', 'relates.add', startTime);
   }
 
+  /**
+   * current - Get currently active/focused task
+   * Native only (task-work operation)
+   */
+  private async queryCurrent(_params: TasksCurrentParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!isProjectInitialized(this.projectRoot)) {
+      return this.wrapNativeResult(createNotInitializedError(), 'cleo_query', 'current', startTime);
+    }
+
+    const result = await nativeTaskCurrentGet(this.projectRoot);
+    return this.wrapNativeResult(result, 'cleo_query', 'current', startTime);
+  }
+
+  /**
+   * start - Begin working on a task (set as active/focused)
+   * Native only (task-work operation)
+   */
+  private async mutateStart(params: TasksStartParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'tasks',
+        'start',
+        'E_INVALID_INPUT',
+        'taskId is required',
+        startTime
+      );
+    }
+
+    if (!isProjectInitialized(this.projectRoot)) {
+      return this.wrapNativeResult(createNotInitializedError(), 'cleo_mutate', 'start', startTime);
+    }
+
+    const result = await nativeTaskStart(this.projectRoot, params.taskId);
+    return this.wrapNativeResult(result, 'cleo_mutate', 'start', startTime);
+  }
+
+  /**
+   * stop - Stop working on current task
+   * Native only (task-work operation)
+   */
+  private async mutateStop(_params: TasksStopParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!isProjectInitialized(this.projectRoot)) {
+      return this.wrapNativeResult(createNotInitializedError(), 'cleo_mutate', 'stop', startTime);
+    }
+
+    const result = await nativeTaskStop(this.projectRoot);
+    return this.wrapNativeResult(result, 'cleo_mutate', 'stop', startTime);
+  }
+
   // ===== Native Engine Operations =====
 
   /**
@@ -1281,8 +1338,7 @@ export class TasksHandler implements DomainHandler {
     }
 
     switch (operation) {
-      case 'show':
-      case 'get': {
+      case 'show': {
         const taskId = (params as unknown as TasksGetParams)?.taskId;
         if (!taskId) {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
@@ -1333,16 +1389,6 @@ export class TasksHandler implements DomainHandler {
           'cleo_query', operation, startTime
         );
       }
-      case 'deps': {
-        const taskId = (params as unknown as TasksDependsParams)?.taskId;
-        if (!taskId) {
-          return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
-        }
-        return this.wrapNativeResult(
-          await nativeTaskDeps(this.projectRoot, taskId),
-          'cleo_query', operation, startTime
-        );
-      }
       case 'relates': {
         const taskId = (params as unknown as TasksRelatesParams)?.taskId;
         if (!taskId) {
@@ -1360,7 +1406,7 @@ export class TasksHandler implements DomainHandler {
           'cleo_query', operation, startTime
         );
       }
-      case 'complexity-estimate': {
+      case 'complexity.estimate': {
         const taskId = (params as unknown as { taskId: string })?.taskId;
         if (!taskId) {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
@@ -1415,13 +1461,19 @@ export class TasksHandler implements DomainHandler {
           'cleo_query', operation, startTime
         );
       }
-      case 'batch-validate': {
+      case 'batch.validate': {
         const p = params as unknown as TasksBatchValidateParams;
         if (!p?.taskIds || p.taskIds.length === 0) {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskIds array is required', startTime);
         }
         return this.wrapNativeResult(
           await nativeTaskBatchValidate(this.projectRoot, p.taskIds, p.checkMode),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'current': {
+        return this.wrapNativeResult(
+          await nativeTaskCurrentGet(this.projectRoot),
           'cleo_query', operation, startTime
         );
       }
@@ -1443,8 +1495,7 @@ export class TasksHandler implements DomainHandler {
     }
 
     switch (operation) {
-      case 'add':
-      case 'create': {
+      case 'add': {
         const p = params as unknown as TasksCreateParams;
         if (!p?.title || !p?.description) {
           return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'title and description are required', startTime);
@@ -1502,14 +1553,6 @@ export class TasksHandler implements DomainHandler {
         const result = await nativeTaskRestore(this.projectRoot, p.taskId, { cascade: (params as any)?.cascade, notes: (params as any)?.notes });
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
-      case 'unarchive': {
-        const p = params as unknown as TasksUnarchiveParams;
-        if (!p?.taskId) {
-          return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
-        }
-        const result = await nativeTaskUnarchive(this.projectRoot, p.taskId, { status: (params as any)?.status, preserveStatus: (params as any)?.preserveStatus });
-        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
-      }
       case 'reorder': {
         const p = params as unknown as TasksReorderParams;
         if (!p?.taskId || p?.position === undefined) {
@@ -1564,6 +1607,18 @@ export class TasksHandler implements DomainHandler {
           return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'source is required', startTime);
         }
         const result = await nativeTaskImport(this.projectRoot, p.source, p.overwrite);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'start': {
+        const p = params as unknown as TasksStartParams;
+        if (!p?.taskId) {
+          return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        const result = await nativeTaskStart(this.projectRoot, p.taskId);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'stop': {
+        const result = await nativeTaskStop(this.projectRoot);
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
       default:

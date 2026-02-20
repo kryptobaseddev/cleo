@@ -8,7 +8,8 @@ import { Command } from 'commander';
 import {
   injectTasks,
 } from '../../core/inject/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -35,7 +36,7 @@ export function registerInjectCommand(program: Command): void {
           saveState: opts['saveState'] as boolean | undefined,
           dryRun: opts['dryRun'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'inject' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

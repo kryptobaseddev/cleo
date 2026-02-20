@@ -7,7 +7,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { getAccessor } from '../../store/data-accessor.js';
 
@@ -309,7 +310,7 @@ export function registerArchiveStatsCommand(program: Command): void {
           since: opts['since'] as string | undefined,
           until: opts['until'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'archive-stats' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -9,7 +9,8 @@ import {
   listPhases,
   showPhase,
 } from '../../core/phases/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -27,7 +28,7 @@ export function registerPhasesCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await listPhases();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phases' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -43,7 +44,7 @@ export function registerPhasesCommand(program: Command): void {
     .action(async (phase: string) => {
       try {
         const result = await showPhase(phase);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phases' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -59,7 +60,7 @@ export function registerPhasesCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await listPhases();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'phases' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

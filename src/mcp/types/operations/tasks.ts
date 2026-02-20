@@ -1,8 +1,8 @@
 /**
- * Tasks Domain Operations (19 operations)
+ * Tasks Domain Operations (22 operations)
  *
- * Query operations: 9
- * Mutate operations: 10
+ * Query operations: 10
+ * Mutate operations: 12
  *
  * SYNC: Canonical type definitions live in the CLI package at:
  *   src/types/task.ts (TaskStatus, TaskPriority, Task, etc.)
@@ -231,3 +231,28 @@ export interface TasksReopenParams {
   taskId: string;
 }
 export type TasksReopenResult = Task;
+
+// tasks.start (begin working on a task)
+export interface TasksStartParams {
+  taskId: string;
+}
+export interface TasksStartResult {
+  taskId: string;
+  sessionId: string;
+  timestamp: string;
+}
+
+// tasks.stop (stop working on current task)
+export type TasksStopParams = Record<string, never>;
+export interface TasksStopResult {
+  stopped: true;
+  previousTask?: string;
+}
+
+// tasks.current (get currently active task)
+export type TasksCurrentParams = Record<string, never>;
+export interface TasksCurrentResult {
+  taskId: string | null;
+  since?: string;
+  sessionId?: string;
+}

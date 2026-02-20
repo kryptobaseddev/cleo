@@ -17,6 +17,16 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFi
 import { join } from 'node:path';
 import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
+import { MigrationLogger } from './migration/logger.js';
+import { forceCheckpointBeforeOperation } from '../store/data-safety.js';
+import {
+  createMigrationState,
+  updateMigrationPhase,
+  updateMigrationProgress,
+  addMigrationWarning,
+  completeMigration,
+  failMigration,
+} from './migration/state.js';
 
 /** A single upgrade action with status. */
 export interface UpgradeAction {
@@ -99,7 +109,20 @@ export async function runUpgrade(options: {
       // total data loss of 4,295 tasks. This fix follows the project's
       // atomic operation pattern: backup → migrate to temp → validate → rename.
       try {
+        // CRITICAL: Force checkpoint before ANY destructive operations
+        await forceCheckpointBeforeOperation('storage-migration', options.cwd);
+
         const cleoDir = getCleoDirAbsolute(options.cwd);
+
+        // Initialize migration state tracking
+        const logger = new MigrationLogger(cleoDir);
+        await createMigrationState(cleoDir, {
+          todoJson: { path: join(cleoDir, 'todo.json'), checksum: '' },
+          sessionsJson: { path: join(cleoDir, 'sessions.json'), checksum: '' },
+          archiveJson: { path: join(cleoDir, 'todo-archive.json'), checksum: '' },
+        });
+        await updateMigrationPhase(cleoDir, 'backup');
+        logger.info('init', 'start', 'Migration state initialized');
         const dbPath = join(cleoDir, 'tasks.db');
         const dbBackupPath = join(cleoDir, 'backups', 'safety', `tasks.db.pre-migration.${Date.now()}`);
         const dbTempPath = join(cleoDir, 'tasks.db.migrating');
@@ -153,8 +176,22 @@ export async function runUpgrade(options: {
         }
 
         // Step 6: Run migration (creates new tasks.db from JSON sources)
+        await updateMigrationPhase(cleoDir, 'import');
         const { migrateJsonToSqlite } = await import('../store/migration-sqlite.js');
         const result = await migrateJsonToSqlite(options.cwd);
+
+        // Update progress
+        await updateMigrationProgress(cleoDir, {
+          tasksImported: result.tasksImported,
+          archivedImported: result.archivedImported,
+          sessionsImported: result.sessionsImported,
+        });
+
+        // Log any warnings
+        for (const warning of result.warnings) {
+          await addMigrationWarning(cleoDir, warning);
+          logger.warn('import', 'warning', warning);
+        }
 
         // Step 7: Close db connection so config update doesn't conflict
         closeDb();
@@ -206,6 +243,11 @@ export async function runUpgrade(options: {
               sessionsImported: result.sessionsImported,
               warnings: result.warnings,
             };
+
+            // Mark migration as complete
+            await updateMigrationPhase(cleoDir, 'complete');
+            await completeMigration(cleoDir);
+            logger.info('complete', 'finish', 'Migration completed successfully');
           }
         } else {
           // Migration had errors — restore DB and config from backup
@@ -215,6 +257,15 @@ export async function runUpgrade(options: {
           if (configBackup) {
             writeFileSync(configPath, configBackup);
           }
+
+          // Mark migration as failed
+          await updateMigrationPhase(cleoDir, 'failed');
+          for (const error of result.errors) {
+            await addMigrationWarning(cleoDir, `ERROR: ${error}`);
+          }
+          await failMigration(cleoDir, result.errors.join('; '));
+          logger.error('failed', 'error', 'Migration failed', { errors: result.errors });
+
           actions.push({
             action: 'storage_migration',
             status: 'error',
@@ -276,7 +327,7 @@ export async function runUpgrade(options: {
       const { getAccessor } = await import('../store/data-accessor.js');
       const { computeChecksum } = await import('../store/json.js');
       const accessor = await getAccessor(options.cwd);
-      const data = await accessor.loadTodoFile();
+      const data = await accessor.loadTaskFile();
 
       // 2a. Schema version check
       const schemaVersion = data._meta?.schemaVersion;
@@ -381,7 +432,7 @@ export async function runUpgrade(options: {
       if (appliedJson.length > 0 && !isDryRun) {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
-        await accessor.saveTodoFile(data);
+        await accessor.saveTaskFile(data);
       }
     } catch {
       // JSON data may no longer be the primary store (migrated to SQLite).

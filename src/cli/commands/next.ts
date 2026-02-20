@@ -4,11 +4,12 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';
+import { cliOutput } from '../renderers/index.js';
 
 const PRIORITY_SCORE: Record<string, number> = {
   critical: 100,
@@ -79,7 +80,7 @@ export function registerNextCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
         const currentPhase = data.project?.currentPhase;
@@ -91,10 +92,10 @@ export function registerNextCommand(program: Command): void {
         );
 
         if (candidates.length === 0) {
-          console.log(formatSuccess({
+          cliOutput({
             suggestion: null,
             reason: 'No pending tasks with satisfied dependencies',
-          }));
+          }, { command: 'next', operation: 'tasks.next' });
           process.exit(ExitCode.NO_DATA);
           return;
         }
@@ -111,7 +112,7 @@ export function registerNextCommand(program: Command): void {
 
         if (count === 1) {
           const { task, score, reasons } = suggestions[0]!;
-          console.log(formatSuccess({
+          cliOutput({
             suggestion: {
               id: task.id,
               title: task.title,
@@ -121,9 +122,9 @@ export function registerNextCommand(program: Command): void {
               ...(explain && { reasons }),
             },
             totalCandidates: candidates.length,
-          }));
+          }, { command: 'next', operation: 'tasks.next' });
         } else {
-          console.log(formatSuccess({
+          cliOutput({
             suggestions: suggestions.map(({ task, score, reasons }) => ({
               id: task.id,
               title: task.title,
@@ -133,7 +134,7 @@ export function registerNextCommand(program: Command): void {
               ...(explain && { reasons }),
             })),
             totalCandidates: candidates.length,
-          }));
+          }, { command: 'next', operation: 'tasks.next' });
         }
       } catch (err) {
         if (err instanceof CleoError) {

@@ -103,7 +103,7 @@ describe('QueryCache', () => {
     it('should invalidate all entries for a domain', () => {
       cache.set('tasks', 'list', undefined, 'a');
       cache.set('tasks', 'find', { q: 'test' }, 'b');
-      cache.set('tasks', 'get', { id: 'T1' }, 'c');
+      cache.set('tasks', 'show', { id: 'T1' }, 'c');
       cache.set('session', 'status', undefined, 'd');
 
       const count = cache.invalidateDomain('tasks');
@@ -111,7 +111,7 @@ describe('QueryCache', () => {
       expect(count).toBe(3);
       expect(cache.get('tasks', 'list', undefined)).toBeUndefined();
       expect(cache.get('tasks', 'find', { q: 'test' })).toBeUndefined();
-      expect(cache.get('tasks', 'get', { id: 'T1' })).toBeUndefined();
+      expect(cache.get('tasks', 'show', { id: 'T1' })).toBeUndefined();
       // Other domains unaffected
       expect(cache.get('session', 'status', undefined)).toBe('d');
     });

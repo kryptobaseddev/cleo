@@ -9,7 +9,8 @@ import { Command } from 'commander';
 import { stat, readdir, rename, cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome, getCleoDir } from '../../core/paths.js';
@@ -339,7 +340,7 @@ export function registerClaudeMigrateCommand(program: Command): void {
 
         if (opts['check']) {
           const result = await runCheckMode();
-          console.log(formatSuccess(result));
+          cliOutput(result, { command: 'claude-migrate' });
           // Exit 0 if legacy found, 1 if clean (grep-like semantics)
           if (!result.migrationNeeded) {
             process.exit(1);
@@ -349,13 +350,13 @@ export function registerClaudeMigrateCommand(program: Command): void {
 
         if (opts['global']) {
           const result = await runGlobalMigration(force);
-          console.log(formatSuccess({ migration: result }));
+          cliOutput({ migration: result }, { command: 'claude-migrate' });
           return;
         }
 
         if (opts['project']) {
           const result = await runProjectMigration(force);
-          console.log(formatSuccess({ migration: result }));
+          cliOutput({ migration: result }, { command: 'claude-migrate' });
           return;
         }
 
@@ -390,7 +391,7 @@ export function registerClaudeMigrateCommand(program: Command): void {
             throw new CleoError(ExitCode.NOT_FOUND, 'No legacy installations found');
           }
 
-          console.log(formatSuccess({ migrations: results }));
+          cliOutput({ migrations: results }, { command: 'claude-migrate' });
           return;
         }
 

@@ -7,9 +7,10 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import * as sessions from '../../core/sessions/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the session command group.
@@ -25,8 +26,8 @@ export function registerSessionCommand(program: Command): void {
     .description('Start a new session')
     .requiredOption('--scope <scope>', 'Session scope (epic:T### or global)')
     .requiredOption('--name <name>', 'Session name')
-    .option('--auto-focus', 'Auto-focus on first available task')
-    .option('--focus <taskId>', 'Set initial focus task')
+    .option('--auto-start', 'Auto-start on first available task')
+    .option('--focus <taskId>', 'Set initial task to work on')
     .option('--agent <agent>', 'Agent identifier')
     .action(async (opts: Record<string, unknown>) => {
       try {
@@ -34,11 +35,11 @@ export function registerSessionCommand(program: Command): void {
         const result = await sessions.startSession({
           name: opts['name'] as string,
           scope: opts['scope'] as string,
-          autoFocus: opts['autoFocus'] as boolean | undefined,
-          focus: opts['focus'] as string | undefined,
+          autoStart: opts['autoStart'] as boolean | undefined,
+          startTask: opts['startTask'] as string | undefined,
           agent: opts['agent'] as string | undefined,
         }, undefined, accessor);
-        console.log(formatSuccess({ session: result }));
+        cliOutput({ session: result }, { command: 'session', operation: 'session.start' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -49,10 +50,11 @@ export function registerSessionCommand(program: Command): void {
     });
 
   session
-    .command('end')
-    .description('End the current session')
-    .option('--session <id>', 'Specific session ID to end')
-    .option('--note <note>', 'End note')
+    .command('stop')
+    .alias('end')
+    .description('Stop the current session')
+    .option('--session <id>', 'Specific session ID to stop')
+    .option('--note <note>', 'Stop note')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
@@ -60,7 +62,7 @@ export function registerSessionCommand(program: Command): void {
           sessionId: opts['session'] as string | undefined,
           note: opts['note'] as string | undefined,
         }, undefined, accessor);
-        console.log(formatSuccess({ session: result }));
+        cliOutput({ session: result }, { command: 'session', operation: 'session.stop' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -78,10 +80,10 @@ export function registerSessionCommand(program: Command): void {
         const accessor = await getAccessor();
         const result = await sessions.sessionStatus(undefined, accessor);
         if (!result) {
-          console.log(formatSuccess({ session: null }, 'No active session'));
+          cliOutput({ session: null }, { command: 'session', message: 'No active session', operation: 'session.status' });
           process.exit(ExitCode.NO_DATA);
         }
-        console.log(formatSuccess({ session: result }));
+        cliOutput({ session: result }, { command: 'session', operation: 'session.status' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -98,7 +100,7 @@ export function registerSessionCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await sessions.resumeSession(sessionId, undefined, accessor);
-        console.log(formatSuccess({ session: result }));
+        cliOutput({ session: result }, { command: 'session', operation: 'session.resume' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -120,7 +122,7 @@ export function registerSessionCommand(program: Command): void {
           status: opts['status'] as string | undefined,
           limit: opts['limit'] as number | undefined,
         }, undefined, accessor);
-        console.log(formatSuccess({ sessions: result, total: result.length }));
+        cliOutput({ sessions: result, total: result.length }, { command: 'session', operation: 'session.list' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -138,7 +140,7 @@ export function registerSessionCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await sessions.gcSessions(opts['maxAge'] as number | undefined, undefined, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'session', operation: 'session.gc' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

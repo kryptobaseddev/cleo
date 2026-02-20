@@ -7,7 +7,8 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import * as relatesCore from '../../core/tasks/relates.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -29,7 +30,7 @@ export function registerRelatesCommand(program: Command): void {
         const result = await relatesCore.suggestRelated(taskId, {
           threshold: opts['threshold'] ? Number(opts['threshold']) : 50,
         }, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'relates' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -46,7 +47,7 @@ export function registerRelatesCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await relatesCore.addRelation(from, to, type, reason, undefined, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'relates' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -63,7 +64,7 @@ export function registerRelatesCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await relatesCore.discoverRelated(taskId, undefined, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'relates' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -80,7 +81,7 @@ export function registerRelatesCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await relatesCore.listRelations(taskId, undefined, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'relates' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

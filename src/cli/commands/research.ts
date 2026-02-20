@@ -17,7 +17,8 @@ import {
   linksResearch,
   archiveResearch,
 } from '../../core/research/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../../core/errors.js';
 
@@ -46,7 +47,7 @@ export function registerResearchCommand(program: Command): void {
           findings: opts['findings'] ? (opts['findings'] as string).split(',').map(s => s.trim()) : undefined,
           sources: opts['sources'] ? (opts['sources'] as string).split(',').map(s => s.trim()) : undefined,
         }, undefined, accessor);
-        console.log(formatSuccess({ entry: result }));
+        cliOutput({ entry: result }, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -62,7 +63,7 @@ export function registerResearchCommand(program: Command): void {
     .action(async (id: string) => {
       try {
         const result = await showResearch(id);
-        console.log(formatSuccess({ entry: result }));
+        cliOutput({ entry: result }, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -88,7 +89,7 @@ export function registerResearchCommand(program: Command): void {
         if (limit && limit > 0) {
           result = result.slice(0, limit);
         }
-        console.log(formatSuccess({ entries: result, count: result.length }));
+        cliOutput({ entries: result, count: result.length }, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -104,7 +105,7 @@ export function registerResearchCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await pendingResearch();
-        console.log(formatSuccess({ entries: result, count: result.length }));
+        cliOutput({ entries: result, count: result.length }, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -121,7 +122,7 @@ export function registerResearchCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await linkResearch(researchId, taskId, undefined, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -144,7 +145,7 @@ export function registerResearchCommand(program: Command): void {
           sources: opts['sources'] ? (opts['sources'] as string).split(',').map(s => s.trim()) : undefined,
           status: opts['status'] as 'pending' | 'complete' | 'partial' | undefined,
         });
-        console.log(formatSuccess({ entry: result }));
+        cliOutput({ entry: result }, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -160,7 +161,7 @@ export function registerResearchCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await statsResearch();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -176,7 +177,7 @@ export function registerResearchCommand(program: Command): void {
     .action(async (taskId: string) => {
       try {
         const result = await linksResearch(taskId);
-        console.log(formatSuccess({ entries: result, count: result.length }));
+        cliOutput({ entries: result, count: result.length }, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -192,7 +193,7 @@ export function registerResearchCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await archiveResearch();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -220,7 +221,7 @@ export function registerResearchCommand(program: Command): void {
           taskId: opts['task'] as string | undefined,
           limit: opts['limit'] ? parseInt(opts['limit'] as string, 10) : undefined,
         });
-        console.log(formatSuccess({ entries: result, count: result.length }));
+        cliOutput({ entries: result, count: result.length }, { command: 'research' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

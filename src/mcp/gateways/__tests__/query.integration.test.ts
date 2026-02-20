@@ -122,7 +122,7 @@ describe('cleo_query Gateway Integration', () => {
     it('should get task dependencies', async () => {
       const result = await context.executor.execute({
         domain: 'tasks',
-        operation: 'deps',
+        operation: 'depends',
         args: [testTaskId],
         flags: { json: true },
       });
@@ -250,7 +250,7 @@ describe('cleo_query Gateway Integration', () => {
     it('should run health check', async () => {
       const result = await context.executor.execute({
         domain: 'system',
-        operation: 'doctor',
+        operation: 'health',
         flags: { json: true },
         timeout: 30000,
       });

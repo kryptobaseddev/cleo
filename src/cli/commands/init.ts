@@ -18,7 +18,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { initProject, type InitOptions } from '../../core/init.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -72,14 +73,14 @@ export function registerInitCommand(program: Command): void {
 
         const result = await initProject(initOpts);
 
-        console.log(formatSuccess({
+        cliOutput({
           initialized: result.initialized,
           directory: result.directory,
           created: result.created,
           skipped: result.skipped,
           ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
           ...(result.updateDocsOnly ? { updateDocsOnly: true } : {}),
-        }));
+        }, { command: 'init' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

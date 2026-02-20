@@ -8,7 +8,7 @@
  * @task T2932
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LifecycleHandler } from '../lifecycle';
 import { CLIExecutor } from '../../lib/executor';
 import { createMockExecutor } from '../../__tests__/utils.js';
@@ -29,11 +29,11 @@ describe('LifecycleHandler', () => {
 
       expect(ops.query).toEqual([
         'stages', 'status', 'validate', 'report', 'export',
-        'history', 'gates', 'prerequisites', 'check',
+        'history', 'gates', 'prerequisites',
       ]);
       expect(ops.mutate).toEqual([
         'record', 'enforce', 'skip', 'unskip', 'import',
-        'reset', 'gate.pass', 'gate.fail', 'progress',
+        'reset', 'gate.pass', 'gate.fail',
       ]);
     });
   });

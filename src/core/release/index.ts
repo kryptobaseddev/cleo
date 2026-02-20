@@ -8,8 +8,8 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { atomicWrite } from '../../store/atomic.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Release, TodoFile } from '../../types/task.js';
-import { getTodoPath, getBackupDir, getLogPath, getProjectRoot } from '../paths.js';
+import type { Release, TaskFile } from '../../types/task.js';
+import { getTaskPath, getBackupDir, getLogPath, getProjectRoot } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -88,10 +88,10 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string,
   validateVersion(options.version);
   const version = normalizeVersion(options.version);
 
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
 
   // Ensure releases array exists
   if (!data.project.releases) {
@@ -125,7 +125,7 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string,
   data._meta.checksum = computeChecksum(data.tasks);
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
     await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
   }
@@ -142,10 +142,10 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string,
  */
 export async function planRelease(options: PlanReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<Release> {
   const version = normalizeVersion(options.version);
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
 
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === version);
@@ -184,7 +184,7 @@ export async function planRelease(options: PlanReleaseOptions, cwd?: string, acc
   data._meta.checksum = computeChecksum(data.tasks);
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
     await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
   }
@@ -210,11 +210,11 @@ export interface ShipReleaseResult {
  */
 export async function shipRelease(options: ShipReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<ShipReleaseResult> {
   const version = normalizeVersion(options.version);
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const projectRoot = getProjectRoot(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
 
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === version);
@@ -277,7 +277,7 @@ export async function shipRelease(options: ShipReleaseOptions, cwd?: string, acc
   data._meta.checksum = computeChecksum(data.tasks);
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
     await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
   }
@@ -457,8 +457,8 @@ function performGitOperations(
  */
 export async function listReleases(cwd?: string, accessor?: DataAccessor): Promise<Release[]> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   return data.project.releases ?? [];
 }
 
@@ -469,8 +469,8 @@ export async function listReleases(cwd?: string, accessor?: DataAccessor): Promi
 export async function showRelease(version: string, cwd?: string, accessor?: DataAccessor): Promise<ReleaseShowResult> {
   const normalizedVersion = normalizeVersion(version);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === normalizedVersion);
 
@@ -503,8 +503,8 @@ export async function showRelease(version: string, cwd?: string, accessor?: Data
 export async function getChangelog(version: string, cwd?: string, accessor?: DataAccessor): Promise<string> {
   const normalizedVersion = normalizeVersion(version);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === normalizedVersion);
 
@@ -523,7 +523,7 @@ export async function getChangelog(version: string, cwd?: string, accessor?: Dat
  * Generate changelog from release tasks.
  * @task T4467
  */
-function generateChangelog(_version: string, taskIds: string[], data: TodoFile): string {
+function generateChangelog(_version: string, taskIds: string[], data: TaskFile): string {
   const lines: string[] = [];
   const feats: string[] = [];
   const fixes: string[] = [];

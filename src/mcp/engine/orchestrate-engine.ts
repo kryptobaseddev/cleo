@@ -44,7 +44,7 @@ async function loadTasks(projectRoot?: string): Promise<TaskRecord[]> {
   const root = projectRoot || resolveProjectRoot();
   try {
     const accessor = await getAccessor(root);
-    const todoData = await accessor.loadTodoFile();
+    const todoData = await accessor.loadTaskFile();
     return (todoData as any)?.tasks || [];
   } catch {
     return [];

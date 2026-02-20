@@ -16,8 +16,8 @@ import type { DataAccessor } from '../../store/data-accessor.js';
 export interface StartSessionOptions {
   name: string;
   scope: string; // e.g. "epic:T001" or "global"
-  autoFocus?: boolean;
-  focus?: string;
+  autoStart?: boolean;
+  startTask?: string;
   agent?: string;
 }
 
@@ -139,9 +139,13 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
     name: options.name,
     status: 'active',
     scope,
+    taskWork: {
+      taskId: options.startTask ?? null,
+      setAt: options.startTask ? new Date().toISOString() : null,
+    },
     focus: {
-      taskId: options.focus ?? null,
-      setAt: options.focus ? new Date().toISOString() : null,
+      taskId: options.startTask ?? null,
+      setAt: options.startTask ? new Date().toISOString() : null,
     },
     startedAt: new Date().toISOString(),
     agent: options.agent ?? null,

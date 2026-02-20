@@ -6,7 +6,7 @@
  * @task T2931
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ResearchHandler } from '../research.js';
 import { CLIExecutor } from '../../lib/executor.js';
 import { createMockExecutor } from '../../__tests__/utils.js';
@@ -528,7 +528,7 @@ describe('ResearchHandler', () => {
     it('should return correct operation lists', () => {
       const operations = handler.getSupportedOperations();
 
-      expect(operations.query).toEqual(['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'query', 'contradictions', 'superseded']);
+      expect(operations.query).toEqual(['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'contradictions', 'superseded']);
       expect(operations.mutate).toEqual(['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive', 'compact', 'validate']);
     });
   });

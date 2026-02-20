@@ -9,7 +9,8 @@ import {
   validateDecompositionTask,
   checkDecompositionManifest,
 } from '../../core/validation/protocols/decomposition.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -32,7 +33,7 @@ export function registerDecompositionCommand(program: Command): void {
           strict: opts['strict'] as boolean | undefined,
           epicId: opts['epic'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'decomposition' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -53,7 +54,7 @@ export function registerDecompositionCommand(program: Command): void {
           strict: opts['strict'] as boolean | undefined,
           epicId: opts['epic'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'decomposition' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -500,7 +500,7 @@ export async function generateHitlSummary(
   if (sessionId) {
     resumeCommand = `cleo session resume ${sessionId}`;
   } else if (epicId) {
-    resumeCommand = `cleo session start --scope epic:${epicId} --auto-focus`;
+    resumeCommand = `cleo session start --scope epic:${epicId} --auto-start`;
   } else {
     resumeCommand = 'cleo session list  # Resume appropriate session';
   }

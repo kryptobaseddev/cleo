@@ -16,6 +16,9 @@ import { registerUpdateCommand } from './commands/update.js';
 import { registerDeleteCommand } from './commands/delete.js';
 import { registerArchiveCommand } from './commands/archive.js';
 import { registerFocusCommand } from './commands/focus.js';
+import { registerStartCommand } from './commands/start.js';
+import { registerStopCommand } from './commands/stop.js';
+import { registerCurrentCommand } from './commands/current.js';
 import { registerSessionCommand } from './commands/session.js';
 import { registerPhaseCommand } from './commands/phase.js';
 import { registerDepsCommand, registerTreeCommand } from './commands/deps.js';
@@ -75,7 +78,6 @@ import { registerOtelCommand } from './commands/otel.js';
 import { registerPhasesCommand } from './commands/phases.js';
 import { registerPromoteCommand } from './commands/promote.js';
 import { registerRelatesCommand } from './commands/relates.js';
-import { registerReopenCommand } from './commands/reopen.js';
 import { registerReorderCommand } from './commands/reorder.js';
 import { registerReparentCommand } from './commands/reparent.js';
 import { registerRestoreCommand } from './commands/restore.js';
@@ -84,8 +86,6 @@ import { registerSelfUpdateCommand } from './commands/self-update.js';
 import { registerSequenceCommand } from './commands/sequence.js';
 import { registerSpecificationCommand } from './commands/specification.js';
 import { registerStatsCommand } from './commands/stats.js';
-import { registerUnarchiveCommand } from './commands/unarchive.js';
-import { registerUncancelCommand } from './commands/uncancel.js';
 import { registerUpgradeCommand } from './commands/upgrade.js';
 import { registerValidateCommand } from './commands/validate.js';
 import { registerVerifyCommand } from './commands/verify.js';
@@ -95,6 +95,10 @@ import { registerMigrateStorageCommand } from './commands/migrate-storage.js';
 
 // Core: pre-flight migration check (@task T4699)
 import { checkStorageMigration } from '../core/migration/preflight.js';
+
+// T4665: Output format resolution (LAFS middleware)
+import { resolveFormat } from './middleware/output-format.js';
+import { setFormatContext } from './format-context.js';
 
 /** Read version from package.json (single source of truth). */
 function getPackageVersion(): string {
@@ -122,11 +126,9 @@ program
 program
   .command('version')
   .description('Display CLEO version')
-  .action(() => {
-    console.log(JSON.stringify({
-      success: true,
-      data: { version: CLI_VERSION },
-    }));
+  .action(async () => {
+    const { cliOutput } = await import('./renderers/index.js');
+    cliOutput({ version: CLI_VERSION }, { command: 'version' });
   });
 
 // T4460: Core CRUD commands
@@ -141,7 +143,12 @@ registerUpdateCommand(program);
 registerDeleteCommand(program);
 registerArchiveCommand(program);
 
-// T4462: Focus commands
+// T4756: Task work commands (start/stop/current replace focus)
+registerStartCommand(program);
+registerStopCommand(program);
+registerCurrentCommand(program);
+
+// T4462: Focus commands (backward-compat aliases)
 registerFocusCommand(program);
 
 // T4463: Session commands
@@ -219,7 +226,6 @@ registerOtelCommand(program);
 registerPhasesCommand(program);
 registerPromoteCommand(program);
 registerRelatesCommand(program);
-registerReopenCommand(program);
 registerReorderCommand(program);
 registerReparentCommand(program);
 registerRestoreCommand(program);
@@ -228,14 +234,25 @@ registerSelfUpdateCommand(program);
 registerSequenceCommand(program);
 registerSpecificationCommand(program);
 registerStatsCommand(program);
-registerUnarchiveCommand(program);
-registerUncancelCommand(program);
 registerUpgradeCommand(program);
 registerValidateCommand(program);
 registerVerifyCommand(program);
 
 // T4647, T4648: Storage migration
 registerMigrateStorageCommand(program);
+
+// T4665: Resolve output format from --json/--human/--quiet flags before any command.
+// Uses LAFS resolveOutputFormat() with TTY auto-detection fallback.
+// Sets the format context singleton so cliOutput() can dispatch accordingly.
+program.hook('preAction', (thisCommand) => {
+  try {
+    const opts = thisCommand.optsWithGlobals?.() ?? thisCommand.opts?.() ?? {};
+    const resolution = resolveFormat(opts);
+    setFormatContext(resolution);
+  } catch {
+    // Fallback: leave default (json) format if resolution fails
+  }
+});
 
 // Pre-flight migration check: warn if JSON data needs SQLite migration (@task T4699)
 // Runs before any command, emits to stderr so JSON output on stdout is not affected.

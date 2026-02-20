@@ -54,20 +54,20 @@ describe('E2E: Session Management Workflow', () => {
     expect(listResult.success).toBe(true);
   });
 
-  it('should handle focus set, show, and clear', async () => {
-    // Focus show should work
+  it('should handle current task query and task stop', async () => {
+    // Current task query should work
     const showResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.get',
+      domain: 'tasks',
+      operation: 'current',
       flags: { json: true },
     });
 
     expect(showResult.success).toBe(true);
 
-    // Focus clear should work
+    // Task stop should work
     const clearResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.clear',
+      domain: 'tasks',
+      operation: 'stop',
       flags: { json: true },
     });
 
@@ -186,25 +186,25 @@ describe('E2E: Session Management Workflow', () => {
     context.createdTaskIds.push(taskId);
 
     await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.set',
+      domain: 'tasks',
+      operation: 'start',
       args: [taskId],
       flags: { json: true },
     });
 
-    // Clear focus
+    // Stop task (clear focus)
     const clearResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.clear',
+      domain: 'tasks',
+      operation: 'stop',
       flags: { json: true },
     });
 
     expect(clearResult.success).toBe(true);
 
-    // Verify focus cleared
+    // Verify no current task
     const getFocusResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.get',
+      domain: 'tasks',
+      operation: 'current',
       flags: { json: true },
     });
 

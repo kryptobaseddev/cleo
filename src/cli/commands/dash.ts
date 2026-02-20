@@ -8,7 +8,8 @@ import { Command } from 'commander';
 import {
   getDashboard,
 } from '../../core/stats/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -34,7 +35,7 @@ export function registerDashCommand(program: Command): void {
           verbose: opts['verbose'] as boolean | undefined,
           quiet: opts['quiet'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'dash' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

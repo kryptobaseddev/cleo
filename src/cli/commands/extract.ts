@@ -8,7 +8,8 @@
 import { Command } from 'commander';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoDir } from '../../core/paths.js';
@@ -136,7 +137,7 @@ export function registerExtractCommand(program: Command): void {
 
         // Load todo data
         const accessor = await getAccessor();
-        const todoData = await accessor.loadTodoFile();
+        const todoData = await accessor.loadTaskFile();
 
         // Load sync session state
         const cleoDir = getCleoDir();
@@ -156,7 +157,7 @@ export function registerExtractCommand(program: Command): void {
         const totalChanges = changes.completed.length + changes.progressed.length + changes.newTasks.length;
 
         if (totalChanges === 0) {
-          console.log(formatSuccess({
+          cliOutput({
             changes: {
               completed: 0,
               progressed: 0,
@@ -164,7 +165,7 @@ export function registerExtractCommand(program: Command): void {
               removed: changes.removed.length,
               applied: 0,
             },
-          }, 'No changes to apply'));
+          }, { command: 'extract', message: 'No changes to apply' });
           return;
         }
 
@@ -224,7 +225,7 @@ export function registerExtractCommand(program: Command): void {
           // Save changes
           todoData._meta.checksum = computeChecksum(todoData.tasks);
           todoData.lastUpdated = new Date().toISOString();
-          await accessor.saveTodoFile(todoData);
+          await accessor.saveTaskFile(todoData);
 
           // Clean up session state
           try {
@@ -234,7 +235,7 @@ export function registerExtractCommand(program: Command): void {
           }
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           dryRun,
           changes: {
             completed: changes.completed.length,
@@ -244,7 +245,7 @@ export function registerExtractCommand(program: Command): void {
             applied: dryRun ? 0 : appliedCount,
           },
           sessionCleared: !dryRun,
-        }, dryRun ? 'Dry run complete' : `Applied ${appliedCount} changes`));
+        }, { command: 'extract', message: dryRun ? 'Dry run complete' : `Applied ${appliedCount} changes` });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

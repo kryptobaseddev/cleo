@@ -13,7 +13,8 @@ import {
   showRelease,
   getChangelog,
 } from '../../core/release/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -26,8 +27,9 @@ export function registerReleaseCommand(program: Command): void {
     .description('Release lifecycle management');
 
   release
-    .command('create <version>')
-    .description('Create a new release')
+    .command('add <version>')
+    .alias('create')
+    .description('Add a new release')
     .option('--tasks <ids>', 'Comma-separated task IDs')
     .option('--notes <notes>', 'Release notes')
     .option('--target-date <date>', 'Target release date')
@@ -39,7 +41,7 @@ export function registerReleaseCommand(program: Command): void {
           notes: opts['notes'] as string | undefined,
           targetDate: opts['targetDate'] as string | undefined,
         });
-        console.log(formatSuccess({ release: result }));
+        cliOutput({ release: result }, { command: 'release' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -63,7 +65,7 @@ export function registerReleaseCommand(program: Command): void {
           removeTasks: opts['remove'] ? (opts['remove'] as string).split(',').map(s => s.trim()) : undefined,
           notes: opts['notes'] as string | undefined,
         });
-        console.log(formatSuccess({ release: result }));
+        cliOutput({ release: result }, { command: 'release' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -89,7 +91,7 @@ export function registerReleaseCommand(program: Command): void {
           push: opts['push'] as boolean | undefined,
           dryRun: opts['dryRun'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'release' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -105,7 +107,7 @@ export function registerReleaseCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await listReleases();
-        console.log(formatSuccess({ releases: result, count: result.length }));
+        cliOutput({ releases: result, count: result.length }, { command: 'release' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -121,7 +123,7 @@ export function registerReleaseCommand(program: Command): void {
     .action(async (version: string) => {
       try {
         const result = await showRelease(version);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'release' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -137,7 +139,7 @@ export function registerReleaseCommand(program: Command): void {
     .action(async (version: string) => {
       try {
         const result = await getChangelog(version);
-        console.log(formatSuccess({ changelog: result }));
+        cliOutput({ changelog: result }, { command: 'release' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

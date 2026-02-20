@@ -1,30 +1,30 @@
 /**
- * CLI show command.
- * @task T4460
- * @epic T4454
+ * CLI stop command - stop working on the current task.
+ * @task T4756
+ * @epic T4732
  */
 
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
-import { showTask } from '../../core/tasks/show.js';
+import * as taskWork from '../../core/task-work/index.js';
 import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
- * Register the show command.
- * @task T4460
+ * Register the stop command.
+ * @task T4756
  * @task T4666
  */
-export function registerShowCommand(program: Command): void {
+export function registerStopCommand(program: Command): void {
   program
-    .command('show <taskId>')
-    .description('Show full task details by ID')
-    .action(async (taskId: string) => {
+    .command('stop')
+    .description('Stop working on the current task')
+    .action(async () => {
       try {
         const accessor = await getAccessor();
-        const detail = await showTask(taskId, undefined, accessor);
-        cliOutput({ task: detail }, { command: 'show', operation: 'tasks.show' });
+        const result = await taskWork.stopTask(undefined, accessor);
+        cliOutput(result, { command: 'stop', operation: 'tasks.stop' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

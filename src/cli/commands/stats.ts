@@ -8,8 +8,9 @@ import { Command } from 'commander';
 import {
   getProjectStats,
 } from '../../core/stats/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the stats command.
@@ -27,7 +28,7 @@ export function registerStatsCommand(program: Command): void {
           period: opts['period'] as string | undefined,
           verbose: opts['verbose'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'stats', operation: 'system.stats' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

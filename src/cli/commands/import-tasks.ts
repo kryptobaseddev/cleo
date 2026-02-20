@@ -8,7 +8,8 @@
 import { Command } from 'commander';
 import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -110,7 +111,7 @@ export function registerImportTasksCommand(program: Command): void {
 
         // Load existing data
         const accessor = await getAccessor();
-        const todoData = await accessor.loadTodoFile();
+        const todoData = await accessor.loadTaskFile();
 
         const onConflict = (opts['onConflict'] as OnConflict) ?? 'fail';
         const onMissingDep = (opts['onMissingDep'] as OnMissingDep) ?? 'strip';
@@ -213,7 +214,7 @@ export function registerImportTasksCommand(program: Command): void {
 
         // Dry run
         if (dryRun) {
-          console.log(formatSuccess({
+          cliOutput({
             dryRun: true,
             summary: {
               tasksToImport: transformed.length,
@@ -224,7 +225,7 @@ export function registerImportTasksCommand(program: Command): void {
               idRemap: idRemapJson,
               tasks: transformed.map((t) => ({ id: t.id, title: t.title, type: t.type ?? 'task' })),
             },
-          }));
+          }, { command: 'import-tasks' });
           return;
         }
 
@@ -232,15 +233,15 @@ export function registerImportTasksCommand(program: Command): void {
         todoData.tasks.push(...transformed);
         todoData._meta.checksum = computeChecksum(todoData.tasks);
         todoData.lastUpdated = new Date().toISOString();
-        await accessor.saveTodoFile(todoData);
+        await accessor.saveTaskFile(todoData);
 
-        console.log(formatSuccess({
+        cliOutput({
           summary: {
             imported: transformed.length,
             skipped: skipped.length,
           },
           idRemap: idRemapJson,
-        }));
+        }, { command: 'import-tasks' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
