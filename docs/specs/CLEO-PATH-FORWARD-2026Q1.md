@@ -37,10 +37,10 @@ The MCP server now operates as a standalone cross-platform engine, removing the 
 
 | Domain | Native Operations |
 |--------|-------------------|
-| Tasks (query) | show, get, list, find, exists, manifest |
-| Tasks (mutate) | add, create, update, complete, delete, archive |
-| Session (query) | status, list, show, focus-show, focus.get |
-| Session (mutate) | start, end, focus-set, focus.set, focus-clear, focus.clear |
+| Tasks (query) | show, list, find, exists, manifest, current |
+| Tasks (mutate) | add, update, complete, delete, archive, start, stop |
+| Session (query) | status, list, show |
+| Session (mutate) | start, end |
 | System | version, config, config.get, config.set, init |
 | Validate | schema |
 

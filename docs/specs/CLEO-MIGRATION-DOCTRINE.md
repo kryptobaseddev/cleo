@@ -89,15 +89,15 @@ The native TypeScript engine covers 29 operations across 4 domains:
 
 | Domain | Native Operations | CLI-Only Operations |
 |--------|-------------------|---------------------|
-| **Tasks (query)** | show, get, list, find, exists, manifest | next, depends, deps, stats, export, history, lint, batch-validate, tree, blockers, analyze, relates |
-| **Tasks (mutate)** | add, create, update, complete, delete, archive | restore, unarchive, import, reorder, reparent, promote, reopen, relates.add |
-| **Session (query)** | status, list, show, focus-show, focus.get | history, stats |
-| **Session (mutate)** | start, end, focus-set, focus.set, focus-clear, focus.clear | resume, switch, archive, cleanup, suspend, gc |
-| **System** | version, config, config.get, config.set, init (+ doctor as hybrid) | context, metrics, health, diagnostics, stats, help, dash, roadmap, labels, compliance, log, archive-stats, sequence, job.status, job.list, backup, restore, migrate, cleanup, audit, sync, job.cancel, safestop, uncancel |
+| **Tasks (query)** | show, list, find, exists, manifest, current | next, depends, stats, export, history, lint, batch-validate, tree, blockers, analyze, relates |
+| **Tasks (mutate)** | add, update, complete, delete, archive, start, stop | restore, import, reorder, reparent, promote, reopen, relates.add |
+| **Session (query)** | status, list, show | history, stats |
+| **Session (mutate)** | start, end | resume, switch, archive, cleanup, suspend, gc |
+| **System** | version, config.get, config.set, init (+ health as hybrid) | context, metrics, diagnostics, stats, help, dash, roadmap, labels, compliance, log, archive.stats, sequence, job.status, job.list, backup, restore, migrate, cleanup, audit, sync, job.cancel, safestop, uncancel |
 | **Validate** | schema | protocol, task, manifest, output, compliance.summary, compliance.record, test.run, test.coverage, test.status, batch-validate |
 | **Orchestrate** | (none) | status, next, ready, analyze, context, waves, skill.list, startup, spawn, validate, parallel.start, parallel.end, check, skill.inject |
-| **Research** | (none) | show, list, query, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate |
-| **Lifecycle** | (none) | check, status, history, gates, prerequisites, progress, skip, reset, gate.pass, gate.fail |
+| **Research** | (none) | show, list, search, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate |
+| **Lifecycle** | (none) | validate, status, history, gates, prerequisites, record, skip, reset, gate.pass, gate.fail |
 | **Release** | (none) | prepare, changelog, commit, tag, push, gates.run, rollback |
 
 **Summary**: 29 native + 1 hybrid out of ~130 total operations.

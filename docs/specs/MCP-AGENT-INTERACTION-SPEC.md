@@ -105,11 +105,11 @@ The MCP server maintains a capability matrix (`mcp-server/src/engine/capability-
 
 ### 5.1 Native Operations (Cross-Platform, No Bash)
 
-**Tasks domain (queries):** show, get, list, find, exists, manifest
-**Tasks domain (mutations):** add, create, update, complete, delete, archive
+**Tasks domain (queries):** show, list, find, exists, manifest, current
+**Tasks domain (mutations):** add, update, complete, delete, archive, start, stop
 
-**Session domain (queries):** status, list, show, focus-show, focus.get
-**Session domain (mutations):** start, end, focus-set, focus.set, focus-clear, focus.clear
+**Session domain (queries):** status, list, show
+**Tasks domain (focus queries):** current
 
 **System domain:** version, config, config.get, config.set, init
 **Validate domain:** schema
@@ -122,11 +122,11 @@ The MCP server maintains a capability matrix (`mcp-server/src/engine/capability-
 
 **Session:** history, stats, resume, switch, archive, cleanup, suspend, gc
 
-**Orchestrate (all):** status, next, ready, analyze, context, waves, skill.list, startup, spawn, validate, parallel.start, parallel.end, check, skill.inject
+**Orchestrate (all):** status, next, ready, analyze, context, waves, skill.list, start, spawn, validate, parallel.start, parallel.end, skill.inject
 
-**Research (all):** show, list, query, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate
+**Research (all):** show, list, search, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate
 
-**Lifecycle (all):** check, status, history, gates, prerequisites, progress, skip, reset, gate.pass, gate.fail
+**Lifecycle (all):** validate, status, history, gates, prerequisites, record, skip, reset, gate.pass, gate.fail
 
 **Release (all):** prepare, changelog, commit, tag, push, gates.run, rollback
 
@@ -173,7 +173,7 @@ Quick reference:
 - Show task:    cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }
 - Add task:     cleo_mutate { domain: "tasks", operation: "add", params: { title: "..." } }
 - Complete:     cleo_mutate { domain: "tasks", operation: "complete", params: { id: "T1234" } }
-- Focus set:    cleo_mutate { domain: "session", operation: "focus.set", params: { id: "T1234" } }
+- Focus set:    cleo_mutate { domain: "tasks", operation: "start", params: { id: "T1234" } }
 - Find tasks:   cleo_query { domain: "tasks", operation: "find", params: { query: "..." } }
 - Session start: cleo_mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }
 ```
@@ -187,15 +187,15 @@ Quick reference:
 
 ```
 Tasks operations:
-  Query: show, get, list, find, exists, next, depends, stats, manifest, tree, blockers
-  Mutate: add, create, update, complete, delete, archive, restore, reparent, promote
+  Query: show, list, find, exists, next, depends, stats, manifest, tree, blockers, current
+  Mutate: add, update, complete, delete, archive, restore, reparent, promote, start, stop
 
 Session operations:
-  Query: status, list, show, focus.get
-  Mutate: start, end, focus.set, focus.clear, resume
+  Query: status, list, show
+  Mutate: start, end, resume
 
 System operations:
-  Query: version, doctor, config.get, dash, health
+  Query: version, health, config.get, dash
   Mutate: init, config.set, backup
 
 [... other domains ...]

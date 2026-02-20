@@ -473,7 +473,7 @@ cleo archive --tasks T010,T011,T012
 | --focus | string | no | Set initial focus task ID |
 | --agent | string | no | Agent identifier |
 
-**MCP Equivalent**: `cleo_mutate` domain=session operation=start params={scope, name, autoFocus}
+**MCP Equivalent**: `cleo_mutate` domain=session operation=start params={scope, name, autoStart}
 
 **Example**:
 ```bash
@@ -573,7 +573,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 
 **Usage**: `cleo focus show`
 
-**MCP Equivalent**: `cleo_query` domain=session operation=focus-show
+**MCP Equivalent**: `cleo_query` domain=tasks operation=current
 
 ---
 
@@ -589,7 +589,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 |------|------|----------|-------------|
 | taskId | string | yes | Task ID to focus on |
 
-**MCP Equivalent**: `cleo_mutate` domain=session operation=focus-set params={taskId}
+**MCP Equivalent**: `cleo_mutate` domain=tasks operation=start params={taskId}
 
 ---
 
@@ -599,7 +599,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 
 **Usage**: `cleo focus clear`
 
-**MCP Equivalent**: `cleo_mutate` domain=session operation=focus-clear
+**MCP Equivalent**: `cleo_mutate` domain=tasks operation=stop
 
 ---
 
@@ -654,7 +654,7 @@ cleo next --explain -n 3
 |------|------|---------|-------------|
 | --auto-focus | boolean | false | Automatically set focus to recommended task |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=analyze params={autoFocus}
+**MCP Equivalent**: `cleo_query` domain=tasks operation=analyze params={autoStart}
 
 ---
 
@@ -1565,7 +1565,7 @@ CLEO exposes two MCP tools: `cleo_query` (read-only) and `cleo_mutate` (writes).
 | deps | query | deps | taskId |
 | tree | query | tree | rootId |
 | blockers | query | blockers | analyze |
-| analyze | query | analyze | autoFocus |
+| analyze | query | analyze | autoStart |
 | stats | query | stats | period |
 | history | query | history | days, since, until |
 | add | mutate | add | title, priority, type, parentId, depends, ... |
@@ -1585,12 +1585,12 @@ CLEO exposes two MCP tools: `cleo_query` (read-only) and `cleo_mutate` (writes).
 |-------------|---------|-----------|------------|
 | session status | query | status | |
 | session list | query | list | status, limit |
-| focus show | query | focus-show | |
-| session start | mutate | start | scope, name, autoFocus |
+| focus show | query | current | |
+| session start | mutate | start | scope, name, autoStart |
 | session end | mutate | end | sessionId, note |
 | session resume | mutate | resume | sessionId |
-| focus set | mutate | focus-set | taskId |
-| focus clear | mutate | focus-clear | |
+| focus set | mutate | start | taskId |
+| focus clear | mutate | stop | |
 | session gc | mutate | gc | maxAge |
 
 ### System Domain

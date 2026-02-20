@@ -355,7 +355,7 @@ All notable changes to the CLEO system will be documented in this file.
 ## [0.89.0] - 2026-02-10
 
 ### P0: MCP Gateway Defect Burndown
-- fix(mcp): system.doctor now uses `cleo doctor --json` instead of malformed domain routing
+- fix(mcp): system.health now uses `cleo doctor --json` instead of malformed domain routing
 - fix(mcp): system.stats uses `cleo stats --json` instead of non-existent `metrics` command
 - fix(mcp): system.dash manual stdout re-parsing to avoid executor smart-unwrap losing data
 - fix(mcp): session.list uses `--status active` instead of boolean `--active` flag
@@ -403,7 +403,7 @@ All notable changes to the CLEO system will be documented in this file.
 ## [0.87.0] - 2026-02-10
 
 ### Features
-- feat: Add 11 MCP operations for full CLI parity — dash, roadmap, labels, compliance, log, archive-stats, sequence, relates, safestop, uncancel, relates.add (T4269)
+- feat: Add 11 MCP operations for full CLI parity — dash, roadmap, labels, compliance, log, archive.stats, sequence, relates, safestop, uncancel, relates.add (T4269)
 - feat: Add automated MCP parity guard with CI integration — canonical parity matrix, check-parity.js CI script, command-builder alias fixes (T4269)
 
 ### Bug Fixes

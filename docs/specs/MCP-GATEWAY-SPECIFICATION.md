@@ -128,15 +128,15 @@ interface UpdateTaskParams {
 
 | Operation | Parameters | Returns | CLI Mapping |
 |-----------|------------|---------|-------------|
-| `start` | `scope` (epic:T###), `name?`, `autoFocus?`, `focus?` | Session object | `cleo session start` |
+| `start` | `scope` (epic:T###), `name?`, `autoStart?`, `focus?` | Session object | `cleo session start` |
 | `end` | `sessionId?`, `note?` | Ended session | `cleo session end` |
 | `resume` | `sessionId` | Resumed session | `cleo session resume` |
 | `suspend` | `sessionId?` | Suspended session | `cleo session suspend` |
 | `list` | `status?`, `scope?` | Session array | `cleo session list` |
 | `status` | `sessionId?` | Current session status | `cleo session status` |
-| `focus_set` | `taskId` | Focus confirmation | `cleo focus set` |
-| `focus_show` | - | Current focus | `cleo focus show` |
-| `focus_clear` | - | Cleared confirmation | `cleo focus clear` |
+| `tasks.start` | `taskId` | Focus confirmation | `cleo start` |
+| `tasks.current` | - | Current focus | `cleo current` |
+| `tasks.stop` | - | Cleared confirmation | `cleo stop` |
 | `claim` | `taskId` | Claimed task | `cleo focus set` (with claim) |
 | `release` | `taskId` | Released task | Focus clear for task |
 | `conflicts` | `scope?` | Scope conflicts | Conflict detection |
@@ -147,7 +147,7 @@ interface UpdateTaskParams {
 interface StartSessionParams {
   scope: string;                    // Required: "epic:T####" format
   name?: string;                    // Optional session name
-  autoFocus?: boolean;              // Auto-focus first pending task
+  autoStart?: boolean;              // Auto-focus first pending task
   focus?: string;                   // Specific task to focus
 }
 

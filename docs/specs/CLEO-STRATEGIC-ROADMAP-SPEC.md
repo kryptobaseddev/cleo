@@ -428,7 +428,7 @@ The research index **MUST**:
 2. Support full-text search (FTS5)
 3. Track cross-references (task links, epic links, file paths)
 4. Invalidate cache on manifest append
-5. Expose via MCP `cleo_query` operation: `research.query`
+5. Expose via MCP `cleo_query` operation: `research.search`
 
 The research index **SHOULD**:
 1. Support date range filtering
