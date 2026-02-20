@@ -231,31 +231,47 @@ Format: `<type>: <summary>`
 
 ## Key Files & Entry Points
 
-### CLI Entry Points
+### MCP Server (Primary Entry Point)
+- `src/mcp/index.ts` - MCP server entry point
+- `src/mcp/gateways/query.ts` - 75 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 65 mutate operations (CANONICAL operation registry)
+- `src/mcp/domains/` - 11 domain handlers (tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers)
+- `src/mcp/engine/` - Engine adapters (MCP params → core calls)
+- `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing matrix
+
+### CLI Entry Points (Backup Interface)
 - `src/cli/index.ts` - CLI entry point (Commander.js program)
 - `src/cli/commands/add.ts` - Task creation
 - `src/cli/commands/update.ts` - Task updates
 - `src/cli/commands/complete.ts` - Task completion
+- `src/cli/commands/start.ts` - Start working on task (set focus)
+- `src/cli/commands/stop.ts` - Stop working on task (clear focus)
+- `src/cli/commands/current.ts` - Show currently active task
 - `src/cli/commands/session.ts` - Session management
-- `src/cli/commands/focus.ts` - Focus management
 
 ### Core Business Logic
 - `src/core/tasks/` - Task CRUD, hierarchy, dependencies
-- `src/core/sessions/` - Session lifecycle, focus tracking
+- `src/core/task-work/` - Active task tracking (focus management)
+- `src/core/sessions/` - Session lifecycle
 - `src/core/lifecycle/` - RCSD-IVTR lifecycle gates
+- `src/core/orchestration/` - Multi-agent orchestration
+- `src/core/research/` - Research manifest management
 - `src/core/release/` - Release management
+- `src/core/compliance/` - Protocol compliance
+- `src/core/validation/` - Schema and anti-hallucination validation
 - `src/core/config.ts` - Configuration management
-
-### MCP Server
-- `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/domains/` - MCP tool domain definitions
-- `src/mcp/engine/` - Engine adapters (MCP params -> core calls)
 
 ### Store Layer
 - `src/store/json.ts` - JSON file read/write
 - `src/store/atomic.ts` - Atomic file operations
 - `src/store/backup.ts` - Backup management
 - `src/store/lock.ts` - File locking
+
+### Canonical Specifications
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 140 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
+- `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
+- `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
+- `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns
 
 ### Schema Definitions
 - `schemas/todo.schema.json` - Main task schema

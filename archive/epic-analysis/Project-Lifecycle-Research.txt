@@ -1,0 +1,349 @@
+Core Insight: Everything Is Already in the Model
+
+Core Orchestration Specs Found
+
+  | Spec                     | Path                                   | Purpose                                                   |
+  |--------------------------|----------------------------------------|-----------------------------------------------------------|
+  | CONSENSUS-FRAMEWORK-SPEC | docs/specs/CONSENSUS-FRAMEWORK-SPEC.md | 7-agent consensus (5 workers + synthesis + orchestrator)  |
+  | RCSD-PIPELINE-SPEC       | docs/specs/RCSD-PIPELINE-SPEC.md       | 4-stage pipeline: Research → Consensus → Spec → Decompose |
+  | MULTI-SESSION-SPEC       | docs/specs/MULTI-SESSION-SPEC.md       | Concurrent agent sessions with scope isolation            |
+  | EPIC-SESSION-SPEC        | docs/specs/EPIC-SESSION-SPEC.md        | Epic-bound session architecture                           |
+  | TASK-DECOMPOSITION-SPEC  | docs/specs/TASK-DECOMPOSITION-SPEC.md  | 4-phase HTN decomposition with atomicity validation       |
+
+  Key Patterns Already Defined
+
+  Consensus Framework (v2.0.0) - Most relevant to your query:
+  - 1 Task Orchestrator + 5 Worker Agents + 1 Synthesis Agent
+  - Worker roles: Technical Validator, Design Philosophy, Docs Agent, Impl Agent, Challenge Agent (Red Team)
+  - 4-Phase: Evidence Collection → Specialist Analysis → Challenge & Consensus → Artifact Generation
+
+  RCSD Pipeline (v2.0.0):
+  - Research → Consensus (adversarial 5-agent validation) → Spec → Decompose
+  - HITL gates between stages
+  - Python Agent SDK implementation planned
+
+| Spec                | Covers                          | Does NOT Cover               |
+  |---------------------|---------------------------------|------------------------------|
+  | RCSD Pipeline       | Idea → Research → Spec → Tasks  | Executing/implementing tasks |
+  | Consensus Framework | Validating decisions/specs      | Validating implemented code  |
+  | Task Decomposition  | Breaking work into atomic tasks | Carrying out those tasks     |
+  | Multi-Session       | Agent session isolation         | Implementation coordination  |
+
+Reading your PROJECT-LIFECYCLE-SPEC, the 2D model is already complete:
+
+              PHASES (Lifecycle Time →)
+              ┌─────────┬─────────┬─────────┬─────────┬─────────┐
+              │ setup   │ core    │ testing │ polish  │ maint.  │
+       ┌──────┼─────────┼─────────┼─────────┼─────────┼─────────┤
+       │ Epic │ [tasks] │ [tasks] │ [tasks] │ [tasks] │ [tasks] │
+EPICS    │  A   │         │         │         │         │         │
+(Vertical) ├──────┼─────────┼─────────┼─────────┼─────────┼─────────┤
+       │ Epic │ [tasks] │ [tasks] │ [tasks] │ [tasks] │ [tasks] │
+       │  B   │         │         │         │         │         │
+       └──────┴─────────┴─────────┴─────────┴─────────┴─────────┘
+
+The Gap
+
+  There's no spec for the implementation orchestration pattern you described:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  IMPLEMENTATION ORCHESTRATION (NOT DEFINED)             │
+  │                                                         │
+  │  ┌──────────┐   ┌──────────┐   ┌──────────┐            │
+  │  │ Implement │ → │ Validate │ → │   Test   │            │
+  │  │  Agent    │   │  Agent   │   │  Agent   │            │
+  │  └──────────┘   └──────────┘   └──────────┘            │
+  │        ↑                              │                 │
+  │        └──────── cycle until pass ────┘                 │
+  │                        │                                │
+  │                        ↓                                │
+  │                 ┌──────────┐                           │
+  │                 │   Docs   │                           │
+  │                 │  Agent   │                           │
+  │                 └──────────┘                           │
+  └─────────────────────────────────────────────────────────┘
+
+existing specs cover planning/decomposition (upstream), but nothing covers execution/implementation (downstream)
+
+What we don't have: The vertical axis (Epic lifecycle) and the aggregation layer (Releases).
+
+Immutable Principles for LLM-Agent-First Task Management
+
+| #   | Principle                          | Rationale                                                                  |
+|-----|------------------------------------|----------------------------------------------------------------------------|
+| 1   | Everything is a Task               | Issues, bugs, features, research - all become Tasks/Epics. One data model. |
+| 2   | Epics traverse phases              | Epic contains tasks across setup→core→testing→polish→maintenance           |
+| 3   | Epic has its own lifecycle         | Independent of individual task statuses                                    |
+| 4   | Releases aggregate completed work  | Computed from tasks with release field                                     |
+| 5   | Changelog is derived, not authored | Generated from completed task metadata                                     |
+| 6   | Waves are computed, not stored     | Parallel execution groups from dependency DAG                              |
+| 7   | Single source of truth             | All state in todo.json (+ minimal registry files)                          |
+| 8   | Deterministic queries              | Same input → same output, always                                           |
+
+The Missing Pieces
+
+1. Epic Lifecycle Status
+
+Epics need their own lifecycle tracking independent of child task statuses:
+
+{
+"epicLifecycle": {
+"type": ["string", "null"],
+"enum": ["backlog", "planning", "active", "review", "released", "archived"],
+"default": null,
+"description": "Epic-level lifecycle (only for type=epic). Tracks Epic journey independent of task phases."
+}
+}
+
+State Machine:
+backlog → planning → active → review → released → archived
+                  ↑         │
+                  └─────────┘ (rejected/revisions)
+
+2. Release Tracking
+
+Releases are the culmination of completed Epics/Tasks:
+
+{
+"release": {
+"type": ["string", "null"],
+"pattern": "^v\\d+\\.\\d+\\.\\d+(-[a-z0-9.]+)?$",
+"default": null,
+"description": "Target release version. Tasks with same release are grouped for changelog."
+}
+}
+
+3. Issue Origin
+
+Track where work originated (external bug report, feature request, internal discovery):
+
+{
+"origin": {
+"type": ["object", "null"],
+"default": null,
+"properties": {
+"type": {
+  "type": "string",
+  "enum": ["internal", "bug-report", "feature-request", "security", "dependency"],
+  "description": "How this work was initiated"
+},
+"ref": {
+  "type": ["string", "null"],
+  "description": "External reference (GH-123, email, support ticket)"
+},
+"reportedAt": {
+  "type": ["string", "null"],
+  "format": "date-time"
+}
+}
+}
+}
+
+Complete Task Lifecycle Model
+
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                       COMPLETE CLEO TASK LIFECYCLE                                   │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                      │
+│  INGEST (External → CLEO)                                                           │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │  Bug Report ─┐                                                                │   │
+│  │  Feature Req ├──→ ct add "Epic: ..." --origin bug-report --origin-ref GH-123 │   │
+│  │  Security    │     Creates Epic with origin tracking                          │   │
+│  │  Internal   ─┘                                                                │   │
+│  └──────────────────────────────────────────────────────────────────────────────┘   │
+│                                       │                                              │
+│                                       ▼                                              │
+│  RCSD PIPELINE (Research → Decompose)                                               │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │  Epic: epicLifecycle = "planning"                                             │   │
+│  │  Research → Consensus → Spec → Decompose → [Tasks with phases + deps]         │   │
+│  │  Epic: epicLifecycle = "active" (after decomposition)                         │   │
+│  └──────────────────────────────────────────────────────────────────────────────┘   │
+│                                       │                                              │
+│                                       ▼                                              │
+│  IMPLEMENTATION ORCHESTRATION (Tasks → Code)                                        │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │  For each Task in Epic (ordered by phase, then wave):                         │   │
+│  │    Coder → Testing → QA → Cleanup → Security → Docs                           │   │
+│  │    Task: status = "done", verification.passed = true                          │   │
+│  │                                                                               │   │
+│  │  When ALL tasks in Epic complete:                                             │   │
+│  │    Epic: epicLifecycle = "review"                                             │   │
+│  └──────────────────────────────────────────────────────────────────────────────┘   │
+│                                       │                                              │
+│                                       ▼                                              │
+│  RELEASE MANAGEMENT (Review → Ship)                                                 │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │  ct release plan v0.42.0           # Group Epics into release                 │   │
+│  │  ct release changelog v0.42.0      # Generate from completed tasks            │   │
+│  │  ct release tag v0.42.0            # Git tag                                  │   │
+│  │                                                                               │   │
+│  │  Epic: epicLifecycle = "released", release = "v0.42.0"                        │   │
+│  └──────────────────────────────────────────────────────────────────────────────┘   │
+│                                       │                                              │
+│                                       ▼                                              │
+│  MAINTENANCE (Operate → Feedback Loop)                                              │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │  Bug discovered post-release:                                                 │   │
+│  │    ct add "Fix: ..." --origin bug-report --phase maintenance                  │   │
+│  │    OR                                                                         │   │
+│  │    ct add "Epic: Hotfix..." --origin bug-report --release v0.42.1             │   │
+│  │                                                                               │   │
+│  │  Feeds back to Implementation Orchestration                                   │   │
+│  └──────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+
+Schema Extension (Minimal, Focused)
+
+Add these fields to the task definition:
+
+{
+"definitions": {
+"task": {
+"properties": {
+  // ... existing fields ...
+
+  "epicLifecycle": {
+    "type": ["string", "null"],
+    "enum": ["backlog", "planning", "active", "review", "released", "archived", null],
+    "default": null,
+    "description": "Epic lifecycle state (only for type=epic). Null for tasks/subtasks."
+  },
+
+  "release": {
+    "type": ["string", "null"],
+    "pattern": "^v\\d+\\.\\d+\\.\\d+(-[a-z0-9.-]+)?$",
+    "default": null,
+    "description": "Target release version. Used for changelog generation and roadmap."
+  },
+
+  "origin": {
+    "type": ["object", "null"],
+    "default": null,
+    "additionalProperties": false,
+    "description": "Work origin tracking for issues/bugs/feature requests.",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": ["internal", "bug-report", "feature-request", "security", "dependency", "technical-debt"]
+      },
+      "ref": {
+        "type": ["string", "null"],
+        "maxLength": 100,
+        "description": "External reference (GH-123, JIRA-456, email ID)"
+      },
+      "reportedAt": {
+        "type": ["string", "null"],
+        "format": "date-time"
+      },
+      "reporter": {
+        "type": ["string", "null"],
+        "maxLength": 100,
+        "description": "Who reported (user ID, email, 'anonymous')"
+      },
+      "severity": {
+        "type": ["string", "null"],
+        "enum": ["critical", "major", "minor", "trivial", null],
+        "description": "Issue severity (for bug-report, security types)"
+      }
+    }
+  },
+
+  "verification": {
+    "$ref": "#/definitions/verification"
+  }
+}
+}
+}
+}
+
+Release Registry (In todo.json)
+
+Add a releases section to todo.json:
+
+{
+"releases": {
+"type": "object",
+"description": "Release registry. Keys are version strings.",
+"patternProperties": {
+"^v\\d+\\.\\d+\\.\\d+(-[a-z0-9.-]+)?$": {
+  "$ref": "#/definitions/releaseDefinition"
+}
+}
+}
+}
+
+{
+"definitions": {
+"releaseDefinition": {
+"type": "object",
+"required": ["status", "createdAt"],
+"properties": {
+  "status": {
+    "type": "string",
+    "enum": ["planned", "in-progress", "staging", "released", "deprecated"]
+  },
+  "name": {
+    "type": ["string", "null"],
+    "description": "Release name (e.g., 'Multi-Session Support')"
+  },
+  "createdAt": {
+    "type": "string",
+    "format": "date-time"
+  },
+  "targetDate": {
+    "type": ["string", "null"],
+    "format": "date"
+  },
+  "releasedAt": {
+    "type": ["string", "null"],
+    "format": "date-time"
+  },
+  "changelog": {
+    "type": ["string", "null"],
+    "description": "Path to generated changelog file"
+  },
+  "gitTag": {
+    "type": ["string", "null"],
+    "description": "Git tag reference"
+  }
+}
+}
+}
+}
+
+CLI Commands for Complete Lifecycle
+
+# Issue Ingestion
+ct add "Epic: Fix login timeout" --type epic --origin bug-report \
+--origin-ref GH-123 --origin-severity major --release v0.42.1
+
+# Epic Lifecycle
+ct epic lifecycle T998 planning     # Move to planning
+ct epic lifecycle T998 active       # Start implementation
+ct epic lifecycle T998 review       # All tasks done, ready for review
+ct epic lifecycle T998 released     # Mark as released
+
+# Release Management
+ct release create v0.42.0 --name "Multi-Session Support"
+ct release plan v0.42.0 --add T998,T999   # Add epics to release
+ct release status v0.42.0 in-progress     # Start working on release
+ct release changelog v0.42.0              # Generate changelog
+ct release ship v0.42.0                   # Mark released, git tag
+
+# Roadmap
+ct roadmap                                # Show planned releases with epics
+ct roadmap --format markdown              # Export roadmap
+
+
+# Lifecycle Flow:
+1. Issues → Epics (via origin field)
+2. Epics → Tasks (existing hierarchy)
+3. Tasks → Phases (existing)
+4. Phases → Waves (computed from deps)
+5. Epics → Releases (via release field)
+6. Releases → Changelog (generated)
+
+

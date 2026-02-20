@@ -1,0 +1,229 @@
+{
+  "$schema": "./todo-schema.json",
+  "version": "2.0.0",
+  "project": "my-saas-app",
+  "lastUpdated": "2024-12-05",
+
+  "focus": {
+    "currentTask": "T003",
+    "blockedUntil": null,
+    "sessionNote": "Working on JWT middleware. Implemented token validation, need to add refresh token logic and attach user to locals.",
+    "nextAction": "Add refresh token validation to hooks.server.ts"
+  },
+
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Set up database schema with Drizzle",
+      "status": "done",
+      "priority": "high",
+      "phase": "foundation",
+      "description": "Create initial Drizzle ORM schema for users, sessions, and refresh tokens.",
+      "files": [
+        "src/db/schema.ts",
+        "src/db/index.ts",
+        "drizzle.config.ts"
+      ],
+      "acceptance": [
+        "Schema compiles without TypeScript errors",
+        "drizzle-kit generate creates migration",
+        "Migration applies successfully to dev database",
+        "Can insert and query test user via db client"
+      ],
+      "labels": ["feature", "database"],
+      "createdAt": "2024-12-01",
+      "completedAt": "2024-12-02"
+    },
+    {
+      "id": "T002",
+      "title": "Implement user registration endpoint",
+      "status": "done",
+      "priority": "high",
+      "phase": "auth",
+      "description": "Create registration flow with email/password. Validate inputs, hash password, store user, send confirmation email.",
+      "files": [
+        "src/routes/auth/register/+page.svelte",
+        "src/routes/auth/register/+page.server.ts",
+        "src/lib/server/auth.ts"
+      ],
+      "acceptance": [
+        "Form validates email format client-side",
+        "Form validates password strength (8+ chars, mixed case, number)",
+        "Server rejects duplicate emails with clear error",
+        "Password hashed with bcrypt before storage",
+        "User created in database with unverified status",
+        "Confirmation email queued (or logged in dev)"
+      ],
+      "depends": ["T001"],
+      "labels": ["feature", "auth"],
+      "createdAt": "2024-12-02",
+      "completedAt": "2024-12-04"
+    },
+    {
+      "id": "T003",
+      "title": "Add JWT authentication middleware",
+      "status": "active",
+      "priority": "high",
+      "phase": "auth",
+      "description": "Protect API routes with JWT validation. Validate access tokens, handle refresh tokens, attach user to request context.",
+      "files": [
+        "src/hooks.server.ts",
+        "src/lib/server/jwt.ts",
+        "src/lib/server/auth.ts"
+      ],
+      "acceptance": [
+        "Protected routes return 401 without valid token",
+        "Invalid/malformed tokens return 401",
+        "Expired access tokens return 401 with 'token_expired' code",
+        "Valid tokens attach user object to event.locals",
+        "Refresh token endpoint issues new access token",
+        "Refresh tokens stored in httpOnly cookie"
+      ],
+      "depends": ["T002"],
+      "notes": [
+        "Using jose library for JWT (better than jsonwebtoken for edge)",
+        "Access token expiry: 15 minutes",
+        "Refresh token expiry: 7 days",
+        "Refresh tokens stored in database for revocation capability"
+      ],
+      "labels": ["feature", "auth", "security"],
+      "createdAt": "2024-12-04"
+    },
+    {
+      "id": "T004",
+      "title": "Build login page and flow",
+      "status": "pending",
+      "priority": "high",
+      "phase": "auth",
+      "description": "Create login form that authenticates user and issues JWT tokens.",
+      "files": [
+        "src/routes/auth/login/+page.svelte",
+        "src/routes/auth/login/+page.server.ts"
+      ],
+      "acceptance": [
+        "Form accepts email and password",
+        "Invalid credentials show generic error (no user enumeration)",
+        "Successful login sets access + refresh tokens",
+        "Redirects to /dashboard after login",
+        "Remember me checkbox extends refresh token to 30 days"
+      ],
+      "depends": ["T003"],
+      "labels": ["feature", "auth"],
+      "createdAt": "2024-12-04"
+    },
+    {
+      "id": "T005",
+      "title": "Implement password reset flow",
+      "status": "blocked",
+      "priority": "medium",
+      "phase": "auth",
+      "description": "Allow users to reset password via email link.",
+      "files": [
+        "src/routes/auth/forgot-password/+page.svelte",
+        "src/routes/auth/reset-password/+page.svelte",
+        "src/lib/server/email.ts"
+      ],
+      "acceptance": [
+        "Forgot password form accepts email",
+        "Reset email sent with secure token (valid 1 hour)",
+        "Reset page validates token before showing form",
+        "New password must meet strength requirements",
+        "All existing sessions invalidated on password change",
+        "Confirmation email sent after successful reset"
+      ],
+      "depends": ["T002"],
+      "blockedBy": "Email service not configured. Need to set up Resend API key and verify sending domain.",
+      "notes": [
+        "Will use Resend for transactional email",
+        "Reset tokens: 32-byte random, hashed in DB"
+      ],
+      "labels": ["feature", "auth"],
+      "createdAt": "2024-12-04"
+    },
+    {
+      "id": "T006",
+      "title": "Create protected dashboard page",
+      "status": "pending",
+      "priority": "medium",
+      "phase": "core",
+      "description": "Basic dashboard that requires authentication. Shows user info and logout button.",
+      "files": [
+        "src/routes/(protected)/dashboard/+page.svelte",
+        "src/routes/(protected)/dashboard/+page.server.ts",
+        "src/routes/(protected)/+layout.server.ts"
+      ],
+      "acceptance": [
+        "Unauthenticated users redirected to /login",
+        "Shows logged-in user's email",
+        "Logout button clears tokens and redirects to home",
+        "Layout guard applies to all (protected) routes"
+      ],
+      "depends": ["T004"],
+      "labels": ["feature"],
+      "createdAt": "2024-12-04"
+    },
+    {
+      "id": "T007",
+      "title": "Add rate limiting to auth endpoints",
+      "status": "pending",
+      "priority": "high",
+      "phase": "auth",
+      "description": "Prevent brute force attacks on login and registration.",
+      "files": [
+        "src/lib/server/rate-limit.ts",
+        "src/hooks.server.ts"
+      ],
+      "acceptance": [
+        "Login: max 5 attempts per email per 15 minutes",
+        "Login: max 20 attempts per IP per 15 minutes",
+        "Registration: max 3 per IP per hour",
+        "Rate limit headers included in response",
+        "429 response with retry-after when limited"
+      ],
+      "depends": ["T003"],
+      "notes": [
+        "Consider upstash/ratelimit for serverless compatibility",
+        "Or use in-memory with Map for MVP"
+      ],
+      "labels": ["security", "feature"],
+      "createdAt": "2024-12-05"
+    }
+  ],
+
+  "phases": {
+    "foundation": {
+      "order": 1,
+      "name": "Foundation & Setup",
+      "description": "Database, project structure, core dependencies"
+    },
+    "auth": {
+      "order": 2,
+      "name": "Authentication System",
+      "description": "User registration, login, sessions, security"
+    },
+    "core": {
+      "order": 3,
+      "name": "Core Features",
+      "description": "Main application functionality"
+    },
+    "polish": {
+      "order": 4,
+      "name": "Polish & Launch",
+      "description": "Testing, optimization, deployment"
+    }
+  },
+
+  "labels": {
+    "feature": ["T001", "T002", "T003", "T004", "T005", "T006", "T007"],
+    "auth": ["T002", "T003", "T004", "T005", "T007"],
+    "security": ["T003", "T005", "T007"],
+    "database": ["T001"],
+    "bug": [],
+    "urgent": []
+  },
+
+  "archived": {
+    "count": 0,
+    "lastArchived": null
+  }
+}

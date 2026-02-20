@@ -119,7 +119,7 @@ Research entry and manifest queries.
 |-----------|-------------|------------|---------|
 | [show](#researchshow) | Research entry details | `researchId` | Full entry |
 | [list](#researchlist) | List research entries | `epicId?`, `status?` | Entry array |
-| [search](#researchsearch) | Search research | `query`, `confidence?` | Matched entries |
+| [find](#researchfind) | Find research | `query`, `confidence?` | Matched entries |
 | [pending](#researchpending) | Pending research | `epicId?` | Entries needing follow-up |
 | [stats](#researchstats) | Research statistics | `epicId?` | Aggregated metrics |
 | [manifest.read](#researchmanifestread) | Read manifest entries | `filter?`, `limit?` | JSONL entries |

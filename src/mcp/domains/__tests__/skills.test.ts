@@ -169,7 +169,7 @@ describe('SkillsHandler', () => {
       expect(ops.query).toEqual([
         'list',
         'show',
-        'search',
+        'find',
         'dispatch',
         'verify',
         'dependencies',
@@ -268,9 +268,9 @@ describe('SkillsHandler', () => {
       });
     });
 
-    describe('search', () => {
+    describe('find', () => {
       it('searches skills by query', async () => {
-        const result = await handler.query('search', { query: 'test' });
+        const result = await handler.query('find', { query: 'test' });
 
         expect(result.success).toBe(true);
         const data = result.data as any;
@@ -281,14 +281,14 @@ describe('SkillsHandler', () => {
       });
 
       it('requires query parameter', async () => {
-        const result = await handler.query('search', {});
+        const result = await handler.query('find', {});
 
         expect(result.success).toBe(false);
         expect(result.error?.code).toBe('E_INVALID_INPUT');
       });
 
       it('returns exact name matches with highest score', async () => {
-        const result = await handler.query('search', { query: 'ct-orchestrator' });
+        const result = await handler.query('find', { query: 'ct-orchestrator' });
 
         expect(result.success).toBe(true);
         const data = result.data as any;
@@ -297,7 +297,7 @@ describe('SkillsHandler', () => {
       });
 
       it('respects limit parameter', async () => {
-        const result = await handler.query('search', { query: 'ct', limit: 2 });
+        const result = await handler.query('find', { query: 'ct', limit: 2 });
 
         expect(result.success).toBe(true);
         expect((result.data as any).results.length).toBeLessThanOrEqual(2);

@@ -69,7 +69,7 @@ Agents SHOULD use MCP tools for:
 - All task CRUD operations (show, list, find, add, update, complete, delete)
 - Session management (start, end, status, focus)
 - Schema validation
-- System queries (version, config, doctor)
+- System queries (version, config, health)
 - Any operation where structured JSON response is sufficient
 
 ### 4.4 When to Use CLI (Fallback)
@@ -118,13 +118,13 @@ The MCP server maintains a capability matrix (`mcp-server/src/engine/capability-
 
 ### 5.2 CLI-Only Operations
 
-**Tasks:** next, depends, deps, stats, export, history, lint, batch-validate, tree, blockers, analyze, relates, restore, unarchive, import, reorder, reparent, promote, reopen, relates.add
+**Tasks:** next, depends, stats, export, history, lint, batch-validate, tree, blockers, analyze, relates, restore, import, reorder, reparent, promote, reopen, relates.add
 
-**Session:** history, stats, resume, switch, archive, cleanup, suspend, gc
+**Session:** history, stats, resume, switch, archive, suspend, gc
 
 **Orchestrate (all):** status, next, ready, analyze, context, waves, skill.list, start, spawn, validate, parallel.start, parallel.end, skill.inject
 
-**Research (all):** show, list, search, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate
+**Research (all):** show, list, find, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate
 
 **Lifecycle (all):** validate, status, history, gates, prerequisites, record, skip, reset, gate.pass, gate.fail
 
@@ -167,7 +167,7 @@ CLEO provides two MCP tools:
 - cleo_query(domain, operation, params) - Read operations (never modifies state)
 - cleo_mutate(domain, operation, params) - Write operations (validated, logged, atomic)
 
-Domains: tasks, session, system, validate, orchestrate, research, lifecycle, release
+Domains: tasks, session, system, validate, orchestrate, research, lifecycle, release, issues, skills, providers
 
 Quick reference:
 - Show task:    cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }
@@ -286,7 +286,7 @@ This is self-service: agents discover what they need when they need it, rather t
 │  │          Domain Router                     │  │
 │  │  tasks | session | system | validate |     │  │
 │  │  orchestrate | research | lifecycle |      │  │
-│  │  release                                   │  │
+│  │  release | issues | skills | providers     │  │
 │  └─────────┬─────────────────┬───────────────┘  │
 │            │                 │                    │
 │    ┌───────▼──────┐  ┌──────▼───────┐           │

@@ -1,0 +1,254 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/your-org/todo-schema/v2.0.0",
+  "title": "LLM-Optimized Project TODO Schema",
+  "description": "Minimal, flat task tracking schema optimized for LLM agent workflows. Designed for token efficiency, clear focus tracking, and session continuity.",
+  "type": "object",
+  "required": ["version", "project", "lastUpdated", "tasks"],
+
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version following semantic versioning",
+      "examples": ["2.0.0"]
+    },
+
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Project name or identifier"
+    },
+
+    "lastUpdated": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO date when TODO file was last modified"
+    },
+
+    "focus": {
+      "type": "object",
+      "description": "Current session focus - critical for LLM agent continuity",
+      "properties": {
+        "currentTask": {
+          "type": ["string", "null"],
+          "pattern": "^T\\d{3,}$",
+          "description": "ID of task currently being worked on (null if none)"
+        },
+        "blockedUntil": {
+          "type": ["string", "null"],
+          "description": "If globally blocked, what's needed to proceed"
+        },
+        "sessionNote": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "Context from last session for continuity. Updated at session end."
+        },
+        "nextAction": {
+          "type": ["string", "null"],
+          "maxLength": 200,
+          "description": "Specific next step to take when resuming"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "tasks": {
+      "type": "array",
+      "description": "All active tasks. Completed tasks should be archived periodically.",
+      "items": {
+        "$ref": "#/definitions/task"
+      }
+    },
+
+    "phases": {
+      "type": "object",
+      "description": "Optional phase definitions for grouping tasks. Keys are phase slugs.",
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "type": "object",
+          "required": ["order", "name"],
+          "properties": {
+            "order": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Display/execution order"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Human-readable phase name"
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional phase description"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "labels": {
+      "type": "object",
+      "description": "Label-to-task-ID mapping for quick filtering. Computed, not authoritative.",
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "archived": {
+      "type": "object",
+      "description": "Summary of archived tasks (details in todo-archive.json)",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lastArchived": {
+          "type": ["string", "null"],
+          "format": "date"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "definitions": {
+    "task": {
+      "type": "object",
+      "required": ["id", "title", "status", "priority"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Unique, stable task ID. Format: T001, T002, etc. Never reuse IDs."
+        },
+
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Brief, actionable task title. Start with verb."
+        },
+
+        "status": {
+          "type": "string",
+          "enum": ["pending", "active", "blocked", "done"],
+          "description": "Task status. Only one task should be 'active' at a time."
+        },
+
+        "priority": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"],
+          "description": "Task priority for ordering"
+        },
+
+        "phase": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Phase slug this task belongs to (must match phases key)"
+        },
+
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Detailed task description. What needs to be done and why."
+        },
+
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files to create, modify, or reference. Include paths."
+        },
+
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "minItems": 1,
+          "description": "Testable acceptance criteria. Task is done when ALL are met."
+        },
+
+        "depends": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
+          "uniqueItems": true,
+          "description": "Task IDs that must be 'done' before this task can start"
+        },
+
+        "blockedBy": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Reason task is blocked. Required when status='blocked'."
+        },
+
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "description": "Implementation notes, decisions, context. Append-only."
+        },
+
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "uniqueItems": true,
+          "description": "Tags for categorization: bug, feature, security, etc."
+        },
+
+        "createdAt": {
+          "type": "string",
+          "format": "date",
+          "description": "Date task was created"
+        },
+
+        "completedAt": {
+          "type": "string",
+          "format": "date",
+          "description": "Date task was completed. Required when status='done'."
+        }
+      },
+
+      "if": {
+        "properties": { "status": { "const": "blocked" } }
+      },
+      "then": {
+        "required": ["blockedBy"]
+      },
+
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "done" } }
+          },
+          "then": {
+            "required": ["completedAt"]
+          }
+        }
+      ]
+    }
+  }
+}

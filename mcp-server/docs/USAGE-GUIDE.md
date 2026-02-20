@@ -1293,7 +1293,7 @@ A: `find` returns minimal fields for discovery (99% less context). `list` return
 - `status`, `next`, `ready`, `analyze`, `context`, `waves`, `skill.list`
 
 **research** (6):
-- `show`, `list`, `search`, `pending`, `stats`, `manifest.read`
+- `show`, `list`, `find`, `pending`, `stats`, `manifest.read`
 
 **lifecycle** (5):
 - `validate`, `status`, `history`, `gates`, `prerequisites`

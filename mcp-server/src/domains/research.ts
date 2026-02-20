@@ -233,7 +233,7 @@ export class ResearchHandler implements DomainHandler {
           return await this.queryStats(params as unknown as ResearchStatsParams);
         case 'validate':
           return await this.queryValidate(params as unknown as ResearchValidateParams);
-        case 'search':
+        case 'find':
           return await this.querySearch(params as unknown as ResearchSearchParams);
         case 'export':
           return await this.queryExport(params as unknown as ResearchExportParams);
@@ -271,7 +271,7 @@ export class ResearchHandler implements DomainHandler {
         return this.wrapNativeResult(nativeResearchShow(params?.researchId as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'list':
         return this.wrapNativeResult(nativeResearchList(params as any, this.projectRoot), 'cleo_query', operation, startTime);
-      case 'search':
+      case 'find':
         return this.wrapNativeResult(
           nativeResearchQuery(params?.query as string, { confidence: params?.confidence as number, limit: params?.limit as number }, this.projectRoot),
           'cleo_query', operation, startTime
@@ -371,7 +371,7 @@ export class ResearchHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending'],
+      query: ['list', 'stats', 'validate', 'find', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending'],
       mutate: ['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive'],
     };
   }
@@ -535,7 +535,7 @@ export class ResearchHandler implements DomainHandler {
       return this.createErrorResponse(
         'cleo_query',
         'research',
-        'search',
+        'find',
         'E_INVALID_INPUT',
         'query is required',
         startTime
@@ -553,7 +553,7 @@ export class ResearchHandler implements DomainHandler {
       flags,
     });
 
-    return this.wrapExecutorResult(result, 'cleo_query', 'research', 'search', startTime);
+    return this.wrapExecutorResult(result, 'cleo_query', 'research', 'find', startTime);
   }
 
   /**

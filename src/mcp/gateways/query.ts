@@ -68,7 +68,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
   research: [
     'show',           // Research entry details
     'list',           // List research entries
-    'search',         // Search research
+    'find',           // Find research
     'pending',        // Pending research
     'stats',            // Research statistics
     'manifest.read',    // Read manifest entries
@@ -116,7 +116,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
   skills: [
     'list',           // List available skills
     'show',           // Skill details
-    'search',         // Search skills
+    'find',           // Find skills
     'dispatch',       // Simulate skill dispatch
     'verify',         // Validate skill frontmatter
     'dependencies',   // Skill dependency tree

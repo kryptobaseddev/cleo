@@ -1,0 +1,6 @@
+M	docs/INDEX.md
+M	lib/todowrite-integration.sh
+M	scripts/extract-todowrite.sh
+M	scripts/inject-todowrite.sh
+M	scripts/sync-todowrite.sh
+M	tests/integration/todowrite-sync.bats

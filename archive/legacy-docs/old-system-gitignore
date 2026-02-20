@@ -1,0 +1,17 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Test files (keep in repo for CI, ignore local test artifacts)
+*.tmp
+*.bak
+
+# Local todo files (each project has their own)
+# These are generated per-project, not part of the system repo

@@ -247,7 +247,7 @@ All operations return a consistent envelope:
 | tasks | show, list, find, exists, tree, blockers, depends, analyze, next, current | 10 |
 | session | status, list, show, history | 4 |
 | orchestrate | status, next, ready, analyze, context, waves, skill.list | 7 |
-| research | show, list, search, pending, stats, manifest.read | 6 |
+| research | show, list, find, pending, stats, manifest.read | 6 |
 | lifecycle | validate, status, history, gates, prerequisites | 5 |
 | validate | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage | 9 |
 | system | version, health, config.get, stats, context | 5 |

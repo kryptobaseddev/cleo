@@ -730,7 +730,7 @@ await spawnParallel("T2908");
 // 1. Query existing research
 const existing = await cleo_query({
   domain: "research",
-  operation: "search",
+  operation: "find",
   params: {
     query: "MCP server architecture",
     confidence: 0.7

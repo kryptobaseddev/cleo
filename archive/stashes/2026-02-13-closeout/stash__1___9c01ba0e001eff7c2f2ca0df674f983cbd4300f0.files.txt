@@ -1,0 +1,3 @@
+M	scripts/archive.sh
+M	scripts/list-tasks.sh
+M	tests/unit/tree-alias.bats
