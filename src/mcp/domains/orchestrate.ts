@@ -69,7 +69,7 @@ interface OrchestrateProgressParams {
 interface OrchestrateStartParams {
   epicId: string;
   name?: string;
-  autoFocus?: boolean;
+  autoStart?: boolean;
 }
 
 interface OrchestrateSpawnParams {
@@ -246,9 +246,9 @@ export class OrchestrateHandler implements DomainHandler {
         return this.wrapNativeResult(nativeOrchestrateSkillList(this.projectRoot), 'cleo_query', operation, startTime);
       case 'bootstrap':
         return this.wrapNativeResult(await nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', operation, startTime);
-      case 'critical-path':
+      case 'critical.path':
         return this.wrapNativeResult(await nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', operation, startTime);
-      case 'unblock-opportunities':
+      case 'unblock.opportunities':
         return this.wrapNativeResult(await nativeOrchestrateUnblockOpportunities(this.projectRoot), 'cleo_query', operation, startTime);
       default:
         return this.createErrorResponse('cleo_query', 'orchestrate', operation, 'E_INVALID_OPERATION', `Unknown native query operation: ${operation}`, startTime);
@@ -257,7 +257,7 @@ export class OrchestrateHandler implements DomainHandler {
 
   private async mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): Promise<DomainResponse> {
     switch (operation) {
-      case 'startup':
+      case 'start':
         return this.wrapNativeResult(await nativeOrchestrateStartup(params?.epicId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'spawn':
         return this.wrapNativeResult(await nativeOrchestrateSpawn(params?.taskId as string, params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
@@ -322,12 +322,12 @@ export class OrchestrateHandler implements DomainHandler {
         case 'bootstrap':
           // bootstrap is always native-only, no CLI fallback
           return this.wrapNativeResult(await nativeOrchestrateBootstrap(this.projectRoot, params as { speed?: 'fast' | 'full' | 'complete' }), 'cleo_query', 'bootstrap', startTime);
-        case 'critical-path':
-          // critical-path is always native-only, no CLI fallback
-          return this.wrapNativeResult(await nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', 'critical-path', startTime);
-        case 'unblock-opportunities':
-          // unblock-opportunities is always native-only, no CLI fallback
-          return this.wrapNativeResult(await nativeOrchestrateUnblockOpportunities(this.projectRoot), 'cleo_query', 'unblock-opportunities', startTime);
+        case 'critical.path':
+          // critical.path is always native-only, no CLI fallback
+          return this.wrapNativeResult(await nativeOrchestrateCriticalPath(this.projectRoot), 'cleo_query', 'critical.path', startTime);
+        case 'unblock.opportunities':
+          // unblock.opportunities is always native-only, no CLI fallback
+          return this.wrapNativeResult(await nativeOrchestrateUnblockOpportunities(this.projectRoot), 'cleo_query', 'unblock.opportunities', startTime);
         default:
           return this.createErrorResponse(
             'cleo_query',
@@ -388,8 +388,6 @@ export class OrchestrateHandler implements DomainHandler {
           return await this.mutateParallelStart(params as unknown as OrchestrateParallelStartParams);
         case 'parallel.end':
           return await this.mutateParallelEnd(params as unknown as OrchestrateParallelEndParams);
-        case 'startup':
-          return await this.mutateStart(params as unknown as OrchestrateStartParams);
         case 'check':
           return this.mutateNative('check', params, startTime);
         case 'skill.inject':
@@ -414,8 +412,8 @@ export class OrchestrateHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'ready', 'next', 'waves', 'context', 'progress', 'skill.list', 'analyze', 'bootstrap', 'critical-path', 'unblock-opportunities'],
-      mutate: ['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'startup', 'check', 'skill.inject'],
+      query: ['status', 'ready', 'next', 'waves', 'context', 'progress', 'skill.list', 'analyze', 'bootstrap', 'critical.path', 'unblock.opportunities'],
+      mutate: ['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'check', 'skill.inject'],
     };
   }
 
@@ -601,7 +599,7 @@ export class OrchestrateHandler implements DomainHandler {
     };
 
     if (params?.name) flags.name = params.name;
-    if (params?.autoFocus) flags['auto-focus'] = true;
+    if (params?.autoStart) flags['auto-start'] = true;
 
     const result = await this.executor!.execute<OrchestrateStartResult>({
       domain: 'orchestrator',

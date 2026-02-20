@@ -36,7 +36,7 @@ export interface HierarchyConfig {
 
 /** Session configuration. */
 export interface SessionConfig {
-  autoFocus: boolean;
+  autoStart: boolean;
   requireNotes: boolean;
   multiSession: boolean;
 }

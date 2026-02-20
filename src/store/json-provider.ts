@@ -1,7 +1,7 @@
 /**
  * JSON StoreProvider implementation.
  *
- * Wraps existing JSON file operations (tasks, sessions, focus) behind
+ * Wraps existing JSON file operations (tasks, sessions, task work) behind
  * the StoreProvider interface. This allows the CLI and MCP engine to
  * use StoreProvider for all data access, switchable between JSON and SQLite.
  *
@@ -35,8 +35,8 @@ import {
   gcSessions,
 } from '../core/sessions/index.js';
 
-// Focus operations
-import { setFocus, showFocus, clearFocus, getFocusHistory } from '../core/focus/index.js';
+// Task work operations
+import { startTask, currentTask, stopTask, getWorkHistory } from '../core/task-work/index.js';
 
 // Label operations
 import { listLabels, showLabelTasks, getLabelStats } from '../core/tasks/labels.js';
@@ -179,7 +179,7 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
         scope: session.scope.type === 'epic' && session.scope.epicId
           ? `epic:${session.scope.epicId}`
           : 'global',
-        focus: session.focus?.taskId ?? undefined,
+        startTask: session.taskWork?.taskId ?? undefined,
         agent: session.agent ?? undefined,
       }, cwd, acc);
       return result;
@@ -232,25 +232,25 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
       }
     },
 
-    // ---- Focus ----
+    // ---- Task work (session-level) ----
 
-    setFocus: async (_sessionId: string, taskId: string): Promise<void> => {
+    startTaskOnSession: async (_sessionId: string, taskId: string): Promise<void> => {
       const acc = await getAcc();
-      await setFocus(taskId, cwd, acc);
+      await startTask(taskId, cwd, acc);
     },
 
-    getFocus: async (_sessionId: string): Promise<{ taskId: string | null; since: string | null }> => {
+    getCurrentTaskForSession: async (_sessionId: string): Promise<{ taskId: string | null; since: string | null }> => {
       const acc = await getAcc();
-      const focus = await showFocus(cwd, acc);
+      const current = await currentTask(cwd, acc);
       return {
-        taskId: focus.currentTask,
-        since: null, // JSON focus doesn't track 'since' per session
+        taskId: current.currentTask,
+        since: null, // JSON storage doesn't track 'since' per session
       };
     },
 
-    clearFocus: async (_sessionId: string): Promise<void> => {
+    stopTaskOnSession: async (_sessionId: string): Promise<void> => {
       const acc = await getAcc();
-      await clearFocus(cwd, acc);
+      await stopTask(cwd, acc);
     },
 
     // ---- Lifecycle ----
@@ -280,10 +280,10 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     richListSessions: async (options) => { const acc = await getAcc(); return listSessions(options, cwd, acc); },
     gcSessions: async (maxAgeHours) => { const acc = await getAcc(); return gcSessions(maxAgeHours, cwd, acc); },
 
-    showFocus: async () => { const acc = await getAcc(); return showFocus(cwd, acc); },
-    richSetFocus: async (taskId) => { const acc = await getAcc(); return setFocus(taskId, cwd, acc); },
-    richClearFocus: async () => { const acc = await getAcc(); return clearFocus(cwd, acc); },
-    getFocusHistory: async () => { const acc = await getAcc(); return getFocusHistory(cwd, acc); },
+    currentTask: async () => { const acc = await getAcc(); return currentTask(cwd, acc); },
+    startTask: async (taskId: string) => { const acc = await getAcc(); return startTask(taskId, cwd, acc); },
+    stopTask: async () => { const acc = await getAcc(); return stopTask(cwd, acc); },
+    getWorkHistory: async () => { const acc = await getAcc(); return getWorkHistory(cwd, acc); },
 
     listLabels: async () => { const acc = await getAcc(); return listLabels(cwd, acc); },
     showLabelTasks: async (label) => { const acc = await getAcc(); return showLabelTasks(label, cwd, acc); },

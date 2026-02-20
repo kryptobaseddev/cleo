@@ -7,11 +7,11 @@
  * @epic T4454
  */
 
-import type { TodoFile } from '../types/task.js';
+import type { TaskFile } from '../types/task.js';
 import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
 import { readJson, readJsonRequired, saveJson, appendJsonl } from './json.js';
 import {
-  getTodoPath,
+  getTaskPath,
   getArchivePath,
   getSessionsPath,
   getLogPath,
@@ -24,15 +24,24 @@ import {
  * @param cwd - Working directory for path resolution (defaults to process.cwd())
  */
 export async function createJsonDataAccessor(cwd?: string): Promise<DataAccessor> {
-  return {
+  const accessor: DataAccessor = {
     engine: 'json' as const,
 
-    async loadTodoFile(): Promise<TodoFile> {
-      return readJsonRequired<TodoFile>(getTodoPath(cwd));
+    async loadTaskFile(): Promise<TaskFile> {
+      return readJsonRequired<TaskFile>(getTaskPath(cwd));
     },
 
-    async saveTodoFile(data: TodoFile): Promise<void> {
-      await saveJson(getTodoPath(cwd), data, { backupDir: getBackupDir(cwd) });
+    async saveTaskFile(data: TaskFile): Promise<void> {
+      await saveJson(getTaskPath(cwd), data, { backupDir: getBackupDir(cwd) });
+    },
+
+    // Deprecated aliases
+    async loadTodoFile(): Promise<TaskFile> {
+      return accessor.loadTaskFile();
+    },
+
+    async saveTodoFile(data: TaskFile): Promise<void> {
+      return accessor.saveTaskFile(data);
     },
 
     async loadArchive(): Promise<ArchiveFile | null> {
@@ -74,4 +83,6 @@ export async function createJsonDataAccessor(cwd?: string): Promise<DataAccessor
       // No-op: JSON files don't hold open resources.
     },
   };
+
+  return accessor;
 }

@@ -7,8 +7,8 @@
 import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TodoFile } from '../../types/task.js';
-import { getTodoPath, getLogPath, getBackupDir } from '../paths.js';
+import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TaskFile } from '../../types/task.js';
+import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
 import {
   validateStatus,
   normalizePriority,
@@ -19,6 +19,10 @@ import {
   logOperation,
 } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import {
+  safeSaveTaskFile,
+  safeAppendLog,
+} from '../../store/data-safety-central.js';
 
 /** Options for updating a task. */
 export interface UpdateTaskOptions {
@@ -55,13 +59,13 @@ export interface UpdateTaskResult {
  * @task T4461
  */
 export async function updateTask(options: UpdateTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<UpdateTaskResult> {
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
 
   const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -201,8 +205,8 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
   data.lastUpdated = now;
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
-    await accessor.appendLog({
+    await safeSaveTaskFile(accessor, data, cwd);
+    await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_updated',
@@ -211,7 +215,7 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
       details: { changes, title: task.title },
       before: null,
       after: { changes, title: task.title },
-    });
+    }, cwd);
   } else {
     await saveJson(todoPath, data, { backupDir });
     await logOperation(logPath, 'task_updated', options.taskId, {

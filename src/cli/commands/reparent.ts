@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -58,7 +59,7 @@ export function registerReparentCommand(program: Command): void {
         }
 
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
         const task = taskMap.get(taskId);
@@ -74,13 +75,13 @@ export function registerReparentCommand(program: Command): void {
 
           data._meta.checksum = computeChecksum(data.tasks);
           data.lastUpdated = new Date().toISOString();
-          await accessor.saveTodoFile(data);
+          await accessor.saveTaskFile(data);
 
-          console.log(formatSuccess({
+          cliOutput({
             task: taskId,
             reparented: true,
             newParent: null,
-          }));
+          }, { command: 'reparent' });
           return;
         }
 
@@ -128,15 +129,15 @@ export function registerReparentCommand(program: Command): void {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
 
-        await accessor.saveTodoFile(data);
+        await accessor.saveTaskFile(data);
 
-        console.log(formatSuccess({
+        cliOutput({
           task: taskId,
           reparented: true,
           oldParent: oldParent ?? null,
           newParent: targetParent,
           newType: task.type,
-        }));
+        }, { command: 'reparent' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

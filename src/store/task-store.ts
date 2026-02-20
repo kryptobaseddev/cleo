@@ -13,6 +13,12 @@ import { getDb, saveToFile } from './sqlite.js';
 import * as schema from './schema.js';
 import type { TaskRow, NewTaskRow } from './schema.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
+import {
+  safeCreateTask,
+  safeUpdateTask,
+  safeDeleteTask,
+  type SafetyConfig,
+} from './data-safety.js';
 
 // === ROW <-> DOMAIN CONVERSION ===
 
@@ -428,4 +434,62 @@ export async function countTasks(cwd?: string): Promise<number> {
     SELECT COUNT(*) as count FROM tasks WHERE status != 'archived'
   `);
   return result[0]?.count ?? 0;
+}
+
+// === SAFE WRAPPER FUNCTIONS (with collision detection, write verification, auto-checkpoint) ===
+
+/** Configuration for safe operations. */
+export { type SafetyConfig } from './data-safety.js';
+
+/**
+ * Create a task with full safety protections.
+ * Includes: collision detection, write verification, sequence validation, auto-checkpoint.
+ */
+export async function createTaskSafe(
+  task: Task,
+  cwd?: string,
+  config?: Partial<SafetyConfig>,
+): Promise<Task> {
+  return safeCreateTask(
+    () => createTask(task, cwd),
+    task,
+    cwd,
+    config,
+  );
+}
+
+/**
+ * Update a task with full safety protections.
+ * Includes: write verification, auto-checkpoint.
+ */
+export async function updateTaskSafe(
+  taskId: string,
+  updates: Partial<Task>,
+  cwd?: string,
+  config?: Partial<SafetyConfig>,
+): Promise<Task | null> {
+  return safeUpdateTask(
+    () => updateTask(taskId, updates, cwd),
+    taskId,
+    updates,
+    cwd,
+    config,
+  );
+}
+
+/**
+ * Delete a task with full safety protections.
+ * Includes: delete verification, auto-checkpoint.
+ */
+export async function deleteTaskSafe(
+  taskId: string,
+  cwd?: string,
+  config?: Partial<SafetyConfig>,
+): Promise<boolean> {
+  return safeDeleteTask(
+    () => deleteTask(taskId, cwd),
+    taskId,
+    cwd,
+    config,
+  );
 }

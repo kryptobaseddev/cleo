@@ -1,7 +1,7 @@
 /**
  * DataAccessor: File-level storage abstraction for core modules.
  *
- * Core modules operate on whole-file data structures (TodoFile, ArchiveFile, SessionsFile).
+ * Core modules operate on whole-file data structures (TaskFile, ArchiveFile, SessionsFile).
  * The DataAccessor abstracts WHERE that data is stored (JSON files vs SQLite)
  * while preserving the read-modify-write pattern that core business logic relies on.
  *
@@ -15,7 +15,7 @@
  * @epic T4454
  */
 
-import type { TodoFile } from '../types/task.js';
+import type { TaskFile } from '../types/task.js';
 import type { Session } from '../types/session.js';
 
 /** Archive file structure. */
@@ -45,13 +45,19 @@ export interface DataAccessor {
   /** The storage engine backing this accessor. */
   readonly engine: 'json' | 'sqlite' | 'dual';
 
-  // ---- Task data (todo.json equivalent) ----
+  // ---- Task data (tasks.json equivalent) ----
 
-  /** Load the full TodoFile (tasks + project meta + focus state). */
-  loadTodoFile(): Promise<TodoFile>;
+  /** Load the full TaskFile (tasks + project meta + work state). */
+  loadTaskFile(): Promise<TaskFile>;
 
-  /** Save the full TodoFile atomically. Creates backup before write. */
-  saveTodoFile(data: TodoFile): Promise<void>;
+  /** Save the full TaskFile atomically. Creates backup before write. */
+  saveTaskFile(data: TaskFile): Promise<void>;
+
+  /** @deprecated Use loadTaskFile() instead. */
+  loadTodoFile(): Promise<TaskFile>;
+
+  /** @deprecated Use saveTaskFile() instead. */
+  saveTodoFile(data: TaskFile): Promise<void>;
 
   // ---- Archive data (todo-archive.json equivalent) ----
 
@@ -84,6 +90,9 @@ export interface DataAccessor {
  * Create a DataAccessor for the given working directory.
  * Auto-detects engine from .cleo/config.json (storage.engine field).
  *
+ * ALL accessors returned are safety-enabled by default via SafetyDataAccessor wrapper.
+ * Use CLEO_DISABLE_SAFETY=true to bypass (emergency only).
+ *
  * @param engine - Force a specific engine, or undefined for auto-detect
  * @param cwd - Working directory (defaults to process.cwd())
  */
@@ -93,26 +102,35 @@ export async function createDataAccessor(
 ): Promise<DataAccessor> {
   const resolvedEngine = engine ?? (await detectEngine(cwd));
 
+  // Create the inner accessor based on engine
+  let inner: DataAccessor;
   switch (resolvedEngine) {
     case 'sqlite': {
       const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
-      return createSqliteDataAccessor(cwd);
+      inner = await createSqliteDataAccessor(cwd);
+      break;
     }
     case 'dual': {
       // Dual mode: write to both, read from SQLite with JSON fallback
       const { createJsonDataAccessor } = await import('./json-data-accessor.js');
       const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
-      return createDualDataAccessor(
+      inner = createDualDataAccessor(
         await createJsonDataAccessor(cwd),
         await createSqliteDataAccessor(cwd),
       );
+      break;
     }
     case 'json':
     default: {
       const { createJsonDataAccessor } = await import('./json-data-accessor.js');
-      return createJsonDataAccessor(cwd);
+      inner = await createJsonDataAccessor(cwd);
+      break;
     }
   }
+
+  // Always wrap with safety - cannot be bypassed at factory level
+  const { wrapWithSafety } = await import('./safety-data-accessor.js');
+  return wrapWithSafety(inner, cwd);
 }
 
 /** Convenience: get a DataAccessor with auto-detected engine. */
@@ -156,19 +174,28 @@ function createDualDataAccessor(json: DataAccessor, sqlite: DataAccessor): DataA
   return {
     engine: 'dual' as const,
 
-    async loadTodoFile() {
+    async loadTaskFile() {
       try {
-        return await sqlite.loadTodoFile();
+        return await sqlite.loadTaskFile();
       } catch {
-        return await json.loadTodoFile();
+        return await json.loadTaskFile();
       }
     },
 
-    async saveTodoFile(data) {
+    async saveTaskFile(data) {
       await Promise.allSettled([
-        json.saveTodoFile(data),
-        sqlite.saveTodoFile(data),
+        json.saveTaskFile(data),
+        sqlite.saveTaskFile(data),
       ]);
+    },
+
+    // Deprecated aliases
+    async loadTodoFile() {
+      return this.loadTaskFile();
+    },
+
+    async saveTodoFile(data: TaskFile) {
+      return this.saveTaskFile(data);
     },
 
     async loadArchive() {

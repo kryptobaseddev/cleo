@@ -7,7 +7,8 @@
 
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getManifestPath } from '../../core/paths.js';
@@ -139,7 +140,7 @@ export function registerTestingCommand(program: Command): void {
 
         const result = validateTestingProtocol(taskId, entry, strict);
 
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'testing' });
 
         if (strict && !result.valid) {
           process.exit(ExitCode.TESTS_SKIPPED);
@@ -180,7 +181,7 @@ export function registerTestingCommand(program: Command): void {
 
         const result = validateTestingProtocol(taskId, entry, strict);
 
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'testing' });
 
         if (strict && !result.valid) {
           process.exit(ExitCode.TESTS_SKIPPED);

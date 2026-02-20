@@ -30,11 +30,9 @@ describe('SystemHandler', () => {
         'context',
         'metrics',
         'health',
-        'config',
         'diagnostics',
         'version',
         'help',
-        'doctor',
         'config.get',
         'stats',
         'job.status',
@@ -44,7 +42,7 @@ describe('SystemHandler', () => {
         'labels',
         'compliance',
         'log',
-        'archive-stats',
+        'archive.stats',
         'sequence',
         'provider.list',
         'provider.get',
@@ -69,9 +67,9 @@ describe('SystemHandler', () => {
         'mcp.install',
         'mcp.remove',
         'injection.check',
-        'injection.checkAll',
+        'injection.check.all',
         'injection.update',
-        'injection.updateAll',
+        'injection.update.all',
       ]);
     });
   });

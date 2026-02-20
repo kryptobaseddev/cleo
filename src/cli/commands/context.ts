@@ -10,7 +10,8 @@ import {
   checkContextThreshold,
   listContextSessions,
 } from '../../core/context/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -31,7 +32,7 @@ export function registerContextCommand(program: Command): void {
         const result = await getContextStatus({
           session: opts['session'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'context' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -50,7 +51,7 @@ export function registerContextCommand(program: Command): void {
         const result = await checkContextThreshold({
           session: opts['session'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'context' });
         if (result.exitCode) {
           process.exit(result.exitCode);
         }
@@ -69,7 +70,7 @@ export function registerContextCommand(program: Command): void {
     .action(async () => {
       try {
         const result = await listContextSessions();
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'context' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

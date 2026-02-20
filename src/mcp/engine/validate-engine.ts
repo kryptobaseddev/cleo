@@ -142,7 +142,7 @@ export async function validateTask(
 
   const root = projectRoot || resolveProjectRoot();
   const accessor = await getAccessor(root);
-  const todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
+  const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
   const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
 
   if (!todoData) {
@@ -219,7 +219,7 @@ export async function validateProtocol(
 
   const root = projectRoot || resolveProjectRoot();
   const accessor = await getAccessor(root);
-  const todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
+  const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
 
   if (!todoData) {
     return {
@@ -658,7 +658,7 @@ export async function validateCoherenceCheck(
   const accessor = await getAccessor(root);
   let todoData: { tasks: TaskRecord[] };
   try {
-    todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
+    todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
   } catch {
     return {
       success: false,
@@ -883,7 +883,7 @@ export async function validateBatchValidate(
 
   let todoData: { tasks: TaskRecord[] };
   try {
-    todoData = await accessor.loadTodoFile() as unknown as { tasks: TaskRecord[] };
+    todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
   } catch {
     return {
       success: false,

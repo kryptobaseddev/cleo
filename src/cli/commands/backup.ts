@@ -1,14 +1,15 @@
 /**
- * CLI backup command - create and list backups.
+ * CLI backup command - add and list backups.
  * @task T4454
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createBackup, listBackups } from '../../store/backup.js';
-import { getTodoPath, getConfigPath, getArchivePath, getLogPath, getBackupDir } from '../../core/paths.js';
+import { getTaskPath, getConfigPath, getArchivePath, getLogPath, getBackupDir } from '../../core/paths.js';
 import { access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 
@@ -24,17 +25,18 @@ async function fileExists(path: string): Promise<boolean> {
 export function registerBackupCommand(program: Command): void {
   const backup = program
     .command('backup')
-    .description('Create backup of todo files or list available backups');
+    .description('Add backup of todo files or list available backups');
 
   backup
-    .command('create')
-    .description('Create a new backup of all CLEO data files')
+    .command('add')
+    .alias('create')
+    .description('Add a new backup of all CLEO data files')
     .option('--destination <dir>', 'Backup destination directory')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const backupDir = (opts['destination'] as string) || getBackupDir();
         const files = [
-          getTodoPath(),
+          getTaskPath(),
           getConfigPath(),
           getArchivePath(),
           getLogPath(),
@@ -52,13 +54,13 @@ export function registerBackupCommand(program: Command): void {
           }
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           created: true,
           backupDir,
           backedUp: backed.length,
           skipped: skipped.length,
           files: backed,
-        }));
+        }, { command: 'backup' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -74,7 +76,7 @@ export function registerBackupCommand(program: Command): void {
     .action(async () => {
       try {
         const backupDir = getBackupDir();
-        const dataFiles = ['todo.json', 'config.json', 'todo-archive.json', 'todo-log.jsonl'];
+        const dataFiles = ['tasks.json', 'config.json', 'tasks-archive.json', 'tasks-log.jsonl'];
 
         const allBackups: Array<{ file: string; backups: string[] }> = [];
 
@@ -85,11 +87,11 @@ export function registerBackupCommand(program: Command): void {
           }
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           backupDir,
           files: allBackups,
           totalBackups: allBackups.reduce((sum, f) => sum + f.backups.length, 0),
-        }));
+        }, { command: 'backup' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -99,22 +101,22 @@ export function registerBackupCommand(program: Command): void {
       }
     });
 
-  // Default action: create backup
+  // Default action: add backup
   backup
     .action(async () => {
       try {
         const backupDir = getBackupDir();
-        const todoPath = getTodoPath();
+        const todoPath = getTaskPath();
 
         if (await fileExists(todoPath)) {
           const path = await createBackup(todoPath, backupDir);
-          console.log(formatSuccess({
+          cliOutput({
             created: true,
             backupDir,
             file: path,
-          }));
+          }, { command: 'backup' });
         } else {
-          throw new CleoError(ExitCode.NOT_FOUND, 'No todo.json to backup');
+          throw new CleoError(ExitCode.NOT_FOUND, 'No tasks.json to backup');
         }
       } catch (err) {
         if (err instanceof CleoError) {

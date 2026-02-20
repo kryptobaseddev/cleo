@@ -7,7 +7,8 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import * as labelsCore from '../../core/tasks/labels.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -26,7 +27,7 @@ export function registerLabelsCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await labelsCore.listLabels(undefined, accessor);
-        console.log(formatSuccess({ labels: result, count: result.length }));
+        cliOutput({ labels: result, count: result.length }, { command: 'labels' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -43,7 +44,7 @@ export function registerLabelsCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await labelsCore.showLabelTasks(label, undefined, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'labels' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -60,7 +61,7 @@ export function registerLabelsCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await labelsCore.getLabelStats(undefined, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'labels' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -78,7 +79,7 @@ export function registerLabelsCommand(program: Command): void {
       try {
         const accessor = await getAccessor();
         const result = await labelsCore.listLabels(undefined, accessor);
-        console.log(formatSuccess({ labels: result, count: result.length }));
+        cliOutput({ labels: result, count: result.length }, { command: 'labels' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

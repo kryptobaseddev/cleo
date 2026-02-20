@@ -13,12 +13,12 @@
 
 import { eq, ne } from 'drizzle-orm';
 import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
-import type { TodoFile, Task, ProjectMeta, FocusState, FileMeta } from '../types/task.js';
+import type { TaskFile, Task, ProjectMeta, FocusState as TaskWorkState, FileMeta } from '../types/task.js';
 import type { Session } from '../types/session.js';
 import { getDb, saveToFile, closeDb } from './sqlite.js';
 import * as schema from './schema.js';
 import { appendJsonl, saveJson, computeChecksum } from './json.js';
-import { getTodoPath, getLogPath, getBackupDir } from '../core/paths.js';
+import { getTaskPath, getLogPath, getBackupDir } from '../core/paths.js';
 
 // ---- Schema meta helpers ----
 
@@ -145,9 +145,9 @@ function rowToSession(row: schema.SessionRow): Session {
     name: row.name,
     status: row.status as Session['status'],
     scope: safeParseJson(row.scopeJson) ?? { type: 'global' as const },
-    focus: {
-      taskId: row.currentFocus ?? null,
-      setAt: row.focusSetAt ?? null,
+    taskWork: {
+      taskId: row.currentTask ?? null,
+      setAt: row.taskStartedAt ?? null,
     },
     startedAt: row.startedAt,
     endedAt: row.endedAt ?? undefined,
@@ -196,7 +196,7 @@ const DEFAULT_FILE_META: FileMeta = {
   configVersion: '1.0.0',
 };
 
-const DEFAULT_FOCUS_STATE: FocusState = {
+const DEFAULT_WORK_STATE: TaskWorkState = {
   currentTask: null,
   currentPhase: null,
   blockedUntil: null,
@@ -221,12 +221,12 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
   // Eagerly initialize the database to ensure tables exist
   await getDb(cwd);
 
-  return {
+  const accessor: DataAccessor = {
     engine: 'sqlite' as const,
 
-    // ---- loadTodoFile ----
+    // ---- loadTaskFile ----
 
-    async loadTodoFile(): Promise<TodoFile> {
+    async loadTaskFile(): Promise<TaskFile> {
       const db = await getDb(cwd);
 
       // 1. Query all non-archived tasks
@@ -268,9 +268,9 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const projectMeta =
         (await getMetaValue<ProjectMeta>(cwd, 'project_meta')) ?? DEFAULT_PROJECT_META;
 
-      // 4. Load focus state from schema_meta
-      const focusState =
-        (await getMetaValue<FocusState>(cwd, 'focus_state')) ?? DEFAULT_FOCUS_STATE;
+      // 4. Load work state from schema_meta
+      const workState =
+        (await getMetaValue<TaskWorkState>(cwd, 'focus_state')) ?? DEFAULT_WORK_STATE;
 
       // 5. Load labels from schema_meta
       const labels =
@@ -287,26 +287,26 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         checksum,
       };
 
-      // 8. Build and return the TodoFile
-      const todoFile: TodoFile = {
+      // 8. Build and return the TaskFile
+      const taskFile: TaskFile = {
         version: storedMeta?.schemaVersion ?? DEFAULT_FILE_META.schemaVersion,
         project: projectMeta,
         lastUpdated: new Date().toISOString(),
         _meta: fileMeta,
-        focus: focusState,
+        focus: workState,
         tasks,
       };
 
       if (labels) {
-        todoFile.labels = labels;
+        taskFile.labels = labels;
       }
 
-      return todoFile;
+      return taskFile;
     },
 
-    // ---- saveTodoFile ----
+    // ---- saveTaskFile ----
 
-    async saveTodoFile(data: TodoFile): Promise<void> {
+    async saveTaskFile(data: TaskFile): Promise<void> {
       const db = await getDb(cwd);
 
       // 1. Determine which task IDs are in the incoming data
@@ -400,9 +400,9 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       // 6. Persist to disk
       saveToFile();
 
-      // 7. Also persist the todo.json for backward compatibility
+      // 7. Also persist the tasks.json for backward compatibility
       try {
-        await saveJson(getTodoPath(cwd), data, { backupDir: getBackupDir(cwd) });
+        await saveJson(getTaskPath(cwd), data, { backupDir: getBackupDir(cwd) });
       } catch {
         // Non-fatal: SQLite is the source of truth in sqlite mode
       }
@@ -580,8 +580,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
             name: session.name,
             status: session.status,
             scopeJson: JSON.stringify(session.scope ?? { type: 'global' }),
-            currentFocus: session.focus?.taskId ?? null,
-            focusSetAt: session.focus?.setAt ?? null,
+            currentTask: session.taskWork?.taskId ?? null,
+            taskStartedAt: session.taskWork?.setAt ?? null,
             agent: session.agent ?? null,
             notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
             tasksCompletedJson: session.tasksCompleted
@@ -599,8 +599,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
               name: session.name,
               status: session.status,
               scopeJson: JSON.stringify(session.scope ?? { type: 'global' }),
-              currentFocus: session.focus?.taskId ?? null,
-              focusSetAt: session.focus?.setAt ?? null,
+              currentTask: session.taskWork?.taskId ?? null,
+              taskStartedAt: session.taskWork?.setAt ?? null,
               agent: session.agent ?? null,
               notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
               tasksCompletedJson: session.tasksCompleted
@@ -631,5 +631,16 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     async close(): Promise<void> {
       closeDb();
     },
+
+    // Deprecated aliases
+    async loadTodoFile(): Promise<TaskFile> {
+      return accessor.loadTaskFile();
+    },
+
+    async saveTodoFile(data: TaskFile): Promise<void> {
+      return accessor.saveTaskFile(data);
+    },
   };
+
+  return accessor;
 }

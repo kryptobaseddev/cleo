@@ -177,4 +177,132 @@ describe('SQLite store', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe('T001');
   });
+
+  describe('singleton reset behavior', () => {
+    it('resetDbState clears all singleton references', async () => {
+      const { getDb, resetDbState, closeDb: close } = await import('../sqlite.js');
+      close();
+      
+      // Initialize singleton
+      const db1 = await getDb();
+      expect(db1).toBeDefined();
+      
+      // Reset should clear singleton
+      resetDbState();
+      
+      // Next getDb should create new instance
+      const db2 = await getDb();
+      expect(db2).toBeDefined();
+      expect(db2).not.toBe(db1);
+    });
+
+    it('resetDbState is safe to call multiple times', async () => {
+      const { resetDbState, closeDb: close } = await import('../sqlite.js');
+      close();
+      
+      // Should not throw when called multiple times
+      expect(() => resetDbState()).not.toThrow();
+      expect(() => resetDbState()).not.toThrow();
+      expect(() => resetDbState()).not.toThrow();
+    });
+
+    it('resetDbState does not save data (unlike closeDb)', async () => {
+      const { getDb, resetDbState, closeDb: close } = await import('../sqlite.js');
+      const { getDbPath } = await import('../sqlite.js');
+      close();
+      
+      // Initialize and insert data
+      const db = await getDb();
+      const { sql } = await import('drizzle-orm');
+      db.run(sql`INSERT INTO tasks (id, title, status, priority, created_at)
+        VALUES ('T002', 'Test task', 'pending', 'medium', datetime('now'))`);
+      
+      // Reset without saving
+      resetDbState();
+      
+      // Reopen database - data should not exist since we didn't save
+      const db2 = await getDb();
+      const rows = db2.all<{ id: string }>(
+        sql`SELECT id FROM tasks WHERE id = 'T002'`
+      );
+      expect(rows).toHaveLength(0);
+    });
+  });
+
+  describe('path validation', () => {
+    it('getDb resets singleton when cwd parameter differs', async () => {
+      const { getDb, closeDb: close } = await import('../sqlite.js');
+      close();
+      
+      // Temporarily unset CLEO_DIR so cwd parameter is respected
+      const originalCleoDir = process.env['CLEO_DIR'];
+      delete process.env['CLEO_DIR'];
+      
+      // Create two different directories
+      const tempDir1 = await mkdtemp(join(tmpdir(), 'cleo-test-1-'));
+      const tempDir2 = await mkdtemp(join(tmpdir(), 'cleo-test-2-'));
+      
+      try {
+        // Get db for first directory
+        const db1 = await getDb(tempDir1);
+        
+        // Get db for second directory - should create new instance
+        const db2 = await getDb(tempDir2);
+        
+        // Should be different instances
+        expect(db2).not.toBe(db1);
+        
+        // Going back to first directory should create another new instance
+        const db3 = await getDb(tempDir1);
+        expect(db3).not.toBe(db2);
+      } finally {
+        await rm(tempDir1, { recursive: true, force: true });
+        await rm(tempDir2, { recursive: true, force: true });
+        // Restore CLEO_DIR
+        if (originalCleoDir) {
+          process.env['CLEO_DIR'] = originalCleoDir;
+        }
+      }
+    });
+
+    it('getDb uses same singleton when cwd parameter matches', async () => {
+      const { getDb, closeDb: close } = await import('../sqlite.js');
+      close();
+      
+      // Temporarily unset CLEO_DIR so cwd parameter is respected
+      const originalCleoDir = process.env['CLEO_DIR'];
+      delete process.env['CLEO_DIR'];
+      
+      const tempDir1 = await mkdtemp(join(tmpdir(), 'cleo-test-3-'));
+      
+      try {
+        // Get db for directory twice
+        const db1 = await getDb(tempDir1);
+        const db2 = await getDb(tempDir1);
+        
+        // Should be same instance
+        expect(db1).toBe(db2);
+      } finally {
+        await rm(tempDir1, { recursive: true, force: true });
+        // Restore CLEO_DIR
+        if (originalCleoDir) {
+          process.env['CLEO_DIR'] = originalCleoDir;
+        }
+      }
+    });
+
+    it('getDb with no cwd uses CLEO_DIR env for path comparison', async () => {
+      const { getDb, closeDb: close } = await import('../sqlite.js');
+      close();
+      
+      // First call with no cwd should use CLEO_DIR
+      const db1 = await getDb();
+      
+      // Second call with no cwd should use same CLEO_DIR
+      const db2 = await getDb();
+      
+      // Should be same instance
+      expect(db1).toBe(db2);
+    });
+  });
 });

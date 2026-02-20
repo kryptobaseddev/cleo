@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { getTodoPath, getAgentOutputsDir } from '../../paths.js';
+import { getTaskPath, getAgentOutputsDir } from '../../paths.js';
 import { findSkill, mapSkillName } from '../discovery.js';
 import { injectTokens, type TokenValues } from '../injection/token.js';
 import type { Task } from '../../../types/task.js';
@@ -34,7 +34,7 @@ export function buildPrompt(
   templateName: string = 'TASK-EXECUTOR',
   cwd?: string,
 ): SpawnPromptResult {
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
 
   if (!existsSync(todoPath)) {
     throw new CleoError(ExitCode.NOT_FOUND, 'Todo file not found. Run: cleo init');
@@ -91,8 +91,8 @@ export function buildPrompt(
 
     // CLEO command defaults
     TASK_SHOW_CMD: 'cleo show',
-    TASK_FOCUS_CMD: 'cleo focus set',
-    TASK_FOCUS_SHOW_CMD: 'cleo focus show',
+    TASK_START_CMD: 'cleo start',
+    TASK_CURRENT_CMD: 'cleo current',
     TASK_COMPLETE_CMD: 'cleo complete',
     TASK_LINK_CMD: 'cleo research link',
     TASK_LIST_CMD: 'cleo list',
@@ -167,7 +167,7 @@ export function canParallelize(
     return { canParallelize: true, conflicts: [], safeToSpawn: [] };
   }
 
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   if (!existsSync(todoPath)) {
     return { canParallelize: true, conflicts: [], safeToSpawn: taskIds };
   }

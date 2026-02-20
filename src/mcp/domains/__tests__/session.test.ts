@@ -140,33 +140,6 @@ describe('SessionHandler', () => {
       expect(result.error?.message).toContain('sessionId is required');
     });
 
-    it('should get focused task', async () => {
-      const mockResponse = {
-        success: true,
-        data: {
-          taskId: 'T2930',
-          since: '2026-02-03T12:00:00Z',
-          sessionId: 'session_123',
-        },
-        exitCode: 0,
-        stdout: '',
-        stderr: '',
-        duration: 100,
-      };
-
-      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
-
-      const result = await handler.query('focus-show', {});
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockResponse.data);
-      expect(mockExecutor.execute).toHaveBeenCalledWith({
-        domain: 'focus',
-        operation: 'show',
-        flags: { json: true },
-      });
-    });
-
     it('should get session history', async () => {
       const mockResponse = {
         success: true,
@@ -391,68 +364,6 @@ describe('SessionHandler', () => {
       });
     });
 
-    it('should set focused task', async () => {
-      const mockResponse = {
-        success: true,
-        data: {
-          taskId: 'T2930',
-          sessionId: 'session_123',
-          timestamp: '2026-02-03T12:00:00Z',
-        },
-        exitCode: 0,
-        stdout: '',
-        stderr: '',
-        duration: 100,
-      };
-
-      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
-
-      const result = await handler.mutate('focus-set', { taskId: 'T2930' });
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockResponse.data);
-      expect(mockExecutor.execute).toHaveBeenCalledWith({
-        domain: 'focus',
-        operation: 'set',
-        args: ['T2930'],
-        flags: { json: true },
-      });
-    });
-
-    it('should require taskId for focus-set', async () => {
-      const result = await handler.mutate('focus-set', {});
-
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
-      expect(result.error?.message).toContain('taskId is required');
-    });
-
-    it('should clear focused task', async () => {
-      const mockResponse = {
-        success: true,
-        data: {
-          cleared: true,
-          previousTask: 'T2930',
-        },
-        exitCode: 0,
-        stdout: '',
-        stderr: '',
-        duration: 100,
-      };
-
-      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
-
-      const result = await handler.mutate('focus-clear', {});
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockResponse.data);
-      expect(mockExecutor.execute).toHaveBeenCalledWith({
-        domain: 'focus',
-        operation: 'clear',
-        flags: { json: true },
-      });
-    });
-
     it('should archive old sessions', async () => {
       const mockResponse = {
         success: true,
@@ -651,22 +562,18 @@ describe('SessionHandler', () => {
     it('should return all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toEqual(['status', 'list', 'show', 'focus-show', 'focus.get', 'history', 'stats', 'decision-log', 'context-drift']);
+      expect(ops.query).toEqual(['status', 'list', 'show', 'history', 'stats', 'decision.log', 'context.drift']);
       expect(ops.mutate).toEqual([
         'start',
         'end',
         'resume',
         'switch',
-        'focus-set',
-        'focus.set',
-        'focus-clear',
-        'focus.clear',
         'archive',
         'cleanup',
         'suspend',
         'gc',
-        'record-decision',
-        'record-assumption',
+        'record.decision',
+        'record.assumption',
       ]);
     });
   });

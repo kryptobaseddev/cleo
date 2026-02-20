@@ -113,9 +113,9 @@ export async function requireActiveSession(
       ExitCode.SESSION_REQUIRED,
       `Operation '${operation}' requires an active session`,
       {
-        fix: "Start a session with 'cleo session start --scope epic:T### --auto-focus --name \"Work\"'",
+        fix: "Start a session with 'cleo session start --scope epic:T### --auto-start --name \"Work\"'",
         alternatives: [
-          { action: 'Start session', command: 'cleo session start --scope epic:T001 --auto-focus --name "Work"' },
+          { action: 'Start session', command: 'cleo session start --scope epic:T001 --auto-start --name "Work"' },
           { action: 'List sessions', command: 'cleo session list' },
         ],
       },

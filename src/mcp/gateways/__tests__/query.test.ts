@@ -53,12 +53,12 @@ describe('Query Gateway', () => {
   });
 
   describe('Domain Operation Counts', () => {
-    it('tasks domain should have 11 operations', () => {
-      expect(getQueryOperationCount('tasks')).toBe(11);
+    it('tasks domain should have 12 operations', () => {
+      expect(getQueryOperationCount('tasks')).toBe(12);
     });
 
-    it('session domain should have 7 operations', () => {
-      expect(getQueryOperationCount('session')).toBe(7);
+    it('session domain should have 6 operations', () => {
+      expect(getQueryOperationCount('session')).toBe(6);
     });
 
     it('orchestrate domain should have 10 operations', () => {
@@ -109,7 +109,7 @@ describe('Query Gateway', () => {
     it('should reject invalid operation for valid domain', () => {
       const request: QueryRequest = {
         domain: 'tasks',
-        operation: 'create', // Mutate operation, not query
+        operation: 'add', // Mutate operation, not query
       };
       const result = validateQueryParams(request);
       expect(result.valid).toBe(false);
@@ -171,7 +171,7 @@ describe('Query Gateway', () => {
     });
 
     it('should reject mutate operations', () => {
-      expect(isQueryOperation('tasks', 'create')).toBe(false);
+      expect(isQueryOperation('tasks', 'add')).toBe(false);
       expect(isQueryOperation('tasks', 'update')).toBe(false);
       expect(isQueryOperation('session', 'start')).toBe(false);
     });
@@ -183,8 +183,8 @@ describe('Query Gateway', () => {
 
     it('should return all operations for domain', () => {
       const tasksOps = getQueryOperations('tasks');
-      expect(tasksOps).toHaveLength(11);
-      expect(tasksOps).toContain('get');
+      expect(tasksOps).toHaveLength(12);
+      expect(tasksOps).toContain('show');
       expect(tasksOps).toContain('list');
       expect(tasksOps).toContain('find');
       expect(tasksOps).toContain('relates');
@@ -199,8 +199,8 @@ describe('Query Gateway', () => {
   describe('Tasks Domain Operations', () => {
     const tasksOps = QUERY_OPERATIONS.tasks;
 
-    it('should support get operation', () => {
-      expect(tasksOps).toContain('get');
+    it('should support show operation', () => {
+      expect(tasksOps).toContain('show');
     });
 
     it('should support list operation', () => {
@@ -223,8 +223,8 @@ describe('Query Gateway', () => {
       expect(tasksOps).toContain('blockers');
     });
 
-    it('should support deps operation', () => {
-      expect(tasksOps).toContain('deps');
+    it('should support depends operation', () => {
+      expect(tasksOps).toContain('depends');
     });
 
     it('should support analyze operation', () => {
@@ -249,10 +249,6 @@ describe('Query Gateway', () => {
 
     it('should support show operation', () => {
       expect(sessionOps).toContain('show');
-    });
-
-    it('should support focus.get operation', () => {
-      expect(sessionOps).toContain('focus.get');
     });
 
     it('should support history operation', () => {
@@ -303,8 +299,8 @@ describe('Query Gateway', () => {
       expect(researchOps).toContain('list');
     });
 
-    it('should support query operation', () => {
-      expect(researchOps).toContain('query');
+    it('should support search operation', () => {
+      expect(researchOps).toContain('search');
     });
 
     it('should support pending operation', () => {
@@ -323,8 +319,8 @@ describe('Query Gateway', () => {
   describe('Lifecycle Domain Operations', () => {
     const lifecycleOps = QUERY_OPERATIONS.lifecycle;
 
-    it('should support check operation', () => {
-      expect(lifecycleOps).toContain('check');
+    it('should support validate operation', () => {
+      expect(lifecycleOps).toContain('validate');
     });
 
     it('should support status operation', () => {
@@ -391,8 +387,8 @@ describe('Query Gateway', () => {
       expect(systemOps).toContain('version');
     });
 
-    it('should support doctor operation', () => {
-      expect(systemOps).toContain('doctor');
+    it('should support health operation', () => {
+      expect(systemOps).toContain('health');
     });
 
     it('should support config.get operation', () => {

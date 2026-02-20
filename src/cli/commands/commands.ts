@@ -7,7 +7,8 @@
 
 import { Command } from 'commander';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../../core/paths.js';
@@ -99,13 +100,13 @@ export function registerCommandsCommand(program: Command): void {
 
         // Handle workflows
         if (opts['workflows']) {
-          console.log(formatSuccess({ workflows: index.agentWorkflows ?? {} }));
+          cliOutput({ workflows: index.agentWorkflows ?? {} }, { command: 'commands' });
           return;
         }
 
         // Handle lookup
         if (opts['lookup']) {
-          console.log(formatSuccess({ quickLookup: index.quickLookup ?? {} }));
+          cliOutput({ quickLookup: index.quickLookup ?? {} }, { command: 'commands' });
           return;
         }
 
@@ -126,19 +127,19 @@ export function registerCommandsCommand(program: Command): void {
             });
           }
           // Single command detail
-          console.log(formatSuccess({ command: commands[0] }));
+          cliOutput({ command: commands[0] }, { command: 'commands' });
           return;
         }
 
         // List commands
-        console.log(formatSuccess({
+        cliOutput({
           summary: {
             totalCommands: commands.length,
             categoryFilter: category ?? 'all',
             relevanceFilter: relevance ?? 'all',
           },
           commands,
-        }));
+        }, { command: 'commands' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

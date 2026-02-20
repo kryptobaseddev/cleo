@@ -7,8 +7,9 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { archiveTasks } from '../../core/tasks/archive.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the archive command.
@@ -32,7 +33,7 @@ export function registerArchiveCommand(program: Command): void {
           dryRun: opts['dryRun'] as boolean | undefined,
         }, undefined, accessor);
 
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'archive', operation: 'tasks.archive' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

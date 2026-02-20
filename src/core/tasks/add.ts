@@ -8,11 +8,15 @@ import { randomBytes } from 'node:crypto';
 import { readJsonRequired } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TodoFile } from '../../types/task.js';
-import { getTodoPath, getLogPath, getArchivePath, getBackupDir } from '../paths.js';
+import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TaskFile } from '../../types/task.js';
+import { getTaskPath, getLogPath, getArchivePath, getBackupDir } from '../paths.js';
 import { saveJson, appendJsonl, computeChecksum } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { loadConfig } from '../config.js';
+import {
+  safeSaveTaskFile,
+  safeAppendLog,
+} from '../../store/data-safety-central.js';
 
 /** Options for creating a task. */
 export interface AddTaskOptions {
@@ -396,7 +400,7 @@ export function findRecentDuplicate(
  * @task T4460
  */
 export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<AddTaskResult> {
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const logPath = getLogPath(cwd);
   const archivePath = getArchivePath(cwd);
   const backupDir = getBackupDir(cwd);
@@ -406,8 +410,8 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
 
   // Read current data
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
 
   // Read archive for ID generation
   let archivedTasks: Array<{ id: string }> = [];
@@ -583,10 +587,11 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
   data._meta.checksum = checksum;
   data.lastUpdated = now;
 
-  // Save atomically
+  // Save atomically with safety
   if (accessor) {
-    await accessor.saveTodoFile(data);
-    await accessor.appendLog({
+    // Use centralized safety - handles verification, sequence validation, and checkpoint
+    await safeSaveTaskFile(accessor, data, cwd);
+    await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_created',
@@ -595,8 +600,9 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       details: { title: options.title, status, priority },
       before: null,
       after: { title: options.title, status, priority },
-    });
+    }, cwd);
   } else {
+    // Legacy JSON path - still needs safety but at lower level
     await saveJson(todoPath, data, { backupDir });
     await logOperation(logPath, 'task_created', taskId, {
       title: options.title,

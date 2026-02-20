@@ -5,12 +5,12 @@
  * against the CLEO GitHub repository via MCP.
  *
  * Supports dual-mode routing:
- * - Native: templates, validate_labels (query), generate_config (mutate)
- * - CLI-backed: diagnostics (query), create_bug, create_feature, create_help (mutate)
+ * - Native: templates, validate.labels (query), generate.config (mutate)
+ * - CLI-backed: diagnostics (query), create.bug, create.feature, create.help (mutate)
  *
  * Operations:
- * - Query: diagnostics, templates, validate_labels
- * - Mutate: create_bug, create_feature, create_help, generate_config
+ * - Query: diagnostics, templates, validate.labels
+ * - Mutate: create.bug, create.feature, create.help, generate.config
  *
  * @task T4492
  */
@@ -88,7 +88,7 @@ export class IssuesHandler implements DomainHandler {
       case 'templates':
         // Fall through to native even in CLI mode (no CLI equivalent)
         return this.queryNative(operation, params, startTime);
-      case 'validate_labels':
+      case 'validate.labels':
         // Fall through to native even in CLI mode (no CLI equivalent)
         return this.queryNative(operation, params, startTime);
       default:
@@ -108,13 +108,13 @@ export class IssuesHandler implements DomainHandler {
     }
 
     switch (operation) {
-      case 'create_bug':
+      case 'create.bug':
         return this.handleCreateIssue('bug', params, startTime);
-      case 'create_feature':
+      case 'create.feature':
         return this.handleCreateIssue('feature', params, startTime);
-      case 'create_help':
+      case 'create.help':
         return this.handleCreateIssue('help', params, startTime);
-      case 'generate_config':
+      case 'generate.config':
         // Fall through to native even in CLI mode (no CLI equivalent)
         return this.mutateNative(operation, params, startTime);
       default:
@@ -140,7 +140,7 @@ export class IssuesHandler implements DomainHandler {
         const result = nativeParseIssueTemplates(this.projectRoot);
         return this.wrapNativeResult(result, 'cleo_query', operation, startTime);
       }
-      case 'validate_labels': {
+      case 'validate.labels': {
         const labels = params?.labels as string[] | undefined;
         const repoLabels = params?.repoLabels as string[] | undefined;
         if (!labels || !repoLabels) {
@@ -174,7 +174,7 @@ export class IssuesHandler implements DomainHandler {
     startTime: number
   ): Promise<DomainResponse> {
     switch (operation) {
-      case 'generate_config': {
+      case 'generate.config': {
         const result = await nativeGenerateTemplateConfig(this.projectRoot);
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }
@@ -188,8 +188,8 @@ export class IssuesHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['diagnostics', 'templates', 'validate_labels'],
-      mutate: ['create_bug', 'create_feature', 'create_help', 'generate_config'],
+      query: ['diagnostics', 'templates', 'validate.labels'],
+      mutate: ['create.bug', 'create.feature', 'create.help', 'generate.config'],
     };
   }
 
@@ -230,7 +230,7 @@ export class IssuesHandler implements DomainHandler {
     // Validate required params
     if (!params?.title || !params?.body) {
       return {
-        _meta: createGatewayMeta('cleo_mutate', 'issues', `create_${type}`, startTime),
+        _meta: createGatewayMeta('cleo_mutate', 'issues', `create.${type}`, startTime),
         success: false,
         error: {
           code: 'E_VALIDATION_FAILED',
@@ -272,7 +272,7 @@ export class IssuesHandler implements DomainHandler {
     });
 
     return {
-      _meta: createGatewayMeta('cleo_mutate', 'issues', `create_${type}`, startTime),
+      _meta: createGatewayMeta('cleo_mutate', 'issues', `create.${type}`, startTime),
       success: result.success,
       data: result.data,
       error: result.error

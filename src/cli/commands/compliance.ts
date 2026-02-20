@@ -14,7 +14,8 @@ import {
   getSkillReliability,
   getValueMetrics,
 } from '../../core/compliance/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -37,7 +38,7 @@ export function registerComplianceCommand(program: Command): void {
           since: opts['since'] as string | undefined,
           agent: opts['agent'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'compliance' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -60,7 +61,7 @@ export function registerComplianceCommand(program: Command): void {
           since: opts['since'] as string | undefined,
           agent: opts['agent'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'compliance' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -76,7 +77,7 @@ export function registerComplianceCommand(program: Command): void {
     .action(async (days: string | undefined) => {
       try {
         const result = await getComplianceTrend(days ? Number(days) : 7);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'compliance' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -95,7 +96,7 @@ export function registerComplianceCommand(program: Command): void {
         const result = await auditEpicCompliance(epicId, {
           since: opts['since'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'compliance' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -114,7 +115,7 @@ export function registerComplianceCommand(program: Command): void {
         const result = await syncComplianceMetrics({
           force: opts['force'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'compliance' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -133,7 +134,7 @@ export function registerComplianceCommand(program: Command): void {
         const result = await getSkillReliability({
           global: opts['global'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'compliance' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -149,7 +150,7 @@ export function registerComplianceCommand(program: Command): void {
     .action(async (days: string | undefined) => {
       try {
         const result = await getValueMetrics(days ? Number(days) : 7);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'compliance' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

@@ -2,7 +2,7 @@
  * Providers Domain Handler
  *
  * Implements provider operations via CAAMP adapter layer:
- * - Query (3): list, detect, inject_status
+ * - Query (3): list, detect, inject.status
  * - Mutate (1): inject
  *
  * Uses caamp-adapter.ts for all CAAMP API calls.
@@ -72,16 +72,16 @@ export class ProvidersHandler implements DomainHandler {
         return buildResponse('providers', 'detect', result);
       }
 
-      case 'inject_status': {
+      case 'inject.status': {
         const filePath = params?.filePath as string;
         if (!filePath) {
-          return buildResponse('providers', 'inject_status', {
+          return buildResponse('providers', 'inject.status', {
             success: false,
             error: { code: 'E_INVALID_INPUT', message: 'filePath is required' },
           });
         }
         const result = await injectionCheck(filePath, params?.expectedContent as string);
-        return buildResponse('providers', 'inject_status', result);
+        return buildResponse('providers', 'inject.status', result);
       }
 
       default:
@@ -89,7 +89,7 @@ export class ProvidersHandler implements DomainHandler {
           success: false,
           error: {
             code: 'E_UNKNOWN_OPERATION',
-            message: `Unknown providers query operation: ${operation}. Available: list, detect, inject_status`,
+            message: `Unknown providers query operation: ${operation}. Available: list, detect, inject.status`,
           },
         });
     }
@@ -123,7 +123,7 @@ export class ProvidersHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'detect', 'inject_status'],
+      query: ['list', 'detect', 'inject.status'],
       mutate: ['inject'],
     };
   }

@@ -9,7 +9,8 @@ import {
   validateConsensusTask,
   checkConsensusManifest,
 } from '../../core/validation/protocols/consensus.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -32,7 +33,7 @@ export function registerConsensusCommand(program: Command): void {
           strict: opts['strict'] as boolean | undefined,
           votingMatrixFile: opts['votingMatrix'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'consensus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -53,7 +54,7 @@ export function registerConsensusCommand(program: Command): void {
           strict: opts['strict'] as boolean | undefined,
           votingMatrixFile: opts['votingMatrix'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'consensus' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

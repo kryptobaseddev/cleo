@@ -1238,13 +1238,13 @@ const HELP_TOPICS: Record<string, HelpData> = {
   focus: {
     topic: 'focus',
     content: [
-      'Focus Management',
+      'Task Work Management',
       '',
-      '  ct focus set T1234    - Set focus to task',
-      '  ct focus show         - Show current focus',
-      '  ct focus clear        - Clear focus',
+      '  ct start T1234    - Start working on task',
+      '  ct current        - Show current task',
+      '  ct stop           - Stop working on current task',
     ].join('\n'),
-    relatedCommands: ['ct focus set', 'ct focus show', 'ct focus clear'],
+    relatedCommands: ['ct start', 'ct current', 'ct stop'],
   },
   labels: {
     topic: 'labels',
@@ -1304,7 +1304,7 @@ export function systemHelp(
         '  ct show T1234      - Full task details',
         '  ct add "Task"      - Create task',
         '  ct done <id>       - Complete task',
-        '  ct focus set <id>  - Set active task',
+        '  ct start <id>      - Start working on task',
         '  ct dash            - Project overview',
         '  ct session list    - List sessions',
         '',
@@ -2130,19 +2130,19 @@ ${focusLine}
 | \`ct show T1234\` | Full task details |
 | \`ct add "Title" --desc "..."\` | Create task |
 | \`ct done <id>\` | Complete task |
-| \`ct focus set <id>\` | Set active task |
-| \`ct focus show\` | Current focus |
+| \`ct start <id>\` | Start working on task |
+| \`ct current\` | Show current task |
 | \`ct next\` | Suggest next task |
 | \`ct session list\` | List sessions |
-| \`ct session start --scope epic:T### --auto-focus --name "..."\` | Start session |
+| \`ct session start --scope epic:T### --auto-start --name "..."\` | Start session |
 | \`ct session end --note "..."\` | End session |
 | \`ct dash\` | Project overview |
 | \`ct context\` | Context window usage |
 
 ### Session Protocol
 
-1. **START**: \`ct session list\` then \`ct session resume <id>\` or \`ct session start --scope epic:T### --auto-focus --name "Work"\`
-2. **WORK**: \`ct focus show\` / \`ct next\` / \`ct complete <id>\` / \`ct focus set <id>\`
+1. **START**: \`ct session list\` then \`ct session resume <id>\` or \`ct session start --scope epic:T### --auto-start --name "Work"\`
+2. **WORK**: \`ct current\` / \`ct next\` / \`ct complete <id>\` / \`ct start <id>\`
 3. **END**: \`ct complete <id>\` then \`ct session end --note "Progress"\`
 
 ### Error Handling

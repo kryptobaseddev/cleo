@@ -5,11 +5,14 @@
  */
 
 import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getBackupDir } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import {
+  safeSaveTaskFile,
+} from '../../store/data-safety-central.js';
 
 interface Relation {
   targetId: string;
@@ -25,8 +28,8 @@ export async function suggestRelated(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(opts.cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(opts.cwd));
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
@@ -85,10 +88,10 @@ export async function addRelation(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const todoPath = getTodoPath(cwd);
+  const todoPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
 
   const fromTask = data.tasks.find(t => t.id === from);
   if (!fromTask) {
@@ -117,7 +120,7 @@ export async function addRelation(
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await safeSaveTaskFile(accessor, data, cwd);
   } else {
     await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
   }
@@ -141,8 +144,8 @@ export async function listRelations(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);

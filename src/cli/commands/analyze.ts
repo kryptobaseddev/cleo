@@ -7,7 +7,8 @@
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';
 import { analyzeTaskPriority } from '../../core/tasks/analyze.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -18,14 +19,14 @@ export function registerAnalyzeCommand(program: Command): void {
   program
     .command('analyze')
     .description('Task triage with leverage scoring and bottleneck detection')
-    .option('--auto-focus', 'Automatically set focus to recommended task')
+    .option('--auto-start', 'Automatically start working on recommended task')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
         const result = await analyzeTaskPriority({
-          autoFocus: opts['autoFocus'] as boolean | undefined,
+          autoStart: opts['autoStart'] as boolean | undefined,
         }, accessor);
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'analyze' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

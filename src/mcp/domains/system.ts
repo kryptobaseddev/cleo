@@ -2,7 +2,7 @@
  * System Domain Handler
  *
  * Implements all 30 system operations for CLEO MCP server:
- * - Query (19): context, metrics, health, config, diagnostics, version, help, doctor, config.get, stats, job.status, job.list, dash, roadmap, labels, compliance, log, archive-stats, sequence
+ * - Query (17): context, metrics, health, diagnostics, version, help, config.get, stats, job.status, job.list, dash, roadmap, labels, compliance, log, archive.stats, sequence
  * - Mutate (11): backup, restore, migrate, cleanup, audit, init, config.set, sync, job.cancel, safestop, uncancel
  *
  * Each operation maps to corresponding CLEO CLI commands for system management,
@@ -16,7 +16,7 @@ import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { createGatewayMeta } from '../lib/gateway-meta.js';
 import { CLIExecutor } from '../lib/executor.js';
 import { BackgroundJobManager } from '../lib/background-jobs.js';
-import { canRunNatively, generateCapabilityReport, type GatewayType } from '../engine/capability-matrix.js';
+import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
 import type { ResolvedMode } from '../lib/mode-detector.js';
 import {
   configGet as nativeConfigGet,
@@ -467,16 +467,12 @@ export class SystemHandler implements DomainHandler {
           return this.getMetrics(params as SystemMetricsParams, startTime);
         case 'health':
           return this.checkHealth(params as SystemHealthParams, startTime);
-        case 'config':
-          return this.getConfig(params as SystemConfigParams, startTime);
         case 'diagnostics':
           return this.runDiagnostics(params as SystemDiagnosticsParams, startTime);
         case 'version':
           return this.getVersion(params as SystemVersionParams, startTime);
         case 'help':
           return this.getHelp(params as SystemHelpParams, startTime);
-        case 'doctor':
-          return this.checkHealth(params as SystemHealthParams, startTime);
         case 'config.get':
           return this.getConfig(params as SystemConfigParams, startTime);
         case 'stats':
@@ -495,7 +491,7 @@ export class SystemHandler implements DomainHandler {
           return this.getCompliance(params as SystemComplianceParams, startTime);
         case 'log':
           return this.getLog(params as SystemLogParams, startTime);
-        case 'archive-stats':
+        case 'archive.stats':
           return this.getArchiveStats(params as SystemArchiveStatsParams, startTime);
         case 'sequence':
           return this.getSequence(params as SystemSequenceParams, startTime);
@@ -605,7 +601,7 @@ export class SystemHandler implements DomainHandler {
           const result = await caampInjectionCheck(p.filePath, p.expectedContent);
           return this.wrapNativeResult(result, 'mutate', operation, startTime);
         }
-        case 'injection.checkAll': {
+        case 'injection.check.all': {
           const p = params as unknown as InjectionCheckAllParams;
           if (!p?.projectDir || !p?.scope) {
             return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'projectDir and scope are required', startTime);
@@ -621,7 +617,7 @@ export class SystemHandler implements DomainHandler {
           const result = await caampInjectionUpdate(p.filePath, p.content);
           return this.wrapNativeResult(result, 'mutate', operation, startTime);
         }
-        case 'injection.updateAll': {
+        case 'injection.update.all': {
           const p = params as unknown as InjectionUpdateAllParams;
           if (!p?.projectDir || !p?.scope || !p?.content) {
             return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'projectDir, scope, and content are required', startTime);
@@ -647,9 +643,9 @@ export class SystemHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'context', 'metrics', 'health', 'config', 'diagnostics', 'version', 'help', 'doctor',
+        'context', 'metrics', 'health', 'diagnostics', 'version', 'help',
         'config.get', 'stats', 'job.status', 'job.list', 'dash', 'roadmap', 'labels',
-        'compliance', 'log', 'archive-stats', 'sequence',
+        'compliance', 'log', 'archive.stats', 'sequence',
         // CAAMP provider queries
         'provider.list', 'provider.get', 'provider.detect', 'provider.installed',
       ],
@@ -659,7 +655,7 @@ export class SystemHandler implements DomainHandler {
         // CAAMP MCP config
         'mcp.list', 'mcp.install', 'mcp.remove',
         // CAAMP injection
-        'injection.check', 'injection.checkAll', 'injection.update', 'injection.updateAll',
+        'injection.check', 'injection.check.all', 'injection.update', 'injection.update.all',
       ],
     };
   }
@@ -1093,7 +1089,7 @@ export class SystemHandler implements DomainHandler {
   }
 
   /**
-   * archive-stats - Generate analytics from archived tasks
+   * archive.stats - Generate analytics from archived tasks
    * CLI: cleo archive-stats [--json] [--by-phase] [--by-label]
    * @task T4269
    */
@@ -1108,7 +1104,7 @@ export class SystemHandler implements DomainHandler {
       flags
     });
 
-    return this.wrapExecutorResult(result, 'query', 'system', 'archive-stats', startTime);
+    return this.wrapExecutorResult(result, 'query', 'system', 'archive.stats', startTime);
   }
 
   /**
@@ -1318,27 +1314,12 @@ export class SystemHandler implements DomainHandler {
     switch (operation) {
       case 'version':
         return this.wrapNativeResult(nativeGetVersion(this.projectRoot), 'query', operation, startTime);
-      case 'config':
       case 'config.get': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
         const key = (params as SystemConfigParams)?.key;
         return this.wrapNativeResult(nativeConfigGet(this.projectRoot, key), 'query', operation, startTime);
-      }
-      case 'doctor': {
-        // Hybrid: native capability report + CLI health check when available
-        const report = generateCapabilityReport();
-        return {
-          _meta: createGatewayMeta('query', 'system', operation, startTime),
-          success: true,
-          data: {
-            mode: this.executionMode,
-            cliAvailable: this.executor?.isAvailable() ?? false,
-            capabilities: report,
-            projectInitialized: isProjectInitialized(this.projectRoot),
-          },
-        };
       }
       case 'dash': {
         if (!isProjectInitialized(this.projectRoot)) {
@@ -1358,7 +1339,7 @@ export class SystemHandler implements DomainHandler {
         }
         return this.wrapNativeResult(await nativeSystemLabels(this.projectRoot), 'query', operation, startTime);
       }
-      case 'archive-stats': {
+      case 'archive.stats': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }

@@ -42,9 +42,16 @@ export function getDbPath(cwd?: string): string {
  * Returns the drizzle ORM instance.
  */
 export async function getDb(cwd?: string): Promise<SQLJsDatabase<typeof schema>> {
+  const requestedPath = getDbPath(cwd);
+
+  // If singleton exists but points to different path, reset it
+  if (_db && _dbPath !== requestedPath) {
+    resetDbState();
+  }
+
   if (_db) return _db;
 
-  const dbPath = getDbPath(cwd);
+  const dbPath = requestedPath;
   _dbPath = dbPath;
 
   // Initialize sql.js WASM
@@ -140,8 +147,8 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
       status TEXT NOT NULL DEFAULT 'active'
         CHECK(status IN ('active','ended','orphaned','suspended')),
       scope_json TEXT NOT NULL DEFAULT '{}',
-      current_focus TEXT,
-      focus_set_at TEXT,
+      current_task TEXT,
+      task_started_at TEXT,
       agent TEXT,
       notes_json TEXT DEFAULT '[]',
       tasks_completed_json TEXT DEFAULT '[]',
@@ -152,7 +159,7 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
   `);
 
   nativeDb.run(`
-    CREATE TABLE IF NOT EXISTS session_focus_history (
+    CREATE TABLE IF NOT EXISTS task_work_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
       task_id TEXT NOT NULL,
@@ -176,7 +183,7 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
   nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);');
   nativeDb.run('CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON task_dependencies(depends_on);');
   nativeDb.run('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_focus_history_session ON session_focus_history(session_id);');
+  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_work_history_session ON task_work_history(session_id);');
 
   // Set schema version
   nativeDb.run(
@@ -206,6 +213,24 @@ export function closeDb(): void {
   if (_nativeDb) {
     saveToFile();
     _nativeDb.close();
+    _nativeDb = null;
+  }
+  _db = null;
+  _dbPath = null;
+}
+
+/**
+ * Reset database singleton state without saving.
+ * Used during migrations when database file is deleted and recreated.
+ * Safe to call multiple times.
+ */
+export function resetDbState(): void {
+  if (_nativeDb) {
+    try {
+      _nativeDb.close();
+    } catch {
+      // Ignore close errors
+    }
     _nativeDb = null;
   }
   _db = null;

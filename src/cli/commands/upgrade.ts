@@ -12,7 +12,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { runUpgrade } from '../../core/upgrade.js';
 
@@ -36,14 +37,14 @@ export function registerUpgradeCommand(program: Command): void {
           autoMigrate,
         });
 
-        console.log(formatSuccess({
+        cliOutput({
           upToDate: result.upToDate,
           dryRun: result.dryRun,
           actions: result.actions,
           applied: result.applied,
           errors: result.errors.length > 0 ? result.errors : undefined,
           storageMigration: result.storageMigration,
-        }));
+        }, { command: 'upgrade' });
 
         if (result.applied > 0) {
           process.exit(2); // exit 2 = changes applied (per bash convention)

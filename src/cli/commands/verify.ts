@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -58,7 +59,7 @@ export function registerVerifyCommand(program: Command): void {
         }
 
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const task = data.tasks.find((t) => t.id === taskId);
         if (!task) {
@@ -69,7 +70,7 @@ export function registerVerifyCommand(program: Command): void {
         if (!opts['gate'] && !opts['all'] && !opts['reset']) {
           const verification = task.verification ?? initVerification();
           const missing = getMissingGates(verification);
-          console.log(formatSuccess({
+          cliOutput({
             task: taskId,
             title: task.title,
             status: task.status,
@@ -80,7 +81,7 @@ export function registerVerifyCommand(program: Command): void {
             round: verification.round,
             requiredGates: DEFAULT_REQUIRED_GATES,
             missingGates: missing,
-          }));
+          }, { command: 'verify' });
           return;
         }
 
@@ -129,31 +130,31 @@ export function registerVerifyCommand(program: Command): void {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = now;
 
-        await accessor.saveTodoFile(data);
+        await accessor.saveTaskFile(data);
 
         if (opts['reset']) {
-          console.log(formatSuccess({
+          cliOutput({
             task: taskId,
             action: 'reset',
             verification,
-          }));
+          }, { command: 'verify' });
         } else if (opts['all']) {
-          console.log(formatSuccess({
+          cliOutput({
             task: taskId,
             action: 'set_all',
             gatesSet: DEFAULT_REQUIRED_GATES,
             verification,
             passed: verification.passed,
-          }));
+          }, { command: 'verify' });
         } else {
-          console.log(formatSuccess({
+          cliOutput({
             task: taskId,
             gate: opts['gate'],
             value: opts['value'] === 'false' ? false : true,
             agent: opts['agent'] ?? null,
             verification,
             passed: verification.passed,
-          }));
+          }, { command: 'verify' });
         }
       } catch (err) {
         if (err instanceof CleoError) {

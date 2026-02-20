@@ -8,7 +8,8 @@
 import { Command } from 'commander';
 import { rm, rmdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { getCleoDir } from '../../core/paths.js';
 import { readJson } from '../../store/json.js';
@@ -42,10 +43,10 @@ export function registerSyncCommand(program: Command): void {
         const sessionState = await readJson<SyncSessionState>(stateFile);
 
         if (!sessionState) {
-          console.log(formatSuccess({
+          cliOutput({
             active: false,
             stateFile,
-          }, 'No active sync session'));
+          }, { command: 'sync', message: 'No active sync session' });
           return;
         }
 
@@ -60,7 +61,7 @@ export function registerSyncCommand(program: Command): void {
           phases = [...phaseMap.entries()].map(([phase, count]) => ({ phase, count }));
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           active: true,
           sessionId: sessionState.session_id,
           injectedAt: sessionState.injected_at,
@@ -69,7 +70,7 @@ export function registerSyncCommand(program: Command): void {
           taskIds: sessionState.injected_tasks,
           phases,
           stateFile,
-        }));
+        }, { command: 'sync' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -99,18 +100,18 @@ export function registerSyncCommand(program: Command): void {
         }
 
         if (!exists) {
-          console.log(formatSuccess(
+          cliOutput(
             { noChange: true },
-            'No sync state to clear',
-          ));
+            { command: 'sync', message: 'No sync state to clear' },
+          );
           return;
         }
 
         if (opts['dryRun']) {
-          console.log(formatSuccess({
+          cliOutput({
             dryRun: true,
             wouldDelete: { stateFile, syncDirectory: syncDir },
-          }, 'Would clear sync state'));
+          }, { command: 'sync', message: 'Would clear sync state' });
           return;
         }
 
@@ -118,10 +119,10 @@ export function registerSyncCommand(program: Command): void {
         // Clean up empty sync directory
         try { await rmdir(syncDir); } catch { /* not empty or doesn't exist */ }
 
-        console.log(formatSuccess(
+        cliOutput(
           { cleared: { stateFile } },
-          'Sync state cleared',
-        ));
+          { command: 'sync', message: 'Sync state cleared' },
+        );
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -138,10 +139,10 @@ export function registerSyncCommand(program: Command): void {
     .description('Prepare tasks for TodoWrite (delegates to inject command)')
     .allowUnknownOption(true)
     .action(() => {
-      console.log(formatSuccess(
+      cliOutput(
         { delegated: true },
-        'Use "cleo inject" directly for TodoWrite injection',
-      ));
+        { command: 'sync', message: 'Use "cleo inject" directly for TodoWrite injection' },
+      );
     });
 
   syncCmd
@@ -149,9 +150,9 @@ export function registerSyncCommand(program: Command): void {
     .description('Merge TodoWrite state back (delegates to extract command)')
     .allowUnknownOption(true)
     .action(() => {
-      console.log(formatSuccess(
+      cliOutput(
         { delegated: true },
-        'Use "cleo extract <file>" directly for TodoWrite extraction',
-      ));
+        { command: 'sync', message: 'Use "cleo extract <file>" directly for TodoWrite extraction' },
+      );
     });
 }

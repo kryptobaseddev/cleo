@@ -1,7 +1,7 @@
 /**
  * Drizzle ORM schema for CLEO tasks.db (SQLite via sql.js WASM).
  *
- * Tables: tasks, task_dependencies, task_relations, sessions, session_focus_history
+ * Tables: tasks, task_dependencies, task_relations, sessions, task_work_history
  * Archive uses the same tasks table with status = 'archived' + archive metadata.
  *
  * @epic T4454
@@ -106,8 +106,8 @@ export const sessions = sqliteTable('sessions', {
     enum: ['active', 'ended', 'orphaned', 'suspended'],
   }).notNull().default('active'),
   scopeJson: text('scope_json').notNull().default('{}'),
-  currentFocus: text('current_focus'),
-  focusSetAt: text('focus_set_at'),
+  currentTask: text('current_task'),
+  taskStartedAt: text('task_started_at'),
   agent: text('agent'),
   notesJson: text('notes_json').default('[]'),
   tasksCompletedJson: text('tasks_completed_json').default('[]'),
@@ -118,16 +118,16 @@ export const sessions = sqliteTable('sessions', {
   index('idx_sessions_status').on(table.status),
 ]);
 
-// === SESSION FOCUS HISTORY ===
+// === TASK WORK HISTORY ===
 
-export const sessionFocusHistory = sqliteTable('session_focus_history', {
+export const taskWorkHistory = sqliteTable('task_work_history', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
   taskId: text('task_id').notNull(),
   setAt: text('set_at').notNull().default(sql`(datetime('now'))`),
   clearedAt: text('cleared_at'),
 }, (table) => [
-  index('idx_focus_history_session').on(table.sessionId),
+  index('idx_work_history_session').on(table.sessionId),
 ]);
 
 // === SCHEMA METADATA ===
@@ -145,4 +145,4 @@ export type SessionRow = typeof sessions.$inferSelect;
 export type NewSessionRow = typeof sessions.$inferInsert;
 export type TaskDependencyRow = typeof taskDependencies.$inferSelect;
 export type TaskRelationRow = typeof taskRelations.$inferSelect;
-export type FocusHistoryRow = typeof sessionFocusHistory.$inferSelect;
+export type WorkHistoryRow = typeof taskWorkHistory.$inferSelect;

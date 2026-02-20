@@ -5,9 +5,12 @@
  */
 
 import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
-import { getTodoPath, getBackupDir } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import {
+  safeSaveTaskFile,
+} from '../../store/data-safety-central.js';
 
 export interface AnalysisResult {
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
@@ -23,18 +26,18 @@ export interface AnalysisResult {
     blocked: number;
     avgLeverage: number;
   };
-  autoFocused?: boolean;
+  autoStarted?: boolean;
 }
 
 /** Analyze task priority with leverage scoring. */
 export async function analyzeTaskPriority(opts: {
-  autoFocus?: boolean;
+  autoStart?: boolean;
   cwd?: string;
 }, accessor?: DataAccessor): Promise<AnalysisResult> {
-  const todoPath = getTodoPath(opts.cwd);
+  const todoPath = getTaskPath(opts.cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(todoPath);
   const tasks = data.tasks;
 
   // Build dependency graph
@@ -96,17 +99,17 @@ export async function analyzeTaskPriority(opts: {
     ? Math.round((totalLeverage / tasks.length) * 100) / 100
     : 0;
 
-  let autoFocused = false;
-  if (opts.autoFocus && recommended) {
+  let autoStarted = false;
+  if (opts.autoStart && recommended) {
     data.focus = { ...data.focus, currentTask: recommended.id };
     data.lastUpdated = new Date().toISOString();
     data._meta.checksum = computeChecksum(data.tasks);
     if (accessor) {
-      await accessor.saveTodoFile(data);
+      await safeSaveTaskFile(accessor, data, opts.cwd);
     } else {
       await saveJson(todoPath, data, { backupDir: getBackupDir(opts.cwd) });
     }
-    autoFocused = true;
+    autoStarted = true;
   }
 
   return {
@@ -123,6 +126,6 @@ export async function analyzeTaskPriority(opts: {
       blocked: blocked.length,
       avgLeverage,
     },
-    ...(autoFocused && { autoFocused }),
+    ...(autoStarted && { autoStarted }),
   };
 }

@@ -239,7 +239,7 @@ export class ValidateHandler implements DomainHandler {
         return this.wrapNativeResult(nativeValidateTestStatus(this.projectRoot), 'cleo_query', operation, startTime);
       case 'test.coverage':
         return this.wrapNativeResult(nativeValidateTestCoverage(this.projectRoot), 'cleo_query', operation, startTime);
-      case 'coherence-check':
+      case 'coherence.check':
         return this.wrapNativeResult(await nativeValidateCoherenceCheck(this.projectRoot), 'cleo_query', operation, startTime);
       default:
         return this.createErrorResponse('cleo_query', 'validate', operation, 'E_INVALID_OPERATION', `Unknown native query operation: ${operation}`, startTime);
@@ -267,7 +267,7 @@ export class ValidateHandler implements DomainHandler {
           ),
           'cleo_mutate', operation, startTime
         );
-      case 'batch-validate':
+      case 'batch.validate':
         return this.wrapNativeResult(
           await nativeValidateBatchValidate(this.projectRoot),
           'cleo_mutate', operation, startTime
@@ -330,7 +330,7 @@ export class ValidateHandler implements DomainHandler {
           return await this.queryTestStatus(params as unknown as ValidateTestStatusParams);
         case 'test.coverage':
           return await this.queryTestCoverage(params as unknown as ValidateTestCoverageParams);
-        case 'coherence-check':
+        case 'coherence.check':
           return this.queryNative(operation, params, startTime);
         default:
           return this.createErrorResponse(
@@ -390,8 +390,8 @@ export class ValidateHandler implements DomainHandler {
           return await this.mutateComplianceRecord(params as unknown as ValidateComplianceRecordParams);
         case 'test.run':
           return await this.mutateTestRun(params as unknown as ValidateTestRunParams);
-        case 'batch-validate':
-          return this.mutateNative('batch-validate', params, startTime);
+        case 'batch.validate':
+          return this.mutateNative('batch.validate', params, startTime);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -416,11 +416,11 @@ export class ValidateHandler implements DomainHandler {
         'report', 'stats', 'task', 'compliance', 'all',
         'schema', 'protocol', 'manifest', 'output',
         'compliance.summary', 'compliance.violations',
-        'test.status', 'test.coverage', 'coherence-check',
+        'test.status', 'test.coverage', 'coherence.check',
       ],
       mutate: [
         'fix', 'schema', 'protocol', 'session', 'research', 'lifecycle',
-        'compliance.record', 'test.run', 'batch-validate',
+        'compliance.record', 'test.run', 'batch.validate',
       ],
     };
   }

@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
@@ -37,7 +38,7 @@ export function registerReorderCommand(program: Command): void {
         }
 
         const accessor = await getAccessor();
-        const data = await accessor.loadTodoFile();
+        const data = await accessor.loadTaskFile();
 
         const task = data.tasks.find((t) => t.id === taskId);
         if (!task) {
@@ -94,14 +95,14 @@ export function registerReorderCommand(program: Command): void {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = now;
 
-        await accessor.saveTodoFile(data);
+        await accessor.saveTaskFile(data);
 
-        console.log(formatSuccess({
+        cliOutput({
           task: taskId,
           reordered: true,
           newPosition: newIndex + 1,
           totalSiblings: allSiblings.length,
-        }));
+        }, { command: 'reorder' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

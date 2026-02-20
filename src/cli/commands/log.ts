@@ -8,7 +8,8 @@ import { Command } from 'commander';
 import {
   getLogEntries,
 } from '../../core/log/index.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -33,7 +34,7 @@ export function registerLogCommand(program: Command): void {
           task: opts['task'] as string | undefined,
           since: opts['since'] as string | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'log' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

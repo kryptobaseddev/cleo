@@ -7,10 +7,10 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson } from '../../store/json.js';
-import { getTodoPath, getArchivePath } from '../paths.js';
+import { getTaskPath, getArchivePath } from '../paths.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TodoFile } from '../../types/task.js';
+import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 function getSequencePath(cwd?: string): string {
@@ -63,8 +63,8 @@ export async function checkSequence(cwd?: string, accessor?: DataAccessor): Prom
   }
 
   const todoData = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(cwd));
   const archiveData = accessor
     ? await accessor.loadArchive()
     : await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
@@ -88,14 +88,23 @@ export async function checkSequence(cwd?: string, accessor?: DataAccessor): Prom
   };
 }
 
+/** Repair result with proper typing. */
+export interface RepairResult {
+  repaired: boolean;
+  message: string;
+  counter: number;
+  oldCounter?: number;
+  newCounter?: number;
+}
+
 /** Repair sequence if behind. */
-export async function repairSequence(cwd?: string, accessor?: DataAccessor): Promise<Record<string, unknown>> {
+export async function repairSequence(cwd?: string, accessor?: DataAccessor): Promise<RepairResult> {
   const seqPath = getSequencePath(cwd);
   const seq = readSequence(cwd);
 
   const todoData = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(cwd));
   const archiveData = accessor
     ? await accessor.loadArchive()
     : await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
@@ -109,7 +118,7 @@ export async function repairSequence(cwd?: string, accessor?: DataAccessor): Pro
   const oldCounter = seq?.counter ?? 0;
 
   if (oldCounter >= maxId) {
-    return { repaired: false, message: 'Sequence already valid', counter: oldCounter };
+    return { repaired: false, message: 'Sequence already valid', counter: oldCounter, oldCounter, newCounter: oldCounter };
   }
 
   const newCounter = maxId;
@@ -123,6 +132,7 @@ export async function repairSequence(cwd?: string, accessor?: DataAccessor): Pro
 
   return {
     repaired: true,
+    counter: newCounter,
     oldCounter,
     newCounter,
     message: `Sequence repaired: ${oldCounter} -> ${newCounter}`,

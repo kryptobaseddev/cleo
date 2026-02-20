@@ -7,7 +7,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getConfigPath, getProjectRoot } from '../../core/paths.js';
@@ -275,12 +276,12 @@ export function registerGenerateChangelogCommand(program: Command): void {
           }
         }
 
-        console.log(formatSuccess({
+        cliOutput({
           dryRun,
           source: sourceFile,
           repoSlug: repoSlug || null,
           generated: results,
-        }));
+        }, { command: 'generate-changelog' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

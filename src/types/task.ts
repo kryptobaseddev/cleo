@@ -157,7 +157,7 @@ export interface FileMeta {
   generation?: number;
 }
 
-/** Session note in focus block. */
+/** Session note in taskWork block. */
 export interface SessionNote {
   note: string;
   timestamp: string;
@@ -165,8 +165,8 @@ export interface SessionNote {
   agent?: string | null;
 }
 
-/** Focus state. */
-export interface FocusState {
+/** Task work state. */
+export interface TaskWorkState {
   currentTask?: string | null;
   currentPhase?: string | null;
   blockedUntil?: string | null;
@@ -176,13 +176,21 @@ export interface FocusState {
   primarySession?: string | null;
 }
 
-/** Root todo.json structure. */
-export interface TodoFile {
+/** @deprecated Use TaskWorkState instead. */
+export type FocusState = TaskWorkState;
+
+/** Root tasks.json structure. */
+export interface TaskFile {
   version: string;
   project: ProjectMeta;
   lastUpdated: string;
   _meta: FileMeta;
-  focus?: FocusState;
+  taskWork?: TaskWorkState;
+  /** @deprecated Use taskWork instead. */
+  focus?: TaskWorkState;
   tasks: Task[];
   labels?: Record<string, string[]>;
 }
+
+/** @deprecated Use TaskFile instead. */
+export type TodoFile = TaskFile;

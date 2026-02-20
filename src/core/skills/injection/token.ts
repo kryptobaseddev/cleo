@@ -60,8 +60,8 @@ const TOKEN_PATTERNS: Record<string, RegExp> = {
 /** CLEO command defaults. */
 const CLEO_DEFAULTS: TokenValues = {
   TASK_SHOW_CMD: 'cleo show',
-  TASK_FOCUS_CMD: 'cleo focus set',
-  TASK_FOCUS_SHOW_CMD: 'cleo focus show',
+  TASK_START_CMD: 'cleo start',
+  TASK_CURRENT_CMD: 'cleo current',
   TASK_COMPLETE_CMD: 'cleo complete',
   TASK_LINK_CMD: 'cleo research link',
   TASK_LIST_CMD: 'cleo list',

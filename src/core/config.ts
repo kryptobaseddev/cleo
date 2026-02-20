@@ -32,7 +32,7 @@ const DEFAULTS: CleoConfig = {
     cascadeDelete: false,
   },
   session: {
-    autoFocus: false,
+    autoStart: false,
     requireNotes: false,
     multiSession: false,
   },
@@ -51,7 +51,7 @@ const ENV_MAP: Record<string, string> = {
   'CLEO_OUTPUT_DATE_FORMAT': 'output.dateFormat',
   'CLEO_HIERARCHY_MAX_DEPTH': 'hierarchy.maxDepth',
   'CLEO_HIERARCHY_MAX_SIBLINGS': 'hierarchy.maxSiblings',
-  'CLEO_SESSION_AUTO_FOCUS': 'session.autoFocus',
+  'CLEO_SESSION_AUTO_START': 'session.autoStart',
   'CLEO_SESSION_REQUIRE_NOTES': 'session.requireNotes',
   'CLEO_LIFECYCLE_MODE': 'lifecycle.mode',
 };

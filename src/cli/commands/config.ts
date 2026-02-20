@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { loadConfig, getConfigValue } from '../../core/config.js';
 import { readJson, saveJson } from '../../store/json.js';
@@ -49,11 +50,11 @@ export function registerConfigCommand(program: Command): void {
     .action(async (key: string) => {
       try {
         const resolved = await getConfigValue<unknown>(key);
-        console.log(formatSuccess({
+        cliOutput({
           key,
           value: resolved.value,
           source: resolved.source,
-        }));
+        }, { command: 'config' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -77,11 +78,11 @@ export function registerConfigCommand(program: Command): void {
 
         await saveJson(configPath, existing);
 
-        console.log(formatSuccess({
+        cliOutput({
           key,
           value: parsedValue,
           scope: opts['global'] ? 'global' : 'project',
-        }));
+        }, { command: 'config' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -97,7 +98,7 @@ export function registerConfigCommand(program: Command): void {
     .action(async () => {
       try {
         const resolved = await loadConfig();
-        console.log(formatSuccess({ config: resolved }));
+        cliOutput({ config: resolved }, { command: 'config' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

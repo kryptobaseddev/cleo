@@ -9,7 +9,8 @@ import {
   validateContributionTask,
   checkContributionManifest,
 } from '../../core/validation/protocols/contribution.js';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
+import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 
 /**
@@ -30,7 +31,7 @@ export function registerContributionCommand(program: Command): void {
         const result = await validateContributionTask(taskId, {
           strict: opts['strict'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'contribution' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -49,7 +50,7 @@ export function registerContributionCommand(program: Command): void {
         const result = await checkContributionManifest(manifestFile, {
           strict: opts['strict'] as boolean | undefined,
         });
-        console.log(formatSuccess(result));
+        cliOutput(result, { command: 'contribution' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

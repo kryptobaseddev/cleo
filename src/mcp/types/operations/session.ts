@@ -1,8 +1,8 @@
 /**
- * Session Domain Operations (12 operations)
+ * Session Domain Operations (9 operations)
  *
- * Query operations: 5
- * Mutate operations: 7
+ * Query operations: 4
+ * Mutate operations: 5
  *
  * SYNC: Canonical type definitions live in the CLI package at:
  *   src/types/session.ts (Session, SessionScope, etc.)
@@ -18,15 +18,9 @@ export interface Session {
   scope: string;
   started: string;
   ended?: string;
-  focusedTask?: string;
+  startedTask?: string;
   status: 'active' | 'suspended' | 'ended';
   notes?: string[];
-}
-
-export interface FocusInfo {
-  taskId: string | null;
-  since?: string;
-  sessionId?: string;
 }
 
 /**
@@ -37,8 +31,8 @@ export interface FocusInfo {
 export type SessionStatusParams = Record<string, never>;
 export interface SessionStatusResult {
   current: Session | null;
-  hasFocus: boolean;
-  focusedTask?: string;
+  hasStartedTask: boolean;
+  startedTask?: string;
 }
 
 // session.list
@@ -53,10 +47,6 @@ export interface SessionShowParams {
   sessionId: string;
 }
 export type SessionShowResult = Session;
-
-// session.focus.get
-export type SessionFocusGetParams = Record<string, never>;
-export type SessionFocusGetResult = FocusInfo;
 
 // session.history
 export interface SessionHistoryParams {
@@ -80,8 +70,8 @@ export type SessionHistoryResult = SessionHistoryEntry[];
 export interface SessionStartParams {
   scope: string;
   name?: string;
-  autoFocus?: boolean;
-  focus?: string;
+  autoStart?: boolean;
+  startTask?: string;
 }
 export type SessionStartResult = Session;
 
@@ -111,23 +101,6 @@ export interface SessionSuspendParams {
 export interface SessionSuspendResult {
   sessionId: string;
   suspended: string;
-}
-
-// session.focus.set
-export interface SessionFocusSetParams {
-  taskId: string;
-}
-export interface SessionFocusSetResult {
-  taskId: string;
-  sessionId: string;
-  timestamp: string;
-}
-
-// session.focus.clear
-export type SessionFocusClearParams = Record<string, never>;
-export interface SessionFocusClearResult {
-  cleared: true;
-  previousTask?: string;
 }
 
 // session.gc

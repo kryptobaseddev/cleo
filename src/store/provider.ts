@@ -27,7 +27,11 @@ import type { DeleteTaskOptions, DeleteTaskResult } from '../core/tasks/delete.j
 import type { FindTasksOptions, FindTasksResult } from '../core/tasks/find.js';
 import type { ListTasksOptions, ListTasksResult } from '../core/tasks/list.js';
 import type { ArchiveTasksOptions, ArchiveTasksResult } from '../core/tasks/archive.js';
-import type { FocusShowResult, FocusSetResult, FocusHistoryEntry } from '../core/focus/index.js';
+import type { TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry } from '../core/task-work/index.js';
+// Backward-compatible aliases re-exported for downstream consumers
+export type FocusShowResult = TaskCurrentResult;
+export type FocusSetResult = TaskStartResult;
+export type FocusHistoryEntry = TaskWorkHistoryEntry;
 import type { AnalysisResult } from '../core/tasks/analyze.js';
 
 // Re-export domain operation types for CLI consumers
@@ -39,7 +43,7 @@ export type {
   FindTasksOptions, FindTasksResult,
   ListTasksOptions, ListTasksResult,
   ArchiveTasksOptions, ArchiveTasksResult,
-  FocusShowResult, FocusSetResult, FocusHistoryEntry,
+  TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry,
   AnalysisResult,
 };
 
@@ -88,10 +92,10 @@ export interface StoreProvider {
   listSessions(filters?: SessionFilters): Promise<Session[]>;
   endSession(sessionId: string, note?: string): Promise<Session | null>;
 
-  // Focus
-  setFocus(sessionId: string, taskId: string): Promise<void>;
-  getFocus(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
-  clearFocus(sessionId: string): Promise<void>;
+  // Task work (session-level)
+  startTaskOnSession(sessionId: string, taskId: string): Promise<void>;
+  getCurrentTaskForSession(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
+  stopTaskOnSession(sessionId: string): Promise<void>;
 
   // Lifecycle
   close(): Promise<void>;
@@ -120,12 +124,12 @@ export interface StoreProvider {
   richArchiveTasks(options: ArchiveTasksOptions): Promise<ArchiveTasksResult>;
 
   // High-level session operations
-  /** Start a new session with scope, auto-focus, etc. */
+  /** Start a new session with scope, auto-start, etc. */
   startSession(options: {
     name: string;
     scope: string;
-    autoFocus?: boolean;
-    focus?: string;
+    autoStart?: boolean;
+    startTask?: string;
     agent?: string;
   }): Promise<Session>;
   /** End a session, optionally by ID with a note. */
@@ -139,15 +143,15 @@ export interface StoreProvider {
   /** Garbage collect old sessions. */
   gcSessions(maxAgeHours?: number): Promise<{ orphaned: string[]; removed: string[] }>;
 
-  // High-level focus operations (no session ID needed)
-  /** Show current focus state. */
-  showFocus(): Promise<FocusShowResult>;
-  /** Set focus to a task by ID. */
-  richSetFocus(taskId: string): Promise<FocusSetResult>;
-  /** Clear current focus. */
-  richClearFocus(): Promise<{ previousTask: string | null }>;
-  /** Get focus history. */
-  getFocusHistory(): Promise<FocusHistoryEntry[]>;
+  // High-level task work operations (no session ID needed)
+  /** Show current task work state. */
+  currentTask(): Promise<TaskCurrentResult>;
+  /** Start working on a task by ID. */
+  startTask(taskId: string): Promise<TaskStartResult>;
+  /** Stop working on the current task. */
+  stopTask(): Promise<{ previousTask: string | null }>;
+  /** Get task work history. */
+  getWorkHistory(): Promise<TaskWorkHistoryEntry[]>;
 
   // Label operations
   /** List all labels with task counts. */
@@ -169,7 +173,7 @@ export interface StoreProvider {
 
   // Analysis operations
   /** Analyze task priority with leverage scoring. */
-  analyzeTaskPriority(opts?: { autoFocus?: boolean }): Promise<AnalysisResult>;
+  analyzeTaskPriority(opts?: { autoStart?: boolean }): Promise<AnalysisResult>;
 }
 
 /**
@@ -185,7 +189,7 @@ async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<P
   'richDeleteTask' | 'richFindTasks' | 'richListTasks' | 'richArchiveTasks' |
   'startSession' | 'richEndSession' | 'sessionStatus' | 'resumeSession' |
   'richListSessions' | 'gcSessions' |
-  'showFocus' | 'richSetFocus' | 'richClearFocus' | 'getFocusHistory' |
+  'currentTask' | 'startTask' | 'stopTask' | 'getWorkHistory' |
   'listLabels' | 'showLabelTasks' | 'getLabelStats' |
   'suggestRelated' | 'addRelation' | 'discoverRelated' | 'listRelations' |
   'analyzeTaskPriority'
@@ -202,7 +206,7 @@ async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<P
   const relates = await import('../core/tasks/relates.js');
   const { analyzeTaskPriority } = await import('../core/tasks/analyze.js');
   const sessions = await import('../core/sessions/index.js');
-  const focus = await import('../core/focus/index.js');
+  const taskWork = await import('../core/task-work/index.js');
 
   // Resolve accessor once; all domain ops share the same instance.
   // If not provided, auto-detect from config (getAccessor).
@@ -231,10 +235,10 @@ async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<P
     resumeSession: (sessionId) => sessions.resumeSession(sessionId, cwd, acc),
     richListSessions: (options) => sessions.listSessions(options, cwd, acc),
     gcSessions: (maxAgeHours) => sessions.gcSessions(maxAgeHours, cwd, acc),
-    showFocus: () => focus.showFocus(cwd, acc),
-    richSetFocus: (taskId) => focus.setFocus(taskId, cwd, acc),
-    richClearFocus: () => focus.clearFocus(cwd, acc),
-    getFocusHistory: () => focus.getFocusHistory(cwd, acc),
+    currentTask: () => taskWork.currentTask(cwd, acc),
+    startTask: (taskId: string) => taskWork.startTask(taskId, cwd, acc),
+    stopTask: () => taskWork.stopTask(cwd, acc),
+    getWorkHistory: () => taskWork.getWorkHistory(cwd, acc),
   };
 }
 
@@ -318,9 +322,9 @@ async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
     updateSession: (sessionId, updates) => sessionStore.updateSession(sessionId, updates, cwd),
     listSessions: (filters) => sessionStore.listSessions(filters, cwd),
     endSession: (sessionId, note) => sessionStore.endSession(sessionId, note, cwd),
-    setFocus: (sessionId, taskId) => sessionStore.setFocus(sessionId, taskId, cwd),
-    getFocus: (sessionId) => sessionStore.getFocus(sessionId, cwd),
-    clearFocus: (sessionId) => sessionStore.clearFocus(sessionId, cwd),
+    startTaskOnSession: (sessionId, taskId) => sessionStore.startTask(sessionId, taskId, cwd),
+    getCurrentTaskForSession: (sessionId) => sessionStore.getCurrentTask(sessionId, cwd),
+    stopTaskOnSession: (sessionId) => sessionStore.stopTask(sessionId, cwd),
     close: async () => closeDb(),
     ...domainOps,
   };
@@ -468,28 +472,28 @@ async function createDualWriteProvider(cwd?: string): Promise<StoreProvider> {
       return jsonProvider.endSession(sessionId, note);
     },
 
-    // --- Focus: write to both, read from SQLite with JSON fallback ---
+    // --- Task work: write to both, read from SQLite with JSON fallback ---
 
-    setFocus: async (sessionId, taskId) => {
+    startTaskOnSession: async (sessionId: string, taskId: string) => {
       await Promise.allSettled([
-        sqliteProvider.setFocus(sessionId, taskId),
-        jsonProvider.setFocus(sessionId, taskId),
+        sqliteProvider.startTaskOnSession(sessionId, taskId),
+        jsonProvider.startTaskOnSession(sessionId, taskId),
       ]);
     },
 
-    getFocus: async (sessionId) => {
+    getCurrentTaskForSession: async (sessionId: string) => {
       try {
-        return await sqliteProvider.getFocus(sessionId);
+        return await sqliteProvider.getCurrentTaskForSession(sessionId);
       } catch {
-        logDiscrepancy('getFocus', `SQLite read failed for ${sessionId}`);
-        return jsonProvider.getFocus(sessionId);
+        logDiscrepancy('getCurrentTaskForSession', `SQLite read failed for ${sessionId}`);
+        return jsonProvider.getCurrentTaskForSession(sessionId);
       }
     },
 
-    clearFocus: async (sessionId) => {
+    stopTaskOnSession: async (sessionId: string) => {
       await Promise.allSettled([
-        sqliteProvider.clearFocus(sessionId),
-        jsonProvider.clearFocus(sessionId),
+        sqliteProvider.stopTaskOnSession(sessionId),
+        jsonProvider.stopTaskOnSession(sessionId),
       ]);
     },
 

@@ -253,13 +253,13 @@ describe('E2E: Task Management Workflow', () => {
     // Query dependencies via deps command
     const depsResult = await context.executor.execute({
       domain: 'tasks',
-      operation: 'deps',
+      operation: 'depends',
       args: [dependentId],
       flags: { json: true },
     });
 
     expect(depsResult.success).toBe(true);
-    verifyResponseFormat(depsResult, 'cleo_query', 'tasks', 'deps');
+    verifyResponseFormat(depsResult, 'cleo_query', 'tasks', 'depends');
 
     // deps returns {task, upstream, downstream, blockedBy}
     const deps = depsResult.data as any;

@@ -4,11 +4,12 @@
  */
 
 import { Command } from 'commander';
-import { formatSuccess, formatError } from '../../core/output.js';
+import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
+import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { getTodoPath, getConfigPath, getArchivePath, getLogPath, getCleoHome, getCleoDirAbsolute, getProjectRoot } from '../../core/paths.js';
+import { getTaskPath, getConfigPath, getArchivePath, getLogPath, getCleoHome, getCleoDirAbsolute, getProjectRoot } from '../../core/paths.js';
 import { checkCleoGitignore, checkVitalFilesTracked, checkLegacyAgentOutputs } from '../../core/validation/doctor/checks.js';
 import { stat, access, readFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
@@ -94,7 +95,7 @@ export function registerDoctorCommand(program: Command): void {
         });
 
         // 3. Check data files
-        const todoPath = getTodoPath();
+        const todoPath = getTaskPath();
         const todoExists = await fileExists(todoPath);
         const todoSize = await fileSize(todoPath);
         checks.push({
@@ -108,7 +109,7 @@ export function registerDoctorCommand(program: Command): void {
         if (todoExists) {
           try {
             const accessor = await getAccessor();
-            const data = await accessor.loadTodoFile();
+            const data = await accessor.loadTaskFile();
             const taskCount = data.tasks?.length ?? 0;
             const schemaVersion = data._meta?.schemaVersion ?? 'unknown';
             checks.push({
@@ -218,12 +219,12 @@ export function registerDoctorCommand(program: Command): void {
         const warningCount = checks.filter((c) => c.status === 'warning').length;
         const healthy = errorCount === 0;
 
-        console.log(formatSuccess({
+        cliOutput({
           healthy,
           errors: errorCount,
           warnings: warningCount,
           checks,
-        }));
+        }, { command: 'doctor', operation: 'system.health' });
 
         if (!healthy) {
           process.exit(ExitCode.VALIDATION_ERROR);
