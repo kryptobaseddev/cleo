@@ -52,7 +52,7 @@ Interpretation:
 - `query:system.labels`
 - `query:system.compliance`
 - `query:system.log`
-- `query:system.archive-stats`
+- `query:system.archive.stats`
 - `query:system.sequence`
 
 ### 3.2 Mutate Extensions (4)

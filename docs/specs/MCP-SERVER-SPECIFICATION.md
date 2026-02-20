@@ -143,7 +143,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `status` | Current session status | - | Session object |
 | `list` | List all sessions | `active?` | Session array |
 | `show` | Session details | `sessionId` | Full session object |
-| `focus.get` | Get focused task | - | Task ID or null |
+| `current` (tasks domain) | Get focused task | - | Task ID or null |
 | `history` | Session history | `limit?` | History array |
 
 ##### orchestrate (7 operations)
@@ -209,7 +209,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `labels` | Label listing and stats | `filter?` | Label array |
 | `compliance` | Compliance metrics | `scope?` | Metrics object |
 | `log` | Audit log entries | `limit?`, `since?` | Log entries |
-| `archive-stats` | Archive analytics | - | Archive metrics |
+| `archive.stats` | Archive analytics | - | Archive metrics |
 | `sequence` | ID sequence inspection | - | Sequence state |
 
 ##### issues (1 operation)
@@ -292,12 +292,12 @@ The original core contract matrix (96 operations) remains the baseline model; im
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| `start` | Start new session | `scope`, `name?`, `autoFocus?` | Session object |
+| `start` | Start new session | `scope`, `name?`, `autoStart?` | Session object |
 | `end` | End current session | `notes?` | Session summary |
 | `resume` | Resume existing session | `sessionId` | Resumed session |
 | `suspend` | Suspend session | `notes?` | Suspended status |
-| `focus.set` | Set focused task | `taskId` | Focus confirmation |
-| `focus.clear` | Clear focus | - | Clear confirmation |
+| `start` (tasks domain) | Set focused task | `taskId` | Focus confirmation |
+| `stop` (tasks domain) | Clear focus | - | Clear confirmation |
 | `gc` | Garbage collect sessions | `olderThan?` | Cleaned count |
 
 ##### orchestrate (5 operations)
@@ -977,14 +977,14 @@ const result = await cleo_query({
 // 2. Get task details
 const task = await cleo_query({
   domain: "tasks",
-  operation: "get",
+  operation: "show",
   params: { taskId: "T2405" }
 });
 
 // 3. Set focus
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2405" }
 });
 
@@ -1157,23 +1157,23 @@ Recommended limits:
 
 | Domain | Operations |
 |--------|------------|
-| tasks | get, list, find, exists, tree, blockers, deps, analyze, next |
-| session | status, list, show, focus.get, history |
+| tasks | show, list, find, exists, tree, blockers, depends, analyze, next, current |
+| session | status, list, show, history |
 | orchestrate | status, next, ready, analyze, context, waves, skill.list |
-| research | show, list, query, pending, stats, manifest.read |
-| lifecycle | check, status, history, gates, prerequisites |
+| research | show, list, search, pending, stats, manifest.read |
+| lifecycle | validate, status, history, gates, prerequisites |
 | validate | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage |
-| system | version, doctor, config.get, stats, context |
+| system | version, health, config.get, stats, context |
 
 #### cleo_mutate Domains
 
 | Domain | Operations |
 |--------|------------|
-| tasks | create, update, complete, delete, archive, unarchive, reparent, promote, reorder, reopen |
-| session | start, end, resume, suspend, focus.set, focus.clear, gc |
-| orchestrate | startup, spawn, validate, parallel.start, parallel.end |
+| tasks | add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, start, stop |
+| session | start, end, resume, suspend, gc |
+| orchestrate | start, spawn, validate, parallel.start, parallel.end |
 | research | inject, link, manifest.append, manifest.archive |
-| lifecycle | progress, skip, reset, gate.pass, gate.fail |
+| lifecycle | record, skip, reset, gate.pass, gate.fail |
 | validate | compliance.record, test.run |
 | release | prepare, changelog, commit, tag, push, gates.run, rollback |
 | system | init, config.set, backup, restore, migrate, sync, cleanup |

@@ -137,7 +137,7 @@ CLI flags > Environment variables > Project config (.cleo/config.json) > Global 
 New environment variable mapping is available. For example:
 - `CLEO_FORMAT` maps to `output.defaultFormat`
 - `CLEO_HIERARCHY_MAX_DEPTH` maps to `hierarchy.maxDepth`
-- `CLEO_SESSION_AUTO_FOCUS` maps to `session.autoFocus`
+- `CLEO_SESSION_AUTO_FOCUS` maps to `session.autoStart`
 
 ### 4. Task Status Enum
 
@@ -173,7 +173,7 @@ Your existing `.cleo/config.json` is fully compatible. V2 reads the same file wi
     "cascadeDelete": false
   },
   "session": {
-    "autoFocus": false,
+    "autoStart": false,
     "requireNotes": false,
     "multiSession": false
   },
