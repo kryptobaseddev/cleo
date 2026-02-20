@@ -1572,6 +1572,6 @@ else
   echo ""
   echo "Next steps:"
   echo "  1. cleo add \"Your first task\""
-  echo "  2. cleo focus set <task-id>"
+  echo "  2. cleo start <task-id>"
   echo "  3. cleo session start"
 fi

@@ -139,7 +139,7 @@ Algorithm:
     1. Filter tasks that are pending and not blocked
     2. Check dependencies - only suggest if all dependencies are done
     3. Score by priority: critical=100, high=75, medium=50, low=25
-    4. Add phase bonus if matches project.currentPhase (or focused task phase)
+    4. Add phase bonus if matches project.currentPhase (or current task phase)
     5. Break ties by creation date (oldest first)
 
 Examples:
@@ -175,9 +175,14 @@ get_colors() {
   fi
 }
 
-# Get current focus task ID
-get_current_focus() {
+# Get current task ID
+get_current_task() {
   jq -r '.focus.currentTask // ""' "$TODO_FILE" 2>/dev/null
+}
+
+# Backward-compat alias
+get_current_focus() {
+  get_current_task
 }
 
 # Get current phase - prioritizes project.currentPhase (v2.2.0+), falls back to focused task phase
@@ -191,9 +196,9 @@ get_current_phase() {
     return
   fi
 
-  # Fallback: derive from focused task (v2.1.x behavior)
+  # Fallback: derive from current task (v2.1.x behavior)
   local focus_id
-  focus_id=$(get_current_focus)
+  focus_id=$(get_current_task)
   if [[ -n "$focus_id" && "$focus_id" != "null" ]]; then
     jq -r --arg id "$focus_id" '.tasks[] | select(.id == $id) | .phase // ""' "$TODO_FILE" 2>/dev/null
   else
@@ -554,7 +559,7 @@ output_text_format() {
       echo -e "     ${DIM}Dependencies: $deps (all satisfied)${NC}"
 
       if [[ "$phase_bonus" -gt 0 ]]; then
-        echo -e "     ${GREEN}+ Same phase as current focus${NC}"
+        echo -e "     ${GREEN}+ Same phase as current task${NC}"
       fi
       
       if [[ "$hierarchy_score" -gt 0 ]]; then
@@ -570,7 +575,7 @@ output_text_format() {
   local first_id
   first_id=$(echo "$suggestions" | jq -r '.[0].id')
   echo -e "${DIM}To start working:${NC}"
-  echo -e "  cleo focus set $first_id"
+  echo -e "  cleo start $first_id"
   echo ""
 }
 
@@ -617,8 +622,8 @@ output_explain_format() {
       echo "Current project phase: $current_phase"
       echo "  (From project.currentPhase - tasks in this phase get +30 bonus score)"
     else
-      echo "Current focus phase: $current_phase"
-      echo "  (From focused task - tasks in this phase get +30 bonus score)"
+      echo "Current task phase: $current_phase"
+      echo "  (From current task - tasks in this phase get +30 bonus score)"
     fi
     echo ""
   fi
@@ -657,7 +662,7 @@ output_json_format() {
   current_phase=$(get_current_phase)
 
   local current_focus
-  current_focus=$(get_current_focus)
+  current_focus=$(get_current_task)
 
   local total_pending
   total_pending=$(jq -r '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
@@ -700,7 +705,7 @@ output_json_format() {
       "success": true,
       "recommendation": (if ($suggestions | length) > 0 then {
         taskId: $suggestions[0].id,
-        command: ("cleo focus set " + $suggestions[0].id)
+        command: ("cleo start " + $suggestions[0].id)
       } else null end)
     }'
 }

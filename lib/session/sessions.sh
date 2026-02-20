@@ -6,7 +6,7 @@
 # PROVIDES: Session lifecycle, scope computation, conflict detection
 #
 # Design: Enables multiple LLM agents to work concurrently on different
-# task groups (epics, phases, task groups) with isolated focus state.
+# task groups (epics, phases, task groups) with isolated task work state.
 #
 # Version: 1.0.0 (cleo v0.38.0)
 # Spec: docs/specs/MULTI-SESSION-SPEC.md
@@ -380,13 +380,13 @@ detect_scope_conflict() {
             if [[ -n "$new_focus_task" ]]; then
                 # New session has a specific focus task — HARD only if it's the SAME task
                 if [[ "$new_focus_task" == "$current_task" ]]; then
-                    echo "{\"type\":\"$CONFLICT_HARD\",\"sessionId\":\"$session_id\",\"overlappingTasks\":$overlap,\"message\":\"Task $current_task already focused by session $session_id\"}"
+                    echo "{\"type\":\"$CONFLICT_HARD\",\"sessionId\":\"$session_id\",\"overlappingTasks\":$overlap,\"message\":\"Task $current_task already active in session $session_id\"}"
                     return
                 fi
             else
-                # No focus task specified — fall back to original behavior (currentTask in scope)
+                # No task specified — fall back to original behavior (currentTask in scope)
                 if echo "$new_scope_ids" | jq -e --arg id "$current_task" 'index($id)' >/dev/null 2>&1; then
-                    echo "{\"type\":\"$CONFLICT_HARD\",\"sessionId\":\"$session_id\",\"overlappingTasks\":$overlap,\"message\":\"Task $current_task already focused by session $session_id\"}"
+                    echo "{\"type\":\"$CONFLICT_HARD\",\"sessionId\":\"$session_id\",\"overlappingTasks\":$overlap,\"message\":\"Task $current_task already active in session $session_id\"}"
                     return
                 fi
             fi
@@ -573,8 +573,8 @@ start_session() {
             echo "Error: Scope is empty - no tasks match criteria" >&2
             return ${EXIT_SCOPE_INVALID:-33}
         fi
-        # Allow empty scope when no focus (new epic with no children)
-        echo "Warning: Scope is empty - session started without focus. Add tasks to the epic." >&2
+        # Allow empty scope when no task (new epic with no children)
+        echo "Warning: Scope is empty - session started without a task. Add tasks to the epic." >&2
     fi
 
     # Validate focus task is in scope (skip when no focus task)
@@ -583,7 +583,7 @@ start_session() {
             unlock_file "$todo_fd"
             unlock_file "$sessions_fd"
             trap - EXIT ERR
-            echo "Error: Focus task $focus_task is not in scope" >&2
+            echo "Error: Task $focus_task is not in scope" >&2
             return ${EXIT_TASK_NOT_IN_SCOPE:-34}
         fi
     fi
@@ -2179,12 +2179,12 @@ resolve_current_session_id() {
 }
 
 # ============================================================================
-# SESSION FOCUS FUNCTIONS
+# SESSION TASK WORK FUNCTIONS
 # ============================================================================
 
 # Get session focus (current task for a session)
 # Args: $1 - session ID
-# Returns: Task ID or empty if no focus
+# Returns: Task ID or empty if no current task
 # Exit codes: 0 = success, 31 = session not found
 get_session_focus() {
     local session_id="$1"
@@ -2207,9 +2207,9 @@ get_session_focus() {
     return 0
 }
 
-# Set session focus (focus task within session)
+# Set session task (start working on a task within session)
 # Args: $1 - session ID, $2 - task ID
-# Returns: Previous focus task ID (empty if none)
+# Returns: Previous task ID (empty if none)
 # Exit codes: 0 = success, 31 = session not found, 34 = task not in scope, 35 = task claimed by another session
 set_session_focus() {
     local session_id="$1"
@@ -2265,7 +2265,7 @@ set_session_focus() {
     ' | head -1)
 
     if [[ -n "$claimed_by" ]]; then
-        echo "Error: Task $task_id already focused by session $claimed_by" >&2
+        echo "Error: Task $task_id already active in session $claimed_by" >&2
         return 35  # E_TASK_CLAIMED
     fi
 
@@ -2347,9 +2347,9 @@ set_session_focus() {
     return 0
 }
 
-# Clear session focus
+# Clear session task (stop working on current task)
 # Args: $1 - session ID
-# Returns: Previous focus task ID (empty if none)
+# Returns: Previous task ID (empty if none)
 # Exit codes: 0 = success, 31 = session not found
 clear_session_focus() {
     local session_id="$1"
@@ -2946,8 +2946,8 @@ session_validate_consistency() {
 
             if [[ "$in_scope" == "null" ]]; then
                 add_issue "focus_out_of_scope" "sessions.json" \
-                    "Session $session_id focus task $focus_task not in computed scope" \
-                    "cleo focus set <valid-task> --session $session_id"
+                    "Session $session_id current task $focus_task not in computed scope" \
+                    "cleo start <valid-task> --session $session_id"
             fi
         fi
     done <<< "$(echo "$sessions_content" | jq -r '.sessions[] | select(.status == "active") | .id')"

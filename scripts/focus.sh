@@ -2,7 +2,7 @@
 ###CLEO
 # command: focus
 # category: write
-# synopsis: Single-task workflow discipline. Set/show/clear active task.
+# synopsis: Single-task workflow discipline (deprecated: use start/stop/current).
 # relevance: critical
 # flags: --format,--quiet
 # exits: 0,2,4
