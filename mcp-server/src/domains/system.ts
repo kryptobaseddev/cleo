@@ -444,16 +444,12 @@ export class SystemHandler implements DomainHandler {
           return this.getMetrics(params as SystemMetricsParams, startTime);
         case 'health':
           return this.checkHealth(params as SystemHealthParams, startTime);
-        case 'config':
-          return this.getConfig(params as SystemConfigParams, startTime);
         case 'diagnostics':
           return this.runDiagnostics(params as SystemDiagnosticsParams, startTime);
         case 'version':
           return this.getVersion(params as SystemVersionParams, startTime);
         case 'help':
           return this.getHelp(params as SystemHelpParams, startTime);
-        case 'doctor':
-          return this.checkHealth(params as SystemHealthParams, startTime);
         case 'config.get':
           return this.getConfig(params as SystemConfigParams, startTime);
         case 'stats':
@@ -622,9 +618,9 @@ export class SystemHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'context', 'metrics', 'health', 'config', 'diagnostics', 'version', 'help', 'doctor',
+        'context', 'metrics', 'health', 'diagnostics', 'version', 'help',
         'config.get', 'stats', 'job.status', 'job.list', 'dash', 'roadmap', 'labels',
-        'compliance', 'log', 'archive-stats', 'sequence',
+        'compliance', 'log', 'archive.stats', 'sequence',
         // CAAMP provider queries
         'provider.list', 'provider.get', 'provider.detect', 'provider.installed',
       ],
@@ -683,12 +679,12 @@ export class SystemHandler implements DomainHandler {
     // Read config file directly since there's no cleo config command
     const result = await this.executor!.execute<ConfigInfo>({
       domain: 'system',
-      operation: 'config',
+      operation: 'config.get',
       customCommand: 'cat .cleo/config.json | jq .'
     });
 
     if (!result.success) {
-      return this.wrapExecutorResult(result, 'query', 'system', 'config', startTime);
+      return this.wrapExecutorResult(result, 'query', 'system', 'config.get', startTime);
     }
 
     // If specific key requested, extract it
@@ -702,7 +698,7 @@ export class SystemHandler implements DomainHandler {
           return this.createErrorResponse(
             'query',
             'system',
-            'config',
+            'config.get',
             'E_NOT_FOUND',
             `Config key not found: ${params.key}`,
             startTime
@@ -712,7 +708,7 @@ export class SystemHandler implements DomainHandler {
       result.data = { [params.key]: value } as ConfigInfo;
     }
 
-    return this.wrapExecutorResult(result, 'query', 'system', 'config', startTime);
+    return this.wrapExecutorResult(result, 'query', 'system', 'config.get', startTime);
   }
 
   private async runDiagnostics(params: SystemDiagnosticsParams | undefined, startTime: number): Promise<DomainResponse> {
@@ -1328,7 +1324,6 @@ export class SystemHandler implements DomainHandler {
     switch (operation) {
       case 'version':
         return this.wrapNativeResult(nativeGetVersion(this.projectRoot), 'query', operation, startTime);
-      case 'config':
       case 'config.get': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
@@ -1336,7 +1331,7 @@ export class SystemHandler implements DomainHandler {
         const key = (params as SystemConfigParams)?.key;
         return this.wrapNativeResult(nativeConfigGet(this.projectRoot, key), 'query', operation, startTime);
       }
-      case 'doctor': {
+      case 'health': {
         // Hybrid: native capability report + CLI health check when available
         const report = generateCapabilityReport();
         return {

@@ -5,25 +5,25 @@ This directory contains the 8 domain handlers that implement CLEO's business log
 ## Query Domains (cleo_query)
 
 1. **tasks** - Task discovery, listing, tree views, dependency analysis
-   - Operations: get, list, find, exists, tree, blockers, deps, analyze, next
+   - Operations: show, list, find, exists, tree, blockers, depends, analyze, next, current
 
-2. **session** - Session status, history, focus management
-   - Operations: status, list, show, focus.get, history
+2. **session** - Session status, history
+   - Operations: status, list, show, history
 
 3. **orchestrate** - Multi-agent coordination, dependency waves, skill selection
    - Operations: status, next, ready, analyze, context, waves, skill.list
 
 4. **research** - Research entry management, manifest queries
-   - Operations: show, list, query, pending, stats, manifest.read
+   - Operations: show, list, search, pending, stats, manifest.read
 
 5. **lifecycle** - RCSD-IVTR stage progression, gate status
-   - Operations: check, status, history, gates, prerequisites
+   - Operations: validate, status, history, gates, prerequisites
 
 6. **validate** - Schema, protocol, anti-hallucination, compliance validation
    - Operations: schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage
 
 7. **system** - Version, health checks, configuration, statistics
-   - Operations: version, doctor, config.get, stats, context
+   - Operations: version, health, config.get, stats, context
 
 ## Mutate Domains (cleo_mutate)
 

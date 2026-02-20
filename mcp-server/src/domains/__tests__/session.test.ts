@@ -651,16 +651,14 @@ describe('SessionHandler', () => {
     it('should return all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toEqual(['status', 'list', 'show', 'focus-show', 'focus.get', 'history', 'stats']);
+      expect(ops.query).toEqual(['status', 'list', 'show', 'focus-show', 'current', 'history', 'stats']);
       expect(ops.mutate).toEqual([
         'start',
         'end',
         'resume',
         'switch',
         'focus-set',
-        'focus.set',
         'focus-clear',
-        'focus.clear',
         'archive',
         'cleanup',
         'suspend',

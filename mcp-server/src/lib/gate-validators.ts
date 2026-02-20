@@ -407,15 +407,15 @@ export async function validateLayer3Referential(
     }
   }
 
-  // Session validation (for focus operations)
-  if (context.domain === 'session' && context.operation === 'focus.set') {
+  // Task start validation (for focus/start operations)
+  if (context.domain === 'tasks' && context.operation === 'start') {
     const taskId = context.params?.taskId as string | undefined;
     if (taskId && !taskId.match(/^T[0-9]+$/)) {
       violations.push({
         layer: GateLayer.REFERENTIAL,
         severity: ErrorSeverity.ERROR,
         code: 'E_INVALID_FOCUS_REF',
-        message: `Invalid focus task reference: ${taskId}`,
+        message: `Invalid task reference: ${taskId}`,
         field: 'taskId',
         value: taskId,
         constraint: 'Must be valid task ID',
@@ -664,10 +664,10 @@ export function isFieldRequired(
       update: ['taskId'],
       complete: ['taskId'],
       delete: ['taskId'],
+      start: ['taskId'],
     },
     session: {
       start: ['scope'],
-      'focus.set': ['taskId'],
     },
   };
 

@@ -29,11 +29,11 @@ describe('LifecycleHandler', () => {
 
       expect(ops.query).toEqual([
         'stages', 'status', 'validate', 'report', 'export',
-        'history', 'gates', 'prerequisites', 'check',
+        'history', 'gates', 'prerequisites',
       ]);
       expect(ops.mutate).toEqual([
         'record', 'enforce', 'skip', 'unskip', 'import',
-        'reset', 'gate.pass', 'gate.fail', 'progress',
+        'reset', 'gate.pass', 'gate.fail',
       ]);
     });
   });

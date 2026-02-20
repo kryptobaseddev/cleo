@@ -731,7 +731,7 @@ function inferProtocolType(task: TaskRecord): string {
 }
 
 /**
- * orchestrate.startup - Initialize orchestration for an epic
+ * orchestrate.start - Initialize orchestration for an epic
  * @task T4478
  */
 export function orchestrateStartup(

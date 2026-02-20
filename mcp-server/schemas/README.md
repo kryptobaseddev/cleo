@@ -74,11 +74,10 @@ schemas/
 ### session (12 operations)
 
 **Queries (5)**:
-- status, list, show, focus.get, history
+- status, list, show, history
 
-**Mutations (7)**:
-- start, end, resume, suspend
-- focus.set, focus.clear, gc
+**Mutations (5)**:
+- start, end, resume, suspend, gc
 
 ### orchestrate (12 operations)
 
@@ -87,13 +86,13 @@ schemas/
 - context, waves, skill.list
 
 **Mutations (5)**:
-- startup, spawn, validate
+- start, spawn, validate
 - parallel.start, parallel.end
 
 ### research (10 operations)
 
 **Queries (6)**:
-- show, list, query, pending
+- show, list, search, pending
 - stats, manifest.read
 
 **Mutations (4)**:
@@ -103,11 +102,11 @@ schemas/
 ### lifecycle (10 operations)
 
 **Queries (5)**:
-- check, status, history
+- validate, status, history
 - gates, prerequisites
 
 **Mutations (5)**:
-- progress, skip, reset
+- record, skip, reset
 - gate.pass, gate.fail
 
 ### validate (11 operations)
@@ -129,9 +128,9 @@ schemas/
 ### system (24 operations)
 
 **Queries (14)**:
-- version, doctor, config.get, stats, context
+- version, health, config.get, stats, context
 - job.status, job.list, dash, roadmap, labels
-- compliance, log, archive-stats, sequence
+- compliance, log, archive.stats, sequence
 
 **Mutations (10)**:
 - init, config.set, backup, restore
@@ -210,7 +209,7 @@ All responses wrap data in standard envelope:
   "_meta": {
     "gateway": "cleo_query|cleo_mutate",
     "domain": "tasks",
-    "operation": "get",
+    "operation": "show",
     "version": "1.0.0",
     "timestamp": "2026-02-04T08:20:00Z",
     "duration_ms": 45

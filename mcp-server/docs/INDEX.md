@@ -89,7 +89,7 @@ const tasks = await cleo_query({
 // Mutate example
 const newTask = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement feature X",
     description: "Add support for feature X with tests"
@@ -104,23 +104,24 @@ const newTask = await cleo_mutate({
 ### Task Operations (19 total)
 
 **Query (9)**:
-- `tasks.get` - Get task details
+- `tasks.show` - Get task details
 - `tasks.list` - List tasks with filters
 - `tasks.find` - Fuzzy search
 - `tasks.exists` - Check existence
 - `tasks.tree` - Hierarchical view
 - `tasks.blockers` - Get blocking tasks
-- `tasks.deps` - Get dependencies
+- `tasks.depends` - Get dependencies
 - `tasks.analyze` - Triage analysis
 - `tasks.next` - Next task suggestion
+- `tasks.current` - Get focused task
 
 **Mutate (10)**:
-- `tasks.create` - Create task
+- `tasks.add` - Create task
 - `tasks.update` - Update task
 - `tasks.complete` - Complete task
 - `tasks.delete` - Delete task
 - `tasks.archive` - Archive completed
-- `tasks.unarchive` - Restore from archive
+- `tasks.restore` - Restore from archive
 - `tasks.reparent` - Change parent
 - `tasks.promote` - Promote to higher level
 - `tasks.reorder` - Reorder siblings
@@ -132,7 +133,6 @@ const newTask = await cleo_mutate({
 - `session.status` - Current session
 - `session.list` - List all sessions
 - `session.show` - Session details
-- `session.focus.get` - Get focused task
 - `session.history` - Session history
 
 **Mutate (7)**:
@@ -140,8 +140,6 @@ const newTask = await cleo_mutate({
 - `session.end` - End session
 - `session.resume` - Resume session
 - `session.suspend` - Suspend session
-- `session.focus.set` - Set focus
-- `session.focus.clear` - Clear focus
 - `session.gc` - Garbage collect
 
 ### Orchestration Operations (12 total)
@@ -156,7 +154,7 @@ const newTask = await cleo_mutate({
 - `orchestrate.skill.list` - Available skills
 
 **Mutate (5)**:
-- `orchestrate.startup` - Initialize orchestration
+- `orchestrate.start` - Initialize orchestration
 - `orchestrate.spawn` - Generate spawn prompt
 - `orchestrate.validate` - Validate spawn readiness
 - `orchestrate.parallel.start` - Start parallel wave
@@ -167,7 +165,7 @@ const newTask = await cleo_mutate({
 **Query (6)**:
 - `research.show` - Entry details
 - `research.list` - List entries
-- `research.query` - Search research
+- `research.search` - Search research
 - `research.pending` - Pending entries
 - `research.stats` - Statistics
 - `research.manifest.read` - Read manifest
@@ -181,14 +179,14 @@ const newTask = await cleo_mutate({
 ### Lifecycle Operations (10 total)
 
 **Query (5)**:
-- `lifecycle.check` - Check prerequisites
+- `lifecycle.validate` - Check prerequisites
 - `lifecycle.status` - Current state
 - `lifecycle.history` - Transition history
 - `lifecycle.gates` - All gate statuses
 - `lifecycle.prerequisites` - Required stages
 
 **Mutate (5)**:
-- `lifecycle.progress` - Record completion
+- `lifecycle.record` - Record completion
 - `lifecycle.skip` - Skip stage
 - `lifecycle.reset` - Reset stage
 - `lifecycle.gate.pass` - Mark gate passed
@@ -226,7 +224,7 @@ const newTask = await cleo_mutate({
 
 **Query (5)**:
 - `system.version` - CLEO version
-- `system.doctor` - Health check
+- `system.health` - Health check
 - `system.config.get` - Get config
 - `system.stats` - Project statistics
 - `system.context` - Context info

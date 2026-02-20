@@ -85,7 +85,7 @@ const tasks = await cleo_query({
 // Mutate operations (write)
 const newTask = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement feature X",
     description: "Add support for feature X with tests"
@@ -170,7 +170,7 @@ interface MCPRequest {
 cleo_query({ domain: "tasks", operation: "list", params: {} })
 
 // Instead of calling "task_create" tool:
-cleo_mutate({ domain: "tasks", operation: "create", params: { title: "...", description: "..." } })
+cleo_mutate({ domain: "tasks", operation: "add", params: { title: "...", description: "..." } })
 ```
 
 ### Protocol Enforcement
@@ -204,7 +204,7 @@ All operations return a consistent envelope:
   "_meta": {
     "gateway": "cleo_query|cleo_mutate",
     "domain": "tasks",
-    "operation": "get",
+    "operation": "show",
     "version": "1.0.0",
     "timestamp": "2026-02-04T08:24:05Z",
     "duration_ms": 45
@@ -244,13 +244,13 @@ All operations return a consistent envelope:
 
 | Domain | Operations | Count |
 |--------|------------|-------|
-| tasks | get, list, find, exists, tree, blockers, deps, analyze, next | 9 |
-| session | status, list, show, focus.get, history | 5 |
+| tasks | show, list, find, exists, tree, blockers, depends, analyze, next, current | 10 |
+| session | status, list, show, history | 4 |
 | orchestrate | status, next, ready, analyze, context, waves, skill.list | 7 |
-| research | show, list, query, pending, stats, manifest.read | 6 |
-| lifecycle | check, status, history, gates, prerequisites | 5 |
+| research | show, list, search, pending, stats, manifest.read | 6 |
+| lifecycle | validate, status, history, gates, prerequisites | 5 |
 | validate | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage | 9 |
-| system | version, doctor, config.get, stats, context | 5 |
+| system | version, health, config.get, stats, context | 5 |
 | *system (job)* | *job.status, job.list* | *2* |
 
 > **Note**: Implementation count is sourced from `src/gateways/query.ts` (`EXPECTED_QUERY_COUNT=56`).
@@ -259,11 +259,11 @@ All operations return a consistent envelope:
 
 | Domain | Operations | Count |
 |--------|------------|-------|
-| tasks | create, update, complete, delete, archive, unarchive, reparent, promote, reorder, reopen | 10 |
-| session | start, end, resume, suspend, focus.set, focus.clear, gc | 7 |
-| orchestrate | startup, spawn, validate, parallel.start, parallel.end | 5 |
+| tasks | add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, start, stop | 12 |
+| session | start, end, resume, suspend, gc | 5 |
+| orchestrate | start, spawn, validate, parallel.start, parallel.end | 5 |
 | research | inject, link, manifest.append, manifest.archive | 4 |
-| lifecycle | progress, skip, reset, gate.pass, gate.fail | 5 |
+| lifecycle | record, skip, reset, gate.pass, gate.fail | 5 |
 | validate | compliance.record, test.run | 2 |
 | release | prepare, changelog, commit, tag, push, gates.run, rollback | 7 |
 | system | init, config.set, backup, restore, migrate, sync, cleanup | 7 |
@@ -288,14 +288,14 @@ const results = await cleo_query({
 // 2. Get task details
 const task = await cleo_query({
   domain: "tasks",
-  operation: "get",
+  operation: "show",
   params: { taskId: "T2405" }
 });
 
 // 3. Set focus
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2405" }
 });
 
@@ -313,14 +313,14 @@ await cleo_mutate({
 // 1. Initialize orchestration
 const startup = await cleo_mutate({
   domain: "orchestrate",
-  operation: "startup",
+  operation: "start",
   params: { epicId: "T2400" }
 });
 
 // 2. Check lifecycle prerequisites
 const lifecycle = await cleo_query({
   domain: "lifecycle",
-  operation: "check",
+  operation: "validate",
   params: { taskId: "T2405", targetStage: "implementation" }
 });
 
@@ -388,7 +388,7 @@ All inputs are validated:
 
 The MCP server intentionally applies stricter validation than the CLI in several areas to support anti-hallucination and agent safety:
 
-- **Description always required**: `tasks.add`/`tasks.create` requires both `title` AND `description` (CLI makes description configurable)
+- **Description always required**: `tasks.add` requires both `title` AND `description` (CLI makes description configurable)
 - **Rate limiting**: MCP enforces per-minute limits on queries (100), mutations (30), and spawns (10)
 - **Pre-flight verification**: Protocol compliance checked before operations execute (CLI checks at completion)
 - **Session scope always required**: MCP agents must always specify scope when starting sessions

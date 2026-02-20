@@ -102,12 +102,14 @@ export function mapDomainToCommand(domain: string, operation: string): { command
       complete: { command: 'complete', addOperationAsSubcommand: false },
       delete: { command: 'delete', addOperationAsSubcommand: false },
       archive: { command: 'archive', addOperationAsSubcommand: false },
-      unarchive: { command: 'unarchive', addOperationAsSubcommand: false },
       restore: { command: 'restore', addOperationAsSubcommand: false },
       reopen: { command: 'reopen', addOperationAsSubcommand: false },
       exists: { command: 'exists', addOperationAsSubcommand: false },
+      current: { command: 'current', addOperationAsSubcommand: false },
       next: { command: 'next', addOperationAsSubcommand: false },
-      deps: { command: 'deps', addOperationAsSubcommand: false },
+      depends: { command: 'depends', addOperationAsSubcommand: false },
+      start: { command: 'start', addOperationAsSubcommand: false },
+      stop: { command: 'stop', addOperationAsSubcommand: false },
       blockers: { command: 'blockers', addOperationAsSubcommand: false },
       tree: { command: 'tree', addOperationAsSubcommand: false },
       analyze: { command: 'analyze', addOperationAsSubcommand: false },
@@ -118,32 +120,14 @@ export function mapDomainToCommand(domain: string, operation: string): { command
       status: { command: 'session', addOperationAsSubcommand: true },
       list: { command: 'session', addOperationAsSubcommand: true },
       show: { command: 'session', addOperationAsSubcommand: true },
-      focus: { command: 'focus', addOperationAsSubcommand: false },
       suspend: { command: 'session', addOperationAsSubcommand: true },
       resume: { command: 'session', addOperationAsSubcommand: true },
       history: { command: 'session', addOperationAsSubcommand: true },
-      archive: { command: 'session', addOperationAsSubcommand: true },
-      cleanup: { command: 'session', addOperationAsSubcommand: true },
-      doctor: { command: 'session', addOperationAsSubcommand: true },
-      switch: { command: 'session', addOperationAsSubcommand: true },
-      // Compound focus operations from MCP (session.focus.set → cleo focus set)
-      'focus.set': { command: 'focus set', addOperationAsSubcommand: false },
-      'focus.clear': { command: 'focus clear', addOperationAsSubcommand: false },
-      'focus.get': { command: 'focus show', addOperationAsSubcommand: false },
-      'focus.show': { command: 'focus show', addOperationAsSubcommand: false },
-      'focus.note': { command: 'focus note', addOperationAsSubcommand: false },
-      'focus.next': { command: 'focus next', addOperationAsSubcommand: false },
-    },
-    // Focus operations mapped to 'cleo focus <subcommand>'
-    // These handle 'focus.set' / 'focus.clear' / 'focus.get' operations
-    // from the session domain in MCP
-    focus: {
-      set: { command: 'focus', addOperationAsSubcommand: true },
-      clear: { command: 'focus', addOperationAsSubcommand: true },
-      show: { command: 'focus', addOperationAsSubcommand: true },
-      get: { command: 'focus show', addOperationAsSubcommand: false },
-      note: { command: 'focus', addOperationAsSubcommand: true },
-      next: { command: 'focus', addOperationAsSubcommand: true },
+      gc: { command: 'session', addOperationAsSubcommand: true },
+      'decision.log': { command: 'session decision-log', addOperationAsSubcommand: false },
+      'context.drift': { command: 'session context-drift', addOperationAsSubcommand: false },
+      'record.decision': { command: 'session record-decision', addOperationAsSubcommand: false },
+      'record.assumption': { command: 'session record-assumption', addOperationAsSubcommand: false },
     },
     lifecycle: {
       status: { command: 'lifecycle', addOperationAsSubcommand: true },
@@ -157,8 +141,6 @@ export function mapDomainToCommand(domain: string, operation: string): { command
       export: { command: 'lifecycle', addOperationAsSubcommand: true },
       import: { command: 'lifecycle', addOperationAsSubcommand: true },
       // Map MCP operation aliases to CLI equivalents
-      progress: { command: 'lifecycle record', addOperationAsSubcommand: false },
-      check: { command: 'lifecycle validate', addOperationAsSubcommand: false },
       gate: { command: 'lifecycle enforce', addOperationAsSubcommand: false },
       gates: { command: 'lifecycle stages', addOperationAsSubcommand: false },
       prerequisites: { command: 'lifecycle stages', addOperationAsSubcommand: false },
@@ -171,7 +153,6 @@ export function mapDomainToCommand(domain: string, operation: string): { command
     orchestrate: {
       analyze: { command: 'orchestrator', addOperationAsSubcommand: true },
       start: { command: 'orchestrator', addOperationAsSubcommand: true },
-      startup: { command: 'orchestrator', addOperationAsSubcommand: true },
       status: { command: 'orchestrator', addOperationAsSubcommand: true },
       next: { command: 'orchestrator', addOperationAsSubcommand: true },
       ready: { command: 'orchestrator', addOperationAsSubcommand: true },
@@ -192,7 +173,7 @@ export function mapDomainToCommand(domain: string, operation: string): { command
       show: { command: 'research', addOperationAsSubcommand: true },
       get: { command: 'research', addOperationAsSubcommand: true },
       add: { command: 'research', addOperationAsSubcommand: true },
-      query: { command: 'research', addOperationAsSubcommand: false },
+      search: { command: 'research', addOperationAsSubcommand: true },
       stats: { command: 'research', addOperationAsSubcommand: true },
       pending: { command: 'research', addOperationAsSubcommand: true },
       inject: { command: 'research', addOperationAsSubcommand: true },
@@ -211,7 +192,7 @@ export function mapDomainToCommand(domain: string, operation: string): { command
       config: { command: 'config', addOperationAsSubcommand: false },
       backup: { command: 'backup', addOperationAsSubcommand: false },
       cleanup: { command: 'cleanup', addOperationAsSubcommand: false },
-      doctor: { command: 'doctor', addOperationAsSubcommand: false },
+      health: { command: 'health', addOperationAsSubcommand: false },
       stats: { command: 'stats', addOperationAsSubcommand: false },
       context: { command: 'context', addOperationAsSubcommand: false },
     },
@@ -229,7 +210,7 @@ export function mapDomainToCommand(domain: string, operation: string): { command
     return mapping;
   }
 
-  // Handle compound operations (e.g., 'focus.set' in 'session' domain)
+  // Handle compound operations (e.g., 'decision.log' in 'session' domain)
   // Split on first dot and try to resolve via a sub-domain
   if (operation.includes('.')) {
     const dotIndex = operation.indexOf('.');

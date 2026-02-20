@@ -41,17 +41,19 @@ Once you've identified a task, get full details:
 ```typescript
 const task = await cleo_query({
   domain: "tasks",
-  operation: "get",
+  operation: "show",
   params: { taskId: "T2405" }
 });
 
 console.log(task.data.task);
 ```
 
-**Output**:
 ```json
 {
-  "id": "T2405",
+  "success": true,
+  "data": {
+    "task": {
+      "id": "T2405",
   "title": "Implement JWT authentication",
   "description": "Add JWT token generation and verification for API authentication",
   "status": "pending",
@@ -71,8 +73,8 @@ Before working on a task, set it as focused:
 
 ```typescript
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2405" }
 });
 ```
@@ -101,7 +103,7 @@ await cleo_mutate({
 ```typescript
 const newTask = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Add password reset endpoint",
     description: "Implement /auth/reset-password endpoint with email verification and token expiry"
@@ -116,7 +118,7 @@ console.log(`Created: ${newTask.data.task.id}`);
 ```typescript
 const task = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement OAuth2 flow",
     description: "Add complete OAuth2 authorization code flow with PKCE",
@@ -133,7 +135,7 @@ const task = await cleo_mutate({
 ```typescript
 const subtask = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Write OAuth2 integration tests",
     description: "Add integration tests for OAuth2 authorization flow",
@@ -521,7 +523,7 @@ await cleo_mutate({
 try {
   const task = await cleo_query({
     domain: "tasks",
-    operation: "get",
+    operation: "show",
     params: { taskId: "T9999" }
   });
 } catch (error) {
@@ -538,7 +540,7 @@ try {
 try {
   await cleo_mutate({
     domain: "tasks",
-    operation: "create",
+    operation: "add",
     params: {
       title: "Test Task",
       description: "Test Task"  // Same as title - violation
@@ -566,7 +568,7 @@ try {
 try {
   await cleo_mutate({
     domain: "tasks",
-    operation: "create",
+    operation: "add",
     params: {
       title: "New Task",
       description: "Another task under parent",
@@ -614,7 +616,7 @@ async function completeTaskWorkflow() {
   // 3. Check if task exists and get details
   const task = await cleo_query({
     domain: "tasks",
-    operation: "get",
+    operation: "show",
     params: { taskId }
   });
 
@@ -623,7 +625,7 @@ async function completeTaskWorkflow() {
   // 4. Check dependencies
   const deps = await cleo_query({
     domain: "tasks",
-    operation: "deps",
+    operation: "depends",
     params: { taskId, direction: "upstream" }
   });
 
@@ -633,8 +635,8 @@ async function completeTaskWorkflow() {
 
   // 5. Set focus
   await cleo_mutate({
-    domain: "session",
-    operation: "focus.set",
+    domain: "tasks",
+    operation: "start",
     params: { taskId }
   });
 

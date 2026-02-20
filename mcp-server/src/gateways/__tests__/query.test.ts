@@ -183,7 +183,7 @@ describe('Query Gateway', () => {
     it('should return all operations for domain', () => {
       const tasksOps = getQueryOperations('tasks');
       expect(tasksOps).toHaveLength(10);
-      expect(tasksOps).toContain('get');
+      expect(tasksOps).toContain('show');
       expect(tasksOps).toContain('list');
       expect(tasksOps).toContain('find');
       expect(tasksOps).toContain('relates');
@@ -198,8 +198,8 @@ describe('Query Gateway', () => {
   describe('Tasks Domain Operations', () => {
     const tasksOps = QUERY_OPERATIONS.tasks;
 
-    it('should support get operation', () => {
-      expect(tasksOps).toContain('get');
+    it('should support show operation', () => {
+      expect(tasksOps).toContain('show');
     });
 
     it('should support list operation', () => {
@@ -222,8 +222,8 @@ describe('Query Gateway', () => {
       expect(tasksOps).toContain('blockers');
     });
 
-    it('should support deps operation', () => {
-      expect(tasksOps).toContain('deps');
+    it('should support depends operation', () => {
+      expect(tasksOps).toContain('depends');
     });
 
     it('should support analyze operation', () => {
@@ -250,8 +250,8 @@ describe('Query Gateway', () => {
       expect(sessionOps).toContain('show');
     });
 
-    it('should support focus.get operation', () => {
-      expect(sessionOps).toContain('focus.get');
+    it('should support current operation', () => {
+      expect(sessionOps).toContain('current');
     });
 
     it('should support history operation', () => {
@@ -302,8 +302,8 @@ describe('Query Gateway', () => {
       expect(researchOps).toContain('list');
     });
 
-    it('should support query operation', () => {
-      expect(researchOps).toContain('query');
+    it('should support search operation', () => {
+      expect(researchOps).toContain('search');
     });
 
     it('should support pending operation', () => {
@@ -322,8 +322,8 @@ describe('Query Gateway', () => {
   describe('Lifecycle Domain Operations', () => {
     const lifecycleOps = QUERY_OPERATIONS.lifecycle;
 
-    it('should support check operation', () => {
-      expect(lifecycleOps).toContain('check');
+    it('should support validate operation', () => {
+      expect(lifecycleOps).toContain('validate');
     });
 
     it('should support status operation', () => {
@@ -390,8 +390,8 @@ describe('Query Gateway', () => {
       expect(systemOps).toContain('version');
     });
 
-    it('should support doctor operation', () => {
-      expect(systemOps).toContain('doctor');
+    it('should support health operation', () => {
+      expect(systemOps).toContain('health');
     });
 
     it('should support config.get operation', () => {

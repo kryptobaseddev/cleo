@@ -5,7 +5,7 @@
  * Supports both single-session (focus in todo.json) and multi-session
  * (separate sessions.json) modes.
  *
- * Supports: status, list, show, focus.get, focus.set, focus.clear, start, end
+ * Supports: status, list, show, current, start, stop, session-start, session-end
  */
 
 import { readJsonFile, writeJsonFileAtomic, withFileLock, getDataPath } from './store.js';
@@ -295,9 +295,9 @@ export function sessionShow(
 }
 
 /**
- * Get current focus
+ * Get current focused task (tasks.current)
  */
-export function focusGet(
+export function taskCurrentGet(
   projectRoot: string
 ): EngineResult<{ currentTask: string | null; currentPhase: string | null }> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
@@ -320,9 +320,9 @@ export function focusGet(
 }
 
 /**
- * Set focus to a specific task
+ * Start working on a specific task (tasks.start)
  */
-export async function focusSet(
+export async function taskStart(
   projectRoot: string,
   taskId: string
 ): Promise<EngineResult<{ taskId: string; previousTask: string | null }>> {
@@ -376,9 +376,9 @@ export async function focusSet(
 }
 
 /**
- * Clear current focus
+ * Stop working on current task (tasks.stop)
  */
-export async function focusClear(
+export async function taskStop(
   projectRoot: string
 ): Promise<EngineResult<{ cleared: boolean; previousTask: string | null }>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
@@ -420,8 +420,8 @@ export async function sessionStart(
   params: {
     scope: string;
     name?: string;
-    autoFocus?: boolean;
-    focus?: string;
+    autoStart?: boolean;
+    startTask?: string;
   }
 ): Promise<EngineResult<SessionRecord>> {
   const todoPath = getDataPath(projectRoot, 'todo.json');
@@ -469,7 +469,7 @@ export async function sessionStart(
         includeDescendants: true,
       },
       focus: {
-        currentTask: params.focus || (params.autoFocus ? rootTaskId : null),
+        currentTask: params.startTask || (params.autoStart ? rootTaskId : null),
         currentPhase: null,
         previousTask: null,
       },
@@ -499,9 +499,9 @@ export async function sessionStart(
       };
     }
 
-    if (params.focus) {
-      current.focus.currentTask = params.focus;
-    } else if (params.autoFocus) {
+    if (params.startTask) {
+      current.focus.currentTask = params.startTask;
+    } else if (params.autoStart) {
       current.focus.currentTask = rootTaskId;
     }
 
