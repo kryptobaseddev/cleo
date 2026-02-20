@@ -4,7 +4,7 @@
 # category: read
 # synopsis: Task triage with leverage scoring and bottleneck detection. JSON default.
 # relevance: critical
-# flags: --format,--human,--auto-focus,--json
+# flags: --format,--human,--auto-start,--json
 # exits: 0,2,100
 # json-output: true
 # json-default: true
@@ -26,7 +26,7 @@
 # Options:
 #   --human           Human-readable text output (default is JSON for LLM)
 #   --full            Comprehensive human-readable with all details
-#   --auto-focus      Automatically set focus to recommended task
+#   --auto-start      Automatically start working on recommended task
 #   -h, --help        Show this help message
 #
 # Output Modes:
@@ -147,7 +147,7 @@ fi
 
 # Default configuration - JSON output for LLM agents
 OUTPUT_MODE="json"
-AUTO_FOCUS=false
+AUTO_START=false
 QUIET=false
 COMMAND_NAME="analyze"
 PARENT_ID=""  # Epic scoping: filter to parent and all descendants
@@ -205,7 +205,7 @@ Options:
     --parent ID     Scope analysis to epic/task and all descendants
     --human         Human-readable text output (brief summary)
     --full          Comprehensive human-readable report with all tiers
-    --auto-focus    Automatically set focus to recommended task
+    --auto-start    Automatically start working on recommended task
     -q, --quiet     Suppress non-essential output (exit 0 if tasks exist)
     -h, --help      Show this help message
 
@@ -239,7 +239,7 @@ Examples:
     cleo analyze --parent T998 --human  # Epic analysis with ASCII viz
     cleo analyze --human            # Brief human-readable
     cleo analyze --full             # Detailed human-readable
-    cleo analyze --auto-focus       # Analyze and set focus
+    cleo analyze --auto-start       # Analyze and start working
     cleo analyze --show-locks       # Just show lock status
     cleo analyze --wait-for-locks   # Wait for locks before analyzing
 
@@ -528,7 +528,7 @@ run_epic_analysis() {
           {
             nextTask: $best.id,
             reason: (if $best.unlocks > 0 then "Unblocks \($best.unlocks) tasks" else "Ready to start" end),
-            command: "ct focus set \($best.id)"
+            command: "cleo start \($best.id)"
           }
         else null end
       )
@@ -851,7 +851,7 @@ output_epic_human() {
   if [[ -n "$rec_task" ]]; then
     rec_reason=$(echo "$analysis" | jq -r '.executionPlan.recommendation.reason')
     echo -e "${BOLD}${GREEN}RECOMMENDATION${NC}"
-    echo -e "  ${CYAN}→ ct focus set $rec_task${NC}"
+    echo -e "  ${CYAN}→ cleo start $rec_task${NC}"
     echo -e "  ${DIM}$rec_reason${NC}"
     echo ""
   fi
@@ -1541,7 +1541,7 @@ run_complete_analysis() {
             else "" end),
           unlocks: .unlocks_tasks,
           phaseAlignment,
-          command: "ct focus set \(.id)"
+          command: "cleo start \(.id)"
         }
       elif ($tiers.tier2_critical | length) > 0 then
         $tiers.tier2_critical[0] |
@@ -1555,7 +1555,7 @@ run_complete_analysis() {
             else "" end),
           unlocks: [],
           phaseAlignment,
-          command: "ct focus set \(.id)"
+          command: "cleo start \(.id)"
         }
       elif ($tiers.tier4_routine | length) > 0 then
         $tiers.tier4_routine[0] |
@@ -1569,7 +1569,7 @@ run_complete_analysis() {
             else "" end),
           unlocks: [],
           phaseAlignment,
-          command: "ct focus set \(.id)"
+          command: "cleo start \(.id)"
         }
       else
         null
@@ -1790,9 +1790,9 @@ output_human() {
     rec_indicator=$(echo "$analysis" | jq -r '.recommendation.phaseAlignment.indicator // empty')
     echo -e "${BOLD}${GREEN}RECOMMENDATION${NC}"
     if [[ -n "$rec_indicator" ]]; then
-      echo -e "  ${CYAN}→ ct focus set $rec_task${NC} $rec_indicator"
+      echo -e "  ${CYAN}→ cleo start $rec_task${NC} $rec_indicator"
     else
-      echo -e "  ${CYAN}→ ct focus set $rec_task${NC}"
+      echo -e "  ${CYAN}→ cleo start $rec_task${NC}"
     fi
     echo -e "  ${DIM}$rec_reason${NC}"
 
@@ -2019,8 +2019,8 @@ parse_arguments() {
         OUTPUT_MODE="json"
         shift
         ;;
-      --auto-focus)
-        AUTO_FOCUS=true
+      --auto-start|--auto-focus)
+        AUTO_START=true
         shift
         ;;
       -q|--quiet)
@@ -2218,8 +2218,8 @@ main() {
         ;;
     esac
 
-    # Auto-focus if requested (for epic mode)
-    if [[ "$AUTO_FOCUS" == "true" ]]; then
+    # Auto-start if requested (for epic mode)
+    if [[ "$AUTO_START" == "true" ]]; then
       local analysis
       analysis=$(run_epic_analysis "$TODO_FILE" "$PARENT_ID")
       local rec_task
@@ -2228,7 +2228,7 @@ main() {
       if [[ -n "$rec_task" ]]; then
         if [[ "$OUTPUT_MODE" != "json" ]]; then
           echo ""
-          echo "Setting focus to $rec_task..."
+          echo "Starting work on $rec_task..."
         fi
         "$SCRIPT_DIR/focus-command.sh" set "$rec_task" >/dev/null 2>&1
 
@@ -2236,7 +2236,7 @@ main() {
           echo ""
           jq -nc --arg task "$rec_task" '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-            "auto_focus": {"set": $task, "status": "success"}
+            "auto_start": {"task": $task, "status": "success"}
           }'
         fi
       fi
@@ -2257,8 +2257,8 @@ main() {
       ;;
   esac
 
-  # Auto-focus if requested
-  if [[ "$AUTO_FOCUS" == "true" ]]; then
+  # Auto-start if requested
+  if [[ "$AUTO_START" == "true" ]]; then
     local analysis
     analysis=$(run_complete_analysis "$TODO_FILE")
     local rec_task
@@ -2267,7 +2267,7 @@ main() {
     if [[ -n "$rec_task" ]]; then
       if [[ "$OUTPUT_MODE" != "json" ]]; then
         echo ""
-        echo "Setting focus to $rec_task..."
+        echo "Starting work on $rec_task..."
       fi
       "$SCRIPT_DIR/focus-command.sh" set "$rec_task" >/dev/null 2>&1
 
@@ -2275,7 +2275,7 @@ main() {
         echo ""
         jq -nc --arg task "$rec_task" '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-          "auto_focus": {"set": $task, "status": "success"}
+          "auto_start": {"task": $task, "status": "success"}
         }'
       fi
     fi

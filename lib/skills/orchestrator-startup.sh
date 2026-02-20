@@ -1055,7 +1055,7 @@ generate_hitl_summary() {
     if [[ -n "$session_id" ]]; then
         resume_command="cleo session resume ${session_id}"
     elif [[ -n "$epic_id" ]]; then
-        resume_command="cleo session start --scope epic:${epic_id} --auto-focus"
+        resume_command="cleo session start --scope epic:${epic_id} --auto-start"
     else
         resume_command="cleo session list  # Resume appropriate session"
     fi
@@ -1209,7 +1209,7 @@ orchestrator_auto_stop() {
     if [[ -n "$session_id" ]]; then
         resume_command="cleo session resume ${session_id}"
     elif [[ -n "$epic_id" ]]; then
-        resume_command="cleo session start --scope epic:${epic_id} --auto-focus"
+        resume_command="cleo session start --scope epic:${epic_id} --auto-start"
     fi
 
     local timestamp
@@ -1821,7 +1821,7 @@ orchestrator_build_prompt() {
     # Set required context tokens via ti_set_context
     ti_set_context "$task_id" "$date_today" "$topic_slug"
 
-    # Set defaults for CLEO commands (TASK_SHOW_CMD, TASK_FOCUS_CMD, etc.)
+    # Set defaults for CLEO commands (TASK_SHOW_CMD, TASK_START_CMD, etc.)
     ti_set_defaults
 
     # Set task context tokens from task JSON (TASK_TITLE, TASK_DESCRIPTION, etc.)

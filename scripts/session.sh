@@ -4,7 +4,7 @@
 # category: write
 # synopsis: Work session lifecycle (start, end, status, gc for garbage collection)
 # relevance: high
-# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale,--repair,--no-focus,--limit,--offset
+# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale,--repair,--no-start,--limit,--offset
 # exits: 0,4,101
 # json-output: true
 # subcommands: start,end,status,suspend,resume,close,list,show,switch,gc
@@ -203,9 +203,9 @@ Single-Session Options:
 
 Multi-Session Options (requires multiSession.enabled=true):
   --scope TYPE:ID   Scope definition (epic:T001, taskGroup:T005, etc.)
-  --focus ID        Task to focus on (required for multi-session start)
-  --auto-focus      Auto-select highest priority pending task in scope
-  --no-focus        Start session without requiring initial focus task
+  --focus ID        Task to start working on (required for multi-session start)
+  --auto-start      Auto-select highest priority pending task in scope
+  --no-start        Start session without requiring initial task
   --name TEXT       Session name for identification
   --agent ID        Agent identifier for the session
 
@@ -232,7 +232,7 @@ Format Auto-Detection:
 
 Config Settings (in .cleo/config.json):
   session.requireSessionNote      If true, require --note when ending
-  session.warnOnNoFocus           If true, warn when starting without focus
+  session.warnOnNoFocus           If true, warn when starting without a task
   session.sessionTimeoutHours     Warn if session exceeds this duration
   session.autoStartSession        If true, auto-start session on first command
   multiSession.enabled            Enable multi-session concurrent agent mode
@@ -245,8 +245,8 @@ Examples (Single-Session):
 
 Examples (Multi-Session):
   cleo session start --scope epic:T001 --focus T005 --name "Auth impl"
-  cleo session start --scope taskGroup:T010 --auto-focus
-  cleo session start --scope epic:T001 --no-focus --name "Planning"
+  cleo session start --scope taskGroup:T010 --auto-start
+  cleo session start --scope epic:T001 --no-start --name "Planning"
   cleo session list                     # List all sessions
   cleo session suspend --note "Waiting for review"
   cleo session resume session_20251227_...
@@ -386,7 +386,7 @@ parse_scope_string() {
 
 # Start a new session
 cmd_start() {
-  local scope_str="" focus_task="" session_name="" agent_id="" auto_focus=false no_focus=false phase_filter=""
+  local scope_str="" focus_task="" session_name="" agent_id="" auto_start=false no_start=false phase_filter=""
 
   # Parse multi-session options (including global flags passed after subcommand)
   while [[ $# -gt 0 ]]; do
@@ -394,8 +394,8 @@ cmd_start() {
       -h|--help) usage; exit 0 ;;
       --scope) scope_str="$2"; shift 2 ;;
       --focus) focus_task="$2"; shift 2 ;;
-      --auto-focus) auto_focus=true; shift ;;
-      --no-focus) no_focus=true; shift ;;
+      --auto-start|--auto-focus) auto_start=true; shift ;;
+      --no-start|--no-focus) no_start=true; shift ;;
       --name) session_name="$2"; shift 2 ;;
       --agent) agent_id="$2"; shift 2 ;;
       --phase) phase_filter="$2"; shift 2 ;;
@@ -408,13 +408,13 @@ cmd_start() {
     esac
   done
 
-  # Validate mutual exclusivity of focus flags
-  local focus_flag_count=0
-  [[ "$auto_focus" == "true" ]] && ((focus_flag_count++)) || true
-  [[ "$no_focus" == "true" ]] && ((focus_flag_count++)) || true
-  [[ -n "$focus_task" ]] && ((focus_flag_count++)) || true
-  if [[ "$focus_flag_count" -gt 1 ]]; then
-    log_error "Flags --focus, --auto-focus, and --no-focus are mutually exclusive" "E_INVALID_INPUT" "$EXIT_INVALID_INPUT"
+  # Validate mutual exclusivity of task selection flags
+  local task_flag_count=0
+  [[ "$auto_start" == "true" ]] && ((task_flag_count++)) || true
+  [[ "$no_start" == "true" ]] && ((task_flag_count++)) || true
+  [[ -n "$focus_task" ]] && ((task_flag_count++)) || true
+  if [[ "$task_flag_count" -gt 1 ]]; then
+    log_error "Flags --focus, --auto-start, and --no-start are mutually exclusive" "E_INVALID_INPUT" "$EXIT_INVALID_INPUT"
     exit "$EXIT_INVALID_INPUT"
   fi
 
@@ -443,7 +443,7 @@ cmd_start() {
       exit "$EXIT_INVALID_INPUT"
     fi
 
-    cmd_start_multi_session "$scope_str" "$focus_task" "$session_name" "$agent_id" "$auto_focus" "$phase_filter" "$no_focus"
+    cmd_start_multi_session "$scope_str" "$focus_task" "$session_name" "$agent_id" "$auto_start" "$phase_filter" "$no_start"
     return
   fi
 
@@ -550,8 +550,8 @@ cmd_start() {
     local focus_task_check
     focus_task_check=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
     if [[ -z "$focus_task_check" ]]; then
-      log_warn "Starting session without a focused task"
-      log_warn "Consider setting focus: cleo focus set <task-id>"
+      log_warn "Starting session without a current task"
+      log_warn "Consider starting a task: cleo start <task-id>"
     fi
   fi
 
@@ -634,13 +634,13 @@ cmd_start() {
     fi
   fi
 
-  # Show current focus if any
+  # Show current task if any
   local focus_task
   focus_task=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
   if [[ -n "$focus_task" ]]; then
     local task_title
     task_title=$(jq -r --arg id "$focus_task" '.tasks[] | select(.id == $id) | .content // .title // "Unknown"' "$TODO_FILE")
-    log_info "Resume focus: $task_title ($focus_task)"
+    log_info "Current task: $task_title ($focus_task)"
   fi
 
   # Show session note from last session
@@ -686,9 +686,9 @@ cmd_start_multi_session() {
   local focus_task="$2"
   local session_name="$3"
   local agent_id="$4"
-  local auto_focus="$5"
+  local auto_start="$5"
   local phase_filter="$6"
-  local no_focus="${7:-false}"
+  local no_start="${7:-false}"
 
   # Check for existing TTY binding conflict (T1794)
   if declare -f get_tty_bound_session >/dev/null 2>&1; then
@@ -713,8 +713,8 @@ cmd_start_multi_session() {
     scope_def=$(echo "$scope_def" | jq --arg phase "$phase_filter" '. + {phaseFilter: $phase}')
   fi
 
-  # Handle auto-focus
-  if [[ "$auto_focus" == "true" ]] && [[ -z "$focus_task" ]]; then
+  # Handle auto-start
+  if [[ "$auto_start" == "true" ]] && [[ -z "$focus_task" ]]; then
     local todo_content
     todo_content=$(cat "$TODO_FILE")
 
@@ -726,22 +726,22 @@ cmd_start_multi_session() {
     focus_task=$(auto_select_focus_task "$todo_content" "$computed_ids")
 
     if [[ -z "$focus_task" ]]; then
-      log_warn "No pending tasks in scope for auto-focus - session will start without focus"
+      log_warn "No pending tasks in scope for auto-start - session will start without a task"
     else
-      log_info "Auto-selected focus: $focus_task"
+      log_info "Auto-selected task: $focus_task"
     fi
   fi
 
-  # Validate focus is provided (skip when auto-focus found nothing or --no-focus set)
-  if [[ -z "$focus_task" ]] && [[ "$auto_focus" != "true" ]] && [[ "$no_focus" != "true" ]]; then
-    log_error "Session requires --focus <task-id>, --auto-focus, or --no-focus" "E_FOCUS_REQUIRED" 38
+  # Validate task is provided (skip when auto-start found nothing or --no-start set)
+  if [[ -z "$focus_task" ]] && [[ "$auto_start" != "true" ]] && [[ "$no_start" != "true" ]]; then
+    log_error "Session requires --focus <task-id>, --auto-start, or --no-start" "E_FOCUS_REQUIRED" 38
     exit 38
   fi
 
-  # When --no-focus is set, explicitly clear focus_task and log
-  if [[ "$no_focus" == "true" ]]; then
+  # When --no-start is set, explicitly clear focus_task and log
+  if [[ "$no_start" == "true" ]]; then
     focus_task=""
-    log_info "Session starting without focus task (--no-focus)"
+    log_info "Session starting without initial task (--no-start)"
   fi
 
   # Handle dry-run
@@ -780,7 +780,7 @@ cmd_start_multi_session() {
     else
       log_info "[DRY-RUN] Would start multi-session: $preview_id"
       log_info "[DRY-RUN] Scope: $scope_str"
-      log_info "[DRY-RUN] Focus: $focus_task"
+      log_info "[DRY-RUN] Task: $focus_task"
     fi
     exit "$EXIT_SUCCESS"
   fi
@@ -853,7 +853,7 @@ cmd_start_multi_session() {
   else
     log_step "Multi-session started: $session_id"
     log_info "Scope: $scope_str"
-    log_info "Focus: $focus_task"
+    log_info "Task: $focus_task"
     [[ -n "$session_name" ]] && log_info "Name: $session_name"
     if [[ "$tty_bound" == "true" ]]; then
       log_info "Session bound to terminal (TTY)"
@@ -1242,7 +1242,7 @@ cmd_status() {
     if [[ -n "$focus_task" ]]; then
       local task_title
       task_title=$(jq -r --arg id "$focus_task" '.tasks[] | select(.id == $id) | .content // .title // "Unknown"' "$TODO_FILE")
-      echo -e "Focus Task: $task_title ($focus_task)"
+      echo -e "Current Task: $task_title ($focus_task)"
     fi
 
     [[ -n "$session_note" ]] && echo -e "Session Note: $session_note" || true
@@ -1475,7 +1475,7 @@ cmd_resume() {
     session_name=$(echo "$session_info" | jq -r '.name // ""')
 
     [[ -n "$session_name" ]] && log_info "Name: $session_name"
-    [[ -n "$focus_task" ]] && log_info "Focus: $focus_task"
+    [[ -n "$focus_task" ]] && log_info "Current task: $focus_task"
     log_info "Or set: export CLEO_SESSION=$session_id"
   else
     resume_exit_code=$?
@@ -1990,8 +1990,8 @@ cmd_show_session() {
     echo "  Root:      $(echo "$session_info" | jq -r '.scope.rootTaskId // "N/A"')"
     echo "  Tasks:     $(echo "$session_info" | jq -r '.scope.computedTaskIds | length') in scope"
     echo ""
-    echo "Focus:"
-    echo "  Current:   $(echo "$session_info" | jq -r '.focus.currentTask // "(none)"')"
+    echo "Current Work:"
+    echo "  Task:      $(echo "$session_info" | jq -r '.focus.currentTask // "(none)"')"
     echo "  Note:      $(echo "$session_info" | jq -r '.focus.sessionNote // "(none)"')"
     echo ""
     echo "Timeline:"
@@ -2000,7 +2000,7 @@ cmd_show_session() {
     echo ""
     echo "Stats:"
     echo "  Completed: $(echo "$session_info" | jq -r '.stats.tasksCompleted')"
-    echo "  Focuses:   $(echo "$session_info" | jq -r '.stats.focusChanges')"
+    echo "  Switches:  $(echo "$session_info" | jq -r '.stats.focusChanges')"
     echo ""
   fi
 }
@@ -2059,7 +2059,7 @@ cmd_switch() {
 
   [[ -n "$session_name" ]] && log_info "Name: $session_name"
   log_info "Status: $status"
-  [[ -n "$focus_task" ]] && log_info "Focus: $focus_task"
+  [[ -n "$focus_task" ]] && log_info "Current task: $focus_task"
 }
 
 # Cleanup stale sessions

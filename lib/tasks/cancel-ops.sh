@@ -615,12 +615,12 @@ release_task_lock() {
 }
 
 # ============================================================================
-# FOCUS IMPACT ANALYSIS
+# TASK WORK IMPACT ANALYSIS
 # ============================================================================
 
-# check_focus_impact - Analyze impact on focus system when deleting tasks
+# check_focus_impact - Analyze impact on current task state when deleting tasks
 #
-# Checks if any tasks being deleted affect the current focus state and
+# Checks if any tasks being deleted affect the current task state and
 # determines if phase should be cleared (when no other active tasks remain
 # in the same phase).
 #
@@ -628,13 +628,13 @@ release_task_lock() {
 #   $1 - JSON array of task IDs being deleted (e.g., '["T001", "T002"]')
 #   $2 - Path to todo.json
 #
-# Returns: JSON object with focus impact analysis
+# Returns: JSON object with task work impact analysis
 #   {
 #     "focusCleared": bool,
 #     "phaseCleared": bool,
 #     "currentFocus": "T001" | null,
 #     "currentPhase": "core" | null,
-#     "warning": "Active focused task was cancelled" | null
+#     "warning": "Active current task was cancelled" | null
 #   }
 #
 # Note: Session note is intentionally NOT cleared to allow context continuity.
@@ -659,7 +659,7 @@ check_focus_impact() {
 
         if [[ "$focus_in_deleted" == "true" ]]; then
             focus_cleared=true
-            warning="Active focused task was cancelled"
+            warning="Active current task was cancelled"
         fi
     fi
 

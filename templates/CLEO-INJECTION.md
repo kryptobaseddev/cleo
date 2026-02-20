@@ -57,10 +57,10 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `tasks` | `add` | Create task (`params: { title, description?, parent?, depends? }`) |
 | `tasks` | `update` | Update task (`params: { taskId, title?, status?, notes? }`) |
 | `tasks` | `complete` | Complete task (`params: { taskId }`) |
-| `session` | `start` | Start session (`params: { scope, name, autoFocus? }`) |
+| `session` | `start` | Start session (`params: { scope, name, autoStart? }`) |
 | `session` | `end` | End session (`params: { note? }`) |
 | `session` | `resume` | Resume session (`params: { sessionId }`) |
-| `session` | `focus-set` | Set active focus task (`params: { taskId }`) |
+| `tasks` | `start` | Set active focus task (`params: { taskId }`) |
 | `research` | `link` | Link research to task (`params: { taskId, entryId }`) |
 | `orchestrate` | `spawn` | Generate spawn prompt for subagent (`params: { taskId }`) |
 
@@ -120,7 +120,7 @@ Sessions track work context across agent interactions. **CRITICAL: Multi-session
 ### MCP Session Operations
 ```
 cleo_mutate({ domain: "session", operation: "start",
-  params: { scope: "epic:T001", name: "Work", autoFocus: true }})
+  params: { scope: "epic:T001", name: "Work", autoStart: true }})
 cleo_query({ domain: "session", operation: "status" })
 cleo_mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
 ```
@@ -235,7 +235,7 @@ Orchestrators resolve ALL tokens before spawning subagents. Subagents CANNOT res
 | Token | Default |
 |-------|---------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_FOCUS_CMD}}` | `cleo start` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 
@@ -454,7 +454,7 @@ cleo config set lifecycleEnforcement.mode strict
 | Returning content | Context bloat | Return only summary message |
 | Pretty-printed JSON | Invalid manifest | Single-line JSON |
 | Loading skills via `@` | Cannot resolve | Skills injected by orchestrator |
-| Skipping focus | Protocol violation | Always `cleo focus set` first |
+| Skipping focus | Protocol violation | Always `cleo start` first |
 
 <!-- /TIER:orchestrator -->
 
