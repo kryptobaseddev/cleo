@@ -35,11 +35,16 @@ const buildOptions = {
   packages: 'external',
 };
 
+import { chmod } from 'node:fs/promises';
+
 if (isWatch) {
   const ctx = await esbuild.context(buildOptions);
   await ctx.watch();
   console.log('Watching for changes...');
 } else {
   await esbuild.build(buildOptions);
+  // Make entry points executable (shebang only works with +x)
+  await chmod('dist/cli/index.js', 0o755);
+  await chmod('dist/mcp/index.js', 0o755);
   console.log('Build complete.');
 }
