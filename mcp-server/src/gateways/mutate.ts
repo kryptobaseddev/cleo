@@ -34,16 +34,19 @@ export type MutateResponse = DomainResponse;
  */
 export const MUTATE_OPERATIONS: Record<string, string[]> = {
   tasks: [
-    'create',      // Create new task
+    'add',         // Create new task
     'update',      // Update task fields
     'complete',    // Mark task done
     'delete',      // Delete task
     'archive',     // Archive done tasks
-    'unarchive',   // Restore from archive
+    'restore',     // Restore from archive
     'reparent',    // Change task parent
     'promote',     // Promote subtask to task
     'reorder',     // Reorder siblings
     'reopen',      // Reopen completed task
+    'uncancel',    // Restore cancelled task
+    'start',       // Start working on task
+    'stop',        // Stop working on task
     'relates.add', // Add task relationship
   ],
   session: [
@@ -51,12 +54,12 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'end',         // End current session
     'resume',      // Resume existing session
     'suspend',     // Suspend session
-    'focus.set',   // Set focused task
-    'focus.clear', // Clear focus
     'gc',          // Garbage collect sessions
+    'record.decision',  // Record a decision
+    'record.assumption', // Record an assumption
   ],
   orchestrate: [
-    'startup',         // Initialize orchestration
+    'start',           // Initialize orchestration
     'spawn',           // Generate spawn prompt
     'validate',        // Validate spawn readiness
     'parallel.start',  // Start parallel wave
@@ -69,7 +72,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'manifest.archive', // Archive old entries
   ],
   lifecycle: [
-    'progress',    // Record stage completion
+    'record',      // Record stage completion
     'skip',        // Skip optional stage
     'reset',       // Reset stage (emergency)
     'gate.pass',   // Mark gate as passed
@@ -121,7 +124,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
 /**
  * Total operation count check
  */
-const EXPECTED_MUTATE_COUNT = 61;
+const EXPECTED_MUTATE_COUNT = 63;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(
@@ -135,8 +138,8 @@ if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
  */
 const IDEMPOTENT_OPERATIONS: Record<string, string[]> = {
   tasks: ['complete', 'archive'],
-  session: ['end', 'focus.clear', 'gc'],
-  lifecycle: ['progress', 'skip', 'gate.pass'],
+  session: ['end', 'gc'],
+  lifecycle: ['record', 'skip', 'gate.pass'],
   validate: ['compliance.record'],
   release: ['tag', 'push'],
   system: ['init', 'migrate', 'cleanup'],
@@ -146,9 +149,9 @@ const IDEMPOTENT_OPERATIONS: Record<string, string[]> = {
  * Operations that require session binding
  */
 const SESSION_REQUIRED_OPERATIONS: Record<string, string[]> = {
-  tasks: ['create', 'update', 'complete'],
-  session: ['start', 'focus.set'],
-  orchestrate: ['startup', 'spawn'],
+  tasks: ['add', 'update', 'complete'],
+  session: ['start'],
+  orchestrate: ['start', 'spawn'],
 };
 
 /**
@@ -270,7 +273,7 @@ function validateTasksParams(
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
-    case 'create':
+    case 'add':
       if (!params?.title || !params?.description) {
         return {
           valid: false,
@@ -320,7 +323,7 @@ function validateTasksParams(
     case 'update':
     case 'complete':
     case 'delete':
-    case 'unarchive':
+    case 'restore':
     case 'reparent':
     case 'promote':
     case 'reorder':
@@ -436,30 +439,6 @@ function validateSessionParams(
       }
       break;
 
-    case 'focus.set':
-      if (!params?.taskId) {
-        return {
-          valid: false,
-          error: {
-            _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'session',
-              operation,
-              version: '1.0.0',
-              timestamp: new Date().toISOString(),
-              duration_ms: 0,
-            },
-            success: false,
-            error: {
-              code: 'E_VALIDATION_FAILED',
-              exitCode: 6,
-              message: 'Missing required parameter: taskId',
-              fix: 'Provide taskId parameter',
-            },
-          },
-        };
-      }
-      break;
   }
 
   return { valid: true };
@@ -473,7 +452,7 @@ function validateOrchestrateParams(
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
-    case 'startup':
+    case 'start':
       if (!params?.epicId) {
         return {
           valid: false,
@@ -649,7 +628,7 @@ function validateLifecycleParams(
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
   switch (operation) {
-    case 'progress':
+    case 'record':
       if (!params?.taskId || !params?.stage || !params?.status) {
         return {
           valid: false,

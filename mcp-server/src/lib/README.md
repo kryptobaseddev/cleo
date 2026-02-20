@@ -15,7 +15,7 @@ Response formatter with _meta envelope wrapping for consistent CLI/MCP output.
 import { formatSuccess, formatError, createError } from './lib/formatter.js';
 
 // Success response
-const response = formatSuccess('tasks.get', { taskId: 'T001', title: 'Test' });
+const response = formatSuccess('tasks.show', { taskId: 'T001', title: 'Test' });
 
 // Error response
 const error = createError('E_NOT_FOUND', 'Task not found', 4, {
@@ -23,7 +23,7 @@ const error = createError('E_NOT_FOUND', 'Task not found', 4, {
   fix: 'cleo find "Test"',
   alternatives: [{ action: 'List all', command: 'cleo list' }]
 });
-const response = formatError('tasks.get', error);
+const response = formatError('tasks.show', error);
 ```
 
 **Response Format**:
@@ -33,7 +33,7 @@ const response = formatError('tasks.get', error);
   "_meta": {
     "format": "json",
     "version": "0.80.2",
-    "command": "tasks.get",
+    "command": "tasks.show",
     "timestamp": "2026-02-03T12:34:56.789Z",
     "session": "session_123"
   },

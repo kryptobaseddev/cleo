@@ -126,7 +126,7 @@ await cleo_query({
 // Create task
 await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement authentication",
     description: "Add JWT-based auth system",
@@ -155,14 +155,14 @@ await cleo_mutate({
   params: {
     scope: "epic:T2400",
     name: "Feature Development",
-    autoFocus: true
+    autoStart: true
   }
 });
 
 // Set focus
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2405" }
 });
 ```
@@ -173,7 +173,7 @@ await cleo_mutate({
 // Initialize orchestration
 await cleo_mutate({
   domain: "orchestrate",
-  operation: "startup",
+  operation: "start",
   params: { epicId: "T2400" }
 });
 
@@ -192,21 +192,21 @@ await cleo_mutate({
 
 ### cleo_query (Read-Only)
 
-- **tasks** - get, list, find, exists, tree, blockers, deps, analyze, next, relates
-- **session** - status, list, show, focus.get, history
+- **tasks** - show, list, find, exists, tree, blockers, depends, analyze, next, relates, current
+- **session** - status, list, show, history
 - **orchestrate** - status, next, ready, analyze, context, waves, skill.list
-- **research** - show, list, query, pending, stats, manifest.read
-- **lifecycle** - check, status, history, gates, prerequisites
+- **research** - show, list, search, pending, stats, manifest.read
+- **lifecycle** - validate, status, history, gates, prerequisites
 - **validate** - schema, protocol, task, manifest, output, compliance.*
-- **system** - version, doctor, config.get, stats, context, metrics, health, config, diagnostics, help, job.*, dash, roadmap, labels, compliance, log, archive-stats, sequence
+- **system** - version, health, config.get, stats, context, metrics, diagnostics, help, job.*, dash, roadmap, labels, compliance, log, archive.stats, sequence
 
 ### cleo_mutate (Write Operations)
 
-- **tasks** - create, update, complete, delete, archive, unarchive, reparent, promote, reorder, reopen, relates.add
-- **session** - start, end, resume, suspend, focus.set, focus.clear, gc
-- **orchestrate** - startup, spawn, validate, parallel.*
+- **tasks** - add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, relates.add, start, stop
+- **session** - start, end, resume, suspend, gc
+- **orchestrate** - start, spawn, validate, parallel.*
 - **research** - inject, link, manifest.*
-- **lifecycle** - progress, skip, reset, gate.*
+- **lifecycle** - record, skip, reset, gate.*
 - **validate** - compliance.record, test.run
 - **release** - prepare, changelog, commit, tag, push, gates.run, rollback
 - **system** - init, config.set, backup, restore, migrate, sync, cleanup, audit, job.cancel, safestop, uncancel

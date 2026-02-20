@@ -194,13 +194,13 @@ schemas/common/
 ```
 schemas/requests/
 ├── tasks/           (19 files: get, list, find, exists, tree, blockers, deps, analyze, next, create, update, complete, delete, archive, unarchive, reparent, promote, reorder, reopen)
-├── session/         (12 files: status, list, show, focus.get, history, start, end, resume, suspend, focus.set, focus.clear, gc)
+├── session/         (8 files: status, list, show, history, start, end, resume, suspend, gc)
 ├── orchestrate/     (12 files: status, next, ready, analyze, context, waves, skill.list, startup, spawn, validate, parallel.start, parallel.end)
-├── research/        (10 files: show, list, query, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive)
-├── lifecycle/       (10 files: check, status, history, gates, prerequisites, progress, skip, reset, gate.pass, gate.fail)
+├── research/        (10 files: show, list, search, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive)
+├── lifecycle/       (10 files: validate, status, history, gates, prerequisites, record, skip, reset, gate.pass, gate.fail)
 ├── validate/        (11 files: schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage, compliance.record, test.run)
 ├── release/         (7 files: prepare, changelog, commit, tag, push, gates.run, rollback)
-└── system/          (12 files: version, doctor, config.get, stats, context, init, config.set, backup, restore, migrate, sync, cleanup)
+└── system/          (12 files: version, health, config.get, stats, context, init, config.set, backup, restore, migrate, sync, cleanup)
 ```
 
 ### Response Schemas (95 files)

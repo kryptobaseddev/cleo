@@ -82,7 +82,7 @@ Task creation, modification, and lifecycle management.
 | [complete](#taskscomplete) | Mark task as done | `taskId`, `notes?` | Completion status |
 | [delete](#tasksdelete) | Delete task | `taskId`, `force?` | Deletion status |
 | [archive](#tasksarchive) | Archive completed tasks | `taskId?`, `before?` | Archived count |
-| [unarchive](#tasksunarchive) | Restore from archive | `taskId` | Restored task |
+| [restore](#tasksrestore) | Restore from archive | `taskId` | Restored task |
 | [reparent](#tasksreparent) | Change task parent | `taskId`, `newParent` | Updated hierarchy |
 | [promote](#taskspromote) | Promote subtask to task | `taskId` | Promoted task |
 | [reorder](#tasksreorder) | Reorder siblings | `taskId`, `position` | New order |
@@ -94,12 +94,12 @@ Session lifecycle and focus management.
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| [start](#sessionstart) | Start new session | `scope`, `name?`, `autoFocus?`, `focus?` | Session object |
+| [start](#sessionstart) | Start new session | `scope`, `name?`, `autoStart?`, `focus?` | Session object |
 | [end](#sessionend) | End current session | `sessionId?`, `note?` | Session summary |
 | [resume](#sessionresume) | Resume suspended session | `sessionId` | Resumed session |
 | [suspend](#sessionsuspend) | Suspend session | `sessionId?`, `note?` | Suspended status |
-| [focus.set](#sessionfocusset) | Set focused task | `taskId` | Focus confirmation |
-| [focus.clear](#sessionfocusclear) | Clear focus | - | Clear confirmation |
+| [start](#tasksstart) | Set focused task (tasks domain) | `taskId` | Focus confirmation |
+| [stop](#tasksstop) | Clear focus (tasks domain) | - | Clear confirmation |
 | [gc](#sessiongc) | Garbage collect old sessions | `olderThan?` | Cleaned count |
 
 ### orchestrate (5 operations)
@@ -108,7 +108,7 @@ Multi-agent coordination and spawning.
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| [startup](#orchestratestartup) | Initialize orchestration | `epicId` | Startup state |
+| [start](#orchestratestart) | Initialize orchestration | `epicId` | Startup state |
 | [spawn](#orchestratespawn) | Generate spawn prompt | `taskId`, `skill?`, `model?` | Spawn prompt + metadata |
 | [validate](#orchestratevalidate) | Validate spawn readiness | `taskId` | Validation result |
 | [parallel.start](#orchestrateparallelstart) | Start parallel wave | `epicId`, `wave` | Wave tasks |
@@ -131,7 +131,7 @@ RCSD-IVTR lifecycle stage progression.
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| [progress](#lifecycleprogress) | Record stage completion | `taskId`, `stage`, `status`, `notes?` | Progress confirmation |
+| [record](#lifecyclerecord) | Record stage completion | `taskId`, `stage`, `status`, `notes?` | Progress confirmation |
 | [skip](#lifecycleskip) | Skip optional stage | `taskId`, `stage`, `reason` | Skip confirmation |
 | [reset](#lifecyclereset) | Reset stage (emergency) | `taskId`, `stage`, `reason` | Reset confirmation |
 | [gate.pass](#lifecyclegatepass) | Mark gate as passed | `taskId`, `gateName`, `agent`, `notes?` | Gate status |
@@ -178,7 +178,7 @@ System configuration and maintenance.
 
 ## Detailed Operation Reference
 
-### tasks.create
+### tasks.add
 
 Create a new task with optional parent, dependencies, and metadata.
 
@@ -217,10 +217,10 @@ Create a new task with optional parent, dependencies, and metadata.
 ```typescript
 const result = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
-  params: {
-    title: "Implement user authentication",
-    description: "Add JWT-based authentication with refresh tokens",
+    operation: "add",
+    params: {
+      title: "Implement user authentication",
+      description: "Add JWT-based authentication with refresh tokens",
     priority: "high",
     labels: ["security", "backend"]
   }
@@ -290,7 +290,7 @@ const result = await cleo_mutate({
 
 **Idempotency**: Last write wins. Same parameters produce same result.
 
-**See Also**: [tasks.create](#taskscreate), [tasks.complete](#taskscomplete)
+**See Also**: [tasks.add](#tasksadd), [tasks.complete](#taskscomplete)
 
 ---
 
@@ -390,7 +390,7 @@ Start a new work session with specified scope.
 **Parameters**:
 - `scope` (string, required) - Session scope (e.g., "epic:T2908")
 - `name` (string, optional) - Session name
-- `autoFocus` (boolean, optional) - Auto-focus first pending task (default: false)
+- `autoStart` (boolean, optional) - Auto-focus first pending task (default: false)
 - `focus` (string, optional) - Specific task ID to focus
 
 **Returns**:
@@ -419,7 +419,7 @@ const result = await cleo_mutate({
   params: {
     scope: "epic:T2908",
     name: "MCP Server Implementation",
-    autoFocus: true
+    autoStart: true
   }
 });
 ```
@@ -431,11 +431,11 @@ const result = await cleo_mutate({
 
 **Idempotency**: Scope-based deduplication. Returns existing session if scope matches.
 
-**See Also**: [session.end](#sessionend), [session.focus.set](#sessionfocusset)
+**See Also**: [session.end](#sessionend), [tasks.start](#tasksstart)
 
 ---
 
-### session.focus.set
+### tasks.start
 
 Set the focused task for the current session.
 
@@ -458,8 +458,8 @@ Set the focused task for the current session.
 **Example**:
 ```typescript
 const result = await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2926" }
 });
 ```
@@ -469,7 +469,7 @@ const result = await cleo_mutate({
 - `E_TASK_NOT_IN_SCOPE` (34) - Task outside session scope
 - `E_TASK_CLAIMED` (35) - Task claimed by another session
 
-**See Also**: [session.focus.clear](#sessionfocusclear), [session.start](#sessionstart)
+**See Also**: [tasks.stop](#tasksstop), [session.start](#sessionstart)
 
 ---
 
@@ -528,11 +528,11 @@ await spawnSubagent({
 - `E_LIFECYCLE_GATE_FAILED` (75) - Prerequisites not met
 - `E_FOCUS_REQUIRED` (38) - No focused task in session
 
-**See Also**: [orchestrate.startup](#orchestratestartup), [orchestrate.validate](#orchestratevalidate)
+**See Also**: [orchestrate.start](#orchestratestart), [orchestrate.validate](#orchestratevalidate)
 
 ---
 
-### lifecycle.progress
+### lifecycle.record
 
 Record stage completion and progress to next RCSD-IVTR stage.
 
@@ -710,7 +710,7 @@ Mutate operations automatically invalidate related query caches:
 ```typescript
 // After task mutation
 await cleo_mutate({ domain: "tasks", operation: "update", params: { taskId: "T2926" } });
-// Automatically invalidates: tasks.get, tasks.list, tasks.find, session.status
+// Automatically invalidates: tasks.show, tasks.list, tasks.find, session.status
 
 // After session mutation
 await cleo_mutate({ domain: "session", operation: "start", params: { scope: "epic:T2908" } });
@@ -751,7 +751,7 @@ All mutations are logged to `.cleo/audit.log`:
   "timestamp": "2026-02-10T22:00:00Z",
   "gateway": "cleo_mutate",
   "domain": "tasks",
-  "operation": "create",
+  "operation": "add",
   "params": { "title": "New task" },
   "result": "success",
   "taskId": "T2926"
@@ -792,7 +792,7 @@ Some errors support retry with exponential backoff:
 ```typescript
 const result = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: { title: "A", description: "A" }  // Invalid: same content
 });
 
@@ -800,7 +800,7 @@ if (!result.success && result.error.code === "E_VALIDATION_FAILED") {
   // Fix: Use suggested alternative
   await cleo_mutate({
     domain: "tasks",
-    operation: "create",
+    operation: "add",
     params: {
       title: "A",
       description: result.error.alternatives[0].suggestedDescription

@@ -33,23 +33,25 @@ export type QueryResponse = DomainResponse;
  */
 export const QUERY_OPERATIONS: Record<string, string[]> = {
   tasks: [
-    'get',        // Get single task details
+    'show',       // Get single task details
     'list',       // List tasks with filters
     'find',       // Fuzzy search tasks
     'exists',     // Check task existence
     'tree',       // Hierarchical task view
     'blockers',   // Get blocking tasks
-    'deps',       // Get dependencies
+    'depends',    // Get dependencies
     'analyze',    // Triage analysis
     'next',       // Next task suggestion
     'relates',    // Query task relationships
+    'current',    // Get current working task
   ],
   session: [
     'status',     // Current session status
     'list',       // List all sessions
     'show',       // Session details
-    'focus.get',  // Get focused task
     'history',    // Session history
+    'decision.log', // Decision log
+    'context.drift', // Context drift detection
   ],
   orchestrate: [
     'status',     // Orchestrator status
@@ -63,13 +65,13 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
   research: [
     'show',           // Research entry details
     'list',           // List research entries
-    'query',          // Search research
+    'search',         // Search research
     'pending',        // Pending research
     'stats',          // Research statistics
     'manifest.read',  // Read manifest entries
   ],
   lifecycle: [
-    'check',          // Check stage prerequisites
+    'validate',       // Check stage prerequisites
     'status',         // Current lifecycle state
     'history',        // Stage transition history
     'gates',          // All gate statuses
@@ -88,7 +90,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
   ],
   system: [
     'version',        // CLEO version
-    'doctor',         // Health check
+    'health',         // Health check
     'config.get',     // Get config value
     'stats',          // Project statistics
     'context',        // Context window info
@@ -99,7 +101,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'labels',         // Label listing and stats
     'compliance',     // Compliance metrics
     'log',            // Audit log entries
-    'archive-stats',  // Archive analytics
+    'archive.stats',  // Archive analytics
     'sequence',       // ID sequence inspection
   ],
   issues: [
@@ -123,7 +125,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
 /**
  * Total operation count check
  */
-const EXPECTED_QUERY_COUNT = 66;
+const EXPECTED_QUERY_COUNT = 68;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

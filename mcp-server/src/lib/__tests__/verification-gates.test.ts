@@ -34,7 +34,7 @@ describe('VerificationGate', () => {
     it('should pass valid task creation', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Task Title',
@@ -69,7 +69,7 @@ describe('VerificationGate', () => {
     it('should fail on title too short', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Hi',
@@ -101,7 +101,7 @@ describe('VerificationGate', () => {
     it('should fail on priority out of range', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Title',
@@ -120,7 +120,7 @@ describe('VerificationGate', () => {
     it('should fail when title equals description', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Same Content',
@@ -139,7 +139,7 @@ describe('VerificationGate', () => {
     it('should fail on circular dependency', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           taskId: 'T1234',
@@ -195,7 +195,7 @@ describe('VerificationGate', () => {
     it('should fail on invalid parent reference', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Title',
@@ -215,7 +215,7 @@ describe('VerificationGate', () => {
     it('should fail on invalid dependency reference', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Title',
@@ -253,7 +253,7 @@ describe('VerificationGate', () => {
     it('should skip protocol validation when not applicable', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Title',
@@ -319,7 +319,7 @@ describe('VerificationGate', () => {
     it('should execute all layers in sequence', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Task Title',
@@ -337,7 +337,7 @@ describe('VerificationGate', () => {
     it('should stop at first failure in strict mode', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Hi', // Too short - fails layer 1
@@ -354,7 +354,7 @@ describe('VerificationGate', () => {
     it('should track duration for each layer', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Title',
@@ -374,7 +374,7 @@ describe('VerificationGate', () => {
     it('should map schema errors to E_VALIDATION_ERROR', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Hi',
@@ -389,7 +389,7 @@ describe('VerificationGate', () => {
     it('should map semantic errors to appropriate codes', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Title',
@@ -420,7 +420,7 @@ describe('VerificationGate', () => {
     it('should require validation for mutate operations', () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
       };
       expect(VerificationGate.requiresValidation(context)).toBe(true);
@@ -429,7 +429,7 @@ describe('VerificationGate', () => {
     it('should not require validation for query operations', () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'get',
+        operation: 'show',
         gateway: 'cleo_query',
       };
       expect(VerificationGate.requiresValidation(context)).toBe(false);

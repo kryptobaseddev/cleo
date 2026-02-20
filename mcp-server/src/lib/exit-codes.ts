@@ -544,10 +544,10 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     category: ErrorCategory.SESSION,
     severity: ErrorSeverity.ERROR,
     retryable: false,
-    fixTemplate: 'Set focus first: cleo focus set {taskId}',
+    fixTemplate: 'Start a task first: cleo tasks start {taskId}',
     alternatives: [
       { action: 'Get next task', command: 'cleo next' },
-      { action: 'Set focus', command: 'cleo focus set {taskId}' },
+      { action: 'Start task', command: 'cleo tasks start {taskId}' },
     ],
   },
 

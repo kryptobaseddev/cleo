@@ -79,7 +79,7 @@ await cleo_query({
 ```typescript
 await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Write API documentation",
     description: "Document all cleo_query and cleo_mutate operations with examples"
@@ -96,7 +96,7 @@ await cleo_mutate({
   params: {
     scope: "epic:T2908",
     name: "Documentation Work",
-    autoFocus: true
+    autoStart: true
   }
 });
 ```
@@ -133,9 +133,9 @@ await cleo_query({
 
 **Key Operations**:
 - `tasks find` - Search tasks
-- `tasks get` - Get task details
+- `tasks show` - Get task details
 - `session status` - Current session
-- `lifecycle check` - Gate validation
+- `lifecycle validate` - Gate validation
 
 ### cleo_mutate (Write Operations)
 
@@ -151,7 +151,7 @@ await cleo_mutate({
 ```
 
 **Key Operations**:
-- `tasks create` - Create task
+- `tasks add` - Create task
 - `tasks complete` - Complete task
 - `session start` - Start session
 - `orchestrate spawn` - Generate spawn prompt
@@ -174,7 +174,7 @@ if (sessions.data.filter(s => s.active).length === 0) {
     operation: "start",
     params: {
       scope: "epic:T2908",
-      autoFocus: true
+      autoStart: true
     }
   });
 }
@@ -188,8 +188,8 @@ const tasks = await cleo_query({
 
 // 4. Set focus
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: tasks.data[0].id }
 });
 
@@ -241,7 +241,7 @@ const found = await cleo_query({
 // 2. Use get for full details
 const task = await cleo_query({
   domain: "tasks",
-  operation: "get",
+  operation: "show",
   params: { taskId: found.data[0].id }
 });
 ```
@@ -251,7 +251,7 @@ const task = await cleo_query({
 ```typescript
 const result = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: { /* ... */ }
 });
 
@@ -312,7 +312,7 @@ await cleo_query({
 // Ensure title and description are different
 await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement feature",
     description: "Add feature with comprehensive error handling and tests"
@@ -333,7 +333,7 @@ await cleo_query({
 // Complete or skip missing stages
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId: "T2945",
     stage: "research",
@@ -360,20 +360,20 @@ await cleo_mutate({
 ```typescript
 // Discovery
 cleo_query tasks find {query: "..."}
-cleo_query tasks get {taskId: "T####"}
+cleo_query tasks show {taskId: "T####"}
 
 // Task management
-cleo_mutate tasks create {title: "...", description: "..."}
+cleo_mutate tasks add {title: "...", description: "..."}
 cleo_mutate tasks update {taskId: "T####", status: "active"}
 cleo_mutate tasks complete {taskId: "T####", notes: "..."}
 
 // Session
-cleo_mutate session start {scope: "epic:T####", autoFocus: true}
-cleo_mutate session focus.set {taskId: "T####"}
+cleo_mutate session start {scope: "epic:T####", autoStart: true}
+cleo_mutate tasks start {taskId: "T####"}
 cleo_mutate session end {notes: "..."}
 
 // Orchestration
-cleo_mutate orchestrate startup {epicId: "T####"}
+cleo_mutate orchestrate start {epicId: "T####"}
 cleo_query orchestrate next {epicId: "T####"}
 cleo_mutate orchestrate spawn {taskId: "T####"}
 

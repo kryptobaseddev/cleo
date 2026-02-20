@@ -94,7 +94,7 @@ Session status and history queries.
 | [status](#sessionstatus) | Current session status | - | Session object |
 | [list](#sessionlist) | List all sessions | `active?` | Session array |
 | [show](#sessionshow) | Session details | `sessionId` | Full session object |
-| [focus.get](#sessionfocusget) | Get focused task | - | Task ID or null |
+| [current](#taskscurrent) | Get focused task | - | Task ID or null |
 | [history](#sessionhistory) | Session history | `limit?` | History array |
 
 ### orchestrate (7 operations)
@@ -119,7 +119,7 @@ Research entry and manifest queries.
 |-----------|-------------|------------|---------|
 | [show](#researchshow) | Research entry details | `researchId` | Full entry |
 | [list](#researchlist) | List research entries | `epicId?`, `status?` | Entry array |
-| [query](#researchquery) | Search research | `query`, `confidence?` | Matched entries |
+| [search](#researchsearch) | Search research | `query`, `confidence?` | Matched entries |
 | [pending](#researchpending) | Pending research | `epicId?` | Entries needing follow-up |
 | [stats](#researchstats) | Research statistics | `epicId?` | Aggregated metrics |
 | [manifest.read](#researchmanifestread) | Read manifest entries | `filter?`, `limit?` | JSONL entries |
@@ -130,7 +130,7 @@ RCSD-IVTR lifecycle stage and gate queries.
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| [check](#lifecyclecheck) | Check stage prerequisites | `taskId`, `targetStage` | Gate status |
+| [validate](#lifecyclevalidate) | Check stage prerequisites | `taskId`, `targetStage` | Gate status |
 | [status](#lifecyclestatus) | Current lifecycle state | `taskId` or `epicId` | Stage progression |
 | [history](#lifecyclehistory) | Stage transition history | `taskId` | Transition log |
 | [gates](#lifecyclegates) | All gate statuses | `taskId` | Gate status array |
@@ -159,7 +159,7 @@ System information and health checks.
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
 | [version](#systemversion) | CLEO version | - | Version string |
-| [doctor](#systemdoctor) | Health check | - | Health status |
+| [health](#systemhealth) | Health check | - | Health status |
 | [config.get](#systemconfigget) | Get config value | `key` | Config value |
 | [stats](#systemstats) | Project statistics | - | Task/session stats |
 | [context](#systemcontext) | Context window info | - | Token usage |
@@ -168,7 +168,7 @@ System information and health checks.
 
 ## Detailed Operation Reference
 
-### tasks.get
+### tasks.show
 
 Get detailed information about a specific task.
 
@@ -201,7 +201,7 @@ Get detailed information about a specific task.
 ```typescript
 const result = await cleo_query({
   domain: "tasks",
-  operation: "get",
+  operation: "show",
   params: { taskId: "T2908" }
 });
 ```
@@ -305,7 +305,7 @@ const result = await cleo_query({
 **Errors**:
 - `E_INVALID_INPUT` (2) - Empty query string
 
-**See Also**: [tasks.list](#taskslist), [tasks.get](#tasksget)
+**See Also**: [tasks.list](#taskslist), [tasks.show](#tasksshow)
 
 ---
 
@@ -342,7 +342,7 @@ if (result.data.exists) {
 
 **Errors**: None (returns `exists: false` for missing tasks)
 
-**See Also**: [tasks.get](#tasksget)
+**See Also**: [tasks.show](#tasksshow)
 
 ---
 

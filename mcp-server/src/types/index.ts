@@ -98,7 +98,6 @@ export type {
 // Session domain (12 operations)
 export type {
   Session,
-  FocusInfo,
   // Query operations
   SessionStatusParams,
   SessionStatusResult,
@@ -106,8 +105,6 @@ export type {
   SessionListResult,
   SessionShowParams,
   SessionShowResult,
-  SessionFocusGetParams,
-  SessionFocusGetResult,
   SessionHistoryParams,
   SessionHistoryEntry,
   SessionHistoryResult,
@@ -120,10 +117,6 @@ export type {
   SessionResumeResult,
   SessionSuspendParams,
   SessionSuspendResult,
-  SessionFocusSetParams,
-  SessionFocusSetResult,
-  SessionFocusClearParams,
-  SessionFocusClearResult,
   SessionGcParams,
   SessionGcResult,
 } from './operations/session.js';

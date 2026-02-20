@@ -35,9 +35,9 @@ describe('DomainRouter', () => {
     it('should return operations for tasks domain', () => {
       const ops = router.getDomainOperations('tasks');
       expect(ops).not.toBeNull();
-      expect(ops?.query).toContain('get');
+      expect(ops?.query).toContain('show');
       expect(ops?.query).toContain('list');
-      expect(ops?.mutate).toContain('create');
+      expect(ops?.mutate).toContain('add');
       expect(ops?.mutate).toContain('update');
     });
 
@@ -59,7 +59,7 @@ describe('DomainRouter', () => {
         router.validateRoute({
           gateway: 'cleo_query',
           domain: 'tasks',
-          operation: 'get',
+          operation: 'show',
         });
       }).not.toThrow();
     });
@@ -69,7 +69,7 @@ describe('DomainRouter', () => {
         router.validateRoute({
           gateway: 'cleo_mutate',
           domain: 'tasks',
-          operation: 'create',
+          operation: 'add',
         });
       }).not.toThrow();
     });
@@ -89,7 +89,7 @@ describe('DomainRouter', () => {
         router.validateRoute({
           gateway: 'cleo_query',
           domain: 'tasks',
-          operation: 'create', // create is mutate-only
+          operation: 'add', // add is mutate-only
         });
       }).toThrow(RouterError);
     });
@@ -120,14 +120,14 @@ describe('DomainRouter', () => {
       const response = await router.routeOperation({
         gateway: 'cleo_query',
         domain: 'tasks',
-        operation: 'get',
+        operation: 'show',
         params: { taskId: 'T1234' },
       });
 
       expect(response.success).toBe(false);
       expect(response._meta.gateway).toBe('cleo_query');
       expect(response._meta.domain).toBe('tasks');
-      expect(response._meta.operation).toBe('get');
+      expect(response._meta.operation).toBe('show');
       expect(response.error?.code).toBe('E_NOT_IMPLEMENTED');
       expect(response._meta.duration_ms).toBeGreaterThanOrEqual(0);
     });
@@ -136,14 +136,14 @@ describe('DomainRouter', () => {
       const response = await router.routeOperation({
         gateway: 'cleo_mutate',
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: { title: 'Test Task' },
       });
 
       expect(response.success).toBe(false);
       expect(response._meta.gateway).toBe('cleo_mutate');
       expect(response._meta.domain).toBe('tasks');
-      expect(response._meta.operation).toBe('create');
+      expect(response._meta.operation).toBe('add');
       expect(response.error?.code).toBe('E_NOT_IMPLEMENTED');
     });
 
@@ -151,7 +151,7 @@ describe('DomainRouter', () => {
       const response = await router.routeOperation({
         gateway: 'cleo_query',
         domain: 'invalid',
-        operation: 'get',
+        operation: 'show',
       });
 
       expect(response.success).toBe(false);
@@ -193,11 +193,11 @@ describe('DomainRouter', () => {
 
   describe('domain-specific routing', () => {
     const testCases = [
-      { domain: 'tasks', query: 'list', mutate: 'create' },
+      { domain: 'tasks', query: 'list', mutate: 'add' },
       { domain: 'session', query: 'status', mutate: 'start' },
-      { domain: 'orchestrate', query: 'status', mutate: 'startup' },
+      { domain: 'orchestrate', query: 'status', mutate: 'start' },
       { domain: 'research', query: 'list', mutate: 'link' },
-      { domain: 'lifecycle', query: 'check', mutate: 'progress' },
+      { domain: 'lifecycle', query: 'validate', mutate: 'record' },
       { domain: 'validate', query: 'schema', mutate: 'compliance.record' },
       { domain: 'release', mutate: 'prepare' },
       { domain: 'system', query: 'version', mutate: 'init' },

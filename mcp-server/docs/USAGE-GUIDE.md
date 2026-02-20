@@ -308,7 +308,7 @@ console.log(result.data);
 ```typescript
 const task = await cleo_query({
   domain: "tasks",
-  operation: "get",
+  operation: "show",
   params: {
     taskId: "T2908"
   }
@@ -323,7 +323,7 @@ console.log(task.data);
 ```typescript
 const newTask = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement user authentication",
     description: "Add JWT-based authentication system with refresh tokens",
@@ -380,7 +380,7 @@ await cleo_mutate({
   params: {
     scope: "epic:T2908",
     name: "MCP Server Implementation",
-    autoFocus: true
+    autoStart: true
   }
 });
 ```
@@ -388,8 +388,8 @@ await cleo_mutate({
 **3. Set focus**:
 ```typescript
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: {
     taskId: "T2938"
   }
@@ -428,7 +428,7 @@ const found = await cleo_query({
 // 2. Create new task if not found
 const task = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Update API documentation",
     description: "Document new cleo_query and cleo_mutate operations",
@@ -440,8 +440,8 @@ const taskId = task.data.taskId;
 
 // 3. Set focus
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId }
 });
 
@@ -479,7 +479,7 @@ await cleo_mutate({
 // Create parent epic
 const epic = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Authentication System",
     description: "Complete authentication implementation"
@@ -489,7 +489,7 @@ const epic = await cleo_mutate({
 // Create dependent tasks
 const task1 = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Design auth flow",
     description: "Design JWT authentication flow",
@@ -499,7 +499,7 @@ const task1 = await cleo_mutate({
 
 const task2 = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement auth endpoints",
     description: "Create login, logout, refresh endpoints",
@@ -511,7 +511,7 @@ const task2 = await cleo_mutate({
 // Check dependencies
 const deps = await cleo_query({
   domain: "tasks",
-  operation: "deps",
+  operation: "depends",
   params: {
     taskId: task2.data.taskId,
     direction: "upstream"
@@ -544,7 +544,7 @@ if (sessions.data.length > 0) {
     params: {
       scope: "epic:T2908",
       name: "MCP Implementation",
-      autoFocus: true
+      autoStart: true
     }
   });
 }
@@ -559,8 +559,8 @@ console.log(status.data);
 
 // 4. Get focused task
 const focus = await cleo_query({
-  domain: "session",
-  operation: "focus.get"
+  domain: "tasks",
+  operation: "current"
 });
 
 // 5. Work on tasks...
@@ -1004,7 +1004,7 @@ async function safeOperation(operation) {
 const task = await safeOperation(() =>
   cleo_mutate({
     domain: "tasks",
-    operation: "create",
+    operation: "add",
     params: { /* ... */ }
   })
 );
@@ -1049,7 +1049,7 @@ async function retryableOperation(operation, maxAttempts = 3) {
 const task = await retryableOperation(() =>
   cleo_mutate({
     domain: "tasks",
-    operation: "create",
+    operation: "add",
     params: { /* ... */ }
   })
 );
@@ -1095,7 +1095,7 @@ const found = await cleo_query({
 // Provide unique description
 await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Implement feature X",
     description: "Add feature X with Y functionality to support Z use case"
@@ -1114,7 +1114,7 @@ await cleo_mutate({
 // Create new parent to group related work
 const newParent = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Additional Features",
     description: "Group of related features",
@@ -1125,7 +1125,7 @@ const newParent = await cleo_mutate({
 // Add new task under new parent
 await cleo_mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "New feature",
     description: "Feature description",
@@ -1144,8 +1144,8 @@ await cleo_mutate({
 ```typescript
 // Set focus
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2938" }
 });
 
@@ -1155,7 +1155,7 @@ await cleo_mutate({
   operation: "start",
   params: {
     scope: "epic:T2908",
-    autoFocus: true
+    autoStart: true
   }
 });
 ```
@@ -1181,7 +1181,7 @@ console.log("Pending stages:", status.data.pending);
 // Complete missing stages first
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId: "T2945",
     stage: "research",
@@ -1273,7 +1273,7 @@ A: Yes, with any MCP-compatible client. The server uses standard stdio transport
 
 **Q: What's the difference between `find` and `list` operations?**
 
-A: `find` returns minimal fields for discovery (99% less context). `list` returns full task objects. Always use `find` for discovery, then `get` for details.
+A: `find` returns minimal fields for discovery (99% less context). `list` returns full task objects. Always use `find` for discovery, then `show` for details.
 
 ---
 
@@ -1284,42 +1284,42 @@ A: `find` returns minimal fields for discovery (99% less context). `list` return
 #### cleo_query Operations (48)
 
 **tasks** (9):
-- `get`, `list`, `find`, `exists`, `tree`, `blockers`, `deps`, `analyze`, `next`
+- `show`, `list`, `find`, `exists`, `tree`, `blockers`, `depends`, `analyze`, `next`
 
 **session** (5):
-- `status`, `list`, `show`, `focus.get`, `history`
+- `status`, `list`, `show`, `history`
 
 **orchestrate** (7):
 - `status`, `next`, `ready`, `analyze`, `context`, `waves`, `skill.list`
 
 **research** (6):
-- `show`, `list`, `query`, `pending`, `stats`, `manifest.read`
+- `show`, `list`, `search`, `pending`, `stats`, `manifest.read`
 
 **lifecycle** (5):
-- `check`, `status`, `history`, `gates`, `prerequisites`
+- `validate`, `status`, `history`, `gates`, `prerequisites`
 
 **validate** (9):
 - `schema`, `protocol`, `task`, `manifest`, `output`, `compliance.summary`, `compliance.violations`, `test.status`, `test.coverage`
 
 **system** (5):
-- `version`, `doctor`, `config.get`, `stats`, `context`
+- `version`, `health`, `config.get`, `stats`, `context`
 
 #### cleo_mutate Operations (48)
 
 **tasks** (10):
-- `create`, `update`, `complete`, `delete`, `archive`, `unarchive`, `reparent`, `promote`, `reorder`, `reopen`
+- `add`, `update`, `complete`, `delete`, `archive`, `restore`, `reparent`, `promote`, `reorder`, `reopen`, `start`, `stop`
 
 **session** (7):
-- `start`, `end`, `resume`, `suspend`, `focus.set`, `focus.clear`, `gc`
+- `start`, `end`, `resume`, `suspend`, `gc`
 
 **orchestrate** (5):
-- `startup`, `spawn`, `validate`, `parallel.start`, `parallel.end`
+- `start`, `spawn`, `validate`, `parallel.start`, `parallel.end`
 
 **research** (4):
 - `inject`, `link`, `manifest.append`, `manifest.archive`
 
 **lifecycle** (5):
-- `progress`, `skip`, `reset`, `gate.pass`, `gate.fail`
+- `record`, `skip`, `reset`, `gate.pass`, `gate.fail`
 
 **validate** (2):
 - `compliance.record`, `test.run`

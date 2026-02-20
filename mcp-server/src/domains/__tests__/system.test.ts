@@ -34,7 +34,6 @@ describe('SystemHandler', () => {
         'diagnostics',
         'version',
         'help',
-        'doctor',
         'config.get',
         'stats',
         'job.status',
@@ -798,7 +797,7 @@ describe('SystemHandler', () => {
     it('should return full dashboard data, not just focus sub-object', async () => {
       const fullDashboard = {
         success: true,
-        project: { name: 'claude-todo', version: '0.88.0' },
+        project: { name: 'cleo', version: '0.88.0' },
         summary: { total: 42, pending: 10, active: 5, done: 27 },
         focus: { taskId: 'T4310', title: 'Fix system routing' },
         phases: [{ name: 'Phase 1', status: 'active' }],
