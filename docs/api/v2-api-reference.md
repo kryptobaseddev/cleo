@@ -172,7 +172,7 @@ interface CleoConfig {
     cascadeDelete: boolean;
   };
   session: {
-    autoFocus: boolean;
+    autoStart: boolean;
     requireNotes: boolean;
     multiSession: boolean;
   };
@@ -427,7 +427,7 @@ import {
 interface StartSessionOptions {
   name: string;
   scope: string;        // "epic:T001" or "global"
-  autoFocus?: boolean;
+  autoStart?: boolean;
   focus?: string;
   agent?: string;
 }
