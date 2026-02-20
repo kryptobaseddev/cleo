@@ -1,0 +1,5 @@
+M	.claude/todo-log.json
+M	.claude/todo.json
+M	scripts/archive.sh
+M	scripts/list-tasks.sh
+M	tests/unit/tree-alias.bats

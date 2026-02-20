@@ -126,7 +126,7 @@ config.local.json
 # ============================================================
 # Documentation Build Artifacts
 # ============================================================
-archive/
+
 # Generated documentation (if using doc generators)
 docs/_build/
 docs/.doctrees/
@@ -141,24 +141,24 @@ docs/.mintlify/
 docs/node_modules/
 
 # ============================================================
+# Legacy Bash Code (archived in archive/bash-legacy/)
+# ============================================================
+# These root-level directories are deprecated and removed from git tracking.
+# The code is preserved in archive/bash-legacy/ for reference.
+/scripts/
+/lib/
+/tests/
+
+# ============================================================
 # KEEP THESE TRACKED
 # ============================================================
 # The following should be committed to the repository:
+# - src/ - TypeScript source (primary codebase)
 # - schemas/ - JSON Schema definitions
 # - templates/ - Starter templates
-# - scripts/ - Operational scripts
-# - lib/ - Shared library functions
 # - docs/ - Documentation
-# - tests/ - Test suite
+# - archive/ - Archived legacy code and migration analysis
 # - README.md, LICENSE, install.sh, etc.
-
-# Do NOT ignore:
-# !schemas/
-# !templates/
-# !scripts/
-# !lib/
-# !docs/
-# !tests/
 
 # Project registry (user data, stored in ~/.cleo/, NOT in repo)
 projects-registry.json

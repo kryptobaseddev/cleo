@@ -1,0 +1,90 @@
+diff --git a/docs/INDEX.md b/docs/INDEX.md
+index 7dd4d7e..8a863f7 100644
+--- a/docs/INDEX.md
++++ b/docs/INDEX.md
+@@ -69,6 +69,7 @@
+ 
+ | Document | Purpose | When to Read |
+ |----------|---------|--------------|
++| **[DOCUMENTATION-MAINTENANCE.md](DOCUMENTATION-MAINTENANCE.md)** | Documentation workflow and update checklist | Adding/modifying commands, maintaining docs |
+ | **[PLUGINS.md](PLUGINS.md)** | Plugin architecture and development | Extending the CLI with custom commands |
+ | **[integration/CLAUDE-CODE.md](integration/CLAUDE-CODE.md)** | TodoWrite integration & session workflows | Understanding Claude Code integration |
+ | **[ci-cd-integration.md](ci-cd-integration.md)** | CI/CD pipeline integration guide | Integrating with GitHub Actions, GitLab CI, Jenkins, Azure DevOps |
+diff --git a/lib/todowrite-integration.sh b/lib/todowrite-integration.sh
+index f345022..0086a2f 100644
+--- a/lib/todowrite-integration.sh
++++ b/lib/todowrite-integration.sh
+@@ -224,7 +224,8 @@ convert_to_active_form() {
+     fi
+ 
+     # 1. Check lookup table first (most reliable)
+-    if [[ -n "${VERB_TO_ACTIVE[$first_word_lower]}" ]]; then
++    # Use -v to check key existence (safe with set -u)
++    if [[ -v "VERB_TO_ACTIVE[$first_word_lower]" && -n "${VERB_TO_ACTIVE[$first_word_lower]}" ]]; then
+         local active_verb="${VERB_TO_ACTIVE[$first_word_lower]}"
+         if [[ -n "$rest" ]]; then
+             echo "${active_verb} ${rest}"
+diff --git a/scripts/extract-todowrite.sh b/scripts/extract-todowrite.sh
+index 59d9bd5..34508a2 100644
+--- a/scripts/extract-todowrite.sh
++++ b/scripts/extract-todowrite.sh
+@@ -30,6 +30,7 @@ LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
+ 
+ # Source required libraries
+ source "$LIB_DIR/todowrite-integration.sh"
++source "$LIB_DIR/logging.sh"
+ 
+ # =============================================================================
+ # Colors and Logging
+diff --git a/scripts/inject-todowrite.sh b/scripts/inject-todowrite.sh
+index e1636c5..b157119 100644
+--- a/scripts/inject-todowrite.sh
++++ b/scripts/inject-todowrite.sh
+@@ -31,6 +31,7 @@ LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
+ 
+ # Source required libraries
+ source "$LIB_DIR/todowrite-integration.sh"
++source "$LIB_DIR/logging.sh"
+ 
+ # =============================================================================
+ # Colors and Logging
+@@ -191,7 +192,7 @@ get_tasks_to_inject() {
+ 
+     # Get focused task ID
+     local focus_id
+-    focus_id=$(jq -r '.focus.taskId // ""' "$todo_file")
++    focus_id=$(jq -r '.focus.currentTask // ""' "$todo_file")
+ 
+     if [[ "$focused_only" == "true" && -n "$focus_id" ]]; then
+         # Only return focused task
+diff --git a/scripts/sync-todowrite.sh b/scripts/sync-todowrite.sh
+index 3e4f144..b00ed18 100644
+--- a/scripts/sync-todowrite.sh
++++ b/scripts/sync-todowrite.sh
+@@ -20,6 +20,9 @@ set -euo pipefail
+ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
+ 
++# Source required libraries
++source "$LIB_DIR/logging.sh"
++
+ # =============================================================================
+ # Colors and Logging
+ # =============================================================================
+diff --git a/tests/integration/todowrite-sync.bats b/tests/integration/todowrite-sync.bats
+index cee110a..b9c2012 100644
+--- a/tests/integration/todowrite-sync.bats
++++ b/tests/integration/todowrite-sync.bats
+@@ -88,8 +88,10 @@ create_sync_test_fixture() {
+     }
+   ],
+   "focus": {
+-    "taskId": "T001",
+-    "setAt": "2025-12-15T14:00:00Z"
++    "currentTask": "T001",
++    "blockedUntil": null,
++    "sessionNote": null,
++    "nextAction": null
+   }
+ }
+ EOF

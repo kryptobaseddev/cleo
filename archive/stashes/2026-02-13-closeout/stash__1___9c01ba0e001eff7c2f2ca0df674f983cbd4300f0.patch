@@ -1,0 +1,90 @@
+diff --git a/scripts/archive.sh b/scripts/archive.sh
+index 779f4aa..632fd89 100644
+--- a/scripts/archive.sh
++++ b/scripts/archive.sh
+@@ -99,6 +99,11 @@ Options:
+   -h, --help          Show this help
+ 
+ Archive Behavior:
++  --only-labels LABELS  Archive ONLY tasks with these labels (comma-separated)
++                        Cannot be used with --exclude-labels
++                        Example: --only-labels "cleanup,temp"
++  --exclude-labels LABELS  Exclude tasks with these labels from archiving
++                           Cannot be used with --only-labels
+   Default:  Only archive tasks older than daysUntilArchive (default 7 days)
+             Keeps preserveRecentCount most recent completed tasks (default 3)
+ 
+diff --git a/scripts/list-tasks.sh b/scripts/list-tasks.sh
+index 21d9c30..372e7c7 100644
+--- a/scripts/list-tasks.sh
++++ b/scripts/list-tasks.sh
+@@ -880,9 +880,9 @@ case "$FORMAT" in
+       echo ""
+ 
+       # Calculate title width for tree rendering (T675, T676)
+-      # --human format or --wide flag shows full titles without truncation
+-      if [[ "$WIDE_MODE" == true ]] || [[ "$FORMAT" == "text" ]]; then
+-        title_width=999  # Effectively unlimited for human-readable output
++      # --wide flag disables truncation; otherwise truncate based on terminal width
++      if [[ "$WIDE_MODE" == true ]]; then
++        title_width=999  # Effectively unlimited when --wide is specified
+       else
+         title_width=$TREE_TITLE_WIDTH
+       fi
+diff --git a/tests/unit/tree-alias.bats b/tests/unit/tree-alias.bats
+index eae513e..5940744 100644
+--- a/tests/unit/tree-alias.bats
++++ b/tests/unit/tree-alias.bats
+@@ -309,18 +309,18 @@ setup() {
+ 
+ @test "tree rendering: --wide flag shows full titles (T676)" {
+     create_empty_todo
+-    # Title that's 80 chars - long enough to be truncated at default width
+-    local long_title="This is a long task title that should be truncated without wide flag enabled"
++    # Title long enough to be truncated even with wider terminals (120+ chars)
++    local long_title="This is an extremely long task title that will definitely be truncated in normal tree view mode because it exceeds any reasonable terminal width setting"
+     bash "$ADD_SCRIPT" "$long_title" --type epic > /dev/null
+ 
+-    # Without --wide, title should be truncated (default ~55 chars)
+-    run $CLAUDE_TODO_CMD tree --human
++    # Without --wide, title should be truncated at narrow terminal
++    run env COLUMNS=50 bash "$LIST_SCRIPT" --tree --human
+     assert_success
+-    # Should show truncation indicator (ellipsis)
++    # Should show truncation indicator (ellipsis) - title won't fit in 50 cols
+     [[ "$output" == *"…"* ]] || [[ "$output" == *"..."* ]]
+ 
+     # With --wide, full title should be shown
+-    run $CLAUDE_TODO_CMD tree --human --wide
++    run bash "$LIST_SCRIPT" --tree --human --wide
+     assert_success
+     assert_output --partial "$long_title"
+ }
+@@ -422,8 +422,10 @@ setup() {
+     local long_title="This is a very long task title that should definitely be truncated when displayed in tree view mode"
+     bash "$ADD_SCRIPT" "$long_title" --type epic > /dev/null
+ 
+-    # Force narrow terminal
+-    COLUMNS=60 run $CLAUDE_TODO_CMD tree --human
++    # Force narrow terminal - use env to properly set COLUMNS for subprocess
++    # Per T675 spec: tree view respects terminal width for title truncation
++    # Use $LIST_SCRIPT directly to test development version
++    run env COLUMNS=60 bash "$LIST_SCRIPT" --tree --human
+     assert_success
+     # Should contain ellipsis character (Unicode: …)
+     assert_output --partial "…"
+@@ -435,11 +437,12 @@ setup() {
+     create_empty_todo
+     bash "$ADD_SCRIPT" "Short Title" --type epic > /dev/null
+ 
+-    run $CLAUDE_TODO_CMD tree --human
++    # Use $LIST_SCRIPT directly to test development version
++    run bash "$LIST_SCRIPT" --tree --human
+     assert_success
+     # Short title should appear in full
+     assert_output --partial "Short Title"
+-    # No ellipsis needed
++    # No ellipsis needed for short titles
+     [[ "$output" != *"…"* ]] || [[ "$output" == *"Short Title"* ]]
+ }
+ 

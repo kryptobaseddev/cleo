@@ -1,0 +1,364 @@
+diff --git a/.claude/todo-log.json b/.claude/todo-log.json
+index 0dd5307..d87ae38 100644
+--- a/.claude/todo-log.json
++++ b/.claude/todo-log.json
+@@ -3,9 +3,9 @@
+   "version": "2.1.0",
+   "project": "claude-todo",
+   "_meta": {
+-    "totalEntries": 1566,
++    "totalEntries": 1569,
+     "firstEntry": "2025-12-13T07:14:38Z",
+-    "lastEntry": "2025-12-23T06:26:23Z",
++    "lastEntry": "2025-12-23T06:29:21Z",
+     "entriesPruned": 0
+   },
+   "entries": [
+@@ -37244,6 +37244,66 @@
+       "details": {
+         "operation": "update"
+       }
++    },
++    {
++      "id": "log_8f22335c9968",
++      "timestamp": "2025-12-23T06:29:20Z",
++      "sessionId": null,
++      "action": "status_changed",
++      "actor": "system",
++      "taskId": "T444",
++      "before": {
++        "status": "pending",
++        "completedAt": null
++      },
++      "after": {
++        "status": "done",
++        "completedAt": "2025-12-23T06:29:20Z"
++      },
++      "details": {
++        "field": "status",
++        "operation": "complete"
++      }
++    },
++    {
++      "id": "log_885238c38e58",
++      "timestamp": "2025-12-23T06:29:21Z",
++      "sessionId": null,
++      "action": "status_changed",
++      "actor": "system",
++      "taskId": "T445",
++      "before": {
++        "status": "pending",
++        "completedAt": null
++      },
++      "after": {
++        "status": "done",
++        "completedAt": "2025-12-23T06:29:21Z"
++      },
++      "details": {
++        "field": "status",
++        "operation": "complete"
++      }
++    },
++    {
++      "id": "log_bb95803e410f",
++      "timestamp": "2025-12-23T06:29:21Z",
++      "sessionId": null,
++      "action": "status_changed",
++      "actor": "system",
++      "taskId": "T430",
++      "before": {
++        "status": "pending",
++        "completedAt": null
++      },
++      "after": {
++        "status": "done",
++        "completedAt": "2025-12-23T06:29:21Z"
++      },
++      "details": {
++        "field": "status",
++        "operation": "complete"
++      }
+     }
+   ]
+ }
+diff --git a/.claude/todo.json b/.claude/todo.json
+index db336ca..5ab4783 100644
+--- a/.claude/todo.json
++++ b/.claude/todo.json
+@@ -121,9 +121,9 @@
+       }
+     ]
+   },
+-  "lastUpdated": "2025-12-23T06:26:22Z",
++  "lastUpdated": "2025-12-23T06:29:21Z",
+   "_meta": {
+-    "checksum": "79a2021fce0489c0",
++    "checksum": "2b739e5a8edcd315",
+     "configVersion": "2.1.0",
+     "lastSessionId": null,
+     "activeSession": null,
+@@ -2908,7 +2908,7 @@
+     {
+       "id": "T430",
+       "title": "T429.1: Add exemptLabels config option",
+-      "status": "pending",
++      "status": "done",
+       "priority": "high",
+       "type": "task",
+       "parentId": "T429",
+@@ -2922,6 +2922,10 @@
+       ],
+       "depends": [
+         "T429"
++      ],
++      "completedAt": "2025-12-23T06:29:21Z",
++      "notes": [
++        "[COMPLETED 2025-12-23T06:29:21Z] Implemented exemptLabels config loading, task filtering, and output reporting in archive.sh"
+       ]
+     },
+     {
+@@ -3185,7 +3189,7 @@
+     {
+       "id": "T444",
+       "title": "T429.15: Update config.schema.json for archive enhancements",
+-      "status": "pending",
++      "status": "done",
+       "priority": "high",
+       "type": "task",
+       "parentId": "T429",
+@@ -3198,12 +3202,16 @@
+       ],
+       "depends": [
+         "T429"
++      ],
++      "completedAt": "2025-12-23T06:29:20Z",
++      "notes": [
++        "[COMPLETED 2025-12-23T06:29:20Z] Added exemptLabels, labelPolicies, relationshipSafety, phaseTriggers, interactive config options to archive section"
+       ]
+     },
+     {
+       "id": "T445",
+       "title": "T429.16: Update archive.schema.json for metadata fields",
+-      "status": "pending",
++      "status": "done",
+       "priority": "high",
+       "type": "task",
+       "parentId": "T429",
+@@ -3216,6 +3224,10 @@
+       ],
+       "depends": [
+         "T429"
++      ],
++      "completedAt": "2025-12-23T06:29:21Z",
++      "notes": [
++        "[COMPLETED 2025-12-23T06:29:21Z] Enhanced _archive metadata with archiveSource, triggerDetails, relationshipState, restoreInfo; expanded reason enum"
+       ]
+     },
+     {
+diff --git a/scripts/archive.sh b/scripts/archive.sh
+index 779f4aa..36e4358 100644
+--- a/scripts/archive.sh
++++ b/scripts/archive.sh
+@@ -77,7 +77,19 @@ ARCHIVE_ALL=false
+ MAX_OVERRIDE=""
+ FORMAT=""
+ QUIET=false
++SAFE_MODE=""  # CLI override - empty means use config default
++SHOW_WARNINGS=""  # Empty means use config, explicit true/false from --no-warnings
+ COMMAND_NAME="archive"
++ONLY_LABELS=""
++EXCLUDE_LABELS=""
++
++# Relationship safety tracking (populated during safe mode checks)
++BLOCKED_BY_CHILDREN='[]'
++BLOCKED_BY_DEPENDENTS='[]'
++
++# Warning collection (populated before archive operation)
++declare -a ARCHIVE_WARNINGS=()
++WARNINGS_JSON='[]'
+ 
+ usage() {
+   cat << EOF
+@@ -92,6 +104,18 @@ Options:
+   --all               Archive ALL completed tasks immediately
+                       Bypasses BOTH age retention AND preserveRecentCount
+   --count N           Override maxCompletedTasks setting
++  --only-labels LABELS  Archive ONLY tasks with these labels (comma-separated)
++                        Cannot be used with --exclude-labels
++                        Example: --only-labels "cleanup,temp"
++  --exclude-labels LABELS  Additional labels to exclude (comma-separated)
++                           Merges with config exemptLabels
++                           Cannot be used with --only-labels
++                           Example: --exclude-labels "important,keep"
++  --safe              Enable safe mode (default from config)
++                      Prevents archiving tasks with:
++                      - Active children (would orphan them)
++                      - Active dependents (would break references)
++  --no-safe           Disable safe mode (override config)
+   -f, --format FMT    Output format: text, json (default: auto-detect)
+   --human             Force human-readable text output
+   --json              Force JSON output (shorthand for --format json)
+@@ -150,6 +174,13 @@ while [[ $# -gt 0 ]]; do
+     --force) FORCE=true; shift ;;
+     --all) ARCHIVE_ALL=true; shift ;;
+     --count) MAX_OVERRIDE="$2"; shift 2 ;;
++    --only-labels) ONLY_LABELS="$2"; shift 2 ;;
++    --only-labels=*) ONLY_LABELS="${1#*=}"; shift ;;
++    --exclude-labels) EXCLUDE_LABELS="$2"; shift 2 ;;
++    --exclude-labels=*) EXCLUDE_LABELS="${1#*=}"; shift ;;
++    --safe) SAFE_MODE=true; shift ;;
++    --no-safe) SAFE_MODE=false; shift ;;
++    --no-warnings) SHOW_WARNINGS=false; shift ;;
+     -f|--format) FORMAT="$2"; shift 2 ;;
+     --human) FORMAT="text"; shift ;;
+     --json) FORMAT="json"; shift ;;
+@@ -167,6 +198,16 @@ else
+   FORMAT="${FORMAT:-text}"
+ fi
+ 
++# Mutual exclusion check for --only-labels and --exclude-labels
++if [[ -n "$ONLY_LABELS" && -n "$EXCLUDE_LABELS" ]]; then
++  if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
++    output_error "E_INVALID_INPUT" "--only-labels and --exclude-labels cannot be used together" "${EXIT_INVALID_INPUT:-1}" true
++  else
++    log_error "--only-labels and --exclude-labels cannot be used together"
++  fi
++  exit "${EXIT_INVALID_INPUT:-1}"
++fi
++
+ check_deps
+ 
+ # Check files exist
+@@ -210,12 +251,29 @@ if declare -f get_config_value >/dev/null 2>&1; then
+   MAX_COMPLETED=$(get_config_value "archive.maxCompletedTasks" "15")
+   PRESERVE_COUNT=$(get_config_value "archive.preserveRecentCount" "3")
+   EXEMPT_LABELS=$(get_config_value "archive.exemptLabels" '["epic-type", "pinned"]')
++  # Relationship safety settings
++  PREVENT_ORPHAN_CHILDREN=$(get_config_value "archive.relationshipSafety.preventOrphanChildren" "true")
++  PREVENT_BROKEN_DEPS=$(get_config_value "archive.relationshipSafety.preventBrokenDependencies" "true")
+ else
+   # Fallback to direct jq if config.sh not available
+   DAYS_UNTIL_ARCHIVE=$(jq -r '.archive.daysUntilArchive // 7' "$CONFIG_FILE")
+   MAX_COMPLETED=$(jq -r '.archive.maxCompletedTasks // 15' "$CONFIG_FILE")
+   PRESERVE_COUNT=$(jq -r '.archive.preserveRecentCount // 3' "$CONFIG_FILE")
+   EXEMPT_LABELS=$(jq -r '.archive.exemptLabels // ["epic-type", "pinned"]' "$CONFIG_FILE")
++  # Relationship safety settings
++  PREVENT_ORPHAN_CHILDREN=$(jq -r '.archive.relationshipSafety.preventOrphanChildren // true' "$CONFIG_FILE")
++  PREVENT_BROKEN_DEPS=$(jq -r '.archive.relationshipSafety.preventBrokenDependencies // true' "$CONFIG_FILE")
++fi
++
++# Apply SAFE_MODE: CLI override > config default
++# SAFE_MODE enables both preventOrphanChildren and preventBrokenDependencies
++if [[ -z "$SAFE_MODE" ]]; then
++  # No CLI override - use config values (default to safe if either setting is true)
++  if [[ "$PREVENT_ORPHAN_CHILDREN" == "true" || "$PREVENT_BROKEN_DEPS" == "true" ]]; then
++    SAFE_MODE=true
++  else
++    SAFE_MODE=false
++  fi
+ fi
+ 
+ # Validate EXEMPT_LABELS is valid JSON array, fallback to default if not
+@@ -300,6 +358,36 @@ if [[ "$EXEMPTED_COUNT" -gt 0 && "$QUIET" != true && "$FORMAT" != "json" ]]; the
+   done
+ fi
+ 
++# Apply --only-labels filter: ONLY archive tasks with specified labels
++if [[ -n "$ONLY_LABELS" ]]; then
++  ONLY_LABELS_JSON=$(echo "$ONLY_LABELS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$"; ""))')
++
++  COMPLETED_TASKS=$(echo "$COMPLETED_TASKS" | jq --argjson onlyLabels "$ONLY_LABELS_JSON" '
++    [.[] | select(
++      (.labels // []) as $taskLabels |
++      ($onlyLabels | any(. as $only | $taskLabels | index($only) | type == "number"))
++    )]
++  ')
++
++  [[ "$QUIET" != true && "$FORMAT" != "json" ]] && \
++    log_info "Filtered to tasks with labels: $(echo "$ONLY_LABELS_JSON" | jq -r 'join(", ")')"
++fi
++
++# Apply --exclude-labels filter: exclude tasks with specified labels
++if [[ -n "$EXCLUDE_LABELS" ]]; then
++  EXCLUDE_LABELS_JSON=$(echo "$EXCLUDE_LABELS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$"; ""))')
++
++  COMPLETED_TASKS=$(echo "$COMPLETED_TASKS" | jq --argjson excludeLabels "$EXCLUDE_LABELS_JSON" '
++    [.[] | select(
++      (.labels // []) as $taskLabels |
++      ($excludeLabels | all(. as $excl | $taskLabels | index($excl) | type != "number"))
++    )]
++  ')
++
++  [[ "$QUIET" != true && "$FORMAT" != "json" ]] && \
++    log_info "Excluded tasks with labels: $(echo "$EXCLUDE_LABELS_JSON" | jq -r 'join(", ")')"
++fi
++
+ # Sort by completedAt (newest first) and determine which to archive
+ # Excludes tasks with exempt labels
+ TASKS_TO_ARCHIVE=$(echo "$COMPLETED_TASKS" | jq --argjson threshold "$ARCHIVE_THRESHOLD" --argjson preserve "$PRESERVE_COUNT" --argjson force "$FORCE" --argjson all "$ARCHIVE_ALL" --argjson exemptLabels "$EXEMPT_LABELS" '
+diff --git a/scripts/list-tasks.sh b/scripts/list-tasks.sh
+index 21d9c30..372e7c7 100644
+--- a/scripts/list-tasks.sh
++++ b/scripts/list-tasks.sh
+@@ -880,9 +880,9 @@ case "$FORMAT" in
+       echo ""
+ 
+       # Calculate title width for tree rendering (T675, T676)
+-      # --human format or --wide flag shows full titles without truncation
+-      if [[ "$WIDE_MODE" == true ]] || [[ "$FORMAT" == "text" ]]; then
+-        title_width=999  # Effectively unlimited for human-readable output
++      # --wide flag disables truncation; otherwise truncate based on terminal width
++      if [[ "$WIDE_MODE" == true ]]; then
++        title_width=999  # Effectively unlimited when --wide is specified
+       else
+         title_width=$TREE_TITLE_WIDTH
+       fi
+diff --git a/tests/unit/tree-alias.bats b/tests/unit/tree-alias.bats
+index eae513e..42b97ab 100644
+--- a/tests/unit/tree-alias.bats
++++ b/tests/unit/tree-alias.bats
+@@ -314,13 +314,14 @@ setup() {
+     bash "$ADD_SCRIPT" "$long_title" --type epic > /dev/null
+ 
+     # Without --wide, title should be truncated (default ~55 chars)
+-    run $CLAUDE_TODO_CMD tree --human
++    # Use COLUMNS to force narrow terminal; use $LIST_SCRIPT for development version
++    run env COLUMNS=60 bash "$LIST_SCRIPT" --tree --human
+     assert_success
+     # Should show truncation indicator (ellipsis)
+     [[ "$output" == *"…"* ]] || [[ "$output" == *"..."* ]]
+ 
+     # With --wide, full title should be shown
+-    run $CLAUDE_TODO_CMD tree --human --wide
++    run bash "$LIST_SCRIPT" --tree --human --wide
+     assert_success
+     assert_output --partial "$long_title"
+ }
+@@ -422,8 +423,10 @@ setup() {
+     local long_title="This is a very long task title that should definitely be truncated when displayed in tree view mode"
+     bash "$ADD_SCRIPT" "$long_title" --type epic > /dev/null
+ 
+-    # Force narrow terminal
+-    COLUMNS=60 run $CLAUDE_TODO_CMD tree --human
++    # Force narrow terminal - use env to properly set COLUMNS for subprocess
++    # Per T675 spec: tree view respects terminal width for title truncation
++    # Use $LIST_SCRIPT directly to test development version
++    run env COLUMNS=60 bash "$LIST_SCRIPT" --tree --human
+     assert_success
+     # Should contain ellipsis character (Unicode: …)
+     assert_output --partial "…"
+@@ -435,11 +438,12 @@ setup() {
+     create_empty_todo
+     bash "$ADD_SCRIPT" "Short Title" --type epic > /dev/null
+ 
+-    run $CLAUDE_TODO_CMD tree --human
++    # Use $LIST_SCRIPT directly to test development version
++    run bash "$LIST_SCRIPT" --tree --human
+     assert_success
+     # Short title should appear in full
+     assert_output --partial "Short Title"
+-    # No ellipsis needed
++    # No ellipsis needed for short titles
+     [[ "$output" != *"…"* ]] || [[ "$output" == *"Short Title"* ]]
+ }
+ 

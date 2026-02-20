@@ -1,0 +1,4 @@
+/node_modules
+/yarn.lock
+/bats-assert-*.tgz
+test/.bats/run-logs/

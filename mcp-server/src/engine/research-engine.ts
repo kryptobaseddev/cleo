@@ -223,7 +223,7 @@ export function researchList(
 }
 
 /**
- * research.query / research.search - Search research entries by text
+ * research.query / research.find - Find research entries by text
  * @task T4474
  */
 export function researchQuery(

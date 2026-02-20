@@ -143,7 +143,7 @@ describe('ResearchHandler', () => {
       });
     });
 
-    describe('search', () => {
+    describe('find', () => {
       it('should search research entries', async () => {
         const mockResults: ResearchEntry[] = [
           {
@@ -168,7 +168,7 @@ describe('ResearchHandler', () => {
           duration: 50,
         });
 
-        const result = await handler.query('search', {
+        const result = await handler.query('find', {
           query: 'MCP server',
           confidence: 0.8,
           limit: 5,
@@ -185,7 +185,7 @@ describe('ResearchHandler', () => {
       });
 
       it('should return error when query missing', async () => {
-        const result = await handler.query('search', {});
+        const result = await handler.query('find', {});
 
         expect(result.success).toBe(false);
         expect(result.error?.code).toBe('E_INVALID_INPUT');
@@ -528,7 +528,7 @@ describe('ResearchHandler', () => {
     it('should return correct operation lists', () => {
       const operations = handler.getSupportedOperations();
 
-      expect(operations.query).toEqual(['list', 'stats', 'validate', 'search', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'query']);
+      expect(operations.query).toEqual(['list', 'stats', 'validate', 'find', 'export', 'manifest.read', 'manifest.validate', 'manifest.summary', 'show', 'pending', 'query']);
       expect(operations.mutate).toEqual(['link', 'unlink', 'import', 'aggregate', 'report', 'inject', 'manifest.append', 'manifest.archive']);
     });
   });
