@@ -2,8 +2,8 @@
  * Tasks Domain Handler
  *
  * Implements all 30 task operations for CLEO MCP server:
- * - Query (16): show, get, list, find, exists, next, depends, deps, stats, export, history, lint, batch-validate, manifest, tree, blockers, analyze
- * - Mutate (13): add, create, update, complete, delete, archive, restore, unarchive, import, reorder, reparent, promote, reopen
+ * - Query (16): show, list, find, exists, current, next, depends, stats, export, history, lint, batch-validate, manifest, tree, blockers, analyze
+ * - Mutate (14): add, update, complete, delete, archive, restore, start, stop, import, reorder, reparent, promote, reopen, uncancel
  *
  * Each operation maps to corresponding CLEO CLI commands with proper
  * parameter validation and error handling.
@@ -273,10 +273,6 @@ export class TasksHandler implements DomainHandler {
           return await this.queryBlockers(params as unknown as TasksBlockersParams);
         case 'analyze':
           return await this.queryAnalyze(params as unknown as TasksAnalyzeParams);
-        case 'get':
-          return await this.queryShow(params as unknown as TasksGetParams);
-        case 'deps':
-          return await this.queryDepends(params as unknown as TasksDependsParams);
         case 'relates':
           return await this.queryRelates(params as unknown as TasksRelatesParams);
         default:
@@ -339,10 +335,6 @@ export class TasksHandler implements DomainHandler {
           return await this.mutatePromote(params as unknown as TasksPromoteParams);
         case 'reopen':
           return await this.mutateReopen(params as unknown as TasksReopenParams);
-        case 'create':
-          return await this.mutateAdd(params as unknown as TasksCreateParams);
-        case 'unarchive':
-          return await this.mutateRestore(params as unknown as TasksUnarchiveParams);
         case 'relates.add':
           return await this.mutateRelatesAdd(params as unknown as TasksRelatesParams);
         default:
@@ -367,13 +359,12 @@ export class TasksHandler implements DomainHandler {
     return {
       query: [
         'show',
-        'get',
         'list',
         'find',
         'exists',
+        'current',
         'next',
         'depends',
-        'deps',
         'stats',
         'export',
         'history',
@@ -387,13 +378,14 @@ export class TasksHandler implements DomainHandler {
       ],
       mutate: [
         'add',
-        'create',
         'update',
         'complete',
         'delete',
         'archive',
         'restore',
-        'unarchive',
+        'start',
+        'stop',
+        'uncancel',
         'import',
         'reorder',
         'reparent',
@@ -1195,8 +1187,7 @@ export class TasksHandler implements DomainHandler {
     }
 
     switch (operation) {
-      case 'show':
-      case 'get': {
+      case 'show': {
         const taskId = (params as unknown as TasksGetParams)?.taskId;
         if (!taskId) {
           return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
@@ -1245,8 +1236,7 @@ export class TasksHandler implements DomainHandler {
     }
 
     switch (operation) {
-      case 'add':
-      case 'create': {
+      case 'add': {
         const p = params as unknown as TasksCreateParams;
         if (!p?.title || !p?.description) {
           return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'title and description are required', startTime);

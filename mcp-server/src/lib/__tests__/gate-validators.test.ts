@@ -34,7 +34,7 @@ describe('Gate Validators', () => {
     it('should pass valid parameters', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Valid Task Title',
@@ -67,7 +67,7 @@ describe('Gate Validators', () => {
     it('should detect title length violations', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Hi',
@@ -98,7 +98,7 @@ describe('Gate Validators', () => {
     it('should detect priority out of range', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           priority: 15,
@@ -114,7 +114,7 @@ describe('Gate Validators', () => {
     it('should fail on description exceeding 1000 characters', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           description: 'x'.repeat(1001),
@@ -130,7 +130,7 @@ describe('Gate Validators', () => {
     it('should pass description at exactly 1000 characters', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           description: 'x'.repeat(1000),
@@ -269,7 +269,7 @@ describe('Gate Validators', () => {
     it('should pass valid semantics', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Task Title',
@@ -284,7 +284,7 @@ describe('Gate Validators', () => {
     it('should detect title/description match', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Same Content',
@@ -300,7 +300,7 @@ describe('Gate Validators', () => {
     it('should detect circular dependency', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           taskId: 'T1234',
@@ -351,7 +351,7 @@ describe('Gate Validators', () => {
 
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Task Title',
@@ -390,7 +390,7 @@ describe('Gate Validators', () => {
 
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           title: 'Task Title',
@@ -430,7 +430,7 @@ describe('Gate Validators', () => {
     it('should pass valid references', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           parent: 'T1234',
@@ -445,7 +445,7 @@ describe('Gate Validators', () => {
     it('should detect invalid parent reference', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           parent: 'INVALID',
@@ -460,7 +460,7 @@ describe('Gate Validators', () => {
     it('should detect invalid dependency reference', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           depends: ['T1234', 'INVALID'],
@@ -489,7 +489,7 @@ describe('Gate Validators', () => {
     it('should fail when hierarchy depth exceeds 3', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           depth: 4,
@@ -504,7 +504,7 @@ describe('Gate Validators', () => {
     it('should pass when hierarchy depth is at max', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           depth: 3,
@@ -520,7 +520,7 @@ describe('Gate Validators', () => {
     it('should fail when sibling limit reached', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           siblingCount: 7,
@@ -535,7 +535,7 @@ describe('Gate Validators', () => {
     it('should pass when under sibling limit', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {
           siblingCount: 6,
@@ -572,7 +572,7 @@ describe('Gate Validators', () => {
     it('should skip when protocol type not set', async () => {
       const context: OperationContext = {
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         gateway: 'cleo_mutate',
         params: {},
       };
@@ -725,10 +725,10 @@ describe('Gate Validators', () => {
   });
 
   describe('isFieldRequired', () => {
-    it('should detect required fields for create', () => {
-      expect(isFieldRequired('tasks', 'create', 'title')).toBe(true);
-      expect(isFieldRequired('tasks', 'create', 'description')).toBe(true);
-      expect(isFieldRequired('tasks', 'create', 'priority')).toBe(false);
+    it('should detect required fields for add', () => {
+      expect(isFieldRequired('tasks', 'add', 'title')).toBe(true);
+      expect(isFieldRequired('tasks', 'add', 'description')).toBe(true);
+      expect(isFieldRequired('tasks', 'add', 'priority')).toBe(false);
     });
 
     it('should detect required fields for update', () => {
@@ -738,7 +738,7 @@ describe('Gate Validators', () => {
 
     it('should detect required fields for session', () => {
       expect(isFieldRequired('session', 'start', 'scope')).toBe(true);
-      expect(isFieldRequired('session', 'focus.set', 'taskId')).toBe(true);
+      expect(isFieldRequired('tasks', 'start', 'taskId')).toBe(true);
     });
   });
 });

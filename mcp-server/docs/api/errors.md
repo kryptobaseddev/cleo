@@ -15,7 +15,7 @@ CLEO uses structured exit codes to classify errors and enable programmatic error
   "_meta": {
     "gateway": "cleo_mutate",
     "domain": "tasks",
-    "operation": "create",
+    "operation": "add",
     "version": "1.0.0",
     "timestamp": "2026-02-04T08:24:05Z"
   },
@@ -373,11 +373,11 @@ async function retryOperation(operation, maxAttempts = 3) {
     "code": "E_FOCUS_REQUIRED",
     "exitCode": 38,
     "message": "No task focused. Set focus before continuing.",
-    "fix": "Set focus: cleo_mutate session focus.set {taskId: \"T2908\"}",
+    "fix": "Set focus: cleo_mutate tasks start {taskId: \"T2908\"}",
     "alternatives": [
       {
         "action": "Start session with auto-focus",
-        "command": "cleo_mutate session start {scope: \"epic:T2900\", autoFocus: true}"
+        "command": "cleo_mutate session start {scope: \"epic:T2900\", autoStart: true}"
       }
     ]
   }
@@ -650,7 +650,7 @@ try {
 ```json
 {
   "error": {
-    "fix": "cleo_mutate session focus.set {taskId: \"T2908\"}",
+    "fix": "cleo_mutate tasks start {taskId: \"T2908\"}",
     "alternatives": [...]
   }
 }

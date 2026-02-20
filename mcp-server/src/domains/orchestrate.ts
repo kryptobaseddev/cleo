@@ -61,7 +61,7 @@ interface OrchestrateProgressParams {
 interface OrchestrateStartParams {
   epicId: string;
   name?: string;
-  autoFocus?: boolean;
+  autoStart?: boolean;
 }
 
 interface OrchestrateSpawnParams {
@@ -244,7 +244,7 @@ export class OrchestrateHandler implements DomainHandler {
 
   private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
     switch (operation) {
-      case 'startup':
+      case 'start':
         return this.wrapNativeResult(nativeOrchestrateStartup(params?.epicId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'spawn':
         return this.wrapNativeResult(nativeOrchestrateSpawn(params?.taskId as string, params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
@@ -358,8 +358,6 @@ export class OrchestrateHandler implements DomainHandler {
           return await this.mutateParallelStart(params as unknown as OrchestrateParallelStartParams);
         case 'parallel.end':
           return await this.mutateParallelEnd(params as unknown as OrchestrateParallelEndParams);
-        case 'startup':
-          return await this.mutateStart(params as unknown as OrchestrateStartParams);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -381,7 +379,7 @@ export class OrchestrateHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['status', 'ready', 'next', 'waves', 'context', 'progress', 'skill.list', 'analyze'],
-      mutate: ['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end', 'startup'],
+      mutate: ['start', 'spawn', 'pause', 'resume', 'abort', 'analyze', 'validate', 'parallel.start', 'parallel.end'],
     };
   }
 
@@ -567,7 +565,7 @@ export class OrchestrateHandler implements DomainHandler {
     };
 
     if (params?.name) flags.name = params.name;
-    if (params?.autoFocus) flags['auto-focus'] = true;
+    if (params?.autoStart) flags['auto-start'] = true;
 
     const result = await this.executor!.execute<OrchestrateStartResult>({
       domain: 'orchestrator',

@@ -93,7 +93,7 @@ type Domain =
 ```json
 {
   "domain": "tasks",
-  "operation": "get",
+  "operation": "show",
   "params": {
     "taskId": "T2405"
   }
@@ -104,7 +104,7 @@ type Domain =
 ```json
 {
   "domain": "tasks",
-  "operation": "create",
+  "operation": "add",
   "params": {
     "title": "Implement feature X",
     "description": "Add support for feature X with comprehensive tests",
@@ -124,7 +124,7 @@ type Domain =
   "_meta": {
     "gateway": "cleo_query|cleo_mutate",
     "domain": "tasks",
-    "operation": "get",
+    "operation": "show",
     "version": "1.0.0",
     "timestamp": "2026-02-04T08:24:05Z",
     "duration_ms": 45
@@ -151,7 +151,7 @@ type Domain =
   "_meta": {
     "gateway": "cleo_mutate",
     "domain": "tasks",
-    "operation": "create",
+    "operation": "add",
     "version": "1.0.0",
     "timestamp": "2026-02-04T08:24:05Z"
   },
@@ -253,9 +253,9 @@ Operations follow consistent patterns:
 
 | Pattern | Example | Description |
 |---------|---------|-------------|
-| `get` | `tasks.get` | Retrieve single resource by ID |
+| `show` | `tasks.show` | Retrieve single resource by ID |
 | `list` | `tasks.list` | Retrieve multiple resources with filters |
-| `create` | `tasks.create` | Create new resource |
+| `add` | `tasks.add` | Create new resource |
 | `update` | `tasks.update` | Modify existing resource |
 | `delete` | `tasks.delete` | Remove resource |
 
@@ -281,8 +281,8 @@ Operations follow consistent patterns:
 
 | Pattern | Example | Description |
 |---------|---------|-------------|
-| `focus.get` | `session.focus.get` | Retrieve nested resource |
-| `focus.set` | `session.focus.set` | Update nested resource |
+| `current` | `tasks.current` | Retrieve focused task |
+| `start` | `tasks.start` | Set focused task |
 | `manifest.read` | `research.manifest.read` | Read nested collection |
 | `compliance.record` | `validate.compliance.record` | Record nested data |
 
@@ -398,11 +398,11 @@ All `cleo_query` operations are **naturally idempotent** - calling the same quer
 
 | Operation | Idempotency Strategy |
 |-----------|---------------------|
-| `tasks.create` | Duplicate detection (title + description) |
+| `tasks.add` | Duplicate detection (title + description) |
 | `tasks.update` | Last write wins (with validation) |
 | `tasks.complete` | Idempotent (already done = success) |
 | `session.start` | Scope-based deduplication |
-| `lifecycle.progress` | Stage-based deduplication |
+| `lifecycle.record` | Stage-based deduplication |
 
 **Non-idempotent operations** (use caution):
 - `tasks.delete` - Repeat deletes fail with `E_NOT_FOUND`

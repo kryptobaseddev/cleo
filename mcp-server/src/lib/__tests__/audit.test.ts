@@ -48,7 +48,7 @@ describe('Audit Logger', () => {
         timestamp: new Date().toISOString(),
         sessionId: 'session_test',
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: { title: 'Test Task', description: 'Test Description' },
         result: {
           success: true,
@@ -69,7 +69,7 @@ describe('Audit Logger', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         sessionId: 'session_test',
       });
     });
@@ -107,7 +107,7 @@ describe('Audit Logger', () => {
           timestamp: new Date().toISOString(),
           sessionId: 'session_1',
           domain: 'tasks',
-          operation: 'create',
+          operation: 'add',
           params: {},
           result: { success: true, exitCode: 0, duration: 100 },
           metadata: { source: 'mcp' },
@@ -174,7 +174,7 @@ describe('Audit Logger', () => {
           timestamp: '2026-01-01T10:00:00Z',
           sessionId: 'session_1',
           domain: 'tasks',
-          operation: 'create',
+          operation: 'add',
           params: {},
           result: { success: true, exitCode: 0, duration: 100 },
           metadata: { source: 'mcp' },
@@ -253,7 +253,7 @@ describe('Audit Logger', () => {
           timestamp: '2026-01-01T10:00:00Z',
           sessionId: 'session_1',
           domain: 'tasks',
-          operation: 'create',
+          operation: 'add',
           params: { taskId: 'T100' },
           result: { success: true, exitCode: 0, duration: 100 },
           metadata: { taskId: 'T100', source: 'mcp' },
@@ -271,7 +271,7 @@ describe('Audit Logger', () => {
           timestamp: '2026-01-03T10:00:00Z',
           sessionId: 'session_2',
           domain: 'tasks',
-          operation: 'create',
+          operation: 'add',
           params: { taskId: 'T200' },
           result: { success: true, exitCode: 0, duration: 75 },
           metadata: { taskId: 'T200', source: 'mcp' },
@@ -298,7 +298,7 @@ describe('Audit Logger', () => {
     it('should combine multiple filters', async () => {
       const entries = await queryAudit({
         taskId: 'T100',
-        operation: 'create',
+        operation: 'add',
       });
       expect(entries).toHaveLength(1);
       expect(entries[0].operation).toBe('create');
@@ -313,7 +313,7 @@ describe('Audit Logger', () => {
           timestamp: '2026-01-01T10:00:00Z',
           sessionId: 'session_1',
           domain: 'tasks',
-          operation: 'create',
+          operation: 'add',
           params: {},
           result: { success: true, exitCode: 0, duration: 100 },
           metadata: { source: 'mcp' },
@@ -360,7 +360,7 @@ describe('Audit Logger', () => {
 
     it('should count by operation', async () => {
       const stats = await getAuditStats();
-      expect(stats.byOperation['tasks.create']).toBe(1);
+      expect(stats.byOperation['tasks.add']).toBe(1);
       expect(stats.byOperation['tasks.update']).toBe(1);
       expect(stats.byOperation['session.start']).toBe(1);
     });
@@ -372,7 +372,7 @@ describe('Audit Logger', () => {
         timestamp: new Date().toISOString(),
         sessionId: null,
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: {},
         result: { success: true, exitCode: 0, duration: 100 },
         metadata: { source: 'mcp' },
@@ -398,7 +398,7 @@ describe('Audit Logger', () => {
           timestamp: '2026-01-01T10:00:00Z',
           sessionId: null,
           domain: 'tasks',
-          operation: 'create',
+          operation: 'add',
           params: {},
           result: { success: true, exitCode: 0, duration: 100 },
           metadata: { source: 'mcp' },
@@ -440,7 +440,7 @@ describe('Audit Logger', () => {
         timestamp: new Date().toISOString(),
         sessionId: null,
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: {},
         result: { success: true, exitCode: 0, duration: 100 },
         metadata: { source: 'mcp' },
@@ -478,7 +478,7 @@ describe('Audit Logger', () => {
         timestamp: new Date().toISOString(),
         sessionId: null,
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: {},
         result: { success: true, exitCode: 0, duration: 100 },
         metadata: { source: 'mcp' },
@@ -516,7 +516,7 @@ describe('Audit Logger', () => {
         timestamp: new Date().toISOString(),
         sessionId: null,
         domain: 'tasks',
-        operation: 'create',
+        operation: 'add',
         params: {},
         result: { success: true, exitCode: 0, duration: 100 },
         metadata: { source: 'mcp' },

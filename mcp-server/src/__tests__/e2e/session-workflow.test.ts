@@ -57,8 +57,8 @@ describe('E2E: Session Management Workflow', () => {
   it('should handle focus set, show, and clear', async () => {
     // Focus show should work
     const showResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.get',
+      domain: 'tasks',
+      operation: 'current',
       flags: { json: true },
     });
 
@@ -66,8 +66,8 @@ describe('E2E: Session Management Workflow', () => {
 
     // Focus clear should work
     const clearResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.clear',
+      domain: 'tasks',
+      operation: 'stop',
       flags: { json: true },
     });
 
@@ -186,16 +186,16 @@ describe('E2E: Session Management Workflow', () => {
     context.createdTaskIds.push(taskId);
 
     await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.set',
+      domain: 'tasks',
+      operation: 'start',
       args: [taskId],
       flags: { json: true },
     });
 
     // Clear focus
     const clearResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.clear',
+      domain: 'tasks',
+      operation: 'stop',
       flags: { json: true },
     });
 
@@ -203,8 +203,8 @@ describe('E2E: Session Management Workflow', () => {
 
     // Verify focus cleared
     const getFocusResult = await context.executor.execute({
-      domain: 'session',
-      operation: 'focus.get',
+      domain: 'tasks',
+      operation: 'current',
       flags: { json: true },
     });
 

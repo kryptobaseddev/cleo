@@ -173,7 +173,7 @@ describe('cleo_mutate Gateway Integration', () => {
       // Unarchive
       const result = await context.executor.execute({
         domain: 'tasks',
-        operation: 'unarchive',
+        operation: 'restore',
         args: [taskId],
         flags: { json: true },
       });

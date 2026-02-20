@@ -346,7 +346,6 @@ export class LifecycleHandler implements DomainHandler {
     switch (operation) {
       case 'status':
         return this.wrapNativeResult(nativeLifecycleStatus(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
-      case 'check':
       case 'validate':
         return this.wrapNativeResult(nativeLifecycleCheck(params?.epicId as string, params?.targetStage as string, this.projectRoot), 'cleo_query', operation, startTime);
       case 'history':
@@ -362,7 +361,6 @@ export class LifecycleHandler implements DomainHandler {
 
   private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
     switch (operation) {
-      case 'progress':
       case 'record':
         return this.wrapNativeResult(
           nativeLifecycleProgress(params?.taskId as string || params?.epicId as string, params?.stage as string, params?.status as string, params?.notes as string, this.projectRoot),
@@ -436,8 +434,6 @@ export class LifecycleHandler implements DomainHandler {
           return await this.queryGates(params as unknown as LifecycleGatesParams);
         case 'prerequisites':
           return await this.queryPrerequisites(params as unknown as LifecyclePrerequisitesParams);
-        case 'check':
-          return await this.queryValidate(params as unknown as LifecycleValidateParams);
         default:
           return this.createErrorResponse(
             'cleo_query',
@@ -496,8 +492,6 @@ export class LifecycleHandler implements DomainHandler {
           return await this.mutateGatePass(params as unknown as LifecycleGatePassParams);
         case 'gate.fail':
           return await this.mutateGateFail(params as unknown as LifecycleGateFailParams);
-        case 'progress':
-          return await this.mutateRecord(params as unknown as LifecycleRecordParams);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -518,8 +512,8 @@ export class LifecycleHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['stages', 'status', 'validate', 'report', 'export', 'history', 'gates', 'prerequisites', 'check'],
-      mutate: ['record', 'enforce', 'skip', 'unskip', 'import', 'reset', 'gate.pass', 'gate.fail', 'progress'],
+      query: ['stages', 'status', 'validate', 'report', 'export', 'history', 'gates', 'prerequisites'],
+      mutate: ['record', 'enforce', 'skip', 'unskip', 'import', 'reset', 'gate.pass', 'gate.fail'],
     };
   }
 

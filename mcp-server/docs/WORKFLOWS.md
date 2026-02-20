@@ -37,7 +37,7 @@ if (existing.data.length > 0) {
   // 2. Create new task
   const task = await cleo_mutate({
     domain: "tasks",
-    operation: "create",
+    operation: "add",
     params: {
       title: "Update API documentation",
       description: "Document cleo_query and cleo_mutate operations with comprehensive examples",
@@ -51,14 +51,14 @@ if (existing.data.length > 0) {
   // 3. Get full task details
   const details = await cleo_query({
     domain: "tasks",
-    operation: "get",
+    operation: "show",
     params: { taskId }
   });
 
   // 4. Start work - set focus
   await cleo_mutate({
-    domain: "session",
-    operation: "focus.set",
+    domain: "tasks",
+    operation: "start",
     params: { taskId }
   });
 
@@ -109,10 +109,10 @@ if (existing.data.length > 0) {
 // 1. Create epic
 const epic = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
-  params: {
-    title: "Authentication System",
-    description: "Complete JWT-based authentication with refresh tokens and session management"
+    operation: "add",
+    params: {
+      title: "Authentication System",
+      description: "Complete JWT-based authentication with refresh tokens and session management"
   }
 });
 
@@ -121,10 +121,10 @@ const epicId = epic.data.taskId;
 // 2. Create research task
 const research = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
-  params: {
-    title: "Research auth best practices",
-    description: "Research JWT standards, refresh token patterns, and security best practices",
+    operation: "add",
+    params: {
+      title: "Research auth best practices",
+      description: "Research JWT standards, refresh token patterns, and security best practices",
     parent: epicId
   }
 });
@@ -132,10 +132,10 @@ const research = await cleo_mutate({
 // 3. Create specification task (depends on research)
 const spec = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
-  params: {
-    title: "Auth system specification",
-    description: "Write RFC-style specification for authentication system",
+    operation: "add",
+    params: {
+      title: "Auth system specification",
+      description: "Write RFC-style specification for authentication system",
     parent: epicId,
     depends: [research.data.taskId]
   }
@@ -144,10 +144,10 @@ const spec = await cleo_mutate({
 // 4. Create implementation tasks (depend on spec)
 const impl1 = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
-  params: {
-    title: "Implement JWT generation",
-    description: "Create JWT token generation and validation functions",
+    operation: "add",
+    params: {
+      title: "Implement JWT generation",
+      description: "Create JWT token generation and validation functions",
     parent: epicId,
     depends: [spec.data.taskId]
   }
@@ -155,10 +155,10 @@ const impl1 = await cleo_mutate({
 
 const impl2 = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
-  params: {
-    title: "Implement refresh token flow",
-    description: "Add refresh token rotation and storage",
+    operation: "add",
+    params: {
+      title: "Implement refresh token flow",
+      description: "Add refresh token rotation and storage",
     parent: epicId,
     depends: [spec.data.taskId]
   }
@@ -167,10 +167,10 @@ const impl2 = await cleo_mutate({
 // 5. Create testing task (depends on all implementations)
 const test = await cleo_mutate({
   domain: "tasks",
-  operation: "create",
-  params: {
-    title: "Auth system tests",
-    description: "Write comprehensive test suite for authentication",
+    operation: "add",
+    params: {
+      title: "Auth system tests",
+      description: "Write comprehensive test suite for authentication",
     parent: epicId,
     depends: [impl1.data.taskId, impl2.data.taskId]
   }
@@ -215,12 +215,12 @@ if (blockers.data.length > 0) {
 }
 
 // 2. View full dependency graph
-const deps = await cleo_query({
-  domain: "tasks",
-  operation: "deps",
-  params: {
-    taskId: "T2950",
-    direction: "both"  // upstream and downstream
+  const deps = await cleo_query({
+    domain: "tasks",
+    operation: "depends",
+    params: {
+      taskId: "T2950",
+      direction: "both"  // upstream and downstream
   }
 });
 
@@ -317,7 +317,7 @@ if (sessions.data.length > 0) {
     params: {
       scope: "epic:T2908",
       name: "MCP Server Documentation",
-      autoFocus: true
+      autoStart: true
     }
   });
 }
@@ -370,15 +370,15 @@ const docSession = await cleo_mutate({
 });
 
 // 3. Work on documentation task
-await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
-  params: { taskId: "T2938" }
-});
+  await cleo_mutate({
+    domain: "tasks",
+    operation: "start",
+    params: { taskId: "T2938" }
+  });
 
-// Do documentation work...
+  // Do documentation work...
 
-// 4. Suspend documentation session
+  // 4. Suspend documentation session
 await cleo_mutate({
   domain: "session",
   operation: "suspend",
@@ -394,11 +394,11 @@ await cleo_mutate({
   params: {
     scope: "epic:T2900",
     name: "Code Review",
-    autoFocus: true
-  }
-});
+      autoStart: true
+    }
+  });
 
-// Do code review...
+  // Do code review...
 
 // 6. End review session
 await cleo_mutate({
@@ -435,8 +435,8 @@ await cleo_mutate({
 ```typescript
 // 1. Get current focus
 const currentFocus = await cleo_query({
-  domain: "session",
-  operation: "focus.get"
+  domain: "tasks",
+  operation: "current"
 });
 
 if (currentFocus.data) {
@@ -447,8 +447,8 @@ if (currentFocus.data) {
 
 // 2. Set focus to new task
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2938" }
 });
 
@@ -456,15 +456,15 @@ await cleo_mutate({
 
 // 4. Switch focus to next task
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.set",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T2939" }
 });
 
 // 5. Clear focus temporarily
 await cleo_mutate({
-  domain: "session",
-  operation: "focus.clear"
+  domain: "tasks",
+  operation: "stop"
 });
 
 // 6. View focus history
@@ -489,7 +489,7 @@ console.log("Recent focus changes:", history.data);
 // 1. Initialize orchestration
 const startup = await cleo_mutate({
   domain: "orchestrate",
-  operation: "startup",
+  operation: "start",
   params: { epicId: "T2908" }
 });
 
@@ -559,7 +559,7 @@ async function spawnSequential(epicId) {
     // 2. Check lifecycle prerequisites
     const lifecycle = await cleo_query({
       domain: "lifecycle",
-      operation: "check",
+      operation: "validate",
       params: {
         taskId,
         targetStage: "implementation"
@@ -574,7 +574,7 @@ async function spawnSequential(epicId) {
       for (const stage of lifecycle.data.missingPrerequisites) {
         await cleo_mutate({
           domain: "lifecycle",
-          operation: "progress",
+          operation: "record",
           params: {
             taskId,
             stage,
@@ -670,7 +670,7 @@ async function spawnParallel(epicId) {
       // Check lifecycle
       const lifecycle = await cleo_query({
         domain: "lifecycle",
-        operation: "check",
+        operation: "validate",
         params: { taskId, targetStage: "implementation" }
       });
 
@@ -730,7 +730,7 @@ await spawnParallel("T2908");
 // 1. Query existing research
 const existing = await cleo_query({
   domain: "research",
-  operation: "query",
+  operation: "search",
   params: {
     query: "MCP server architecture",
     confidence: 0.7
@@ -868,7 +868,7 @@ const taskId = "T2945";
 // 1. Research stage
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId,
     stage: "research",
@@ -891,7 +891,7 @@ await cleo_mutate({
 // 3. Specification stage
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId,
     stage: "specification",
@@ -903,7 +903,7 @@ await cleo_mutate({
 // 4. Decomposition stage
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId,
     stage: "decomposition",
@@ -933,7 +933,7 @@ const taskId = "T2945";
 // 1. Check RCSD prerequisites
 const lifecycle = await cleo_query({
   domain: "lifecycle",
-  operation: "check",
+  operation: "validate",
   params: {
     taskId,
     targetStage: "implementation"
@@ -948,7 +948,7 @@ if (!lifecycle.data.passed) {
 // 2. Implementation stage
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId,
     stage: "implementation",
@@ -972,7 +972,7 @@ await cleo_mutate({
 // 4. Validation stage
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId,
     stage: "validation",
@@ -984,7 +984,7 @@ await cleo_mutate({
 // 5. Testing stage
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId,
     stage: "testing",
@@ -1060,7 +1060,7 @@ console.log("Stage reset - all downstream gates also reset");
 // 4. Progress through stages again
 await cleo_mutate({
   domain: "lifecycle",
-  operation: "progress",
+  operation: "record",
   params: {
     taskId,
     stage: "implementation",
@@ -1228,7 +1228,7 @@ const tasks = await cleo_query({
 // Then get full details only for selected task
 const task = await cleo_query({
   domain: "tasks",
-  operation: "get",  // Full details
+  operation: "show",  // Full details
   params: { taskId: tasks.data[0].id }
 });
 ```
@@ -1253,7 +1253,7 @@ if (!exists.data) {
 // 2. Check lifecycle gates
 const lifecycle = await cleo_query({
   domain: "lifecycle",
-  operation: "check",
+  operation: "validate",
   params: {
     taskId: "T2950",
     targetStage: "implementation"
