@@ -18,7 +18,9 @@
     "test:coverage": "vitest run --coverage",
     "lint": "tsc --noEmit",
     "prepare": "npm run build",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "migrate:todos": "node dist/scripts/migrate-todo-to-tasks.js",
+    "cleo:update-status": "node dist/scripts/update-task-status.js"
   },
   "engines": {
     "node": ">=20.0.0"
