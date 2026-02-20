@@ -7,10 +7,10 @@
     "phaseHistory": [],
     "releases": []
   },
-  "lastUpdated": "2026-02-20T13:54:52.498Z",
+  "lastUpdated": "2026-02-20T17:45:24.702Z",
   "_meta": {
     "schemaVersion": "2.10.0",
-    "checksum": "cf787f62f7f1fc88",
+    "checksum": "ad25ce5d3a1c24ab",
     "configVersion": "1.0.0"
   },
   "focus": {
@@ -3459,7 +3459,7 @@
     {
       "id": "T2514",
       "title": "DOC: Make /commands page dynamic from COMMANDS-INDEX.json",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2497",
@@ -3474,6 +3474,9 @@
         "enhancement",
         "mintlify"
       ],
+      "notes": [
+        "2026-02-20 17:45:24 UTC: Cancelled: COMMANDS-INDEX.json is deprecated (2026-02-20). Superseded by docs/specs/CLEO-OPERATIONS-REFERENCE.md. See T4778 for consumer migration plan."
+      ],
       "acceptance": [
         "No manual sync required"
       ],
@@ -3481,7 +3484,8 @@
         "docs/COMMANDS-INDEX.json"
       ],
       "createdAt": "2026-01-27T08:01:46Z",
-      "updatedAt": "2026-01-27T08:01:46Z"
+      "updatedAt": "2026-02-20T17:45:24.702Z",
+      "completedAt": "2026-02-20T17:45:24.702Z"
     },
     {
       "id": "T2515",
@@ -7295,6 +7299,21 @@
       "updatedAt": "2026-02-19T22:02:37.386Z"
     },
     {
+      "id": "T008",
+      "title": "Fix runtime library dependency coupling",
+      "status": "pending",
+      "priority": "critical",
+      "positionVersion": 0,
+      "description": "HIGH RISK: Scripts in ~/.claude-todo/scripts/ source libraries at runtime (source $CLAUDE_TODO_HOME/lib/logging.sh). Fragility: partial install, mismatched versions, wrong CLAUDE_TODO_HOME causes cryptic failures. FIX OPTIONS: Bundle lib functions into scripts, add version checking between scripts and libs, or copy libs to project level like schemas.",
+      "labels": [
+        "fragile-coupling",
+        "critical"
+      ],
+      "createdAt": "2025-12-06T04:50:47Z",
+      "updatedAt": "2026-02-20T13:54:52.497Z",
+      "completedAt": "2025-12-06T07:17:30Z"
+    },
+    {
       "id": "T4747",
       "title": "EPIC: Naming Standardization - Eliminate 'Todo' Terminology",
       "status": "pending",
@@ -7556,19 +7575,281 @@
       "updatedAt": "2026-02-19T22:37:48.987Z"
     },
     {
-      "id": "T008",
-      "title": "Fix runtime library dependency coupling",
+      "id": "T4763",
+      "title": "EPIC: CLEO BRAIN & Memory System — Unified Tracking, Core Migration & Expansion",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "size": "medium",
+      "position": 4743,
+      "positionVersion": 0,
+      "description": "Single tracking epic for ALL BRAIN and memory system work. Consolidates fragmented work from cancelled epics (T2975, T3156, T2968). Key objectives: (1) Refactor Brain Bootstrap from src/mcp/engine/orchestrate-engine.ts to src/core/brain/ per shared-core architecture. (2) Refactor Decision/Assumption recording from src/mcp/engine/session-engine.ts to src/core/. (3) Design and implement ~/.cleo/memory/ layer with formal schemas. (4) Track future Pattern Memory, Learning Memory, and Reasoning Engine work. All business logic MUST live in src/core/ — CLI and MCP are thin wrappers only. See linked agent outputs and child tasks for full historical context and implementation plan.",
+      "notes": [
+        "2026-02-20 16:50:56 UTC: HISTORICAL EPICS (cancelled/archived): T2975 (Consolidation Sprint), T2968 (Strategic Inflection Review), T3156 (Claude Code Integration, cancelled 2026-02-16), T2954-T2967 (Nexus implementation chain, all done). SPECS: docs/specs/PORTABLE-BRAIN-SPEC.md (v1.1.0 STABLE), docs/specs/CLEO-BRAIN-SPECIFICATION.md (v1.1.0 DRAFT). ORPHANED TASK: T3171 (Design ~/.cleo/memory/ layer) still pending under cancelled T3156.",
+        "2026-02-20 16:51:05 UTC: RESEARCH OUTPUTS (claudedocs/agent-outputs/): T2971-brain-vision-requirements.md, T2996-brain-vision-alignment.md, T3002-brain-specification.md, T2744-memory-trees-concept.md, T2747-memory-trees-viability.md, 2026-02-06_session-handoff-brain-roadmap.md, T2995-graph-rag-nexus-unified-architecture.md, T2969-cleo-current-state-assessment.md, T2970-cognee-architecture-analysis.md, T2972-strategic-direction-consensus.md, T2672-provenance-tracking.md, T2709-provenance-validation-docs.md, pageindex-rag-research.md",
+        "2026-02-20 16:51:15 UTC: EXISTING CODE INVENTORY: (IN CORE) src/core/tasks/graph-rag.ts (313 lines, semantic discovery), src/core/tasks/graph-ops.ts (209 lines, dependency waves/critical path), src/core/tasks/graph-cache.ts (161 lines, TTL cache), src/core/nexus/ (~800 lines, cross-project), src/core/release/provenance.ts (308 lines, SLSA attestation). (NEEDS CORE MIGRATION) src/mcp/engine/orchestrate-engine.ts (brain bootstrap, critical path, unblock), src/mcp/engine/session-engine.ts (decision/assumption recording, context drift). TESTS: src/mcp/__tests__/e2e/brain-operations.test.ts (1087 lines, 32 tests for T4478).",
+        "2026-02-20 16:52:42 UTC: NOT YET IMPLEMENTED (future phases, tracked here for completeness): Session Context Persistence (session-context.json), cleo reason why/similar/impact commands (Reasoning Engine), cleo intelligence commands (Adaptive Validation), Vector Embeddings/SQLite-vec semantic search, Memory Consolidation pipeline, Federated Agents, Quality Prediction ML model. These map to BRAIN spec Phase 2-3 and will be decomposed into child tasks when prerequisites complete."
+      ],
+      "createdAt": "2026-02-20T16:50:41.667Z",
+      "updatedAt": "2026-02-20T16:52:42.346Z"
+    },
+    {
+      "id": "T4764",
+      "title": "Review & refactor Brain Bootstrap from MCP engine to src/core/brain/",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "description": "Extract brain bootstrap logic from src/mcp/engine/orchestrate-engine.ts into src/core/brain/. Functions to move: orchestrateBootstrap() (BrainState with fast/full/complete speed tiers), orchestrateCriticalPath() (dependency chain analysis), orchestrateUnblockOpportunities() (high-impact task completions). Create src/core/brain/bootstrap.ts, critical-path.ts, unblock.ts (or similar). Update MCP engine to be thin wrapper calling core. Migrate tests from src/mcp/__tests__/e2e/brain-operations.test.ts to src/core/brain/__tests__/. Zero test coverage loss.",
+      "createdAt": "2026-02-20T16:51:32.389Z",
+      "updatedAt": "2026-02-20T16:51:32.389Z"
+    },
+    {
+      "id": "T4765",
+      "title": "Review & refactor Decision/Assumption Recording from MCP engine to src/core/",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "description": "Extract decision and assumption recording logic from src/mcp/engine/session-engine.ts into src/core/ (e.g. src/core/audit/ or src/core/memory/). Functions to move: sessionRecordDecision() (appends to .cleo/audit/decisions.jsonl), sessionRecordAssumption() (appends to .cleo/audit/assumptions.jsonl), sessionDecisionLog() (reads/filters by sessionId and taskId), sessionContextDrift() (calculates drift score 0-100). Update MCP engine to be thin wrapper calling core. Ensure both CLI and MCP can call the same core functions. Migrate related tests.",
+      "createdAt": "2026-02-20T16:51:33.449Z",
+      "updatedAt": "2026-02-20T16:51:33.449Z"
+    },
+    {
+      "id": "T4766",
+      "title": "Design ~/.cleo/memory/ layer with formal JSON schemas",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "description": "Design the memory layer directory structure and create formal JSON schemas. Supersedes orphaned T3171 (under cancelled T3156). Deliverables: (1) schemas/session-context.schema.json for persistent conversation context. (2) schemas/decision-memory.schema.json for architectural decisions with rationale. (3) schemas/pattern-memory.schema.json for recognized workflow patterns. (4) schemas/learning-memory.schema.json for accumulated insights. Reference CLEO-BRAIN-SPECIFICATION.md Section 4 for draft schemas. Define .cleo/memory/ directory layout. Must align with existing .cleo/audit/ decisions.jsonl format.",
+      "createdAt": "2026-02-20T16:51:34.487Z",
+      "updatedAt": "2026-02-20T16:51:34.487Z"
+    },
+    {
+      "id": "T4767",
+      "title": "Audit & validate existing Graph-RAG, Graph Ops, and Nexus implementations",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "description": "Comprehensive audit of all graph-based systems already in src/core/. Validate: (1) src/core/tasks/graph-rag.ts - 4 discovery algorithms, test coverage, accuracy of scoring. (2) src/core/tasks/graph-ops.ts - wave computation, next task selection, critical path. (3) src/core/tasks/graph-cache.ts - TTL caching, invalidation correctness. (4) src/core/nexus/ - registry, permissions, query, deps, CLI. Determine what needs improvement vs what is production-ready. Document findings as research output linking to this epic.",
+      "createdAt": "2026-02-20T16:51:59.285Z",
+      "updatedAt": "2026-02-20T16:51:59.285Z"
+    },
+    {
+      "id": "T4768",
+      "title": "Implement Pattern Memory system (patterns.jsonl extraction and query)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "description": "Build the pattern memory system defined in CLEO-BRAIN-SPECIFICATION.md Section 2.1. Implement: (1) Pattern extraction from completed epics and tasks - identify workflow patterns, blocker patterns, success/failure patterns. (2) Storage in .cleo/memory/patterns.jsonl (append-only JSONL). (3) Query interface for pattern recall. (4) Pattern types: workflow, blocker, success, failure, optimization. Depends on memory layer schemas task. Reference research: T2744-memory-trees-concept.md, T2747-memory-trees-viability.md.",
+      "depends": [
+        "T4766"
+      ],
+      "createdAt": "2026-02-20T16:52:19.529Z",
+      "updatedAt": "2026-02-20T16:52:36.437Z"
+    },
+    {
+      "id": "T4769",
+      "title": "Implement Learning Memory system (learning.jsonl insights and application)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "description": "Build the learning memory system defined in CLEO-BRAIN-SPECIFICATION.md Section 2.1. Implement: (1) Insight extraction from historical task data (completion rates, blocker patterns, epic sizes). (2) Storage in .cleo/memory/learning.jsonl (append-only JSONL). (3) Confidence scoring for learned insights. (4) Application engine - surface relevant learnings when creating/planning tasks. Depends on memory layer schemas task. Reference: T2744-memory-trees-concept.md.",
+      "depends": [
+        "T4766"
+      ],
+      "createdAt": "2026-02-20T16:52:20.556Z",
+      "updatedAt": "2026-02-20T16:52:37.438Z"
+    },
+    {
+      "id": "T4770",
+      "title": "Implement memory CLI commands (cleo memory store/recall/search/consolidate)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "description": "Build CLI commands for the memory system defined in CLEO-BRAIN-SPECIFICATION.md Section 2.1.4. Commands: (1) cleo memory store --type decision/pattern/learning --content '...' --rationale '...' --linked-task T####. (2) cleo memory recall 'query string' - natural language memory retrieval. (3) cleo memory search 'query' --type decision --date-range '2026-01'. (4) cleo memory consolidate --period '2026-Q1'. All commands delegate to src/core/ memory modules. MCP domain counterpart needed too. Depends on core migration and schema tasks.",
+      "depends": [
+        "T4764",
+        "T4765",
+        "T4766"
+      ],
+      "createdAt": "2026-02-20T16:52:21.592Z",
+      "updatedAt": "2026-02-20T16:52:38.468Z"
+    },
+    {
+      "id": "T4771",
+      "title": "Update BRAIN specification to reflect current implementation state",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "description": "Sync docs/specs/CLEO-BRAIN-SPECIFICATION.md (currently DRAFT v1.1.0) with actual implementation reality. Update: (1) Current State sections to reflect TS implementations (not v0.80.0 Bash era). (2) Mark which Phase 1 items are actually done (decision recording, context drift, brain bootstrap). (3) Correct file paths to TypeScript locations. (4) Update PORTABLE-BRAIN-SPEC.md Section 7 for shared-core compliance status after refactoring. (5) Move spec from DRAFT to an accurate status. Reference T4565/T4566 architecture validation report.",
+      "createdAt": "2026-02-20T16:52:22.635Z",
+      "updatedAt": "2026-02-20T16:52:22.635Z"
+    },
+    {
+      "id": "T4772",
+      "title": "EPIC: MCP Domain Consolidation (11 to 5 Intent-Based Domains)",
       "status": "pending",
       "priority": "critical",
+      "type": "task",
+      "size": "medium",
+      "position": 4744,
       "positionVersion": 0,
-      "description": "HIGH RISK: Scripts in ~/.claude-todo/scripts/ source libraries at runtime (source $CLAUDE_TODO_HOME/lib/logging.sh). Fragility: partial install, mismatched versions, wrong CLAUDE_TODO_HOME causes cryptic failures. FIX OPTIONS: Bundle lib functions into scripts, add version checking between scripts and libs, or copy libs to project level like schemas.",
+      "description": "Consolidate 11 MCP domains (tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers) into 5 intent-based domains (work, plan, check, admin, extend). Current architecture has 212 total operations with confirmed redundancies: tasks.uncancel duplicates system.uncancel, tasks.restore duplicates tasks.uncancel (same engine function), system.compliance overlaps validate.compliance.summary, orchestrate.skill.list duplicates skills.list, system.provider.* duplicates providers.* (4 ops), session.cleanup vs session.gc confusion. System domain is bloated at 40 operations containing leaked task ops (labels, roadmap, compliance, uncancel), CAAMP provider ops, observability, config, and data management. Analysis shows only 16 operations cover 95% of agent sessions; 77.9% are rarely used. Goal: CLEAN, DRY, intuitive domains wrapping src/core/ with 1:1 MCP-CLI-Core mapping.",
       "labels": [
-        "fragile-coupling",
-        "critical"
+        "domain-consolidation"
       ],
-      "createdAt": "2025-12-06T04:50:47Z",
-      "updatedAt": "2026-02-20T13:54:52.497Z",
-      "completedAt": "2025-12-06T07:17:30Z"
+      "createdAt": "2026-02-20T17:42:51.768Z",
+      "updatedAt": "2026-02-20T17:42:51.768Z"
+    },
+    {
+      "id": "T4773",
+      "title": "Eliminate confirmed operation duplicates across domains",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "description": "Remove 8+ duplicate operations that have identical or near-identical implementations: (1) tasks.uncancel and tasks.restore both call nativeTaskRestore() - keep restore, remove uncancel from tasks domain. (2) system.uncancel has its own shallow implementation that differs from tasks - consolidate into single tasks.restore with dryRun support. (3) orchestrate.skill.list duplicates skills.list - remove from orchestrate, delegate to skills domain. (4) system.provider.list/get/detect/installed duplicates providers.list/detect/inject.status - remove from system domain. Each removal requires: update gateway arrays, domain handler switch statements, capability matrix, tests, and documentation.",
+      "labels": [
+        "domain-consolidation"
+      ],
+      "createdAt": "2026-02-20T17:43:06.095Z",
+      "updatedAt": "2026-02-20T17:43:06.095Z"
+    },
+    {
+      "id": "T4774",
+      "title": "Resolve compliance operation overlap (system vs validate)",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "description": "system.compliance is a superset supporting summary/violations/trend/audit/sync subcommands. validate.compliance.summary and validate.compliance.violations are subsets. Decision needed: either (a) move all compliance to validate domain and remove from system, or (b) keep system.compliance as the single entry point and remove validate.compliance.*. Recommendation: compliance is a validation concern, consolidate into validate domain. This requires updating gateway arrays, domain handlers, capability matrix, and all callers.",
+      "labels": [
+        "domain-consolidation"
+      ],
+      "createdAt": "2026-02-20T17:43:10.163Z",
+      "updatedAt": "2026-02-20T17:43:10.163Z"
+    },
+    {
+      "id": "T4775",
+      "title": "Decompose bloated system domain (40 ops) into focused domains",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "description": "The system domain has 40 operations mixing 7 distinct concerns: (1) Core system: health, version, init, diagnostics - keep in system/admin. (2) Config: config.get, config.set - keep in system/admin. (3) Data management: backup, restore, migrate, cleanup, audit, sync - should be own namespace or admin.data.*. (4) Observability: context, metrics, stats, log, dash, sequence - should be admin.observe.* or similar. (5) Leaked task ops: labels, roadmap, compliance, archive.stats, safestop, uncancel - move to proper domains. (6) CAAMP provider ops: provider.*, mcp.*, injection.* - move to providers/extend domain. (7) Background jobs: job.status, job.list, job.cancel - keep in system/admin. Analysis: system.labels belongs in tasks domain, system.roadmap belongs in tasks or orchestrate, system.compliance belongs in validate, system.archive.stats belongs in tasks, system.uncancel belongs in tasks.",
+      "labels": [
+        "domain-consolidation"
+      ],
+      "createdAt": "2026-02-20T17:43:17.099Z",
+      "updatedAt": "2026-02-20T17:43:17.099Z"
+    },
+    {
+      "id": "T4776",
+      "title": "Design and spec the 5 intent-based domain model",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "description": "Create formal spec for the proposed 5-domain model: (1) WORK domain: tasks CRUD, hierarchy, dependencies, focus (start/stop/current), analysis (next, analyze, complexity), labels, relationships - merges current tasks + relevant system ops. (2) PLAN domain: sessions, orchestration, lifecycle pipeline, research - merges session + orchestrate + lifecycle + research. (3) CHECK domain: validation, compliance, testing, protocol enforcement, coherence - merges validate + relevant system.compliance. (4) ADMIN domain: system health/version/init, config, backup/restore/migrate, observability (stats/dash/log/jobs), release pipeline - merges system core + release. (5) EXTEND domain: skills management, provider management, issues/bug reports - merges skills + providers + issues. Spec must include: operation mapping table (old domain.op to new domain.op), migration strategy, backward compatibility aliases, progressive disclosure levels per new domain.",
+      "labels": [
+        "domain-consolidation"
+      ],
+      "createdAt": "2026-02-20T17:43:24.397Z",
+      "updatedAt": "2026-02-20T17:43:24.397Z"
+    },
+    {
+      "id": "T4777",
+      "title": "Clarify session.cleanup vs session.gc semantics",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "description": "session.cleanup does structural housekeeping (moves ended/suspended sessions to history, removes archived, cleans stale todoFile refs). session.gc does age-based expiration (marks stale active sessions as ended, removes old sessions). These are complementary but the naming is confusing for agents. Decision needed: (a) merge into single session.gc with mode parameter, (b) rename session.cleanup to session.maintain or session.housekeep for clarity, or (c) keep both but document clearly in CLEO-OPERATIONS-REFERENCE.md. Recommendation: merge into session.gc with type=structural|age-based parameter.",
+      "labels": [
+        "domain-consolidation"
+      ],
+      "createdAt": "2026-02-20T17:43:29.279Z",
+      "updatedAt": "2026-02-20T17:43:29.279Z"
+    },
+    {
+      "id": "T4778",
+      "title": "Migrate COMMANDS-INDEX.json consumers to CLEO-OPERATIONS-REFERENCE.md",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "description": "COMMANDS-INDEX.json is a Bash-era artifact tied to ###CLEO script headers. 6 production source files depend on it: src/cli/commands/commands.ts (cleo commands), src/cli/commands/docs.ts (drift detection), src/core/validation/docs-sync.ts (detectDrift), scripts/commands.sh, lib/validation/docs-sync.sh, lib/ui/command-registry.sh. Plus 3 dev tools and 2 test files. Migration plan: (1) Rewrite cleo commands to read from TypeScript command registrations (Commander.js program) instead of JSON file. (2) Rewrite drift detection to compare CLI registrations against MCP gateway arrays. (3) Update or remove Bash consumers (they are deprecated anyway). (4) Remove COMMANDS-INDEX.json from git after all consumers migrated. The canonical reference is now docs/specs/CLEO-OPERATIONS-REFERENCE.md.",
+      "labels": [
+        "domain-consolidation"
+      ],
+      "createdAt": "2026-02-20T17:43:35.919Z",
+      "updatedAt": "2026-02-20T17:43:35.919Z"
+    },
+    {
+      "id": "T4779",
+      "title": "Implement backward-compatible domain aliases during migration",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "description": "During the 11-to-5 domain migration, agents with cached instructions will still send requests to old domain names (e.g., domain='research' instead of domain='plan'). The gateway router must accept old domain names as aliases for at least 2 major versions. Implementation: add alias map to router.ts that transparently redirects old domain names to new ones. Emit deprecation warnings in response _meta. Track alias usage in metrics to determine when safe to remove. This is critical for zero-downtime migration.",
+      "labels": [
+        "domain-consolidation"
+      ],
+      "createdAt": "2026-02-20T17:43:40.322Z",
+      "updatedAt": "2026-02-20T17:43:40.322Z"
     }
   ]
 }

@@ -302,8 +302,8 @@ describe('Query Gateway', () => {
       expect(researchOps).toContain('list');
     });
 
-    it('should support search operation', () => {
-      expect(researchOps).toContain('search');
+    it('should support find operation', () => {
+      expect(researchOps).toContain('find');
     });
 
     it('should support pending operation', () => {

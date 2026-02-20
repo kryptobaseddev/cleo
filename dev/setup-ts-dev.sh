@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# CLEO TypeScript Development Setup
+# CLEO Development Setup
 #
-# Sets up local development environment by building the TypeScript source
-# and creating symlinks so that `cleo` and `cleo-mcp` commands point to
-# the local build output.
+# Sets up local development environment using `npm link` so that `cleo`,
+# `ct`, and `cleo-mcp` commands resolve through npm's global bin — the same
+# mechanism production `npm install -g` uses.
+#
+# This ensures dev mode exercises the same binary resolution path as
+# production, avoiding symlink-chain bugs that only appear on install.
 #
 # Usage:
-#   npm run dev:setup    # Via npm script
-#   bash dev/setup-ts-dev.sh   # Direct invocation
+#   npm run dev:setup              # Via npm script
+#   bash dev/setup-ts-dev.sh       # Direct invocation
+#   bash dev/setup-ts-dev.sh --clean  # Remove old manual symlinks first
+#
+# Teardown:
+#   bash dev/teardown-dev.sh       # Unlink and optionally install production
 #
 # @task T4583
 
@@ -33,33 +40,29 @@ warn()    { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 success() { echo -e "${GREEN}[OK]${RESET} $*"; }
 
-# Check prerequisites
+# --- Prerequisites -----------------------------------------------------------
+
 check_prerequisites() {
-    # Check Node.js
     if ! command -v node >/dev/null 2>&1; then
         error "Node.js is required but not found"
         echo "Install: https://nodejs.org/ (>= ${NODE_MIN_VERSION})"
         exit 1
     fi
 
-    local node_version
+    local node_version node_major
     node_version=$(node -v 2>/dev/null | sed 's/^v//')
-    local node_major
     node_major=$(echo "$node_version" | cut -d. -f1)
 
     if [[ "$node_major" -lt "$NODE_MIN_VERSION" ]]; then
         error "Node.js v${node_version} is too old. Need >= ${NODE_MIN_VERSION}."
-        echo "Update: nvm install ${NODE_MIN_VERSION}"
         exit 1
     fi
 
-    # Check npm
     if ! command -v npm >/dev/null 2>&1; then
         error "npm is required but not found"
         exit 1
     fi
 
-    # Check package.json exists
     if [[ ! -f "$REPO_DIR/package.json" ]]; then
         error "package.json not found in $REPO_DIR"
         echo "Are you running this from the CLEO repository?"
@@ -69,40 +72,39 @@ check_prerequisites() {
     success "Prerequisites: Node.js v${node_version}, npm $(npm -v)"
 }
 
-# Detect and back up legacy bash-based installation
-migrate_legacy() {
-    # Check for old bash-based wrapper
-    if [[ -f "$CLEO_HOME/cleo" ]] && [[ -d "$CLEO_HOME/scripts" ]] && ls "$CLEO_HOME/scripts/"*.sh >/dev/null 2>&1; then
-        warn "Legacy bash-based CLEO installation detected"
+# --- Clean up legacy manual symlinks -----------------------------------------
 
-        # Preserve user data files
-        local data_files=("todo.json" "todo-archive.json" "todo-log.jsonl" "config.json" ".context-state.json")
-        local backup_dir="$CLEO_HOME/.legacy-backup-$(date +%Y%m%d%H%M%S)"
-        mkdir -p "$backup_dir"
+clean_legacy_symlinks() {
+    local cleaned=false
 
-        info "Backing up user data to $backup_dir..."
-        for f in "${data_files[@]}"; do
-            if [[ -f "$CLEO_HOME/$f" ]]; then
-                cp "$CLEO_HOME/$f" "$backup_dir/$f"
+    # Remove old manual symlinks in ~/.local/bin that bypass npm
+    for bin in "$HOME/.local/bin/cleo" "$HOME/.local/bin/ct" "$HOME/.local/bin/cleo-mcp"; do
+        if [[ -L "$bin" ]]; then
+            local target
+            target=$(readlink "$bin" 2>/dev/null || true)
+            # Only remove if it points to ~/.cleo/bin (old manual chain)
+            if [[ "$target" == *".cleo/bin"* ]]; then
+                rm -f "$bin"
+                cleaned=true
+                info "Removed legacy symlink: $bin -> $target"
             fi
-        done
+        fi
+    done
 
-        # Back up metrics
-        [[ -d "$CLEO_HOME/metrics" ]] && cp -r "$CLEO_HOME/metrics" "$backup_dir/metrics"
+    # Remove old ~/.cleo/bin directory (no longer needed)
+    if [[ -d "$CLEO_HOME/bin" ]]; then
+        rm -rf "$CLEO_HOME/bin"
+        cleaned=true
+        info "Removed legacy ~/.cleo/bin directory"
+    fi
 
-        # Remove old bash-specific directories
-        for d in scripts lib bin; do
-            [[ -d "$CLEO_HOME/$d" ]] && rm -rf "$CLEO_HOME/$d"
-        done
-
-        # Remove old bash wrapper
-        [[ -f "$CLEO_HOME/cleo" ]] && rm -f "$CLEO_HOME/cleo"
-
-        success "Legacy installation backed up and cleaned"
+    if $cleaned; then
+        success "Legacy manual symlinks cleaned up"
     fi
 }
 
-# Install npm dependencies
+# --- Install & Build ---------------------------------------------------------
+
 install_deps() {
     info "Installing npm dependencies..."
     cd "$REPO_DIR"
@@ -113,12 +115,10 @@ install_deps() {
     fi
 }
 
-# Build TypeScript
 build() {
     info "Building TypeScript system..."
     cd "$REPO_DIR" && npm run build
 
-    # Verify build output exists
     if [[ ! -f "$REPO_DIR/dist/cli/index.js" ]]; then
         error "Build failed: dist/cli/index.js not found"
         exit 1
@@ -131,96 +131,123 @@ build() {
     success "Build complete"
 }
 
-# Create symlinks for dev mode
-setup_links() {
-    info "Setting up development symlinks..."
+# --- npm link (replaces manual symlinks) -------------------------------------
 
-    # Create bin directory in CLEO_HOME
-    mkdir -p "$CLEO_HOME/bin"
+setup_npm_link() {
+    info "Linking package globally via npm link..."
+    cd "$REPO_DIR"
 
-    # Symlink built binaries into CLEO_HOME/bin
-    ln -sf "$REPO_DIR/dist/cli/index.js" "$CLEO_HOME/bin/cleo"
-    ln -sf "$REPO_DIR/dist/mcp/index.js" "$CLEO_HOME/bin/cleo-mcp"
-    chmod +x "$CLEO_HOME/bin/cleo" "$CLEO_HOME/bin/cleo-mcp"
+    # npm link creates symlinks in the npm global bin directory for each
+    # entry in package.json "bin". This is the same mechanism that
+    # `npm install -g @cleocode/cleo` uses, ensuring dev == production.
+    npm link 2>&1 | while IFS= read -r line; do
+        info "  $line"
+    done
 
-    # Link to PATH location
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$CLEO_HOME/bin/cleo" "$HOME/.local/bin/cleo"
-    ln -sf "$CLEO_HOME/bin/cleo" "$HOME/.local/bin/ct"
-    ln -sf "$CLEO_HOME/bin/cleo-mcp" "$HOME/.local/bin/cleo-mcp"
+    local npm_bin
+    npm_bin=$(npm config get prefix)/bin
 
-    # Check PATH
-    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-        warn "\$HOME/.local/bin is not in your PATH"
-        echo "  Add to your shell profile: export PATH=\"\$HOME/.local/bin:\$PATH\""
-    fi
-
-    success "Symlinks created"
+    success "npm link complete (binaries in $npm_bin)"
 }
 
-# Write VERSION file
+# --- VERSION marker ----------------------------------------------------------
+
 write_version() {
     local version
     version=$(node -e "import('$REPO_DIR/package.json', { with: { type: 'json' } }).then(m => console.log(m.default.version))" 2>/dev/null || \
               node -e "console.log(require('$REPO_DIR/package.json').version)" 2>/dev/null || \
               echo "unknown")
 
+    mkdir -p "$CLEO_HOME"
     cat > "$CLEO_HOME/VERSION" << EOF
 ${version}
-mode=dev-ts
+mode=dev
 source=${REPO_DIR}
 installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
-    success "VERSION: ${version} (dev-ts mode)"
+    success "VERSION: ${version} (dev mode, npm link)"
 }
 
-# Verify installation
+# --- Verify ------------------------------------------------------------------
+
 verify() {
     info "Verifying installation..."
 
     local ok=true
+    local npm_bin
+    npm_bin=$(npm config get prefix)/bin
 
-    if command -v cleo >/dev/null 2>&1; then
-        success "cleo is in PATH"
-    else
-        warn "cleo not found in PATH (restart shell or check PATH)"
-        ok=false
-    fi
+    for cmd in cleo ct cleo-mcp; do
+        local cmd_path
+        cmd_path=$(command -v "$cmd" 2>/dev/null || true)
+        if [[ -n "$cmd_path" ]]; then
+            # Check it resolves through npm global (not old ~/.local/bin)
+            if [[ "$cmd_path" == *"$npm_bin"* ]] || [[ "$(readlink -f "$cmd_path" 2>/dev/null)" == *"$REPO_DIR"* ]]; then
+                success "$cmd -> $cmd_path (dev)"
+            else
+                warn "$cmd found at $cmd_path but does NOT point to this repo"
+                warn "  You may have a production install shadowing dev mode"
+                warn "  Run: npm uninstall -g @cleocode/cleo && npm run dev:setup"
+                ok=false
+            fi
+        else
+            warn "$cmd not found in PATH"
+            if [[ ":$PATH:" != *":$npm_bin:"* ]]; then
+                warn "  npm global bin ($npm_bin) is not in your PATH"
+                warn "  Add to shell profile: export PATH=\"$npm_bin:\$PATH\""
+            fi
+            ok=false
+        fi
+    done
 
-    if command -v cleo-mcp >/dev/null 2>&1; then
-        success "cleo-mcp is in PATH"
-    else
-        warn "cleo-mcp not found in PATH (restart shell or check PATH)"
-        ok=false
-    fi
-
-    if command -v ct >/dev/null 2>&1; then
-        success "ct alias is in PATH"
-    else
-        warn "ct alias not found in PATH"
-    fi
-
+    echo ""
     if $ok; then
-        echo ""
         success "Dev mode active. Run 'cleo version' to verify."
-    else
         echo ""
-        warn "Some binaries not in PATH. Restart your shell and try again."
+        info "Workflow:"
+        info "  Edit source in src/ -> npm run build -> changes are live"
+        info "  Or use: npm run dev:watch  (auto-rebuild on change)"
+        echo ""
+        info "To switch to production: bash dev/teardown-dev.sh"
+    else
+        warn "Some binaries not found. Restart your shell and try again."
     fi
 }
 
-# Main
+# --- Main --------------------------------------------------------------------
+
 main() {
+    local clean=false
+    for arg in "$@"; do
+        case "$arg" in
+            --clean) clean=true ;;
+            --help|-h)
+                echo "Usage: bash dev/setup-ts-dev.sh [--clean]"
+                echo ""
+                echo "Options:"
+                echo "  --clean   Remove legacy manual symlinks before setup"
+                echo ""
+                echo "Sets up dev mode using npm link (same path as production npm install -g)."
+                exit 0
+                ;;
+        esac
+    done
+
     echo ""
-    info "CLEO TypeScript Development Setup"
+    info "CLEO Development Setup (npm link)"
     echo ""
 
     check_prerequisites
-    migrate_legacy
+
+    # Always clean legacy symlinks on first run or with --clean
+    if $clean || [[ -d "$CLEO_HOME/bin" ]]; then
+        clean_legacy_symlinks
+    fi
+
     install_deps
     build
-    setup_links
+    setup_npm_link
     write_version
     verify
 }

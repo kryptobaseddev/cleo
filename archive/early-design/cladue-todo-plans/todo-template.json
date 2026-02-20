@@ -1,0 +1,58 @@
+{
+  "$schema": "./todo-schema.json",
+  "version": "2.0.0",
+  "project": "YOUR_PROJECT_NAME",
+  "lastUpdated": "YYYY-MM-DD",
+
+  "focus": {
+    "currentTask": null,
+    "blockedUntil": null,
+    "sessionNote": null,
+    "nextAction": null
+  },
+
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "YOUR_FIRST_TASK",
+      "status": "pending",
+      "priority": "high",
+      "phase": "setup",
+      "description": "Describe what needs to be done",
+      "files": [],
+      "acceptance": [
+        "First acceptance criterion",
+        "Second acceptance criterion"
+      ],
+      "labels": ["feature"],
+      "createdAt": "YYYY-MM-DD"
+    }
+  ],
+
+  "phases": {
+    "setup": {
+      "order": 1,
+      "name": "Setup & Foundation"
+    },
+    "core": {
+      "order": 2,
+      "name": "Core Features"
+    },
+    "polish": {
+      "order": 3,
+      "name": "Polish & Launch"
+    }
+  },
+
+  "labels": {
+    "feature": ["T001"],
+    "bug": [],
+    "security": [],
+    "urgent": []
+  },
+
+  "archived": {
+    "count": 0,
+    "lastArchived": null
+  }
+}

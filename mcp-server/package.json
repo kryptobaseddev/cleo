@@ -1,7 +1,8 @@
 {
   "name": "@cleocode/mcp-server",
   "version": "2026.2.5",
-  "description": "CLEO MCP Server - 2-gateway CQRS interface for CLEO task management",
+  "description": "DEPRECATED: Use @cleocode/cleo instead. The MCP server is now included in the main package.",
+  "deprecated": "This package has been merged into @cleocode/cleo. Install @cleocode/cleo for both CLI and MCP server.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

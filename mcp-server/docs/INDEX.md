@@ -165,7 +165,7 @@ const newTask = await cleo_mutate({
 **Query (6)**:
 - `research.show` - Entry details
 - `research.list` - List entries
-- `research.search` - Search research
+- `research.find` - Find research
 - `research.pending` - Pending entries
 - `research.stats` - Statistics
 - `research.manifest.read` - Read manifest

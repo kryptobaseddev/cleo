@@ -89,7 +89,7 @@ export interface SkillsShowParams {
 }
 export type SkillsShowResult = SkillDetail;
 
-// skills.search
+// skills.find
 export interface SkillsSearchParams {
   query: string;
   limit?: number;

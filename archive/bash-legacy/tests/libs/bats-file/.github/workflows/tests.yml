@@ -1,0 +1,38 @@
+# This workflow will do a clean install of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+    - run: shellcheck ./src/*
+  build:
+    strategy:
+      matrix:
+        os: ['macos-15', 'ubuntu-latest']
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+    - run: ./script/install-bats.sh
+
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      with:
+        repository: bats-core/bats-support
+        path: bats-support
+
+    # set PATh to ensure we use bats from our local installation (looking at you Mac Runner!)
+    - name: bats test
+      run: |
+        PATH="$HOME/.local/bin:$PATH"
+        bats -v
+        BATS_LIB_PATH="$PWD" bats --print-output-on-failure test

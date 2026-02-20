@@ -5,7 +5,11 @@
     "lastUpdated": "2026-02-13",
     "totalCommands": 77,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0",
-    "generatedFrom": "script-headers"
+    "generatedFrom": "script-headers",
+    "deprecated": true,
+    "deprecatedSince": "2026-02-20",
+    "supersededBy": "docs/specs/CLEO-OPERATIONS-REFERENCE.md",
+    "deprecationNote": "This file was tied to Bash script ###CLEO headers and is no longer the source of truth. The canonical operations reference is CLEO-OPERATIONS-REFERENCE.md which maps MCP operations, CLI commands, and core modules. This file will be removed in a future release."
   },
   "categories": {
     "intelligence": [

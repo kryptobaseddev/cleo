@@ -72,30 +72,28 @@ readonly SOURCE_DEV_MARKERS=(
 
 # Required directories for a valid CLEO repo
 readonly SOURCE_REQUIRED_DIRS=(
-    "scripts"
-    "lib"
+    "src"
     "schemas"
+    "package.json"
 )
 
 # Required files for a valid CLEO repo
 readonly SOURCE_REQUIRED_FILES=(
     "VERSION"
-    "lib/validation/validation.sh"
-    "lib/data/file-ops.sh"
-    "scripts/add.sh"
+    "package.json"
+    "build.mjs"
     "schemas/todo.schema.json"
 )
 
 # Directories to link/copy during installation
+# NOTE: For dev mode, `npm link` is the recommended approach (see dev/setup-ts-dev.sh).
+# This list is used by the legacy installer for tarball-based installs.
 readonly SOURCE_INSTALLABLE_DIRS=(
-    "lib"
-    "scripts"
+    "dist"
     "schemas"
     "templates"
-    "docs"
     "skills"
     "completions"
-    "dev"
 )
 
 # Files to copy (not link) during dev mode installation

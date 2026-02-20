@@ -257,12 +257,12 @@ describe('Skills Domain Integration', () => {
     });
 
     it('query _meta.gateway is always cleo_query', async () => {
-      const operations = ['list', 'show', 'search', 'dispatch', 'verify', 'dependencies'];
+      const operations = ['list', 'show', 'find', 'dispatch', 'verify', 'dependencies'];
       for (const op of operations) {
         // Provide minimal valid params for each operation
         const params: Record<string, unknown> = {};
         if (op === 'show') params.name = 'ct-task-executor';
-        if (op === 'search') params.query = 'test';
+        if (op === 'find') params.query = 'test';
         if (op === 'dispatch') params.taskType = 'implementation';
         if (op === 'dependencies') params.name = 'ct-test-writer-bats';
 
@@ -540,7 +540,7 @@ describe('Skills Domain Integration', () => {
 
   describe('search scoring', () => {
     it('exact name match gets score 100', async () => {
-      const result = await handler.query('search', { query: 'ct-orchestrator' });
+      const result = await handler.query('find', { query: 'ct-orchestrator' });
 
       const data = result.data as any;
       expect(data.results[0].name).toBe('ct-orchestrator');
@@ -549,7 +549,7 @@ describe('Skills Domain Integration', () => {
     });
 
     it('partial name match gets score 80', async () => {
-      const result = await handler.query('search', { query: 'orchestrat' });
+      const result = await handler.query('find', { query: 'orchestrat' });
 
       const data = result.data as any;
       expect(data.results[0].name).toBe('ct-orchestrator');
@@ -558,7 +558,7 @@ describe('Skills Domain Integration', () => {
     });
 
     it('description match gets score 60', async () => {
-      const result = await handler.query('search', { query: 'shell scripts' });
+      const result = await handler.query('find', { query: 'shell scripts' });
 
       const data = result.data as any;
       expect(data.results.length).toBeGreaterThan(0);
@@ -567,7 +567,7 @@ describe('Skills Domain Integration', () => {
     });
 
     it('results sorted by score descending', async () => {
-      const result = await handler.query('search', { query: 'ct' });
+      const result = await handler.query('find', { query: 'ct' });
 
       const data = result.data as any;
       for (let i = 1; i < data.results.length; i++) {
@@ -576,7 +576,7 @@ describe('Skills Domain Integration', () => {
     });
 
     it('limit parameter caps results', async () => {
-      const result = await handler.query('search', { query: 'ct', limit: 2 });
+      const result = await handler.query('find', { query: 'ct', limit: 2 });
 
       const data = result.data as any;
       expect(data.results.length).toBeLessThanOrEqual(2);
@@ -668,7 +668,7 @@ describe('Skills Domain Integration', () => {
       const showResult = await noExecutorHandler.query('show', { name: 'ct-task-executor' });
       expect(showResult.success).toBe(true);
 
-      const searchResult = await noExecutorHandler.query('search', { query: 'test' });
+      const searchResult = await noExecutorHandler.query('find', { query: 'test' });
       expect(searchResult.success).toBe(true);
 
       const dispatchResult = await noExecutorHandler.query('dispatch', { taskType: 'test' });

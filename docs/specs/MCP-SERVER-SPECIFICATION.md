@@ -1,8 +1,8 @@
 # CLEO MCP Server Specification
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Status**: STABLE
-**Date**: 2026-02-10
+**Date**: 2026-02-20
 **Authors**: Claude Opus 4.5, CLEO Development Team
 
 ---
@@ -17,23 +17,23 @@ This specification is canonical for MCP contract behavior.
 
 Implementation operation counts and live operation matrices MUST be sourced from:
 
-- `mcp-server/src/gateways/query.ts`
-- `mcp-server/src/gateways/mutate.ts`
+- `src/mcp/gateways/query.ts`
+- `src/mcp/gateways/mutate.ts`
 
 As of v0.98.2 deployment (T4492), implementation expected counts are:
 
-- `cleo_query`: 63
-- `cleo_mutate`: 60
-- Total: 123 (across 10 domains)
+- `cleo_query`: 75
+- `cleo_mutate`: 65
+- Total: 140 (across 11 domains)
 
-The original core contract matrix (96 operations) remains the baseline model; implementation includes documented parity extensions and new domains (issues, skills).
+The original core contract matrix (96 operations) remains the baseline model; implementation includes documented parity extensions and new domains (issues, skills, providers).
 
-> **Note**: The capability matrix (`capability-matrix.ts`) tracks 138 entries including routing metadata. The gateway registries (63+60=123) are the canonical count for deployed operations.
+> **Note**: The capability matrix (`capability-matrix.ts`) tracks 138 entries including routing metadata. The gateway registries (75+65=140) are the canonical count for deployed operations.
 
 ### 1.1 Design Goals
 
-1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = 94% reduction
-2. **Full Capability Access**: All 123 operations accessible through domain routing across 10 domains
+1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 80+ tools (~32,500 tokens) = 94% reduction
+2. **Full Capability Access**: All 140 operations accessible through domain routing across 11 domains
 3. **Safety by Design**: Read operations cannot mutate state
 4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
@@ -46,15 +46,15 @@ The original core contract matrix (96 operations) remains the baseline model; im
 │                                                                                  │
 │   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
 │   │         cleo_query              │    │         cleo_mutate             │    │
-│   │      (63 Read Operations)       │    │      (60 Write Operations)      │    │
+│   │      (75 Read Operations)       │    │      (65 Write Operations)      │    │
 │   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
 └────────────────────┼──────────────────────────────────────┼──────────────────────┘
                      │                                      │
                      ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              DOMAIN ROUTER (8 Domains)                           │
+│                             DOMAIN ROUTER (11 Domains)                           │
 │    tasks │ session │ orchestrate │ research │ lifecycle │ validate │ release    │
-│                                   + system                                       │
+│                       + system │ issues │ skills │ providers                      │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                          │
                                          ▼
@@ -67,7 +67,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
                                          │
                                          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              CLI LAYER (65 commands)                             │
+│                             CLI LAYER (80+ commands)                             │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                          │
                                          ▼
@@ -102,7 +102,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
     "properties": {
       "domain": {
         "type": "string",
-        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "system"],
+        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "system", "issues", "skills", "providers"],
         "description": "Functional domain to query"
       },
       "operation": {
@@ -119,34 +119,37 @@ The original core contract matrix (96 operations) remains the baseline model; im
 }
 ```
 
-#### 2.1.2 Operations by Domain (63 Total)
+#### 2.1.2 Operations by Domain (75 Total)
 
-##### tasks (10 operations)
+##### tasks (12 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| `get` | Get single task details | `taskId` | Full task object |
+| `show` | Get single task details | `taskId` | Full task object |
 | `list` | List tasks with filters | `parent?`, `status?`, `limit?` | Task array |
 | `find` | Fuzzy search tasks | `query`, `limit?` | Minimal task array |
 | `exists` | Check task existence | `taskId` | Boolean |
 | `tree` | Hierarchical task view | `rootId?`, `depth?` | Tree structure |
 | `blockers` | Get blocking tasks | `taskId` | Blocker array |
-| `deps` | Get dependencies | `taskId`, `direction?` | Dependency graph |
+| `depends` | Get dependencies | `taskId`, `direction?` | Dependency graph |
 | `analyze` | Triage analysis | `epicId?` | Priority recommendations |
 | `next` | Next task suggestion | `epicId?`, `count?` | Suggested tasks |
 | `relates` | Query task relationships | `taskId` | Related task array |
+| `complexity.estimate` | Deterministic complexity scoring | `taskId` | Complexity metrics |
+| `current` | Get currently active task | - | Task ID or null |
 
-##### session (5 operations)
+##### session (6 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
 | `status` | Current session status | - | Session object |
 | `list` | List all sessions | `active?` | Session array |
 | `show` | Session details | `sessionId` | Full session object |
-| `current` (tasks domain) | Get focused task | - | Task ID or null |
 | `history` | Session history | `limit?` | History array |
+| `decision.log` | Decision audit log | `sessionId?` | Decision array |
+| `context.drift` | Session context drift | `sessionId?` | Drift analysis |
 
-##### orchestrate (7 operations)
+##### orchestrate (10 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
@@ -157,29 +160,34 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `context` | Context usage check | `tokens?` | Context budget status |
 | `waves` | Wave computation | `epicId` | Parallel execution waves |
 | `skill.list` | Available skills | `filter?` | Skill definitions |
+| `bootstrap` | Brain state bootstrap | `epicId?` | Full startup context |
+| `unblock.opportunities` | Unblocking analysis | `epicId?` | Unblock recommendations |
+| `critical.path` | Longest dependency chain | `epicId` | Critical path analysis |
 
-##### research (6 operations)
+##### research (8 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
 | `show` | Research entry details | `researchId` | Full entry |
 | `list` | List research entries | `epicId?`, `status?` | Entry array |
-| `query` | Search research | `query`, `confidence?` | Matched entries |
+| `find` | Find research | `query`, `confidence?` | Matched entries |
 | `pending` | Pending research | `epicId?` | Entries needing follow-up |
 | `stats` | Research statistics | `epicId?` | Aggregated metrics |
 | `manifest.read` | Read manifest entries | `filter?`, `limit?` | JSONL entries |
+| `contradictions` | Find conflicting findings | `epicId?` | Contradiction array |
+| `superseded` | Find superseded entries | `epicId?` | Superseded array |
 
 ##### lifecycle (5 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| `check` | Check stage prerequisites | `taskId`, `targetStage` | Gate status |
+| `validate` | Check stage prerequisites | `taskId`, `targetStage` | Gate status |
 | `status` | Current lifecycle state | `taskId` or `epicId` | Stage progression |
 | `history` | Stage transition history | `taskId` | Transition log |
 | `gates` | All gate statuses | `taskId` | Gate status array |
 | `prerequisites` | Required prior stages | `targetStage` | Prerequisite list |
 
-##### validate (9 operations)
+##### validate (10 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
@@ -192,13 +200,14 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `compliance.violations` | List violations | `severity?`, `protocol?` | Violation array |
 | `test.status` | Test suite status | `taskId?` | Pass/fail counts |
 | `test.coverage` | Coverage metrics | `taskId?` | Coverage percentages |
+| `coherence.check` | Task graph consistency | `scope?` | Coherence result |
 
 ##### system (14 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
 | `version` | CLEO version | - | Version string |
-| `doctor` | Health check | - | Health status |
+| `health` | Health check | - | Health status |
 | `config.get` | Get config value | `key` | Config value |
 | `stats` | Project statistics | - | Task/session stats |
 | `context` | Context window info | - | Token usage |
@@ -224,10 +233,18 @@ The original core contract matrix (96 operations) remains the baseline model; im
 |-----------|-------------|------------|---------|
 | `list` | List available skills | `filter?` | Skill array |
 | `show` | Skill details | `skillId` | Full skill object |
-| `search` | Search skills | `query` | Matched skills |
+| `find` | Find skills | `query` | Matched skills |
 | `dispatch` | Simulate skill dispatch | `taskId` | Dispatch recommendation |
 | `verify` | Validate skill frontmatter | `skillId` | Validation result |
 | `dependencies` | Skill dependency tree | `skillId` | Dependency graph |
+
+##### providers (3 operations)
+
+| Operation | Description | Parameters | Returns |
+|-----------|-------------|------------|---------|
+| `list` | List all registered providers | - | Provider array |
+| `detect` | Detect installed providers | - | Detection result |
+| `inject.status` | Check injection status | `providerId?` | Injection status |
 
 ---
 
@@ -253,7 +270,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
     "properties": {
       "domain": {
         "type": "string",
-        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "release", "system", "issues", "skills"],
+        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "release", "system", "issues", "skills", "providers"],
         "description": "Functional domain to mutate"
       },
       "operation": {
@@ -270,23 +287,26 @@ The original core contract matrix (96 operations) remains the baseline model; im
 }
 ```
 
-#### 2.2.2 Operations by Domain (60 Total)
+#### 2.2.2 Operations by Domain (65 Total)
 
-##### tasks (11 operations)
+##### tasks (14 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| `create` | Create new task | `title`, `description`, `parent?`, `depends?`, `priority?`, `labels?` | Created task |
+| `add` | Create new task | `title`, `description`, `parent?`, `depends?`, `priority?`, `labels?` | Created task |
 | `update` | Update task fields | `taskId`, `title?`, `description?`, `status?`, `priority?`, `notes?` | Updated task |
 | `complete` | Mark task done | `taskId`, `notes?`, `archive?` | Completion status |
 | `delete` | Delete task | `taskId`, `force?` | Deletion status |
 | `archive` | Archive done tasks | `taskId?`, `before?` | Archived count |
-| `unarchive` | Restore from archive | `taskId` | Restored task |
+| `restore` | Restore from archive | `taskId` | Restored task |
 | `reparent` | Change task parent | `taskId`, `newParent` | Updated hierarchy |
 | `promote` | Promote subtask to task | `taskId` | Promoted task |
 | `reorder` | Reorder siblings | `taskId`, `position` | New order |
 | `reopen` | Reopen completed task | `taskId` | Reopened task |
 | `relates.add` | Add task relationship | `taskId`, `relatedId`, `type?` | Relationship confirmation |
+| `uncancel` | Restore cancelled tasks | `taskId` | Restored task |
+| `start` | Start working on task (set focus) | `taskId` | Focus confirmation |
+| `stop` | Stop working on task (clear focus) | - | Clear confirmation |
 
 ##### session (7 operations)
 
@@ -296,15 +316,15 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `end` | End current session | `notes?` | Session summary |
 | `resume` | Resume existing session | `sessionId` | Resumed session |
 | `suspend` | Suspend session | `notes?` | Suspended status |
-| `start` (tasks domain) | Set focused task | `taskId` | Focus confirmation |
-| `stop` (tasks domain) | Clear focus | - | Clear confirmation |
 | `gc` | Garbage collect sessions | `olderThan?` | Cleaned count |
+| `record.decision` | Record a decision | `decision`, `rationale`, `taskId?` | Decision record |
+| `record.assumption` | Record an assumption | `assumption`, `basis`, `taskId?` | Assumption record |
 
 ##### orchestrate (5 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| `startup` | Initialize orchestration | `epicId` | Full startup state |
+| `start` | Initialize orchestration | `epicId` | Full startup state |
 | `spawn` | Generate spawn prompt | `taskId`, `skill?`, `model?` | Spawn prompt + metadata |
 | `validate` | Validate spawn readiness | `taskId` | Validation result |
 | `parallel.start` | Start parallel wave | `epicId`, `wave` | Wave tasks |
@@ -323,7 +343,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| `progress` | Record stage completion | `taskId`, `stage`, `status`, `notes?` | Progress confirmation |
+| `record` | Record stage completion | `taskId`, `stage`, `status`, `notes?` | Progress confirmation |
 | `skip` | Skip optional stage | `taskId`, `stage`, `reason` | Skip confirmation |
 | `reset` | Reset stage (emergency) | `taskId`, `stage`, `reason` | Reset confirmation |
 | `gate.pass` | Mark gate as passed | `taskId`, `gateName`, `agent`, `notes?` | Gate status |
@@ -348,7 +368,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `gates.run` | Run release gates | `gates?` | Gate results |
 | `rollback` | Rollback release | `version`, `reason` | Rollback status |
 
-##### system (10 operations)
+##### system (11 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
@@ -362,14 +382,15 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `job.cancel` | Cancel background job | `jobId` | Cancellation status |
 | `safestop` | Graceful agent shutdown | `reason?` | Shutdown confirmation |
 | `uncancel` | Restore cancelled tasks | `taskId` | Restored task |
+| `inject.generate` | Generate MVI injection | `level?`, `format?` | Injection content |
 
 ##### issues (3 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
-| `create_bug` | File a bug report | `title`, `body`, `labels?` | Issue object |
-| `create_feature` | Request a feature | `title`, `body`, `labels?` | Issue object |
-| `create_help` | Ask a question | `title`, `body` | Issue object |
+| `create.bug` | File a bug report | `title`, `body`, `labels?` | Issue object |
+| `create.feature` | Request a feature | `title`, `body`, `labels?` | Issue object |
+| `create.help` | Ask a question | `title`, `body` | Issue object |
 
 ##### skills (6 operations)
 
@@ -381,6 +402,12 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `disable` | Disable a skill | `skillId` | Disable status |
 | `configure` | Configure a skill | `skillId`, `config` | Configuration result |
 | `refresh` | Refresh skill registry | - | Refresh status |
+
+##### providers (1 operation)
+
+| Operation | Description | Parameters | Returns |
+|-----------|-------------|------------|---------|
+| `inject` | Inject content into provider instruction files | `providerId`, `content?` | Injection result |
 
 ---
 
@@ -395,7 +422,7 @@ All operations return a consistent envelope:
   "_meta": {
     "gateway": "cleo_query|cleo_mutate",
     "domain": "tasks",
-    "operation": "get",
+    "operation": "show",
     "version": "1.0.0",
     "timestamp": "2026-01-31T18:35:00Z",
     "duration_ms": 45
@@ -414,7 +441,7 @@ All operations return a consistent envelope:
   "_meta": {
     "gateway": "cleo_mutate",
     "domain": "tasks",
-    "operation": "create",
+    "operation": "add",
     "version": "1.0.0",
     "timestamp": "2026-01-31T18:35:00Z"
   },
@@ -432,7 +459,7 @@ All operations return a consistent envelope:
     "alternatives": [
       {
         "action": "Use generated description",
-        "command": "cleo_mutate tasks create --title \"...\" --description \"Implementation of ...\""
+        "command": "cleo_mutate tasks add --title \"...\" --description \"Implementation of ...\""
       }
     ]
   }
@@ -921,16 +948,16 @@ Implementation includes documented parity extensions beyond the original core ma
 
 Extensions are maintained in gateway registries and MUST be treated as live source of truth:
 
-- `mcp-server/src/gateways/query.ts`
-- `mcp-server/src/gateways/mutate.ts`
+- `src/mcp/gateways/query.ts`
+- `src/mcp/gateways/mutate.ts`
 
 These include, among others, relationship operations and extended system/observability operations.
 
 Current expected implementation totals:
 
-- Query: 63
-- Mutate: 60
-- Total: 123
+- Query: 75
+- Mutate: 65
+- Total: 140
 
 ### 10.5 Thread Safety
 
@@ -1002,14 +1029,14 @@ await cleo_mutate({
 // 1. Initialize orchestration
 const startup = await cleo_mutate({
   domain: "orchestrate",
-  operation: "startup",
+  operation: "start",
   params: { epicId: "T2400" }
 });
 
 // 2. Check lifecycle prerequisites
 const lifecycle = await cleo_query({
   domain: "lifecycle",
-  operation: "check",
+  operation: "validate",
   params: { taskId: "T2405", targetStage: "implementation" }
 });
 
@@ -1157,26 +1184,32 @@ Recommended limits:
 
 | Domain | Operations |
 |--------|------------|
-| tasks | show, list, find, exists, tree, blockers, depends, analyze, next, current |
-| session | status, list, show, history |
-| orchestrate | status, next, ready, analyze, context, waves, skill.list |
-| research | show, list, search, pending, stats, manifest.read |
+| tasks | show, list, find, exists, tree, blockers, depends, analyze, next, relates, complexity.estimate, current |
+| session | status, list, show, history, decision.log, context.drift |
+| orchestrate | status, next, ready, analyze, context, waves, skill.list, bootstrap, unblock.opportunities, critical.path |
+| research | show, list, find, pending, stats, manifest.read, contradictions, superseded |
 | lifecycle | validate, status, history, gates, prerequisites |
-| validate | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage |
-| system | version, health, config.get, stats, context |
+| validate | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage, coherence.check |
+| system | version, health, config.get, stats, context, job.status, job.list, dash, roadmap, labels, compliance, log, archive.stats, sequence |
+| issues | diagnostics |
+| skills | list, show, find, dispatch, verify, dependencies |
+| providers | list, detect, inject.status |
 
 #### cleo_mutate Domains
 
 | Domain | Operations |
 |--------|------------|
-| tasks | add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, start, stop |
-| session | start, end, resume, suspend, gc |
+| tasks | add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, relates.add, uncancel, start, stop |
+| session | start, end, resume, suspend, gc, record.decision, record.assumption |
 | orchestrate | start, spawn, validate, parallel.start, parallel.end |
 | research | inject, link, manifest.append, manifest.archive |
 | lifecycle | record, skip, reset, gate.pass, gate.fail |
 | validate | compliance.record, test.run |
 | release | prepare, changelog, commit, tag, push, gates.run, rollback |
-| system | init, config.set, backup, restore, migrate, sync, cleanup |
+| system | init, config.set, backup, restore, migrate, sync, cleanup, job.cancel, safestop, uncancel, inject.generate |
+| issues | create.bug, create.feature, create.help |
+| skills | install, uninstall, enable, disable, configure, refresh |
+| providers | inject |
 
 ### Appendix B: Exit Code Summary
 
@@ -1196,7 +1229,7 @@ Recommended limits:
 
 | Approach | Tools | Tokens | % of 200K |
 |----------|-------|--------|-----------|
-| Flat CLI (65 commands) | 65 | ~32,500 | 16.3% |
+| Flat CLI (80+ commands) | 80+ | ~40,000 | 20.0% |
 | 8 Gateways | 8 | ~4,000 | 2.0% |
 | **2 Gateways (this spec)** | **2** | **~1,800** | **0.9%** |
 
@@ -1215,6 +1248,17 @@ Recommended limits:
 ---
 
 ## 16. Changelog
+
+### v1.2.0 (2026-02-20)
+
+- **Breaking**: Applied T4732 API Terminology Standardization
+  - Renamed: `get`→`show`, `create`→`add`, `unarchive`→`restore`, `startup`→`start`, `progress`→`record`, `check`→`validate`, `query`→`find`, `doctor`→`health`
+  - Unified dot.notation for multi-word operations
+  - Moved focus operations from session to tasks domain (start/stop/current)
+- Updated operation counts: 75 query + 65 mutate = 140 total (was 123)
+- Added providers domain (3 query + 1 mutate)
+- Now 11 domains total (was 10)
+- Updated all domain operation tables to match gateway source of truth
 
 ### v1.1.0 (2026-02-14)
 

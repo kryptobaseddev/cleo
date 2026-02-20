@@ -17,53 +17,58 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Get version from tag
         id: version
         run: |
-          # Extract version from tag (remove 'v' prefix)
           VERSION="${GITHUB_REF_NAME#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building release for version: $VERSION"
 
-      - name: Validate required files exist
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Validate build output
         run: |
-          for path in scripts lib schemas templates skills installer completions docs VERSION LICENSE README.md install.sh; do
+          for path in dist/cli/index.js dist/mcp/index.js schemas templates skills; do
             if [[ ! -e "$path" ]]; then
               echo "ERROR: Required path missing: $path"
               exit 1
             fi
           done
-          echo "All required files present"
+          echo "All required build artifacts present"
 
-      - name: Build runtime tarball
+      - name: Build release tarball
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TARBALL="cleo-${VERSION}.tar.gz"
 
-          # Create staging directory
           mkdir -p "staging/cleo-${VERSION}"
 
-          # Copy runtime components only
-          # NOTE: Must match SOURCE_INSTALLABLE_DIRS in installer/lib/source.sh
-          cp -r scripts "staging/cleo-${VERSION}/"
-          cp -r lib "staging/cleo-${VERSION}/"
+          # Copy npm-publishable components (matches package.json "files")
+          cp -r dist "staging/cleo-${VERSION}/"
           cp -r schemas "staging/cleo-${VERSION}/"
           cp -r templates "staging/cleo-${VERSION}/"
           cp -r skills "staging/cleo-${VERSION}/"
-          cp -r installer "staging/cleo-${VERSION}/"
-          cp -r completions "staging/cleo-${VERSION}/"
-          cp -r docs "staging/cleo-${VERSION}/"
+          [[ -d completions ]] && cp -r completions "staging/cleo-${VERSION}/"
+          cp package.json "staging/cleo-${VERSION}/"
           cp VERSION "staging/cleo-${VERSION}/"
           cp LICENSE "staging/cleo-${VERSION}/"
           cp README.md "staging/cleo-${VERSION}/"
+          cp install.sh "staging/cleo-${VERSION}/"
 
-          # Set execute permissions on shell scripts
-          find "staging/cleo-${VERSION}" -name "*.sh" -exec chmod +x {} \;
-          chmod +x "staging/cleo-${VERSION}/installer/install.sh"
-          chmod +x "staging/cleo-${VERSION}/cleo" 2>/dev/null || true
-          echo "Set execute permissions on shell scripts"
+          # Ensure executables have correct permissions
+          chmod +x "staging/cleo-${VERSION}/dist/cli/index.js"
+          chmod +x "staging/cleo-${VERSION}/dist/mcp/index.js"
+          chmod +x "staging/cleo-${VERSION}/install.sh"
 
-          # Create tarball
           tar -czvf "$TARBALL" -C staging "cleo-${VERSION}"
 
           echo "Created: $TARBALL"
@@ -71,7 +76,6 @@ jobs:
 
       - name: Prepare standalone installer
         run: |
-          # Ensure install.sh is executable for release
           chmod +x install.sh
           echo "Standalone installer ready: $(wc -l < install.sh) lines"
 
@@ -80,10 +84,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           TARBALL="cleo-${VERSION}.tar.gz"
-
-          # Generate SHA256 checksums
           sha256sum "$TARBALL" install.sh > SHA256SUMS
-
           echo "Checksums:"
           cat SHA256SUMS
 
@@ -91,54 +92,27 @@ jobs:
         id: changelog
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          REPO: ${{ github.repository }}
         run: |
-          # Source changelog functions
-          source lib/ui/changelog.sh
-
           echo "## [${VERSION}] - $(date +%Y-%m-%d)" > release-notes.txt
           echo "" >> release-notes.txt
 
-          # Strategy 1: Try to extract from CHANGELOG.md
-          if extract_changelog_section "v${VERSION}" "CHANGELOG.md" "changelog-section.txt" 2>/dev/null; then
-            echo "✓ Found changelog entry for v${VERSION}"
-            cat changelog-section.txt >> release-notes.txt
+          # Extract from CHANGELOG.md if available
+          if grep -q "## \[${VERSION}\]" CHANGELOG.md 2>/dev/null; then
+            echo "Found changelog entry for v${VERSION}"
+            # Extract section between this version and the next
+            sed -n "/## \[${VERSION}\]/,/## \[/p" CHANGELOG.md | head -n -1 | tail -n +2 >> release-notes.txt
             echo "source=changelog" >> "$GITHUB_OUTPUT"
           else
-            echo "⚠ No CHANGELOG.md entry for v${VERSION} - generating from commits"
-
-            # Strategy 2: Generate from git commits since last tag
+            echo "No CHANGELOG.md entry - generating from commits"
             PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
+            echo "### Changes" >> release-notes.txt
             if [[ -n "$PREV_TAG" ]]; then
-              echo "Generating from commits since $PREV_TAG"
-
-              # Use the generate_changelog_from_commits function
-              if COMMIT_CHANGELOG=$(generate_changelog_from_commits "$PREV_TAG" "HEAD" 2>/dev/null); then
-                if [[ -n "$COMMIT_CHANGELOG" && "$COMMIT_CHANGELOG" != "null" ]]; then
-                  echo "$COMMIT_CHANGELOG" >> release-notes.txt
-                  echo "source=commits" >> "$GITHUB_OUTPUT"
-                else
-                  # Fallback: Simple commit list
-                  echo "### Changes" >> release-notes.txt
-                  git log --pretty=format:"- %s" --no-merges "${PREV_TAG}..HEAD" >> release-notes.txt
-                  echo "" >> release-notes.txt
-                  echo "source=commit-list" >> "$GITHUB_OUTPUT"
-                fi
-              else
-                # Fallback: Simple commit list
-                echo "### Changes" >> release-notes.txt
-                git log --pretty=format:"- %s" --no-merges "${PREV_TAG}..HEAD" >> release-notes.txt
-                echo "" >> release-notes.txt
-                echo "source=commit-list" >> "$GITHUB_OUTPUT"
-              fi
+              git log --pretty=format:"- %s" --no-merges "${PREV_TAG}..HEAD" >> release-notes.txt
             else
-              # No previous tag - list recent commits
-              echo "### Changes" >> release-notes.txt
               git log --pretty=format:"- %s" --no-merges -20 >> release-notes.txt
-              echo "" >> release-notes.txt
-              echo "source=recent-commits" >> "$GITHUB_OUTPUT"
             fi
+            echo "" >> release-notes.txt
+            echo "source=commits" >> "$GITHUB_OUTPUT"
           fi
 
           echo ""

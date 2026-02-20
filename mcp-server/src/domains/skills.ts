@@ -128,7 +128,7 @@ export class SkillsHandler implements DomainHandler {
           return this.queryList(params as unknown as SkillsListParams, startTime);
         case 'show':
           return this.queryShow(params as unknown as SkillsShowParams, startTime);
-        case 'search':
+        case 'find':
           return this.querySearch(params as unknown as SkillsSearchParams, startTime);
         case 'dispatch':
           return this.queryDispatch(params as unknown as SkillsDispatchParams, startTime);
@@ -206,7 +206,7 @@ export class SkillsHandler implements DomainHandler {
    */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['list', 'show', 'search', 'dispatch', 'verify', 'dependencies'],
+      query: ['list', 'show', 'find', 'dispatch', 'verify', 'dependencies'],
       mutate: ['install', 'uninstall', 'enable', 'disable', 'configure', 'refresh'],
     };
   }
@@ -299,14 +299,14 @@ export class SkillsHandler implements DomainHandler {
   }
 
   /**
-   * search - Search skills by query string
+   * find - Find skills by query string
    */
   private querySearch(params: SkillsSearchParams, startTime: number): DomainResponse {
     if (!params?.query) {
       return this.createErrorResponse(
         'cleo_query',
         'skills',
-        'search',
+        'find',
         'E_INVALID_INPUT',
         'query is required',
         startTime
@@ -367,7 +367,7 @@ export class SkillsHandler implements DomainHandler {
       _meta: {
         gateway: 'cleo_query',
         domain: 'skills',
-        operation: 'search',
+        operation: 'find',
         version: '1.0.0',
         timestamp: new Date().toISOString(),
         duration_ms: Date.now() - startTime,

@@ -188,7 +188,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   // === Research Domain ===
   { domain: 'research', operation: 'show', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'list', gateway: 'query', mode: 'native' },
-  { domain: 'research', operation: 'search', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'find', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'pending', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'stats', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'manifest.read', gateway: 'query', mode: 'native' },

@@ -98,6 +98,13 @@ export function registerCommandsCommand(program: Command): void {
 
         const index = await locateCommandsIndex();
 
+        // Deprecation notice: COMMANDS-INDEX.json is a Bash-era artifact
+        console.error(
+          '[DEPRECATED] cleo commands reads from COMMANDS-INDEX.json which is deprecated.\n' +
+          'The canonical operations reference is: docs/specs/CLEO-OPERATIONS-REFERENCE.md\n' +
+          'Use cleo_query/cleo_mutate MCP tools for programmatic access.\n',
+        );
+
         // Handle workflows
         if (opts['workflows']) {
           cliOutput({ workflows: index.agentWorkflows ?? {} }, { command: 'commands' });

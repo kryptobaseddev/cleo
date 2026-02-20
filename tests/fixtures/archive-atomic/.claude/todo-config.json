@@ -1,8 +1,0 @@
-{
-  "version": "0.8.2",
-  "archive": {
-    "daysUntilArchive": 1,
-    "maxCompletedTasks": 5,
-    "preserveRecentCount": 2
-  }
-}

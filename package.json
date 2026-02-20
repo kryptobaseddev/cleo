@@ -5,6 +5,7 @@
   "type": "module",
   "bin": {
     "cleo": "dist/cli/index.js",
+    "ct": "dist/cli/index.js",
     "cleo-mcp": "dist/mcp/index.js"
   },
   "scripts": {
