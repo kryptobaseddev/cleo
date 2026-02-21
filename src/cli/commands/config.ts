@@ -1,43 +1,15 @@
 /**
  * CLI config command - configuration management.
+ * Delegates to core/config.ts for business logic.
  * @task T4454
+ * @task T4795
  */
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
-import { loadConfig, getConfigValue } from '../../core/config.js';
-import { readJson, saveJson } from '../../store/json.js';
-import { getConfigPath, getGlobalConfigPath } from '../../core/paths.js';
-
-/**
- * Set a value at a dotted path in an object (mutates).
- */
-function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split('.');
-  let current: Record<string, unknown> = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]!;
-    if (current[part] === undefined || typeof current[part] !== 'object') {
-      current[part] = {};
-    }
-    current = current[part] as Record<string, unknown>;
-  }
-  current[parts[parts.length - 1]!] = value;
-}
-
-/**
- * Parse a string value to its appropriate type.
- */
-function parseValue(value: string): unknown {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  if (value === 'null') return null;
-  const num = Number(value);
-  if (!isNaN(num) && value.trim() !== '') return num;
-  return value;
-}
+import { loadConfig, getConfigValue, setConfigValue } from '../../core/config.js';
 
 export function registerConfigCommand(program: Command): void {
   const config = program
@@ -70,18 +42,14 @@ export function registerConfigCommand(program: Command): void {
     .option('--global', 'Set in global config instead of project config')
     .action(async (key: string, value: string, opts: Record<string, unknown>) => {
       try {
-        const configPath = opts['global'] ? getGlobalConfigPath() : getConfigPath();
-        const existing = await readJson<Record<string, unknown>>(configPath) ?? {};
-
-        const parsedValue = parseValue(value);
-        setNestedValue(existing, key, parsedValue);
-
-        await saveJson(configPath, existing);
+        const result = await setConfigValue(key, value, undefined, {
+          global: !!opts['global'],
+        });
 
         cliOutput({
-          key,
-          value: parsedValue,
-          scope: opts['global'] ? 'global' : 'project',
+          key: result.key,
+          value: result.value,
+          scope: result.scope,
         }, { command: 'config' });
       } catch (err) {
         if (err instanceof CleoError) {

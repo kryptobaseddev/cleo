@@ -1,6 +1,8 @@
 /**
  * CLI restore command - universal restoration (backup, archived, cancelled, completed tasks).
+ * Delegates task restoration to core functions.
  * @task T4454
+ * @task T4795
  */
 
 import { Command } from 'commander';
@@ -9,10 +11,9 @@ import { CleoError } from '../../core/errors.js';
 import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { restoreFromBackup, listBackups } from '../../store/backup.js';
-import { getTaskPath, getConfigPath, getArchivePath, getBackupDir } from '../../core/paths.js';
+import { getTaskPath, getConfigPath, getArchivePath, getBackupDir, getProjectRoot } from '../../core/paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { computeChecksum } from '../../store/json.js';
-import type { Task, TaskStatus } from '../../types/task.js';
+import { coreTaskRestore, coreTaskReopen, coreTaskUnarchive } from '../../core/tasks/task-ops.js';
 
 export function registerRestoreCommand(program: Command): void {
   const restoreCmd = program
@@ -94,21 +95,38 @@ export function registerRestoreCommand(program: Command): void {
           throw new CleoError(ExitCode.INVALID_INPUT, `Invalid task ID: ${taskId}`);
         }
 
+        const projectRoot = getProjectRoot();
         const accessor = await getAccessor();
-        
+
         // First, check if task exists in active tasks
         const data = await accessor.loadTaskFile();
         const activeTask = data.tasks.find((t) => t.id === taskId);
-        
+
         if (activeTask) {
           // Task is active but might be in terminal state (cancelled, done)
-          if (activeTask.status === 'cancelled' || activeTask.status === 'done') {
-            // Update status back to pending/active
-            const newStatus: TaskStatus = opts['preserveStatus'] 
-              ? activeTask.status 
-              : (opts['status'] as TaskStatus) || 'pending';
-            
+          if (activeTask.status === 'cancelled') {
             if (opts['dryRun']) {
+              cliOutput({
+                dryRun: true,
+                taskId,
+                title: activeTask.title,
+                previousStatus: activeTask.status,
+                newStatus: opts['preserveStatus'] ? activeTask.status : (opts['status'] as string),
+                source: 'active-tasks',
+              }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.restore' });
+              return;
+            }
+            const result = await coreTaskRestore(projectRoot, taskId);
+            cliOutput({
+              restored: true,
+              taskId: result.task,
+              count: result.count,
+              source: 'active-tasks',
+            }, { command: 'restore', operation: 'tasks.restore' });
+            return;
+          } else if (activeTask.status === 'done') {
+            if (opts['dryRun']) {
+              const newStatus = opts['preserveStatus'] ? activeTask.status : (opts['status'] as string);
               cliOutput({
                 dryRun: true,
                 taskId,
@@ -119,26 +137,15 @@ export function registerRestoreCommand(program: Command): void {
               }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.restore' });
               return;
             }
-
-            // Update the task
-            const updatedTask: Task = {
-              ...activeTask,
-              status: newStatus,
-              updatedAt: new Date().toISOString(),
-            };
-
-            const taskIndex = data.tasks.findIndex((t) => t.id === taskId);
-            data.tasks[taskIndex] = updatedTask;
-            data._meta.checksum = computeChecksum(data.tasks);
-            data.lastUpdated = new Date().toISOString();
-            await accessor.saveTaskFile(data);
-
+            const targetStatus = opts['preserveStatus'] ? undefined : (opts['status'] as string);
+            const result = await coreTaskReopen(projectRoot, taskId, {
+              status: targetStatus,
+            });
             cliOutput({
               restored: true,
-              taskId,
-              title: activeTask.title,
-              previousStatus: activeTask.status,
-              newStatus,
+              taskId: result.task,
+              previousStatus: result.previousStatus,
+              newStatus: result.newStatus,
               source: 'active-tasks',
             }, { command: 'restore', operation: 'tasks.restore' });
             return;
@@ -146,74 +153,51 @@ export function registerRestoreCommand(program: Command): void {
             throw new CleoError(ExitCode.VALIDATION_ERROR, `Task ${taskId} is already active with status: ${activeTask.status}`);
           }
         }
-        
+
         // Task not in active list - check archive
-        const archiveData = await accessor.loadArchive();
-        if (archiveData) {
-          const archivedTasks = archiveData.archivedTasks as Task[] | undefined;
-          if (Array.isArray(archivedTasks)) {
-            const taskIndex = archivedTasks.findIndex((t) => t.id === taskId);
-            if (taskIndex !== -1) {
-              const task = archivedTasks[taskIndex]!;
-              
-              if (opts['dryRun']) {
+        if (opts['dryRun']) {
+          const archiveData = await accessor.loadArchive();
+          if (archiveData) {
+            const archivedTasks = archiveData.archivedTasks as Array<{ id: string; title: string; status: string }> | undefined;
+            if (Array.isArray(archivedTasks)) {
+              const task = archivedTasks.find((t) => t.id === taskId);
+              if (task) {
                 cliOutput({
                   dryRun: true,
                   taskId,
                   title: task.title,
                   previousStatus: task.status,
-                  newStatus: opts['preserveStatus'] ? task.status : (opts['status'] as TaskStatus),
+                  newStatus: opts['preserveStatus'] ? task.status : (opts['status'] as string),
                   source: 'archive',
                 }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.restore' });
                 return;
               }
-
-              // Determine new status
-              let newStatus: TaskStatus;
-              if (opts['preserveStatus']) {
-                newStatus = task.status;
-              } else {
-                newStatus = (opts['status'] as TaskStatus) || 'pending';
-              }
-
-              // Update task - remove archive-specific fields
-              const { archivedAt, archiveReason, ...restoredTaskBase } = task as Task & { archivedAt?: string; archiveReason?: string };
-              const restoredTask: Task = {
-                ...restoredTaskBase,
-                status: newStatus,
-                updatedAt: new Date().toISOString(),
-              };
-
-              // Add to tasks
-              data.tasks.push(restoredTask);
-              data._meta.checksum = computeChecksum(data.tasks);
-              data.lastUpdated = new Date().toISOString();
-
-              // Remove from archive
-              archivedTasks.splice(taskIndex, 1);
-
-              // Save both files
-              await accessor.saveTaskFile(data);
-              await accessor.saveArchive(archiveData);
-
-              cliOutput({
-                restored: true,
-                taskId,
-                title: task.title,
-                previousStatus: task.status,
-                newStatus,
-                source: 'archive',
-                archiveRemaining: archivedTasks.length,
-              }, { command: 'restore', operation: 'tasks.restore' });
-              return;
             }
           }
+          throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found in active tasks or archive`, {
+            fix: `cleo find "${taskId}" to search for the task`,
+          });
         }
 
-        // Task not found anywhere
-        throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found in active tasks or archive`, {
-          fix: `cleo find "${taskId}" to search for the task`,
-        });
+        // Delegate to core unarchive
+        try {
+          const targetStatus = opts['preserveStatus'] ? undefined : (opts['status'] as string);
+          const result = await coreTaskUnarchive(projectRoot, taskId, {
+            status: targetStatus,
+            preserveStatus: !!opts['preserveStatus'],
+          });
+          cliOutput({
+            restored: true,
+            taskId: result.task,
+            title: result.title,
+            newStatus: result.status,
+            source: 'archive',
+          }, { command: 'restore', operation: 'tasks.restore' });
+        } catch {
+          throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found in active tasks or archive`, {
+            fix: `cleo find "${taskId}" to search for the task`,
+          });
+        }
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

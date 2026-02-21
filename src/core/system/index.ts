@@ -9,8 +9,8 @@ export type { LabelsResult } from './labels.js';
 export { getArchiveStats } from './archive-stats.js';
 export type { ArchiveStatsResult } from './archive-stats.js';
 
-export { getSystemHealth, getSystemDiagnostics } from './health.js';
-export type { HealthResult, HealthCheck, DiagnosticsResult, DiagnosticsCheck } from './health.js';
+export { getSystemHealth, getSystemDiagnostics, coreDoctorReport } from './health.js';
+export type { HealthResult, HealthCheck, DiagnosticsResult, DiagnosticsCheck, DoctorReport, DoctorCheck } from './health.js';
 
 export { createBackup, restoreBackup } from './backup.js';
 export type { BackupResult, RestoreResult } from './backup.js';
