@@ -24,9 +24,9 @@ import {
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
-    it('should have exactly 75 query operations', () => {
+    it('should have exactly 76 query operations', () => {
       const total = getQueryOperationCount();
-      expect(total).toBe(75);
+      expect(total).toBe(76);
     });
 
     it('should have 10 query domains', () => {
@@ -77,8 +77,8 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('validate')).toBe(10);
     });
 
-    it('system domain should have 14 operations', () => {
-      expect(getQueryOperationCount('system')).toBe(14);
+    it('system domain should have 15 operations (includes config.show + config.get alias)', () => {
+      expect(getQueryOperationCount('system')).toBe(15);
     });
   });
 
@@ -391,7 +391,11 @@ describe('Query Gateway', () => {
       expect(systemOps).toContain('health');
     });
 
-    it('should support config.get operation', () => {
+    it('should support config.show operation', () => {
+      expect(systemOps).toContain('config.show');
+    });
+
+    it('should support config.get alias', () => {
       expect(systemOps).toContain('config.get');
     });
 

@@ -527,17 +527,18 @@ cleo skills setup ct-orchestrator
 
 ## Known Verb Violations
 
-The following operations in the current codebase deviate from verb standards. These are tracked for future correction:
+All previously known violations have been resolved (T4792). The standard verbs are now canonical,
+with old verbs retained as backward-compatible aliases:
 
-| Location | Current | Standard | Notes |
-|----------|---------|----------|-------|
-| `system.config.get` (query) | `config.get` | `config.show` | Reading config should use `show` verb per standard |
-| `tasks.reopen` (mutate) | `reopen` | `restore` | Should use the canonical `restore` verb |
-| `tasks.uncancel` (mutate) | `uncancel` | `restore` | Should use the canonical `restore` verb |
-| `system.uncancel` (mutate) | `uncancel` | `restore` | Should use the canonical `restore` verb |
-| `find` alias `search` | `search` | `find` | `search` accepted as backward-compatible alias only |
+| Location | Standard (canonical) | Alias (backward compat) | Status |
+|----------|---------------------|------------------------|--------|
+| `system.config.show` (query) | `config.show` | `config.get` | Fixed |
+| `tasks.restore` (mutate) | `restore` | `reopen`, `uncancel` | Fixed |
+| `system.restore` (mutate) | `restore` | `uncancel` | Fixed |
+| `issues.add.*` (mutate) | `add.bug`, `add.feature`, `add.help` | `create.bug`, `create.feature`, `create.help` | Fixed |
+| `skills.find` (query) | `find` | `search` | Fixed |
 
-These violations are maintained as aliases for backward compatibility but new code MUST use the standard verb.
+New code MUST use the standard verb. Aliases are maintained for backward compatibility only.
 
 ---
 
@@ -680,7 +681,7 @@ backup      Create backup
 restore     Restore from backup
 migrate     Run schema migrations
 config.set  Set config value
-config.get  Get config value (violation: should be config.show)
+config.show Get config value (canonical; config.get accepted as alias)
 cleanup     Cleanup stale data
 sync        Sync with TodoWrite
 ```

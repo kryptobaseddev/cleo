@@ -115,6 +115,7 @@ export class ToolsHandler implements DomainHandler {
       ],
       mutate: [
         // issue
+        'issue.add.bug', 'issue.add.feature', 'issue.add.help',
         'issue.create.bug', 'issue.create.feature', 'issue.create.help',
         'issue.generate.config',
         // skill
@@ -180,6 +181,9 @@ export class ToolsHandler implements DomainHandler {
     startTime: number,
   ): Promise<DispatchResponse> {
     switch (sub) {
+      case 'add.bug':
+      case 'add.feature':
+      case 'add.help':
       case 'create.bug':
       case 'create.feature':
       case 'create.help':

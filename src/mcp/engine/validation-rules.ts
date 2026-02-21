@@ -237,8 +237,8 @@ export function validateStatusTransition(
     pending: ['active', 'blocked', 'done', 'cancelled'],
     active: ['pending', 'blocked', 'done', 'cancelled'],
     blocked: ['pending', 'active', 'done', 'cancelled'],
-    done: ['pending', 'active'], // reopen
-    cancelled: ['pending'], // uncancel
+    done: ['pending', 'active'], // restore (alias: reopen)
+    cancelled: ['pending'], // restore (alias: uncancel)
   };
 
   const allowed = validTransitions[currentStatus];

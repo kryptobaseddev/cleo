@@ -97,7 +97,8 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
   system: [
     'version',        // CLEO version
     'health',         // Health check
-    'config.get',     // Get config value
+    'config.show',    // Show config value
+    'config.get',     // Alias (backward compat)
     'stats',          // Project statistics
     'context',        // Context window info
     'job.status',     // Get background job status
@@ -131,7 +132,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
 /**
  * Total operation count check
  */
-const EXPECTED_QUERY_COUNT = 75;
+const EXPECTED_QUERY_COUNT = 76;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

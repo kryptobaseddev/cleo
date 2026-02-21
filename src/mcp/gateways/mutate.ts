@@ -43,9 +43,9 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'reparent',    // Change task parent
     'promote',     // Promote subtask to task
     'reorder',     // Reorder siblings
-    'reopen',      // Reopen completed task
+    'reopen',      // Alias for restore (completed tasks)
     'relates.add', // Add task relationship
-    'uncancel',    // Restore cancelled tasks
+    'uncancel',    // Alias for restore (cancelled tasks)
     'start',       // Start working on task
     'stop',        // Stop working on task
   ],
@@ -101,13 +101,16 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'cleanup',           // Cleanup stale data
     'job.cancel',        // Cancel background job
     'safestop',          // Graceful agent shutdown
-    'uncancel',          // Restore cancelled tasks
+    'uncancel',          // Alias for restore (cancelled tasks)
     'inject.generate',   // Generate MVI injection
   ],
   issues: [
-    'create.bug',     // File a bug report
-    'create.feature', // Request a feature
-    'create.help',    // Ask a question
+    'add.bug',        // File a bug report
+    'add.feature',    // Request a feature
+    'add.help',       // Ask a question
+    'create.bug',     // Alias (backward compat)
+    'create.feature', // Alias (backward compat)
+    'create.help',    // Alias (backward compat)
   ],
   skills: [
     'install',        // Install a skill
@@ -125,7 +128,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
 /**
  * Total operation count check
  */
-const EXPECTED_MUTATE_COUNT = 65;
+const EXPECTED_MUTATE_COUNT = 68;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(
@@ -329,6 +332,8 @@ function validateTasksParams(
     case 'promote':
     case 'reorder':
     case 'reopen':
+    case 'start':
+    case 'uncancel':
       if (!params?.taskId) {
         return {
           valid: false,
