@@ -251,17 +251,19 @@ export function parseConfigValue(value: unknown): unknown {
 }
 
 /**
- * Set a config value in the project config file (dot-notation supported).
+ * Set a config value in the project or global config file (dot-notation supported).
  * Creates intermediate objects as needed. Parses string values into
  * appropriate types (boolean, number, null, JSON).
  * @task T4789
+ * @task T4795
  */
 export async function setConfigValue(
   key: string,
   value: unknown,
   cwd?: string,
-): Promise<{ key: string; value: unknown }> {
-  const configPath = getConfigPath(cwd);
+  opts?: { global?: boolean },
+): Promise<{ key: string; value: unknown; scope: 'project' | 'global' }> {
+  const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
   // Ensure file exists
   if (!existsSync(configPath)) {
@@ -278,5 +280,5 @@ export async function setConfigValue(
 
   await saveJson(configPath, config);
 
-  return { key, value: parsedValue };
+  return { key, value: parsedValue, scope: opts?.global ? 'global' : 'project' };
 }

@@ -1,75 +1,17 @@
 /**
  * CLI next command - suggest next task to work on.
+ * Delegates scoring algorithm to core/tasks/task-ops.coreTaskNext.
  * @task T4454
+ * @task T4795
  */
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getAccessor } from '../../store/data-accessor.js';
-import type { Task } from '../../types/task.js';
 import { cliOutput } from '../renderers/index.js';
-
-const PRIORITY_SCORE: Record<string, number> = {
-  critical: 100,
-  high: 75,
-  medium: 50,
-  low: 25,
-};
-
-interface ScoredTask {
-  task: Task;
-  score: number;
-  reasons: string[];
-}
-
-/**
- * Check if all dependencies of a task are satisfied (done/cancelled).
- */
-function depsReady(task: Task, taskMap: Map<string, Task>): boolean {
-  if (!task.depends || task.depends.length === 0) return true;
-  return task.depends.every((depId) => {
-    const dep = taskMap.get(depId);
-    return dep && (dep.status === 'done' || dep.status === 'cancelled');
-  });
-}
-
-/**
- * Score a task for suggestion ranking.
- */
-function scoreTask(task: Task, currentPhase: string | null | undefined, taskMap: Map<string, Task>): ScoredTask {
-  const reasons: string[] = [];
-  let score = 0;
-
-  // Priority score
-  score += PRIORITY_SCORE[task.priority] ?? 50;
-  reasons.push(`priority: ${task.priority} (+${PRIORITY_SCORE[task.priority] ?? 50})`);
-
-  // Phase alignment bonus
-  if (currentPhase && task.phase === currentPhase) {
-    score += 20;
-    reasons.push(`phase alignment: ${currentPhase} (+20)`);
-  }
-
-  // Dependencies ready bonus
-  if (depsReady(task, taskMap)) {
-    score += 10;
-    reasons.push('all dependencies satisfied (+10)');
-  }
-
-  // Age bonus (older tasks get slight priority)
-  if (task.createdAt) {
-    const ageMs = Date.now() - new Date(task.createdAt).getTime();
-    const ageDays = ageMs / (1000 * 60 * 60 * 24);
-    if (ageDays > 7) {
-      score += Math.min(15, Math.floor(ageDays / 7));
-      reasons.push(`age: ${Math.floor(ageDays)} days (+${Math.min(15, Math.floor(ageDays / 7))})`);
-    }
-  }
-
-  return { task, score, reasons };
-}
+import { coreTaskNext } from '../../core/tasks/task-ops.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 export function registerNextCommand(program: Command): void {
   program
@@ -79,19 +21,13 @@ export function registerNextCommand(program: Command): void {
     .option('-n, --count <n>', 'Show top N suggestions', '1')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const accessor = await getAccessor();
-        const data = await accessor.loadTaskFile();
+        const projectRoot = getProjectRoot();
+        const count = parseInt(opts['count'] as string, 10) || 1;
+        const explain = !!opts['explain'];
 
-        const taskMap = new Map(data.tasks.map((t) => [t.id, t]));
-        const currentPhase = data.project?.currentPhase;
+        const result = await coreTaskNext(projectRoot, { count, explain });
 
-        // Filter candidates: pending, not blocked, deps ready
-        const candidates = data.tasks.filter((t) =>
-          t.status === 'pending' &&
-          depsReady(t, taskMap),
-        );
-
-        if (candidates.length === 0) {
+        if (result.suggestions.length === 0) {
           cliOutput({
             suggestion: null,
             reason: 'No pending tasks with satisfied dependencies',
@@ -100,40 +36,16 @@ export function registerNextCommand(program: Command): void {
           return;
         }
 
-        // Score and sort
-        const scored = candidates
-          .map((t) => scoreTask(t, currentPhase, taskMap))
-          .sort((a, b) => b.score - a.score);
-
-        const count = Math.min(parseInt(opts['count'] as string, 10) || 1, scored.length);
-        const suggestions = scored.slice(0, count);
-
-        const explain = !!opts['explain'];
-
         if (count === 1) {
-          const { task, score, reasons } = suggestions[0]!;
+          const s = result.suggestions[0]!;
           cliOutput({
-            suggestion: {
-              id: task.id,
-              title: task.title,
-              priority: task.priority,
-              phase: task.phase ?? null,
-              score,
-              ...(explain && { reasons }),
-            },
-            totalCandidates: candidates.length,
+            suggestion: s,
+            totalCandidates: result.totalCandidates,
           }, { command: 'next', operation: 'tasks.next' });
         } else {
           cliOutput({
-            suggestions: suggestions.map(({ task, score, reasons }) => ({
-              id: task.id,
-              title: task.title,
-              priority: task.priority,
-              phase: task.phase ?? null,
-              score,
-              ...(explain && { reasons }),
-            })),
-            totalCandidates: candidates.length,
+            suggestions: result.suggestions,
+            totalCandidates: result.totalCandidates,
           }, { command: 'next', operation: 'tasks.next' });
         }
       } catch (err) {
