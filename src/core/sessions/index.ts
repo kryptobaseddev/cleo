@@ -319,3 +319,22 @@ export async function gcSessions(maxAgeHours: number = 24, cwd?: string, accesso
 
   return { orphaned, removed };
 }
+
+// Re-export extended session modules (engine-compatible)
+export { isMultiSession } from './multi-session.js';
+export { showSession } from './session-show.js';
+export { suspendSession } from './session-suspend.js';
+export { getSessionHistory } from './session-history.js';
+export type { SessionHistoryEntry, SessionHistoryParams } from './session-history.js';
+export { cleanupSessions } from './session-cleanup.js';
+export { getSessionStats } from './session-stats.js';
+export type { SessionStatsResult } from './session-stats.js';
+export { switchSession } from './session-switch.js';
+export { archiveSessions } from './session-archive.js';
+export { getContextDrift } from './session-drift.js';
+export type { ContextDriftResult } from './session-drift.js';
+export { recordDecision, getDecisionLog } from './decisions.js';
+export type { RecordDecisionParams, DecisionLogParams } from './decisions.js';
+export { recordAssumption } from './assumptions.js';
+export type { RecordAssumptionParams } from './assumptions.js';
+export type { SessionRecord, FocusState, SessionsFileExt, TodoFileExt, DecisionRecord, AssumptionRecord } from './types.js';
