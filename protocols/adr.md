@@ -108,7 +108,7 @@ superseded_by: [ADR-ZZZ]
 
 1. Agent drafts the ADR based on Consensus.
 2. Status is set to `proposed`.
-3. Pipeline pauses (`EXIT_HITL_REQUIRED` - 75).
+3. Pipeline pauses (`HANDOFF_REQUIRED` - 75).
 4. Human reviews the proposed ADR.
 5. If approved, status transitions to `accepted`.
 6. Only an `accepted` ADR unlocks the **Specification** and **Decomposition** stages.
@@ -124,9 +124,9 @@ If an `accepted` ADR is later marked as `superseded`:
 
 ## Exit Codes
 
-- `EXIT_ADR_PENDING_HITL` (75) - ADR drafted, awaiting human approval.
-- `EXIT_ADR_NO_CONSENSUS` (64) - Attempted to create an ADR without a linked Consensus report.
-- `EXIT_ADR_CASCADE_BLOCK` (65) - Downstream work blocked because the governing ADR was superseded.
+- `HANDOFF_REQUIRED` (65) - ADR drafted, awaiting human approval (HITL).
+- `PROVENANCE_REQUIRED` (84) - Attempted to create an ADR without a linked Consensus report.
+- `CASCADE_FAILED` (18) - Downstream work blocked because the governing ADR was superseded.
 
 ---
 
