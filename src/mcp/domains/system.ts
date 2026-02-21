@@ -1312,13 +1312,13 @@ export class SystemHandler implements DomainHandler {
   ): Promise<DomainResponse> {
     switch (operation) {
       case 'version':
-        return this.wrapNativeResult(nativeGetVersion(this.projectRoot), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeGetVersion(this.projectRoot), 'query', operation, startTime);
       case 'config.get': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
         const key = (params as SystemConfigParams)?.key;
-        return this.wrapNativeResult(nativeConfigGet(this.projectRoot, key), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeConfigGet(this.projectRoot, key), 'query', operation, startTime);
       }
       case 'dash': {
         if (!isProjectInitialized(this.projectRoot)) {
@@ -1422,7 +1422,7 @@ export class SystemHandler implements DomainHandler {
     switch (operation) {
       case 'init': {
         const p = params as SystemInitParams;
-        const result = nativeInitProject(this.projectRoot, {
+        const result = await nativeInitProject(this.projectRoot, {
           projectName: p?.projectType,
           force: false,
         });

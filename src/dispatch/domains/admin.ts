@@ -59,7 +59,7 @@ export class AdminHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'version': {
-          const result = getVersion(this.projectRoot);
+          const result = await getVersion(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -69,7 +69,7 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'config.get': {
-          const result = configGet(this.projectRoot, params?.key as string | undefined);
+          const result = await configGet(this.projectRoot, params?.key as string | undefined);
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -136,7 +136,7 @@ export class AdminHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'init': {
-          const result = initProject(this.projectRoot, params as { projectName?: string; force?: boolean } | undefined);
+          const result = await initProject(this.projectRoot, params as { projectName?: string; force?: boolean } | undefined);
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
