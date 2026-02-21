@@ -7,18 +7,31 @@
     "phaseHistory": [],
     "releases": []
   },
-  "lastUpdated": "2026-02-20T17:45:24.702Z",
+  "lastUpdated": "2026-02-21T03:19:09.846Z",
   "_meta": {
     "schemaVersion": "2.10.0",
-    "checksum": "ad25ce5d3a1c24ab",
+    "checksum": "0f87aadac92e97ad",
     "configVersion": "1.0.0"
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T4776",
     "currentPhase": null,
     "blockedUntil": null,
     "sessionNote": null,
-    "sessionNotes": [],
+    "sessionNotes": [
+      {
+        "note": "Started work on T4797: RESEARCH: Domain model redesign - evidence-based analysis",
+        "timestamp": "2026-02-20T18:38:38.335Z"
+      },
+      {
+        "note": "Started work on T4797: RESEARCH: Domain model redesign - evidence-based analysis",
+        "timestamp": "2026-02-20T20:42:02.877Z"
+      },
+      {
+        "note": "Started work on T4776: Design and spec the 9 intent-based domain model",
+        "timestamp": "2026-02-21T03:12:32.094Z"
+      }
+    ],
     "nextAction": null,
     "primarySession": null
   },
@@ -7718,19 +7731,19 @@
     },
     {
       "id": "T4772",
-      "title": "EPIC: MCP Domain Consolidation (11 to 5 Intent-Based Domains)",
+      "title": "EPIC: MCP Domain Consolidation (11 to 9 intent-based domains)",
       "status": "pending",
       "priority": "critical",
       "type": "task",
       "size": "medium",
       "position": 4744,
       "positionVersion": 0,
-      "description": "Consolidate 11 MCP domains (tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers) into 5 intent-based domains (work, plan, check, admin, extend). Current architecture has 212 total operations with confirmed redundancies: tasks.uncancel duplicates system.uncancel, tasks.restore duplicates tasks.uncancel (same engine function), system.compliance overlaps validate.compliance.summary, orchestrate.skill.list duplicates skills.list, system.provider.* duplicates providers.* (4 ops), session.cleanup vs session.gc confusion. System domain is bloated at 40 operations containing leaked task ops (labels, roadmap, compliance, uncancel), CAAMP provider ops, observability, config, and data management. Analysis shows only 16 operations cover 95% of agent sessions; 77.9% are rarely used. Goal: CLEAN, DRY, intuitive domains wrapping src/core/ with 1:1 MCP-CLI-Core mapping.",
+      "description": "Consolidate 11 MCP domains into 9 intent-based domains aligned with CLEO's Brain/Memory identity, progressive disclosure tiers, RCSD-IVTR pipeline, and BRAIN specification forward compatibility. Target model (from T4797 consensus): tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus. 8 project-local + 1 global (nexus for cross-project hive brain). Current 11 domains have 140+ operations with 8+ confirmed duplicates. System domain is a 40-op junk drawer mixing 7 concerns. 80% of agent sessions use only tasks+session (8 ops). Goal: DRY, intuitive domains with CLEO-internal vs project-level separation, IVTR as first-class pipeline, BRAIN forward compatibility, and production longevity. Full consensus: claudedocs/agent-outputs/T4797-domain-model-consensus.md",
       "labels": [
         "domain-consolidation"
       ],
       "createdAt": "2026-02-20T17:42:51.768Z",
-      "updatedAt": "2026-02-20T17:42:51.768Z"
+      "updatedAt": "2026-02-21T02:39:32.629Z"
     },
     {
       "id": "T4773",
@@ -7776,29 +7789,34 @@
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
-      "description": "The system domain has 40 operations mixing 7 distinct concerns: (1) Core system: health, version, init, diagnostics - keep in system/admin. (2) Config: config.get, config.set - keep in system/admin. (3) Data management: backup, restore, migrate, cleanup, audit, sync - should be own namespace or admin.data.*. (4) Observability: context, metrics, stats, log, dash, sequence - should be admin.observe.* or similar. (5) Leaked task ops: labels, roadmap, compliance, archive.stats, safestop, uncancel - move to proper domains. (6) CAAMP provider ops: provider.*, mcp.*, injection.* - move to providers/extend domain. (7) Background jobs: job.status, job.list, job.cancel - keep in system/admin. Analysis: system.labels belongs in tasks domain, system.roadmap belongs in tasks or orchestrate, system.compliance belongs in validate, system.archive.stats belongs in tasks, system.uncancel belongs in tasks.",
+      "description": "Decompose the bloated system domain (40 ops mixing 7 concerns) per the 8-domain model (T4797 v2). Operations move to: (1) tasks domain: labels, roadmap, archive.stats (leaked task ops). (2) check domain: compliance (validation concern). (3) tools domain: provider.* (extension ecosystem). (4) admin domain: version, health, init, config.*, backup, restore, migrate, cleanup, audit, sync, context, metrics, stats, log, dash, sequence, job.*, safestop, inject.generate (core infrastructure). Duplicates removed: system.uncancel (tasks.uncancel exists). Each moved operation requires updates to: gateway arrays, domain handlers, capability matrix, engine routing, tests, and documentation.",
       "labels": [
         "domain-consolidation"
       ],
       "createdAt": "2026-02-20T17:43:17.099Z",
-      "updatedAt": "2026-02-20T17:43:17.099Z"
+      "updatedAt": "2026-02-21T02:13:57.889Z"
     },
     {
       "id": "T4776",
-      "title": "Design and spec the 5 intent-based domain model",
-      "status": "pending",
+      "title": "Design and spec the 9 intent-based domain model",
+      "status": "done",
       "priority": "critical",
       "type": "subtask",
       "parentId": "T4772",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
-      "description": "Create formal spec for the proposed 5-domain model: (1) WORK domain: tasks CRUD, hierarchy, dependencies, focus (start/stop/current), analysis (next, analyze, complexity), labels, relationships - merges current tasks + relevant system ops. (2) PLAN domain: sessions, orchestration, lifecycle pipeline, research - merges session + orchestrate + lifecycle + research. (3) CHECK domain: validation, compliance, testing, protocol enforcement, coherence - merges validate + relevant system.compliance. (4) ADMIN domain: system health/version/init, config, backup/restore/migrate, observability (stats/dash/log/jobs), release pipeline - merges system core + release. (5) EXTEND domain: skills management, provider management, issues/bug reports - merges skills + providers + issues. Spec must include: operation mapping table (old domain.op to new domain.op), migration strategy, backward compatibility aliases, progressive disclosure levels per new domain.",
+      "description": "Create formal spec for the 9-domain model (from T4797 consensus, final). Comprehensive deliverable: claudedocs/agent-outputs/T4797-domain-model-consensus.md. The 9 domains: (1) tasks: CRUD, hierarchy, focus, analysis, labels + absorbed system task ops. (2) session: lifecycle, decisions, assumptions, context. (3) memory: research/manifests, knowledge store (BRAIN Base+Reasoning). (4) check: CLEO validation + project quality (BRAIN Intelligence). (5) pipeline: RCSD-IVTR state machine + release execution (lifecycle+release merge). (6) orchestrate: multi-agent coordination, spawning, waves (BRAIN Agent). (7) tools: skills + providers + issues (Interoperable Interfaces). (8) admin: system + config + backup + migration + observability. (9) nexus: cross-project search, knowledge transfer, federation (BRAIN Network, global scope). Spec must include: complete operation mapping (old->new) for all ~140 ops, IVTR stage-to-domain alignment, BRAIN 5-dimension mapping, migration strategy, backward compatibility aliases (T4779), progressive disclosure tiers, gateway+capability matrix reconciliation plan, CLEO-internal vs project-level separation within check domain.",
       "labels": [
         "domain-consolidation"
       ],
+      "notes": [
+        "2026-02-20 18:36:54 UTC: REVISION 2026-02-20: The initial 5-domain proposal (work/plan/check/admin/extend) was NOT properly thought through. Key issues: (1) 'extend' makes no sense from an agent's perspective - agents think 'file a bug' or 'find a skill', not 'extend the system'. (2) The proposal ignored CLEO's identity as a Brain/Memory system per vision.mdx - domains should reflect the 5 pillars (Portable Memory, Provenance, Interoperable Interfaces, Deterministic Safety, Cognitive Retrieval). (3) The old Bash system had 7 categories (read/write/validation/maintenance/sync/intelligence/system) covering 77 commands - the 11 MCP domains were an MCP-era invention, not an evolution. (4) Agent usage analysis shows 16 ops cover 95% of sessions - the domain model should optimize for THOSE workflows. (5) The target number might not be 5. This task needs proper research: cross-walk the 7 Bash categories against the 11 MCP domains, study the 16 high-frequency ops, align to CLEO pillars, and propose a model that makes sense for LLM agent reasoning patterns. Do NOT rush to code.",
+        "2026-02-21 02:13:10 UTC: 2026-02-21 02:15 UTC: SCOPE UPDATE — This task now targets the 8-domain model (not the original 5-domain model). The evidence-based proposal is documented in T4797 notes (v2, 8-domain model). Key changes from original T4776 description:\n\n1. Target is 8 domains (tasks, session, memory, pipeline, check, orchestrate, tools, admin), NOT 5 (work/plan/check/admin/extend)\n2. The 5 pillars DO map to domain boundaries (see T4797 BRAIN forward compatibility)\n3. The RCSD-IVTR pipeline is a first-class domain (pipeline), not hidden in orchestrate\n4. Release is part of the pipeline domain (IVTR Release stage), not admin\n5. CLEO-internal vs project-level operations are distinguished within the check domain\n\nPRE-CONDITIONS before writing this spec:\n- Reconcile gateway <-> capability matrix discrepancy (44 mismatches, see T4797)\n- T4780 verb rulings (dependency, not blocker — domain homes are verb-agnostic)\n- T4779 scope updated for operation-aware system domain alias routing\n\nThe original revision note in this task (criticizing the 5-domain model) remains valid — the 8-domain model addresses all 5 issues raised."
+      ],
       "createdAt": "2026-02-20T17:43:24.397Z",
-      "updatedAt": "2026-02-20T17:43:24.397Z"
+      "updatedAt": "2026-02-21T03:19:09.846Z",
+      "completedAt": "2026-02-21T03:19:09.846Z"
     },
     {
       "id": "T4777",
@@ -7844,12 +7862,450 @@
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
-      "description": "During the 11-to-5 domain migration, agents with cached instructions will still send requests to old domain names (e.g., domain='research' instead of domain='plan'). The gateway router must accept old domain names as aliases for at least 2 major versions. Implementation: add alias map to router.ts that transparently redirects old domain names to new ones. Emit deprecation warnings in response _meta. Track alias usage in metrics to determine when safe to remove. This is critical for zero-downtime migration.",
+      "description": "During the 11-to-8 domain migration, agents with cached instructions will still send requests to old domain names. The gateway router must accept old domain names as aliases for at least 2 major versions. TWO types of aliases needed: (1) Simple domain redirects: research->memory, validate->check, lifecycle->pipeline, release->pipeline.release. (2) Operation-aware redirects for system domain split: system.labels->tasks.labels, system.roadmap->tasks.roadmap, system.compliance->check.compliance, system.provider.*->tools.provider.*, system.*(remaining)->admin.*. Also handles namespace prefixing: skills->tools.skill.*, providers->tools.provider.*, issues->tools.issue.*. Implementation: alias router in router.ts accepting {domain,operation} pairs mapping to {newDomain,newOperation}. Emit deprecation warnings in response _meta. Track alias usage in metrics.",
       "labels": [
         "domain-consolidation"
       ],
+      "notes": [
+        "2026-02-21 02:13:11 UTC: 2026-02-21 02:15 UTC: SCOPE UPDATE from T4797 consensus (8-domain model v2).\n\nOriginal scope assumed simple domain-level aliases (domain A -> domain B). The 8-domain model requires TWO types of aliases:\n\nTYPE 1 — Simple domain redirects (1:1 mapping):\n  research -> memory\n  validate -> check\n  lifecycle -> pipeline (with stage.* namespace)\n  release -> pipeline (with release.* namespace)\n\nTYPE 2 — Operation-aware redirects (system domain splits across 4 new domains):\n  system.labels -> tasks.labels\n  system.roadmap -> tasks.roadmap\n  system.archive.stats -> tasks.archive.stats\n  system.compliance -> check.compliance\n  system.uncancel -> tasks.uncancel (dedup — remove, don't alias)\n  system.provider.* -> tools.provider.*\n  system.* (remaining ~14 ops) -> admin.*\n\nImplementation: The alias router must accept {domain, operation} pairs and map to {newDomain, newOperation}. Simple domain-only lookup is insufficient for the system domain split.\n\nAlso: skills -> tools.skill.*, providers -> tools.provider.*, issues -> tools.issue.* need namespace prefixing (not just domain rename)."
+      ],
       "createdAt": "2026-02-20T17:43:40.322Z",
-      "updatedAt": "2026-02-20T17:43:40.322Z"
+      "updatedAt": "2026-02-21T02:13:42.644Z"
+    },
+    {
+      "id": "T4780",
+      "title": "Assess and update VERB-STANDARDS.md for BRAIN and Memory command surface",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4763",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "description": "Review docs/specs/VERB-STANDARDS.md against all planned BRAIN/memory commands from CLEO-BRAIN-SPECIFICATION.md. Current standard has 12 verbs (add, show, list, find, update, delete, archive, restore, complete, start, stop, status). BRAIN commands introduce up to 10 gaps: (1) store vs add for append-only audit logs. (2) recall vs find for semantic/NL retrieval. (3) consolidate for memory compression. (4) predict for quality prediction. (5) suggest for proactive suggestions. (6) spawn vs add for ephemeral agents. (7) kill vs stop for agent termination. (8) learn vs add for feedback recording. (9) export/import for cross-project patterns. (10) score vs show for calculated metrics. Must also rule on namespace conventions for reason, intelligence, and network domains. Update VERB-STANDARDS.md with rulings and add to Command Categories section.",
+      "createdAt": "2026-02-20T17:56:14.901Z",
+      "updatedAt": "2026-02-20T17:56:14.901Z"
+    },
+    {
+      "id": "T4781",
+      "title": "EPIC: Core Canonicalization — Refactor Engine Business Logic to src/core/",
+      "status": "pending",
+      "priority": "critical",
+      "type": "epic",
+      "size": "medium",
+      "position": 4745,
+      "positionVersion": 0,
+      "description": "Comprehensive refactoring of business logic from src/mcp/engine/ to src/core/ to enforce the shared-core architecture principle. AUDIT FINDINGS: 140+ engine functions, only 7 delegate to core (task CRUD). ~9,600 lines of engine business logic must be refactored into canonical core modules. DOMAINS AFFECTED: session-engine (1,779 lines, 0 delegation), system-engine (2,161 lines, 0 delegation), orchestrate-engine (1,506 lines), lifecycle-engine (749 lines), validate-engine (1,003 lines), research-engine (960 lines), release-engine (652 lines), config-engine (143 lines), init-engine (265 lines). ALSO INCLUDES: (1) Review and update VERB-STANDARDS.md with ~15 missing verbs discovered during audit. (2) Fix 5 direct verb standard violations (search→find, reopen→restore, uncancel→restore, create→add, config.get→config.show). (3) Resolve CLI-only operations (~23) and MCP-only operations (~25) parity gaps. CONSTRAINT: Both MCP domain handlers and CLI commands MUST call the SAME core functions — no parallel implementations.",
+      "createdAt": "2026-02-20T18:01:04.258Z",
+      "updatedAt": "2026-02-20T18:01:33.263Z"
+    },
+    {
+      "id": "T4782",
+      "title": "Refactor session-engine.ts (1,779 lines) → src/core/sessions/ — 23 functions, 0 delegation, parallel implementation with core",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: session-engine has 20 exported functions (not 23 as estimated). Core has 7 functions (startSession, endSession, sessionStatus, resumeSession, listSessions, gcSessions, parseScope). The 7 core functions directly cover 7 of the 20 engine functions — these just need rewiring. The remaining 13 are MCP-only operations that need NEW core functions: sessionShow, sessionSuspend, sessionHistory, sessionCleanup, sessionRecordDecision, sessionDecisionLog, sessionContextDrift, sessionRecordAssumption, sessionStats, sessionSwitch, sessionArchive, isMultiSession, taskCurrentGet/taskStart/taskStop (these 3 overlap with core/task-work). SCOPE: Bigger than estimated — need to CREATE 10+ new core functions, not just rewire.",
+      "createdAt": "2026-02-20T18:01:54.860Z",
+      "updatedAt": "2026-02-20T18:25:01.309Z"
+    },
+    {
+      "id": "T4783",
+      "title": "Refactor system-engine.ts (2,161 lines) → src/core/system/ — 23 functions including health, stats, backup, dashboard, labels, log, compliance, roadmap",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: system-engine has 22 exported functions (not 23). Only 1 partial delegation (checkStorageMigration in systemDiagnostics). Core already has substantial modules: stats/index.ts (getProjectStats, getDashboard), validation/doctor/ (10 checks + 7 utils), log/index.ts, compliance/index.ts, roadmap/index.ts, context/index.ts, inject/index.ts, metrics/index.ts. PLAN: Most engine functions can be rewired to existing core modules. New core modules needed: backup (unify store/backup.ts), system-audit, system-cleanup. CLI doctor.ts also has ~180 lines of inline logic that should move to core. THREE-WAY DIVERGENCE on health/doctor: core/validation/doctor has 10 checks, CLI doctor has ~14 inline checks, MCP systemHealth has its own impl.",
+      "createdAt": "2026-02-20T18:01:55.887Z",
+      "updatedAt": "2026-02-20T18:25:07.829Z"
+    },
+    {
+      "id": "T4784",
+      "title": "Refactor orchestrate-engine.ts (1,506 lines) → src/core/orchestration/ — graph algorithms, wave computation, critical path, dep analysis, bootstrap",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: orchestrate-engine has 16 exported functions, 0 delegation to core. Core has core/orchestration/index.ts (spawn, auto-dispatch, analysis, ready-tasks) and core/orchestration/protocol-validators.ts (all 9 CLEO protocols). Engine has: status, analyze, ready, next, waves, context, skillList, validate, spawn, startup, bootstrap, criticalPath, unblockOpportunities, parallelStart/End, check, skillInject. Bootstrap composes results from OTHER engine files (session-engine, task-engine) — this is cross-engine coupling that needs to go through core. OVERLAP with T4763 (Brain epic) which plans to extract bootstrap/criticalPath/unblock to core/brain/. DECISION NEEDED: Merge T4784 with T4763 scope or sequence them.",
+      "createdAt": "2026-02-20T18:01:56.948Z",
+      "updatedAt": "2026-02-20T18:25:13.916Z"
+    },
+    {
+      "id": "T4785",
+      "title": "Refactor lifecycle-engine.ts (749 lines) → src/core/lifecycle/ — RCSD pipeline operations, gate pass/fail, manifest management",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: lifecycle-engine has 10 exported functions, 0 delegation. Core has 5 functions (getLifecycleState, startStage, completeStage, skipStage, checkGate) that directly cover 5 engine operations. Engine has 5 additional: lifecycleHistory, lifecycleGates, lifecyclePrerequisites, lifecycleProgress, lifecycleReset, lifecycleGateFail. These 5-6 need new core functions. SCOPE: Medium — half can be rewired, half needs new core functions. Note: Engine reads/writes .cleo/rcsd/ JSONL files directly via store.js; core uses its own file I/O.",
+      "createdAt": "2026-02-20T18:01:58.012Z",
+      "updatedAt": "2026-02-20T18:25:18.583Z"
+    },
+    {
+      "id": "T4786",
+      "title": "Refactor validate-engine.ts (1,003 lines) → src/core/validation/ — schema validation, compliance, coherence checks, test status",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: validate-engine has 12 exported functions, 1 partial delegation (detectCircularDeps from core). Core has MASSIVE validation infrastructure: engine.ts (977 lines, 20 functions including validateAll), doctor/ (10 checks + 7 utils + cache), compliance.ts (5 functions), verification.ts (21 functions), gap-check.ts (6 functions), docs-sync.ts (7 functions), manifest.ts (4 functions), protocol-common.ts (11 functions), 5 protocol validators. Engine functions: schemaOp, task, protocol, manifest, output, complianceSummary/violations/record, testStatus, coherenceCheck, testRun, batchValidate, testCoverage. SCOPE: Some core modules exist but engine uses DIFFERENT validation strategies. Need careful merging, not just rewiring. CLI validate.ts also has 13 inline checks (mostly duplicating core/validation/engine.validateAll).",
+      "createdAt": "2026-02-20T18:01:59.099Z",
+      "updatedAt": "2026-02-20T18:25:24.882Z"
+    },
+    {
+      "id": "T4787",
+      "title": "Refactor research-engine.ts (960 lines) → src/core/research/ — MANIFEST.jsonl operations, search, contradictions, superseded, compact",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: research-engine has 14 exported functions (not estimated), 0 delegation. Core has core/research/index.ts with research entry operations and MANIFEST.jsonl management. Engine functions: readManifestEntries, filterEntries, show, list, query, pending, stats, manifestRead, link, manifestAppend, manifestArchive, contradictions, superseded, inject, compact, validate. Some of these likely overlap with core; others (contradictions, superseded, compact) may be engine-only. SCOPE: Medium — need to audit core/research/index.ts for overlap before sizing accurately.",
+      "createdAt": "2026-02-20T18:02:00.135Z",
+      "updatedAt": "2026-02-20T18:25:28.787Z"
+    },
+    {
+      "id": "T4788",
+      "title": "Refactor release-engine.ts (652 lines) → src/core/release/ — prepare, changelog, commit, tag, push, gates, rollback",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: release-engine has 10 exported functions (not estimated), 0 delegation. Core has core/release/ with: index.ts (createRelease, planRelease, shipRelease, listReleases, showRelease, getChangelog), version-bump.ts (4 strategies), guards.ts (epic completeness checks), provenance.ts (SLSA tracking), ci.ts (CI template gen), artifacts.ts (9 ecosystem handlers), release-config.ts. Engine: prepare, changelog, list, show, commit, tag, gatesRun, rollback, push. CLI release.ts exposes 6 subcommands that delegate to core. SCOPE: Smaller than estimated — 6 core functions already exist and CLI uses them. Engine needs rewiring to same core functions. 4 engine functions may need new core additions (commit, tag, push, rollback).",
+      "createdAt": "2026-02-20T18:02:01.223Z",
+      "updatedAt": "2026-02-20T18:25:33.834Z"
+    },
+    {
+      "id": "T4789",
+      "title": "Refactor config-engine.ts (143 lines) + init-engine.ts (265 lines) → merge with src/core/config.ts and src/core/init.ts",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: config-engine has 2 functions (configGet, configSet), 0 delegation. Core has config.ts with loadConfig, getConfigValue. CLI config.ts get/list delegates to core, but config set has inline helpers (setNestedValue, parseValue). init-engine has 4 functions (initProject, isAutoInitEnabled, ensureInitialized, getVersion), 0 delegation. Core has init.ts with initProject. CLI init.ts delegates to core. SCOPE: Small — core already has most functions. Need: (1) Add setConfigValue to core/config.ts, (2) Rewire engine configGet to core getConfigValue, (3) Rewire engine configSet to new core setConfigValue, (4) Rewire engine init functions to core/init.ts.",
+      "createdAt": "2026-02-20T18:02:02.272Z",
+      "updatedAt": "2026-02-20T18:25:38.191Z"
+    },
+    {
+      "id": "T4790",
+      "title": "Refactor task-engine.ts non-CRUD functions → src/core/tasks/ — tree, blockers, depends, analyze, next, relates, restore, reparent, promote, reorder",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: task-engine has 17 non-CRUD functions that don't delegate to core. HOWEVER, core already has modules covering MOST of this functionality: hierarchy.ts (buildTree=taskTree), dependency-check.ts (getBlockedTasks=taskBlockers, getDependents=taskDeps/taskDepends), graph-ops.ts (getNextTask=taskNext, computeDependencyWaves), analyze.ts (analyzeTaskPriority=taskAnalyze), relates.ts (suggestRelated/listRelations=taskRelates, addRelation=taskRelatesAdd), labels.ts, cancel-ops.ts, deletion-strategy.ts, delete-preview.ts. MISSING from core (need new modules): restore/unarchive, reorder, reparent, promote, reopen, complexityEstimate, export, import, lint, batchValidate, taskStats, taskHistory, taskExists. SCOPE: Large — 7 functions can be rewired to existing core, but 10+ need new core modules.",
+      "createdAt": "2026-02-20T18:02:03.343Z",
+      "updatedAt": "2026-02-20T18:25:44.774Z"
+    },
+    {
+      "id": "T4791",
+      "title": "Update VERB-STANDARDS.md — add ~15 missing verbs (validate, record, resume, suspend, reset, init, enable/disable, backup, migrate, verify, inject, run, end, link, configure)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 10,
+      "positionVersion": 0,
+      "createdAt": "2026-02-20T18:02:04.406Z",
+      "updatedAt": "2026-02-20T18:02:04.406Z"
+    },
+    {
+      "id": "T4792",
+      "title": "Fix 5 verb standard violations — search→find, reopen→restore, uncancel→restore, create.bug→add.bug, config.get→config.show",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "createdAt": "2026-02-20T18:02:05.468Z",
+      "updatedAt": "2026-02-20T18:02:05.468Z"
+    },
+    {
+      "id": "T4793",
+      "title": "Resolve CLI/MCP parity gaps — 23 CLI-only and 25 MCP-only operations need either core coverage or intentional exclusion documentation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 12,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: CLI-ONLY (no MCP): checkpoint, claude-migrate, consensus, contribution, decomposition, env, extract, focus (deprecated, has core), generate-changelog, history, import, migrate-storage, nexus, otel, phase/phases (has core), self-update, specification, testing, upgrade, verify, web. MCP-ONLY (no CLI): orchestrate.bootstrap, orchestrate.critical.path, session.record.decision, session.record.assumption, session.context.drift, research.contradictions, system.inject.generate, system.safestop, validate.coherence, all provider/skills operations. DECISION: For each, determine if (a) add to other layer, (b) mark as intentionally single-layer with documentation, or (c) deprecate. Many CLI-only commands are bash-era leftovers. NEXUS is a fully-implemented core module with no exposure at all.",
+      "createdAt": "2026-02-20T18:02:06.515Z",
+      "updatedAt": "2026-02-20T18:25:57.872Z"
+    },
+    {
+      "id": "T4794",
+      "title": "Update MCP domain handlers to delegate to refactored core modules — thin wrapper conversion",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 13,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: After T4782-T4790 complete, all 10 engine files need their functions converted to thin wrappers calling core. Current state: task-engine has 7/24 delegating (29%), all others are 0% delegation. Target: 100% delegation for all engine files. APPROACH: For each engine function, (1) verify the core function exists and returns compatible types, (2) adapt the engine function to call core and transform the result into MCP-compatible LAFS envelope format, (3) remove duplicate business logic. RISK: Return type mismatches between core and engine may require adapter functions.",
+      "createdAt": "2026-02-20T18:02:07.536Z",
+      "updatedAt": "2026-02-20T18:26:02.700Z"
+    },
+    {
+      "id": "T4795",
+      "title": "Update CLI commands to use same refactored core modules — verify no duplicate logic",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 14,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: 24 of 29 CLI commands are already thin wrappers around core. 5 CLI commands have significant inline business logic that violates shared-core: (1) restore task - ~130 lines inline, needs core/tasks/restore.ts (2) validate - 13 inline checks, should use core/validation/engine.validateAll (3) doctor - ~180 lines inline, should delegate to core/validation/doctor (4) next - inline scoring algo, should use core/tasks/graph-ops.getNextTask (5) config set - inline helpers, needs core/config.setConfigValue. SCOPE: Smaller than estimated — only 5 commands need fixing, not a comprehensive sweep.",
+      "createdAt": "2026-02-20T18:02:08.647Z",
+      "updatedAt": "2026-02-20T18:26:07.536Z"
+    },
+    {
+      "id": "T4796",
+      "title": "Write integration tests verifying CLI and MCP produce identical results for shared operations",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4781",
+      "size": "medium",
+      "position": 15,
+      "positionVersion": 0,
+      "description": "AUDIT FINDINGS: Golden parity test infrastructure partially exists at src/core/__tests__/golden-parity.test.ts, src/core/__tests__/cli-parity.test.ts, and src/core/__tests__/lafs-conformance.test.ts. These should be expanded to cover ALL shared operations. Key areas to test: (1) task CRUD returns identical fields and values (2) session operations return same state (3) lifecycle operations return same stage info (4) release operations return same version/changelog data. Must test both JSON envelope structure (LAFS compliance) and semantic content equivalence.",
+      "createdAt": "2026-02-20T18:02:12.566Z",
+      "updatedAt": "2026-02-20T18:26:11.205Z"
+    },
+    {
+      "id": "T4797",
+      "title": "RESEARCH: Domain model redesign - evidence-based analysis",
+      "status": "done",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T4772",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "description": "RCSD Stage: RESEARCH. Conduct thorough evidence-based analysis to inform the domain consolidation design (T4776). Research questions: (1) How did the 7 Bash categories (read/write/validation/maintenance/sync/intelligence/system) map to the 11 MCP domains? What was gained and lost? (2) What are the 16 high-frequency operations that cover 95% of agent sessions? What domains do they live in? (3) How do CLEO's 5 pillars (Portable Memory, Provenance, Interoperable Interfaces, Deterministic Safety, Cognitive Retrieval) map to domain boundaries? (4) How do LLM agents reason about tool selection - what domain naming makes their routing decisions fastest and most accurate? (5) What do the src/core/ module boundaries tell us about natural domain clustering? Deliverable: Research manifest with key findings, evidence tables, and domain model candidates ranked by alignment criteria.",
+      "labels": [
+        "research"
+      ],
+      "notes": [
+        "2026-02-20 18:43:34 UTC: RESEARCH COMPLETE 2026-02-20. KEY FINDINGS AND SYNTHESIS:\n\n## Finding 1: The 7-to-11 transition was entity-based restructuring\nBash had 7 ACTION categories (read/write/validation/maintenance/sync/intelligence/system). MCP restructured to 11 ENTITY domains (tasks/session/orchestrate/research/lifecycle/validate/release/system/issues/skills/providers). The CQRS gateway (query/mutate) already handles the action dimension, so entity-based domains are correct. But 11 is too many with too much overlap.\n\n## Finding 2: Agent workflows cluster by complexity, not domain\n- 80% of agents: tasks + session only (Level 0, 8 ops, ~200 tokens)\n- 15% of agents: + validate + research + lifecycle (Level 1-2)\n- 5% of agents: all domains (Level 3 orchestrators)\nThe Level 0 core is 100% in the tasks domain. Level 0+1 spans only tasks/session/system.\n\n## Finding 3: src/core/ has 13 natural clusters, not 11\nBiggest: tasks (6K), skills+orchestration (5.6K), validation (4.2K), migration (2.8K), release (2.5K), metrics (2.5K), sessions (2.2K), nexus (1.5K), lifecycle+phases (1.4K). Smallest: research (361), issue (225), context (162). The core clusters don't align 1:1 with the MCP domains.\n\n## Finding 4: System domain is a 28-40 op junk drawer mixing 7 concerns\nCore system ops, config, data management, observability, leaked task ops, CAAMP provider ops, and background jobs all landed in 'system' because they didn't fit elsewhere.\n\n## Finding 5: 8+ confirmed duplicate operations exist across domains\n\n## SYNTHESIS: Domain model candidates\n\nSee T4776 notes for the formal proposal. The target number should be evidence-driven, not arbitrary. The evidence suggests a model aligned with CLEO's Brain/Memory identity and progressive disclosure tiers.",
+        "SAFESTOP (0%): Session transfer: RCSD Research complete for T4797. Next stage: Consensus on 7-domain model proposal.",
+        "2026-02-20 21:16:41 UTC: 2026-02-20 20:45 UTC: 7-DOMAIN MODEL PROPOSAL (Consensus Stage)\n\n## Design Rationale\nDerived from three convergent evidence streams:\n1. Agent workflow clustering: 80% use tasks+session only → tier by frequency\n2. CLEO Brain/Memory identity (vision.mdx) → domains map to cognitive functions\n3. src/core/ natural clustering: 13 modules group into ~7 cohesive clusters\n\n## The 7 Domains\n\n| # | Domain | Brain Metaphor | Pillar | Tier | Ops |\n|---|--------|---------------|--------|------|-----|\n| 1 | tasks | Neurons | Portable Memory | 0 | ~29 |\n| 2 | session | Working Memory | Portable Memory | 0 | 13 |\n| 3 | memory | Long-term Memory | Cognitive Retrieval | 1 | 12 |\n| 4 | orchestrate | Executive Function | Provenance | 2 | ~24 |\n| 5 | check | Immune System | Deterministic Safety | 1 | 12 |\n| 6 | tools | Capabilities | Interoperable Interfaces | 2 | ~20 |\n| 7 | admin | Autonomic System | Infrastructure | 2 | ~26 |\n\nProgressive disclosure:\n- Tier 0 (80%): tasks + session = 42 ops, ~200 tokens\n- Tier 1 (15%): + check + memory = 66 ops\n- Tier 2 (5%): + orchestrate + tools + admin = all 136 ops\n\n## Domain Details\n\n### 1. tasks (~29 ops) - Neurons\nKeep all current tasks ops. Absorb leaked system ops:\n- system.labels → tasks.labels\n- system.roadmap → tasks.roadmap\n- system.archive.stats → tasks.archive.stats\nDedup: system.uncancel removed (tasks.uncancel exists with same engine function)\n\n### 2. session (13 ops) - Working Memory\nNo changes. Already clean. Assumes T4777 session.cleanup/gc merge done.\n\n### 3. memory (12 ops) - Long-term Memory\nRename research → memory. Maps to Cognitive Retrieval pillar.\nQ:8 (show, list, find, pending, stats, manifest.read, contradictions, superseded)\nM:4 (inject, link, manifest.append, manifest.archive)\nWhy rename: \"research\" is an activity, \"memory\" is what the domain IS.\nWhy standalone: 12 ops, clean boundary, direct pillar mapping.\n\n### 4. orchestrate (~24 ops) - Executive Function\nMerge orchestrate + lifecycle. Both used only by orchestrators (5%).\n- orchestrate Q:9 + M:5 (keep all except skill.list)\n- lifecycle Q:5 + M:5 → orchestrate.lifecycle.*\nDedup: orchestrate.skill.list removed (use tools.skill.list)\n\n### 5. check (12 ops) - Immune System\nRename validate → check. Absorb system.compliance.\nQ:10 + M:2 from validate (keep all)\nDedup: system.compliance removed (check.compliance.summary is canonical)\nWhy rename: \"validate\" collides with validate OPERATIONS inside other domains.\n\n### 6. tools (~20 ops) - Capabilities\nMerge skills + providers + issues → tools.skill.*, tools.provider.*, tools.issue.*\n- skills Q:6 + M:6\n- providers Q:3 + M:1\n- issues Q:1 + M:3\nDedup: system.provider.* removed (tools.provider.* is canonical)\nWhy \"tools\" not \"extend\": agents think \"find a skill\" not \"extend the system\" (T4776 critique)\n\n### 7. admin (~26 ops) - Autonomic System\nMerge cleaned system + release → admin.release.*\n- system Q:10 + M:10 (after removing leaked ops)\n- release M:7 → admin.release.*\nRemoved from system: labels, roadmap, archive.stats, compliance, uncancel, provider.*\n\n## Duplicate Elimination\nsystem.uncancel → tasks.uncancel (same engine fn)\norchestrate.skill.list → tools.skill.list\nsystem.provider.{list,detect,installed} → tools.provider.*\nsystem.compliance → check.compliance.summary\nNet: ~140 → ~136 ops (4 true dupes removed, rest are relocations)\n\n## Evaluation\n- Q1 (Bash→MCP mapping): Preserves entity-based domains, groups by cognitive function\n- Q2 (High-freq ops): Level 0 ops (8 ops, 80%) live in exactly 2 domains: tasks + session\n- Q3 (Pillar mapping): Every pillar has a primary domain home\n- Q4 (LLM tool selection): Short concrete nouns matching agent intent patterns\n- Q5 (src/core/ alignment): 7 domains map to natural core clusters",
+        "2026-02-21 02:12:48 UTC: 2026-02-20 21:30 UTC: REVISED 8-DOMAIN MODEL v2 (supersedes 7-domain v1)\n\n## What Changed From v1 and Why\n\nThree conceptual errors in v1 corrected:\n\nERROR 1: Merged lifecycle into orchestrate. Lifecycle IS the RCSD-IVTR pipeline — the project's development lifecycle state machine. Orchestrate is multi-agent coordination. These are orthogonal: lifecycle = WHAT STAGE the project is in. Orchestrate = HOW work gets done. IVTR is a first-class CLEO feature for ANY project, not an orchestrator implementation detail.\n\nERROR 2: Merged release into admin. Release is the R in IVTR — a project operation (releasing the project CLEO manages), not CLEO infrastructure. Putting release.prepare next to admin.backup mixes project operations with CLEO self-maintenance.\n\nERROR 3: Mixed CLEO-internal and project-level ops in check without acknowledging the distinction. check.test.run runs the PROJECT's test suite (reads project-context.json for vitest/pytest/jest). check.schema validates CLEO's own JSON data. These serve different masters.\n\nRESOLUTION: 8 domains instead of 7. lifecycle + release merge into pipeline (RCSD-IVTR complete). Release stays connected to the pipeline it belongs to, not buried in admin.\n\n## The 8 Domains\n\n| # | Domain | Purpose | Brain Metaphor | Pillar | Tier | Ops |\n|---|--------|---------|---------------|--------|------|-----|\n| 1 | tasks | Task CRUD, hierarchy, focus, analysis | Neurons | Portable Memory | 0 | ~29 |\n| 2 | session | Session lifecycle, decisions, context | Working Memory | Portable Memory | 0 | 13 |\n| 3 | memory | Research/manifests, knowledge store | Long-term Memory | Cognitive Retrieval | 1 | 12 |\n| 4 | pipeline | RCSD-IVTR state machine + release | Executive Pipeline | Provenance | 2 | ~17 |\n| 5 | check | CLEO validation + project quality | Immune System | Deterministic Safety | 1 | 12 |\n| 6 | orchestrate | Multi-agent coordination, spawning | Executive Function | Orchestration | 2 | ~15 |\n| 7 | tools | Skills, providers, issues | Capabilities | Interoperable Interfaces | 2 | ~20 |\n| 8 | admin | System, config, backup, observability | Autonomic System | Infrastructure | 2 | ~20 |\n\nProgressive disclosure:\n- Tier 0 (80%): tasks + session = 42 ops, ~200 tokens\n- Tier 1 (15%): + check + memory = 66 ops, ~400 tokens\n- Tier 2 (5%): + pipeline + orchestrate + tools + admin = all ~138 ops\n\n## Domain Details (changes from v1 only)\n\n### 4. pipeline (~17 ops) — NEW domain (lifecycle + release merge)\nRenamed lifecycle -> pipeline. Absorbs release as pipeline.release.* namespace.\nFrom lifecycle (10 ops):\n  Q: validate, status, history, gates, prerequisites -> pipeline.stage.*\n  M: record, skip, reset, gate.pass, gate.fail -> pipeline.stage.*\nFrom release (7 ops):\n  M: prepare, changelog, commit, tag, push, gates.run, rollback -> pipeline.release.*\nWhy merge: Release IS an IVTR stage. The pipeline domain manages all pipeline state AND executes the Release stage. Same pattern as check domain executing Test stage.\n\n### 6. orchestrate (~15 ops) — REDUCED (no lifecycle merge)\nKeeps only agent coordination ops. No lifecycle merge.\nQ:9 (status, next, ready, analyze, context, waves, bootstrap, unblock.opportunities, critical.path)\nM:5 (start, spawn, validate, parallel.start, parallel.end)\nDedup: orchestrate.skill.list removed (use tools.skill.list)\n\n### 8. admin (~20 ops) — REDUCED (no release merge)\nSystem ops only. No release ops (moved to pipeline).\nQ:10 (version, health, config.get, stats, context, job.status, job.list, dash, log, sequence)\nM:10 (init, config.set, backup, restore, migrate, sync, cleanup, job.cancel, safestop, inject.generate)\n\n### Unchanged from v1: tasks (~29 ops), session (13), memory (12), check (12), tools (~20)\n\n## IVTR Alignment (First-Class Constraint)\n\nCLEO's RCSD-IVTR pipeline is PROJECT-AGNOSTIC. It reads project-context.json to determine testing framework, release process, etc. Each IVTR stage maps to both a LIFECYCLE STATE (pipeline domain) and EXECUTION ACTIONS (other domains).\n\n| IVTR Stage | Pipeline State | Execution Domain | Execution Operations |\n|------------|---------------|-----------------|---------------------|\n| Implement | pipeline.stage.record(stage=implement) | tasks (track), orchestrate (coordinate) | tasks.start, tasks.complete, orchestrate.spawn |\n| Validate | pipeline.stage.record(stage=validate) | check | check.schema, check.protocol, check.coherence |\n| Test | pipeline.stage.record(stage=test) | check | check.test.run, check.test.status, check.test.coverage |\n| Release | pipeline.stage.record(stage=release) | pipeline | pipeline.release.prepare, pipeline.release.tag, pipeline.release.push |\n\nKey insight: pipeline manages WHEN (state transitions). Other domains provide the TOOLS to execute each stage. Release is special because its execution ops live IN the pipeline domain (it's the final stage).\n\n## CLEO-Internal vs Project-Level (Within check Domain)\n\n| Concern | Operations | Serves |\n|---------|-----------|--------|\n| CLEO data integrity | check.schema, check.protocol, check.task, check.manifest, check.output, check.coherence | CLEO itself |\n| Project quality (IVTR) | check.test.run, check.test.status, check.test.coverage | The PROJECT (reads project-context.json) |\n| Cross-cutting | check.compliance.summary, check.compliance.violations, check.compliance.record | Both (protocol adherence metrics) |\n\n## BRAIN Forward Compatibility\n\n| BRAIN Dimension | Primary Domain | Future Namespace | Fit |\n|-----------------|---------------|-----------------|-----|\n| Base (Memory) | memory | memory.store, memory.recall, memory.consolidate | Clean — IS the memory domain |\n| Reasoning | memory | memory.reason.why, memory.reason.similar, memory.reason.impact | Good — reasoning over stored knowledge |\n| Agent | orchestrate | orchestrate.agent.spawn, orchestrate.agent.stop, orchestrate.agent.learn | Clean — agent lifecycle is coordination |\n| Intelligence | check | check.intelligence.predict, check.intelligence.suggest | Good — adaptive validation is quality |\n| Network | memory or tools | memory.network.find, tools.network.export | Decision point for T4776 |\n\nT4780 verb rulings (10 gaps) are a DEPENDENCY, not a blocker. The 8-domain model provides namespace homes regardless of which verbs are chosen. Example: whether memory uses store vs add or recall vs find, it still lives in the memory domain.\n\n## Duplicate Elimination (unchanged from v1)\nsystem.uncancel -> tasks.uncancel\norchestrate.skill.list -> tools.skill.list\nsystem.provider.{list,detect,installed} -> tools.provider.*\nsystem.compliance -> check.compliance.summary\nNet: ~140 -> ~138 ops\n\n## Gateway <-> Capability Matrix Discrepancy\nPRE-CONDITION for T4776: 23 ops in matrix but not gateways, 21 ops in gateways but not matrix. Must be reconciled. Entire skills/providers domains missing from capability matrix.\n\n## Backward Compatibility (updated from v1)\nSimple aliases: research->memory, validate->check, lifecycle->pipeline, skills->tools.skill, providers->tools.provider, issues->tools.issue, release->pipeline.release\nComplex alias: system splits across 4 domains (requires operation-aware routing):\n  system.labels -> tasks.labels\n  system.roadmap -> tasks.roadmap\n  system.archive.stats -> tasks.archive.stats\n  system.compliance -> check.compliance\n  system.uncancel -> tasks.uncancel (dedup)\n  system.* (remaining) -> admin.*\nT4779 scope MUST be updated for operation-aware alias routing.",
+        "2026-02-21 02:39:04 UTC: 2026-02-21 02:30 UTC: CONSENSUS COMPLETE. Final 9-domain model approved.\n\nSupersedes all previous notes (v1 7-domain, v2 8-domain). Comprehensive deliverable written to:\n  claudedocs/agent-outputs/T4797-domain-model-consensus.md\n\n9 DOMAINS: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus\n15 ARCHITECTURAL DECISIONS: All resolved, zero open questions.\n\nKey decisions: (1) Nexus standalone for global hive brain, (2) pipeline = lifecycle + release (IVTR first-class), (3) check keeps name (orchestrate.check renamed to orchestrate.verify), (4) memory.inject kept as-is, (5) All 5 BRAIN dimensions mapped, (6) CLEO-internal vs project-level separated by namespace.\n\nNEXT: T4776 Specification stage. See output file Part 10 for handoff context."
+      ],
+      "createdAt": "2026-02-20T18:38:27.129Z",
+      "updatedAt": "2026-02-21T02:39:14.825Z",
+      "completedAt": "2026-02-21T02:39:14.825Z"
+    },
+    {
+      "id": "T4798",
+      "title": "EPIC: RCSD Lifecycle Pipeline Review & Repair",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "size": "medium",
+      "position": 4746,
+      "positionVersion": 0,
+      "description": "End-to-end review and repair of the RCSD lifecycle pipeline. Research discovered 3 incompatible implementations (src/core/lifecycle/ with 7 stages, src/mcp/engine/lifecycle-engine.ts with 8 stages, on-disk .cleo/rcsd/ manifests with legacy Bash schema), an empty RCSD-INDEX.json, 5 missing JSON schemas, and no cross-session resume flow. Additionally, the agent-outputs path migration from claudedocs/agent-outputs/ to .cleo/agent-outputs/ is incomplete (480+ files still at old path, 160+ doc references, 6+ templates, 5 protocol validators hardcoding paths). Goal: single source of truth for RCSD state, working stage transitions, complete path migration, and smooth cross-session handoff.",
+      "labels": [
+        "migration"
+      ],
+      "notes": [
+        "2026-02-20 20:44:17 UTC: 2026-02-20: Research document written at claudedocs/agent-outputs/T4798-rcsd-lifecycle-audit-findings.md. MANIFEST.jsonl updated. Epic has 8 subtasks (T4799-T4806) organized in 4 waves: Wave 1 Foundation (T4799 audit, T4804 schemas), Wave 2 Unification (T4800 unify impls, T4801 RCSD-INDEX), Wave 3 Migration (T4802 agent-outputs, T4803 docs), Wave 4 Cross-Session (T4805 resume flow, T4806 integration test). Also discovered bug: cleo update --parent is broken (declared but never forwarded)."
+      ],
+      "createdAt": "2026-02-20T20:39:55.763Z",
+      "updatedAt": "2026-02-20T20:44:17.923Z"
+    },
+    {
+      "id": "T4799",
+      "title": "Audit and document the 3 RCSD lifecycle implementations end-to-end",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4747,
+      "positionVersion": 0,
+      "description": "Walk through each implementation (src/core/lifecycle/index.ts, src/mcp/engine/lifecycle-engine.ts, on-disk .cleo/rcsd/ manifests) and document: stage names, stage order, prerequisite maps, schema shapes, status values, and what each implementation can/cannot do. Produce a compatibility matrix showing where they diverge.",
+      "labels": [
+        "research"
+      ],
+      "createdAt": "2026-02-20T20:40:05.773Z",
+      "updatedAt": "2026-02-20T20:42:23.773Z"
+    },
+    {
+      "id": "T4800",
+      "title": "Unify RCSD lifecycle into single src/core/lifecycle/ implementation",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4748,
+      "positionVersion": 0,
+      "description": "Consolidate the 3 implementations into one canonical src/core/lifecycle/ module. The MCP engine (lifecycle-engine.ts) must delegate to src/core/ like all other domains. Define canonical stage list, prerequisite map, and schema. Write JSON schemas for stage transitions and manifest format. Ensure backward compatibility with existing on-disk _manifest.json files (migration path).",
+      "labels": [
+        "implementation"
+      ],
+      "createdAt": "2026-02-20T20:40:08.985Z",
+      "updatedAt": "2026-02-20T20:42:26.964Z"
+    },
+    {
+      "id": "T4801",
+      "title": "Implement RCSD-INDEX.json population and querying",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4749,
+      "positionVersion": 0,
+      "description": "RCSD-INDEX.json exists on disk but is empty. No TypeScript code reads or writes it. Implement: (1) index population when epics are created/updated, (2) querying for active epics by status/stage, (3) migration to populate index from existing .cleo/rcsd/ directories. This is the cross-epic status dashboard.",
+      "labels": [
+        "implementation"
+      ],
+      "createdAt": "2026-02-20T20:40:12.151Z",
+      "updatedAt": "2026-02-20T20:42:28.639Z"
+    },
+    {
+      "id": "T4802",
+      "title": "Migrate agent-outputs from claudedocs/ to .cleo/agent-outputs/",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4750,
+      "positionVersion": 0,
+      "description": "Run the existing migration in src/core/upgrade.ts (lines 531-603) to copy claudedocs/agent-outputs/ to .cleo/agent-outputs/. Verify MANIFEST.jsonl is preserved. Update: (1) templates/config.template.json default path, (2) 6+ template files in templates/agents/ and templates/subagent-protocol/, (3) 5 protocol validators hardcoding paths instead of using getManifestPath(), (4) 160+ documentation references. Validate old path still works as fallback.",
+      "labels": [
+        "agent-outputs"
+      ],
+      "createdAt": "2026-02-20T20:40:16.590Z",
+      "updatedAt": "2026-02-20T20:42:30.355Z"
+    },
+    {
+      "id": "T4803",
+      "title": "Fix documentation references: claudedocs/agent-outputs → .cleo/agent-outputs",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4751,
+      "positionVersion": 0,
+      "description": "Update 160+ documentation references across docs/, templates/, and config files from claudedocs/agent-outputs to .cleo/agent-outputs. Use getManifestPath() and getAgentOutputsDir() from src/core/paths.ts instead of hardcoded paths wherever possible.",
+      "labels": [
+        "docs"
+      ],
+      "createdAt": "2026-02-20T20:40:18.831Z",
+      "updatedAt": "2026-02-20T20:42:32.120Z"
+    },
+    {
+      "id": "T4804",
+      "title": "Create missing JSON schemas for RCSD pipeline",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4752,
+      "positionVersion": 0,
+      "description": "The RCSD-PIPELINE-SPEC.md references 5 JSON schemas that don't exist: rcsd-manifest.schema.json, rcsd-index.schema.json, rcsd-stage-transition.schema.json, rcsd-gate-result.schema.json, rcsd-evidence.schema.json. Create these schemas in schemas/ directory and wire them into the validation pipeline.",
+      "labels": [
+        "schemas"
+      ],
+      "createdAt": "2026-02-20T20:40:21.390Z",
+      "updatedAt": "2026-02-20T20:42:33.740Z"
+    },
+    {
+      "id": "T4805",
+      "title": "Implement cross-session RCSD stage resume flow",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4753,
+      "positionVersion": 0,
+      "description": "Currently there is no automated way for a new agent session to resume an in-progress RCSD stage. Design and implement: (1) stage resume detection on session start, (2) integration with cleo safestop --handoff, (3) automatic context loading of relevant research manifests and stage artifacts. This enables the 'pick up where I left off' workflow that is currently manual.",
+      "labels": [
+        "session"
+      ],
+      "createdAt": "2026-02-20T20:40:24.945Z",
+      "updatedAt": "2026-02-20T20:42:35.399Z"
+    },
+    {
+      "id": "T4806",
+      "title": "End-to-end RCSD pipeline integration test",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4798",
+      "size": "medium",
+      "position": 4754,
+      "positionVersion": 0,
+      "description": "Write a Vitest integration test that exercises the full RCSD lifecycle: create epic, advance through all stages (research → consensus → spec → design → implement → verify → test → release), verify gate enforcement, verify manifest updates, verify RCSD-INDEX.json updates, verify cross-session resume. This is the acceptance test for the epic.",
+      "labels": [
+        "testing"
+      ],
+      "createdAt": "2026-02-20T20:40:27.680Z",
+      "updatedAt": "2026-02-20T20:42:36.999Z"
+    },
+    {
+      "id": "T4807",
+      "title": "Fix parentId regression in update command and create shared core reparent module",
+      "status": "done",
+      "priority": "critical",
+      "type": "task",
+      "size": "medium",
+      "position": 4747,
+      "positionVersion": 0,
+      "description": "Bash add.sh and update.sh both supported --parent for hierarchy management. TypeScript add works correctly but update --parent is a silent no-op: CLI accepts flag but never forwards it, core declares parentId in UpdateTaskOptions but has zero handling logic, MCP TasksUpdateParams excludes parentId entirely. Additionally, reparent logic is duplicated in cli/commands/reparent.ts and mcp/engine/task-engine.ts without a shared core module. Fix: (1) Create src/core/tasks/reparent.ts as canonical impl, (2) Wire parentId through update command at all layers, (3) Have reparent CLI and engine delegate to core.",
+      "labels": [
+        "critical-fix"
+      ],
+      "notes": [
+        "2026-02-20 21:20:34 UTC: COMPLETE. Fixed parentId regression in update command (T4807). Changes: (1) Created src/core/tasks/reparent.ts as canonical shared module, (2) Wired parentId through core/tasks/update.ts, (3) Forwarded opts.parent in cli/commands/update.ts, (4) Added parent to MCP TasksUpdateParams type, (5) Added parent to MCP engine taskUpdate(), (6) Added parent forwarding in MCP domain tasks.ts (both CLI and native paths), (7) Refactored cli/commands/reparent.ts to delegate to core module, (8) Fixed MCP security sanitizer to allow empty string parent, (9) Added 5 new tests for parentId in update.test.ts, (10) Fixed pre-existing test bug (todo.json -> tasks.json). All 13 tests pass. tsc --noEmit clean. CLI verified working: update --parent T001 sets parent, update --parent '' promotes to root."
+      ],
+      "createdAt": "2026-02-20T21:08:31.824Z",
+      "updatedAt": "2026-02-20T21:20:34.444Z",
+      "completedAt": "2026-02-20T21:20:34.444Z"
     }
   ]
 }

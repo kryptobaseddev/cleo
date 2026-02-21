@@ -42,7 +42,7 @@ describe('updateTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Old title', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await updateTask({ taskId: 'T001', title: 'New title' }, tempDir);
     expect(result.task.title).toBe('New title');
@@ -53,7 +53,7 @@ describe('updateTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await updateTask({ taskId: 'T001', status: 'active' }, tempDir);
     expect(result.task.status).toBe('active');
@@ -63,7 +63,7 @@ describe('updateTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', labels: ['bug'], createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await updateTask({ taskId: 'T001', addLabels: ['security'] }, tempDir);
     expect(result.task.labels).toContain('bug');
@@ -74,7 +74,7 @@ describe('updateTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', labels: ['bug', 'security'], createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await updateTask({ taskId: 'T001', removeLabels: ['bug'] }, tempDir);
     expect(result.task.labels).toEqual(['security']);
@@ -84,7 +84,7 @@ describe('updateTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await updateTask({ taskId: 'T001', notes: 'Progress update' }, tempDir);
     expect(result.task.notes).toHaveLength(1);
@@ -95,7 +95,7 @@ describe('updateTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     await expect(
       updateTask({ taskId: 'T001' }, tempDir),
@@ -104,7 +104,7 @@ describe('updateTask', () => {
 
   it('throws if task not found', async () => {
     const data = makeTodoFile([]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     await expect(
       updateTask({ taskId: 'T999', title: 'New' }, tempDir),
@@ -115,9 +115,85 @@ describe('updateTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await updateTask({ taskId: 'T001', status: 'done' }, tempDir);
     expect(result.task.completedAt).toBeDefined();
+  });
+
+  describe('parentId (reparent via update)', () => {
+    it('sets parent on a root task', async () => {
+      const data = makeTodoFile([
+        { id: 'T001', title: 'Epic', status: 'pending', priority: 'medium', type: 'epic', createdAt: new Date().toISOString() },
+        { id: 'T002', title: 'Orphan', status: 'pending', priority: 'medium', type: 'task', createdAt: new Date().toISOString() },
+      ]);
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+      // Need config.json for hierarchy limits
+      await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+
+      const result = await updateTask({ taskId: 'T002', parentId: 'T001' }, tempDir);
+      expect(result.task.parentId).toBe('T001');
+      expect(result.changes).toContain('parentId');
+    });
+
+    it('promotes child to root with parentId=null', async () => {
+      const data = makeTodoFile([
+        { id: 'T001', title: 'Epic', status: 'pending', priority: 'medium', type: 'epic', createdAt: new Date().toISOString() },
+        { id: 'T002', title: 'Child', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: new Date().toISOString() },
+      ]);
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+
+      const result = await updateTask({ taskId: 'T002', parentId: null }, tempDir);
+      expect(result.task.parentId).toBeNull();
+      expect(result.changes).toContain('parentId');
+    });
+
+    it('promotes child to root with parentId=""', async () => {
+      const data = makeTodoFile([
+        { id: 'T001', title: 'Epic', status: 'pending', priority: 'medium', type: 'epic', createdAt: new Date().toISOString() },
+        { id: 'T002', title: 'Child', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: new Date().toISOString() },
+      ]);
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+
+      const result = await updateTask({ taskId: 'T002', parentId: '' }, tempDir);
+      expect(result.task.parentId).toBeNull();
+      expect(result.changes).toContain('parentId');
+    });
+
+    it('does not change when parentId is same as current', async () => {
+      const data = makeTodoFile([
+        { id: 'T001', title: 'Epic', status: 'pending', priority: 'medium', type: 'epic', createdAt: new Date().toISOString() },
+        { id: 'T002', title: 'Child', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: new Date().toISOString() },
+      ]);
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+
+      // Setting parentId to same value should be a no-op for the parentId field
+      // but should still fail with NO_CHANGE since no actual changes are made
+      await expect(
+        updateTask({ taskId: 'T002', parentId: 'T001' }, tempDir),
+      ).rejects.toThrow('No changes');
+    });
+
+    it('can set parent and other fields simultaneously', async () => {
+      const data = makeTodoFile([
+        { id: 'T001', title: 'Epic', status: 'pending', priority: 'medium', type: 'epic', createdAt: new Date().toISOString() },
+        { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', type: 'task', createdAt: new Date().toISOString() },
+      ]);
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 20 } }));
+
+      const result = await updateTask({
+        taskId: 'T002',
+        parentId: 'T001',
+        priority: 'high',
+      }, tempDir);
+      expect(result.task.parentId).toBe('T001');
+      expect(result.task.priority).toBe('high');
+      expect(result.changes).toContain('parentId');
+      expect(result.changes).toContain('priority');
+    });
   });
 });
