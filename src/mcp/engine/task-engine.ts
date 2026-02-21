@@ -326,8 +326,15 @@ export async function taskUpdate(
     priority?: string;
     notes?: string;
     labels?: string[];
+    addLabels?: string[];
+    removeLabels?: string[];
     depends?: string[];
+    addDepends?: string[];
+    removeDepends?: string[];
     acceptance?: string[];
+    parent?: string | null;
+    type?: string;
+    size?: string;
   }
 ): Promise<EngineResult<TaskRecord>> {
   try {
@@ -340,8 +347,15 @@ export async function taskUpdate(
       priority: updates.priority as import('../../types/task.js').TaskPriority | undefined,
       notes: updates.notes,
       labels: updates.labels,
+      addLabels: updates.addLabels,
+      removeLabels: updates.removeLabels,
       depends: updates.depends,
+      addDepends: updates.addDepends,
+      removeDepends: updates.removeDepends,
       acceptance: updates.acceptance,
+      parentId: updates.parent,
+      type: updates.type as import('../../types/task.js').TaskType | undefined,
+      size: updates.size as import('../../types/task.js').TaskSize | undefined,
     }, projectRoot, accessor);
 
     return { success: true, data: taskToRecord(result.task) };

@@ -18,6 +18,7 @@ import {
   validateTitle,
   logOperation,
 } from './add.js';
+import { reparentTask } from './reparent.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
   safeSaveTaskFile,
@@ -191,6 +192,26 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
   if (options.noAutoComplete !== undefined) {
     task.noAutoComplete = options.noAutoComplete;
     changes.push('noAutoComplete');
+  }
+
+  // Handle parentId change (reparent)
+  // Supports: parentId="T001" to set parent, parentId=null or parentId="" to promote to root
+  if (options.parentId !== undefined) {
+    const newParentId = options.parentId || null; // normalize "" to null
+    const currentParentId = task.parentId ?? null;
+
+    if (newParentId !== currentParentId) {
+      const result = await reparentTask(data, {
+        taskId: options.taskId,
+        newParentId,
+      });
+      // reparentTask mutates the task in-place and updates data._meta/lastUpdated
+      // so we just need to track the change
+      changes.push('parentId');
+      if (result.newType !== (options.type ?? task.type)) {
+        changes.push('type');
+      }
+    }
   }
 
   if (changes.length === 0) {

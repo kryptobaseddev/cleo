@@ -877,6 +877,15 @@ export class TasksHandler implements DomainHandler {
     if (params?.status) flags.status = params.status;
     if (params?.priority) flags.priority = params.priority;
     if (params?.notes) flags.notes = params.notes;
+    if (params?.parent !== undefined) flags.parent = params.parent ?? '';  // null means "remove parent" (promote to root)
+    if (params?.type) flags.type = params.type;
+    if (params?.size) flags.size = params.size;
+    if (params?.labels) flags.labels = params.labels.join(',');
+    if (params?.addLabels) flags['add-labels'] = params.addLabels.join(',');
+    if (params?.removeLabels) flags['remove-labels'] = params.removeLabels.join(',');
+    if (params?.depends) flags.depends = params.depends.join(',');
+    if (params?.addDepends) flags['add-depends'] = params.addDepends.join(',');
+    if (params?.removeDepends) flags['remove-depends'] = params.removeDepends.join(',');
 
     const result = await this.executor.execute<Task>({
       domain: 'update',
@@ -1518,9 +1527,18 @@ export class TasksHandler implements DomainHandler {
         const result = await nativeTaskUpdate(this.projectRoot, p.taskId, {
           title: p.title,
           description: p.description,
-          status: p.status,
-          priority: p.priority,
+          status: p.status as string | undefined,
+          priority: p.priority as string | undefined,
           notes: p.notes,
+          parent: p.parent,
+          type: p.type,
+          size: p.size,
+          labels: p.labels,
+          addLabels: p.addLabels,
+          removeLabels: p.removeLabels,
+          depends: p.depends,
+          addDepends: p.addDepends,
+          removeDepends: p.removeDepends,
         });
         return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
       }

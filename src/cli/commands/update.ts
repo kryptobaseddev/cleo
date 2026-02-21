@@ -61,6 +61,7 @@ export function registerUpdateCommand(program: Command): void {
           acceptance: opts['acceptance'] ? (opts['acceptance'] as string).split(',').map(s => s.trim()) : undefined,
           files: opts['files'] ? (opts['files'] as string).split(',').map(s => s.trim()) : undefined,
           blockedBy: opts['blockedBy'] as string | undefined,
+          parentId: opts['parent'] as string | undefined,
           noAutoComplete: opts['autoComplete'] === false ? true : undefined,
         }, undefined, accessor);
 
