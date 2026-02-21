@@ -3,7 +3,7 @@
  *
  * Implements all task operations for CLEO MCP server:
  * - Query (15): show, list, find, exists, next, depends, stats, export, history, lint, batch.validate, manifest, tree, blockers, analyze, relates, complexity.estimate, current
- * - Mutate (14): add, update, complete, delete, archive, restore, import, reorder, reparent, promote, reopen, relates.add, uncancel, start, stop
+ * - Mutate (14): add, update, complete, delete, archive, restore (aliases: reopen, uncancel), import, reorder, reparent, promote, relates.add, start, stop
  *
  * Each operation maps to corresponding CLEO CLI commands or native engine
  * functions with proper parameter validation and error handling.
@@ -284,6 +284,7 @@ export class TasksHandler implements DomainHandler {
         case 'lint':
           return await this.queryLint(params as unknown as TasksLintParams);
         case 'batch.validate':
+        case 'batch-validate':
           return await this.queryBatchValidate(params as unknown as TasksBatchValidateParams);
         case 'manifest':
           return await this.queryManifest(params as { taskId: string });
@@ -1117,8 +1118,8 @@ export class TasksHandler implements DomainHandler {
   }
 
   /**
-   * reopen - Reopen completed task
-   * CLI: cleo reopen <taskId>
+   * reopen - Restore completed task (backward-compat alias for restore)
+   * CLI: cleo restore <taskId>
    */
   private async mutateReopen(params: TasksReopenParams): Promise<DomainResponse> {
     const startTime = Date.now();
@@ -1199,8 +1200,8 @@ export class TasksHandler implements DomainHandler {
   }
 
   /**
-   * uncancel - Restore cancelled task to pending status.
-   * CLI: cleo uncancel <taskId> [--cascade] [--notes <note>]
+   * uncancel - Restore cancelled task to pending status (backward-compat alias for restore).
+   * CLI: cleo restore <taskId> [--cascade] [--notes <note>]
    * @task T4555
    */
   private async mutateUncancel(params: TasksUncancelParams): Promise<DomainResponse> {

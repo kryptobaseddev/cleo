@@ -335,6 +335,8 @@ export type {
   SkillsListResult,
   SkillsShowParams,
   SkillsShowResult,
+  SkillsFindParams,
+  SkillsFindResult,
   SkillsSearchParams,
   SkillsSearchResult,
   SkillsDispatchParams,

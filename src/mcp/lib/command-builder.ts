@@ -79,6 +79,7 @@ export function mapDomainToCommand(domain: string, operation: string): { command
   // Domain aliases used by legacy handlers/comments that should resolve to
   // canonical CLI commands.
   const domainAliases: Record<string, { command: string; addOperationAsSubcommand: boolean }> = {
+    depends: { command: 'deps', addOperationAsSubcommand: true },
     import: { command: 'import-tasks', addOperationAsSubcommand: true },
     lint: { command: 'validate', addOperationAsSubcommand: true },
     skill: { command: 'skills', addOperationAsSubcommand: true },
@@ -185,6 +186,7 @@ export function mapDomainToCommand(domain: string, operation: string): { command
     },
     system: {
       version: { command: 'version', addOperationAsSubcommand: false },
+      'config.show': { command: 'config', addOperationAsSubcommand: false },
       'config.get': { command: 'config', addOperationAsSubcommand: false },
       backup: { command: 'backup', addOperationAsSubcommand: false },
       cleanup: { command: 'cleanup', addOperationAsSubcommand: false },

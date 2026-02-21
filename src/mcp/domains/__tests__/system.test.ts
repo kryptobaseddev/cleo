@@ -33,6 +33,7 @@ describe('SystemHandler', () => {
         'diagnostics',
         'version',
         'help',
+        'config.show',
         'config.get',
         'stats',
         'job.status',

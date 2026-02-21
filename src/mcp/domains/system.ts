@@ -2,8 +2,8 @@
  * System Domain Handler
  *
  * Implements all 30 system operations for CLEO MCP server:
- * - Query (17): context, metrics, health, diagnostics, version, help, config.get, stats, job.status, job.list, dash, roadmap, labels, compliance, log, archive.stats, sequence
- * - Mutate (11): backup, restore, migrate, cleanup, audit, init, config.set, sync, job.cancel, safestop, uncancel
+ * - Query (17): context, metrics, health, diagnostics, version, help, config.show (alias: config.get), stats, job.status, job.list, dash, roadmap, labels, compliance, log, archive.stats, sequence
+ * - Mutate (11): backup, restore, migrate, cleanup, audit, init, config.set, sync, job.cancel, safestop, uncancel (alias for restore)
  *
  * Each operation maps to corresponding CLEO CLI commands for system management,
  * health checks, configuration, and maintenance operations.
@@ -472,8 +472,12 @@ export class SystemHandler implements DomainHandler {
           return this.getVersion(params as SystemVersionParams, startTime);
         case 'help':
           return this.getHelp(params as SystemHelpParams, startTime);
+        case 'config':
+        case 'config.show':
         case 'config.get':
           return this.getConfig(params as SystemConfigParams, startTime);
+        case 'doctor':
+          return this.checkHealth(params as SystemHealthParams, startTime);
         case 'stats':
           return this.getMetrics(params as SystemMetricsParams, startTime);
         case 'job.status':
@@ -643,7 +647,7 @@ export class SystemHandler implements DomainHandler {
     return {
       query: [
         'context', 'metrics', 'health', 'diagnostics', 'version', 'help',
-        'config.get', 'stats', 'job.status', 'job.list', 'dash', 'roadmap', 'labels',
+        'config.show', 'config.get', 'stats', 'job.status', 'job.list', 'dash', 'roadmap', 'labels',
         'compliance', 'log', 'archive.stats', 'sequence',
         // CAAMP provider queries
         'provider.list', 'provider.get', 'provider.detect', 'provider.installed',
@@ -1241,8 +1245,8 @@ export class SystemHandler implements DomainHandler {
   }
 
   /**
-   * uncancel - Restore cancelled tasks back to pending status
-   * CLI: cleo uncancel <taskId> [--cascade] [--notes "..."] [--dry-run] [--json]
+   * uncancel - Restore cancelled tasks back to pending status (backward-compat alias for restore)
+   * CLI: cleo restore <taskId> [--cascade] [--notes "..."] [--dry-run] [--json]
    * @task T4269
    */
   private async mutateUncancel(params: SystemUncancelParams, startTime: number): Promise<DomainResponse> {
@@ -1313,6 +1317,7 @@ export class SystemHandler implements DomainHandler {
     switch (operation) {
       case 'version':
         return this.wrapNativeResult(await nativeGetVersion(this.projectRoot), 'query', operation, startTime);
+      case 'config.show':
       case 'config.get': {
         if (!isProjectInitialized(this.projectRoot)) {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);

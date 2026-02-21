@@ -1,7 +1,7 @@
 /**
  * Skills Domain Operations (12 operations)
  *
- * Query operations: 6 (list, show, search, dispatch, verify, dependencies)
+ * Query operations: 6 (list, show, find, dispatch, verify, dependencies)
  * Mutate operations: 6 (install, uninstall, enable, disable, configure, refresh)
  *
  * @task T4387
@@ -90,14 +90,20 @@ export interface SkillsShowParams {
 export type SkillsShowResult = SkillDetail;
 
 // skills.find
-export interface SkillsSearchParams {
+export interface SkillsFindParams {
   query: string;
   limit?: number;
 }
-export interface SkillsSearchResult {
+export interface SkillsFindResult {
   query: string;
   results: Array<SkillSummary & { score: number; matchReason: string }>;
 }
+
+// Backward-compatible aliases
+/** @deprecated Use SkillsFindParams instead */
+export type SkillsSearchParams = SkillsFindParams;
+/** @deprecated Use SkillsFindResult instead */
+export type SkillsSearchResult = SkillsFindResult;
 
 // skills.dispatch
 export interface SkillsDispatchParams {
