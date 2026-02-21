@@ -36,19 +36,6 @@ export const CANONICAL_DOMAINS = [
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];
 
-/**
- * Legacy domain names that alias to canonical domains.
- */
-export const LEGACY_DOMAINS = [
-  'research', 'validate', 'lifecycle', 'release',
-  'skills', 'providers', 'issues', 'system',
-] as const;
-
-export type LegacyDomain = (typeof LEGACY_DOMAINS)[number];
-
-/** Any domain name accepted by the dispatcher. */
-export type AnyDomain = CanonicalDomain | LegacyDomain;
-
 // ---------------------------------------------------------------------------
 // DispatchRequest
 // ---------------------------------------------------------------------------
@@ -62,7 +49,7 @@ export type AnyDomain = CanonicalDomain | LegacyDomain;
 export interface DispatchRequest {
   /** CQRS gateway. */
   gateway: Gateway;
-  /** Target domain (canonical name — aliases resolved before dispatch). */
+  /** Target domain (canonical name). */
   domain: string;
   /** Domain-specific operation name. */
   operation: string;

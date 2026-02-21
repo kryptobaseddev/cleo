@@ -26,8 +26,8 @@ import {
   releaseGatesRun as nativeReleaseGatesRun,
   releaseRollback as nativeReleaseRollback,
   releasePush as nativeReleasePush,
-  resolveProjectRoot,
 } from '../engine/index.js';
+import { getProjectRoot } from '../../core/paths.js';
 import type {
   ReleaseType,
   ReleasePrepareParams,
@@ -105,7 +105,7 @@ export class ReleaseHandler implements DomainHandler {
 
   constructor(private executor?: CLIExecutor, executionMode: ResolvedMode = 'cli') {
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   private useNative(operation: string, gateway: GatewayType): boolean {

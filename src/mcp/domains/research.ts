@@ -34,8 +34,8 @@ import {
   researchInject as nativeResearchInject,
   researchCompact as nativeResearchCompact,
   researchValidateOp as nativeResearchValidate,
-  resolveProjectRoot,
 } from '../engine/index.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 /**
  * Research entry from manifest
@@ -167,7 +167,7 @@ export class ResearchHandler implements DomainHandler {
   ) {
     this.manifestReader = new ManifestReader(manifestPath ?? getCentralManifestPath());
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   /**

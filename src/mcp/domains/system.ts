@@ -23,8 +23,6 @@ import {
   configSet as nativeConfigSet,
   initProject as nativeInitProject,
   getVersion as nativeGetVersion,
-  resolveProjectRoot,
-  isProjectInitialized,
   // System engine
   systemDash as nativeSystemDash,
   systemStats as nativeSystemStats,
@@ -62,6 +60,7 @@ import {
   injectionUpdate as caampInjectionUpdate,
   injectionUpdateAll as caampInjectionUpdateAll,
 } from '../engine/index.js';
+import { getProjectRoot, isProjectInitialized } from '../../core/paths.js';
 import { createCLIRequiredError, createNotInitializedError } from '../lib/mode-detector.js';
 
 /**
@@ -392,7 +391,7 @@ export class SystemHandler implements DomainHandler {
   constructor(private executor?: CLIExecutor, jobManager?: BackgroundJobManager, executionMode: ResolvedMode = 'cli') {
     this.jobManager = jobManager;
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   /**

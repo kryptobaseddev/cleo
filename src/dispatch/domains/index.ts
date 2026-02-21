@@ -1,0 +1,42 @@
+/**
+ * Domain Handler Registry -- Maps canonical domain names to handler instances.
+ *
+ * Uses static imports. Will produce compile errors until all handler files
+ * are created by parallel agents -- that is expected.
+ *
+ * @epic T4820
+ */
+
+import type { DomainHandler } from '../types.js';
+import { SessionHandler } from './session.js';
+import { CheckHandler } from './check.js';
+import { AdminHandler } from './admin.js';
+import { MemoryHandler } from './memory.js';
+import { OrchestrateHandler } from './orchestrate.js';
+import { PipelineHandler } from './pipeline.js';
+import { ToolsHandler } from './tools.js';
+import { NexusHandler } from './nexus.js';
+
+export {
+  SessionHandler, CheckHandler, AdminHandler, MemoryHandler,
+  OrchestrateHandler, PipelineHandler, ToolsHandler, NexusHandler,
+};
+
+/**
+ * Create a Map of all canonical domain handlers.
+ *
+ * NOTE: The 'tasks' handler is not yet included here -- it currently
+ * lives in src/mcp/domains/tasks.ts and will be migrated separately.
+ */
+export function createDomainHandlers(): Map<string, DomainHandler> {
+  const handlers = new Map<string, DomainHandler>();
+  handlers.set('session', new SessionHandler());
+  handlers.set('memory', new MemoryHandler());
+  handlers.set('check', new CheckHandler());
+  handlers.set('pipeline', new PipelineHandler());
+  handlers.set('orchestrate', new OrchestrateHandler());
+  handlers.set('tools', new ToolsHandler());
+  handlers.set('admin', new AdminHandler());
+  handlers.set('nexus', new NexusHandler());
+  return handlers;
+}
