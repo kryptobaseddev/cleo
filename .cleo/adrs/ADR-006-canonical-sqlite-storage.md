@@ -26,7 +26,7 @@ There are exactly two SQLite databases in the CLEO ecosystem:
 
 ## 3. ADR Lifecycle Tooling (Integrated into RCSD)
 
-ADRs are NOT a separate protocol, but rather a structured artifact produced by the Research -> Consensus -> ADR pipeline. They track the outcome of consensus, its status over time, and its supersession chain.
+ADRs are NOT a separate protocol, but rather a structured artifact produced by the Research -> Consensus -> ADR -> Spec pipeline. They track the outcome of consensus, its status over time, and its supersession chain.
 
 The `architecture_decisions` table provides a lightweight registry tracking decision status, supersession relationships, and links back to the consensus/research that produced them.
 
@@ -79,7 +79,7 @@ CREATE TABLE architecture_decisions (
 );
 ```
 
-#### Lifecycle Pipeline (RCSD -> IVTR)
+#### Lifecycle Pipeline (RC-ADR-SD -> IVTR)
 
 ```sql
 CREATE TABLE lifecycle_pipelines (
@@ -94,7 +94,7 @@ CREATE TABLE lifecycle_pipelines (
 CREATE TABLE lifecycle_stages (
   id TEXT PRIMARY KEY,
   pipeline_id TEXT NOT NULL REFERENCES lifecycle_pipelines(id) ON DELETE CASCADE,
-  stage_name TEXT NOT NULL CHECK(stage_name IN ('research', 'consensus', 'spec', 'design', 'implement', 'verify', 'test', 'release')),
+  stage_name TEXT NOT NULL CHECK(stage_name IN ('research', 'consensus', 'adr', 'spec', 'design', 'implement', 'verify', 'test', 'release')),
   status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed', 'blocked', 'skipped')),
   started_at TEXT,
   completed_at TEXT,
