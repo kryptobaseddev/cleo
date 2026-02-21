@@ -1,6 +1,6 @@
 # CLEO Verb Standards
 
-**Version**: 2026.2.5  
+**Version**: 2026.2.20
 **Status**: MANDATORY  
 **Scope**: All CLEO CLI commands, MCP operations, and API endpoints  
 
@@ -30,6 +30,22 @@ This document establishes the canonical verb standard for CLEO to ensure consist
 | Begin work | `start` | `focus-set`, `focus.set` | ✅ Enforced |
 | Stop work | `stop` | `focus-clear`, `focus.clear`, `end` | ✅ Enforced |
 | Check current | `status` | `show` (when showing state, not entity) | ✅ Enforced |
+| Validate/check | `validate` | `check` (when validating compliance) | ✅ Enforced |
+| Record event | `record` | `log` (when recording decisions/assumptions) | ✅ Enforced |
+| Resume work | `resume` | `continue`, `reopen` (when resuming sessions) | ✅ Enforced |
+| Pause work | `suspend` | `pause`, `hibernate` | ✅ Enforced |
+| Reset state | `reset` | `clear`, `wipe` (when resetting to initial) | ✅ Enforced |
+| Initialize | `init` | `setup`, `bootstrap` (when initializing project) | ✅ Enforced |
+| Enable feature | `enable` | `activate`, `on` | ✅ Enforced |
+| Disable feature | `disable` | `deactivate`, `off` | ✅ Enforced |
+| Create backup | `backup` | `snapshot`, `save` (when creating backups) | ✅ Enforced |
+| Schema migration | `migrate` | `upgrade`, `transform` | ✅ Enforced |
+| Verify artifact | `verify` | `check`, `audit` (when verifying gates/frontmatter) | ✅ Enforced |
+| Inject content | `inject` | `insert`, `load` (when injecting protocols) | ✅ Enforced |
+| Execute action | `run` | `exec`, `execute` (compound verb: `test.run`, `gates.run`) | ✅ Enforced |
+| End session | `end` | - (MCP operation; CLI alias for `stop`) | ✅ Enforced |
+| Link entities | `link` | `connect`, `associate`, `attach` | ✅ Enforced |
+| Configure settings | `configure` | `setup`, `config` (when configuring skills) | ✅ Enforced |
 
 ### Verb Usage Rules
 
@@ -210,6 +226,319 @@ cleo nexus status
 cleo show session
 ```
 
+#### 13. Validate (Check Compliance)
+**Standard**: `validate`
+**Replaces**: `check` (when checking compliance or prerequisites)
+**Scope**: Used across lifecycle gates, orchestration readiness, research entries, protocol compliance, and skill frontmatter
+
+```bash
+# ✅ CORRECT
+cleo lifecycle validate --stage implementation
+cleo orchestrate validate T123
+cleo validate schema
+cleo validate protocol
+
+# ❌ INCORRECT
+cleo lifecycle check --stage implementation
+cleo orchestrate check T123
+```
+
+**MCP Usage**:
+- `lifecycle.validate` (query) - Check stage prerequisites
+- `orchestrate.validate` (mutate) - Validate spawn readiness
+- `validate.schema` (query) - JSON Schema validation
+- `validate.protocol` (query) - Protocol compliance check
+
+#### 14. Record (Log Events)
+**Standard**: `record`
+**Replaces**: `log` (when recording structured events, not reading logs)
+**Scope**: Used for recording lifecycle stage completions, session decisions, assumptions, and compliance checks
+
+```bash
+# ✅ CORRECT
+cleo lifecycle record --stage research --epicId T001
+cleo session record-decision "Use TypeScript for migration"
+cleo compliance record --taskId T123
+
+# ❌ INCORRECT
+cleo lifecycle log --stage research
+```
+
+**MCP Usage**:
+- `lifecycle.record` (mutate) - Record stage completion
+- `session.record.decision` (mutate) - Record a session decision
+- `session.record.assumption` (mutate) - Record an assumption
+- `validate.compliance.record` (mutate) - Record compliance check
+
+#### 15. Resume (Continue Paused Work)
+**Standard**: `resume`
+**Replaces**: `continue`, `reopen` (when resuming a suspended session)
+**Scope**: Session management — resuming a previously suspended or ended session
+
+```bash
+# ✅ CORRECT
+cleo session resume S001
+
+# ❌ INCORRECT
+cleo session continue S001
+cleo session reopen S001
+```
+
+**MCP Usage**:
+- `session.resume` (mutate) - Resume an existing session
+
+#### 16. Suspend (Pause Work)
+**Standard**: `suspend`
+**Replaces**: `pause`, `hibernate`
+**Scope**: Session management — temporarily suspending an active session without ending it
+
+```bash
+# ✅ CORRECT
+cleo session suspend
+
+# ❌ INCORRECT
+cleo session pause
+cleo session hibernate
+```
+
+**MCP Usage**:
+- `session.suspend` (mutate) - Suspend current session
+
+**Note**: `suspend` differs from `stop`/`end` in that a suspended session retains its state and can be resumed. `stop` terminates the session.
+
+#### 17. Reset (Emergency State Reset)
+**Standard**: `reset`
+**Replaces**: `clear`, `wipe` (when resetting to initial state)
+**Scope**: Lifecycle stage emergency resets
+
+```bash
+# ✅ CORRECT
+cleo lifecycle reset --stage implementation --epicId T001
+
+# ❌ INCORRECT
+cleo lifecycle clear --stage implementation
+```
+
+**MCP Usage**:
+- `lifecycle.reset` (mutate) - Reset lifecycle stage (emergency only)
+
+**Warning**: `reset` is a destructive operation and should only be used in emergency situations. Prefer `record` with appropriate status for normal lifecycle progression.
+
+#### 18. Init (Initialize)
+**Standard**: `init`
+**Replaces**: `setup`, `bootstrap`, `install` (when initializing CLEO in a project)
+**Scope**: System initialization — first-time setup of CLEO in a project directory
+
+```bash
+# ✅ CORRECT
+cleo init
+cleo init --detect
+cleo init --force
+
+# ❌ INCORRECT
+cleo setup
+cleo bootstrap
+```
+
+**MCP Usage**:
+- `system.init` (mutate) - Initialize CLEO
+
+**Note**: `init` is idempotent — running it on an already-initialized project is safe.
+
+#### 19. Enable / Disable (Feature Toggle)
+**Standard**: `enable` / `disable`
+**Replaces**: `activate`/`deactivate`, `on`/`off`
+**Scope**: Skill management — enabling or disabling installed skills
+
+```bash
+# ✅ CORRECT
+cleo skills enable ct-research-agent
+cleo skills disable ct-validator
+
+# ❌ INCORRECT
+cleo skills activate ct-research-agent
+cleo skills deactivate ct-validator
+```
+
+**MCP Usage**:
+- `skills.enable` (mutate) - Enable a skill
+- `skills.disable` (mutate) - Disable a skill
+
+#### 20. Backup (Create Backup)
+**Standard**: `backup`
+**Replaces**: `snapshot`, `save` (when creating backups)
+**Scope**: System operations — creating point-in-time backup snapshots
+
+```bash
+# ✅ CORRECT
+cleo backup
+cleo backup add
+cleo backup list
+cleo backup restore --file tasks.json
+
+# ❌ INCORRECT
+cleo snapshot
+cleo save-state
+```
+
+**MCP Usage**:
+- `system.backup` (mutate) - Create backup
+
+**Note**: `backup` is both a domain (with subcommands `add`, `list`, `restore`) and a system-level operation.
+
+#### 21. Migrate (Schema Migration)
+**Standard**: `migrate`
+**Replaces**: `upgrade`, `transform`
+**Scope**: System operations — running schema migrations on data files
+
+```bash
+# ✅ CORRECT
+cleo migrate status
+cleo migrate run
+cleo migrate run todo --dry-run
+
+# ❌ INCORRECT
+cleo upgrade schema
+cleo transform data
+```
+
+**MCP Usage**:
+- `system.migrate` (mutate) - Run migrations
+
+**Note**: `migrate` is idempotent — running migrations on already-migrated files is safe.
+
+#### 22. Verify (Artifact Verification)
+**Standard**: `verify`
+**Replaces**: `check`, `audit` (when verifying task gates or skill frontmatter)
+**Scope**: Verification gates for tasks and skill frontmatter validation
+
+```bash
+# ✅ CORRECT
+cleo verify T123
+cleo verify T123 --gate tests --value true
+cleo skills verify ct-orchestrator
+
+# ❌ INCORRECT
+cleo check T123
+cleo audit T123
+```
+
+**MCP Usage**:
+- `skills.verify` (query) - Validate skill frontmatter
+
+**Note**: `verify` focuses on artifact-level checks (gates, frontmatter). Use `validate` for schema/protocol compliance checks.
+
+#### 23. Inject (Protocol Injection)
+**Standard**: `inject`
+**Replaces**: `insert`, `load` (when injecting protocol content)
+**Scope**: Research protocol injection and provider content injection
+
+```bash
+# ✅ CORRECT
+cleo inject
+cleo research inject --protocol research
+
+# ❌ INCORRECT
+cleo insert protocol
+cleo load protocol
+```
+
+**MCP Usage**:
+- `research.inject` (mutate) - Get protocol injection content
+- `providers.inject` (mutate) - Inject content into provider instruction files
+- `system.inject.generate` (mutate) - Generate MVI injection
+
+#### 24. Run (Execute Action)
+**Standard**: `run`
+**Usage**: Compound verb only — always paired with a domain prefix
+**Scope**: Executing test suites (`test.run`) and release gate checks (`gates.run`)
+
+```bash
+# ✅ CORRECT
+cleo migrate run
+cleo test run
+
+# ❌ INCORRECT
+cleo exec tests
+cleo execute gates
+```
+
+**MCP Usage**:
+- `validate.test.run` (mutate) - Execute test suite
+- `release.gates.run` (mutate) - Run release gates
+
+**Rule**: `run` MUST always be used as part of a compound verb (e.g., `test.run`, `gates.run`). It should never be used as a standalone verb for task operations.
+
+#### 25. End (Terminate Session — MCP)
+**Standard**: `end` (MCP operation name)
+**CLI equivalent**: `stop` (with `end` as alias)
+**Scope**: Session termination via MCP interface
+
+```bash
+# CLI usage (standard):
+cleo session stop --note "Finished sprint"
+
+# CLI usage (alias):
+cleo session end --note "Finished sprint"
+```
+
+**MCP Usage**:
+- `session.end` (mutate) - End current session
+
+**Note**: In MCP, the canonical operation is `end`. In CLI, the canonical command is `stop` with `end` as a backward-compatible alias. This asymmetry exists because MCP adopted `end` before the CLI verb standardization to `stop`.
+
+#### 26. Link (Associate Entities)
+**Standard**: `link`
+**Replaces**: `connect`, `associate`, `attach`
+**Scope**: Linking research entries to tasks
+
+```bash
+# ✅ CORRECT
+cleo research link R001 T123
+cleo research links T123
+
+# ❌ INCORRECT
+cleo research connect R001 T123
+cleo research attach R001 T123
+```
+
+**MCP Usage**:
+- `research.link` (mutate) - Link research entry to task
+
+#### 27. Configure (Adjust Settings)
+**Standard**: `configure`
+**Replaces**: `setup`, `config` (when configuring skill parameters)
+**Scope**: Skill configuration — adjusting skill-specific settings
+
+```bash
+# ✅ CORRECT
+cleo skills configure ct-orchestrator --param maxAgents --value 3
+
+# ❌ INCORRECT
+cleo skills setup ct-orchestrator
+```
+
+**MCP Usage**:
+- `skills.configure` (mutate) - Configure a skill
+
+**Note**: `configure` is for skill-specific configuration. For system-level configuration, use `config.set` / `config.show` (see Known Violations below).
+
+---
+
+## Known Verb Violations
+
+The following operations in the current codebase deviate from verb standards. These are tracked for future correction:
+
+| Location | Current | Standard | Notes |
+|----------|---------|----------|-------|
+| `system.config.get` (query) | `config.get` | `config.show` | Reading config should use `show` verb per standard |
+| `tasks.reopen` (mutate) | `reopen` | `restore` | Should use the canonical `restore` verb |
+| `tasks.uncancel` (mutate) | `uncancel` | `restore` | Should use the canonical `restore` verb |
+| `system.uncancel` (mutate) | `uncancel` | `restore` | Should use the canonical `restore` verb |
+| `find` alias `search` | `search` | `find` | `search` accepted as backward-compatible alias only |
+
+These violations are maintained as aliases for backward compatibility but new code MUST use the standard verb.
+
 ---
 
 ## Naming Conventions
@@ -305,16 +634,18 @@ stop        Stop working on task
 ### Session Operations
 ```
 start       Begin new session
-stop        End current session
+stop        End current session (alias: end)
 status      Show session status
 resume      Resume existing session
+suspend     Pause session without ending
 list        List sessions
 gc          Garbage collect old sessions
+record      Record decision or assumption
 ```
 
 ### Backup Operations
 ```
-add         Create new backup
+add         Create new backup (also: backup at system level)
 list        List available backups
 restore     Restore from backup
 ```
@@ -327,6 +658,69 @@ ship        Ship/release version
 list        List releases
 show        Show release details
 changelog   Generate changelog
+gates.run   Run release gates
+```
+
+### Lifecycle Operations
+```
+validate    Check stage prerequisites
+status      Current lifecycle state
+history     Stage transition history
+record      Record stage completion
+skip        Skip optional stage
+reset       Reset stage (emergency)
+gate.pass   Mark gate as passed
+gate.fail   Mark gate as failed
+```
+
+### System Operations
+```
+init        Initialize CLEO project
+backup      Create backup
+restore     Restore from backup
+migrate     Run schema migrations
+config.set  Set config value
+config.get  Get config value (violation: should be config.show)
+cleanup     Cleanup stale data
+sync        Sync with TodoWrite
+```
+
+### Skill Operations
+```
+list        List available skills
+show        Skill details
+find        Find skills
+verify      Validate skill frontmatter
+install     Install a skill
+uninstall   Uninstall a skill
+enable      Enable a skill
+disable     Disable a skill
+configure   Configure a skill
+```
+
+### Validation Operations
+```
+validate    Schema/protocol/task validation
+compliance  Compliance summary and violations
+test.run    Execute test suite
+```
+
+### Research Operations
+```
+show        Research entry details
+list        List research entries
+find        Find research
+inject      Get protocol injection
+link        Link research to task
+```
+
+### Orchestration Operations
+```
+start       Initialize orchestration
+spawn       Generate spawn prompt
+validate    Validate spawn readiness
+analyze     Dependency analysis
+next        Next task to spawn
 ```
 
 ---
@@ -397,6 +791,12 @@ cleo commands <command-name>
 
 ## Migration History
 
+### 2026.2.20 - Missing Verb Documentation (T4791)
+- **Added**: 17 verbs now documented: `validate`, `record`, `resume`, `suspend`, `reset`, `init`, `enable`, `disable`, `backup`, `migrate`, `verify`, `inject`, `run`, `end`, `link`, `configure`
+- **Added**: Known Verb Violations section tracking `config.get`, `reopen`, `uncancel` deviations
+- **Added**: Command categories for Lifecycle, System, Skill, Validation, Research, and Orchestration operations
+- **Updated**: Session and Release command categories with missing verbs
+
 ### 2026.2.5 - Verb Standardization Release
 - **Breaking**: None (all changes backward compatible via aliases)
 - **Changed**: 
@@ -412,7 +812,7 @@ cleo commands <command-name>
 
 ## References
 
-- **Task**: T4732 (Naming Standardization)
+- **Task**: T4732 (Naming Standardization), T4791 (Missing Verb Documentation)
 - **Epic**: T4739 (Eliminate 'Todo' Terminology)
 - **Related**: RFC 2119 (MUST/SHOULD/MAY definitions)
 - **Validation**: `cleo compliance` commands
