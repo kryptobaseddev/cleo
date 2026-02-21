@@ -33,6 +33,7 @@
 import { mkdir, access, writeFile, readFile, copyFile, symlink, lstat } from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';
+import { readJson } from '../store/json.js';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -285,10 +286,10 @@ async function initCoreFiles(
   // Create todo.json
   const todoPath = getTaskPath();
   if (await fileExists(todoPath) && !force) {
-    skipped.push('todo.json');
+    skipped.push('tasks.json');
   } else {
     await saveJson(todoPath, createDefaultTodo(projectName));
-    created.push('todo.json');
+    created.push('tasks.json');
   }
 
   // Create config.json
@@ -883,4 +884,69 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     skipped,
     warnings,
   };
+}
+
+/**
+ * Check if auto-init is enabled via environment variable.
+ * @task T4789
+ */
+export function isAutoInitEnabled(): boolean {
+  return process.env.CLEO_AUTO_INIT === 'true';
+}
+
+/**
+ * Check if a project is initialized and auto-init if configured.
+ * Returns { initialized: true } if ready, throws otherwise.
+ * @task T4789
+ */
+export async function ensureInitialized(projectRoot?: string): Promise<{ initialized: boolean }> {
+  const root = projectRoot ?? getProjectRoot();
+  const cleoDir = join(root, '.cleo');
+  const isInit = existsSync(cleoDir) && existsSync(join(cleoDir, 'todo.json'));
+
+  if (isInit) {
+    return { initialized: true };
+  }
+
+  if (isAutoInitEnabled()) {
+    await initProject({ name: basename(root) });
+    return { initialized: true };
+  }
+
+  throw new Error('CLEO project not initialized. Run system.init or set CLEO_AUTO_INIT=true');
+}
+
+/**
+ * Get the current CLEO/project version.
+ * Checks VERSION file, then package.json.
+ * @task T4789
+ */
+export async function getVersion(projectRoot?: string): Promise<{ version: string }> {
+  const root = projectRoot ?? getProjectRoot();
+
+  // Try VERSION file
+  const versionPaths = [
+    join(root, 'VERSION'),
+    join(root, '..', 'VERSION'),
+  ];
+
+  for (const versionPath of versionPaths) {
+    try {
+      const content = await readFile(versionPath, 'utf-8');
+      const version = content.trim();
+      if (version) {
+        return { version };
+      }
+    } catch {
+      // Try next path
+    }
+  }
+
+  // Fallback: package.json
+  const pkg = await readJson<{ version: string }>(join(root, 'package.json'));
+  if (pkg?.version) {
+    return { version: pkg.version };
+  }
+
+  return { version: '0.0.0' };
 }

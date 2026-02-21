@@ -145,15 +145,15 @@ export class ReleaseHandler implements DomainHandler {
       case 'changelog':
         return this.wrapNativeResult(await nativeReleaseChangelog(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'commit':
-        return this.wrapNativeResult(nativeReleaseCommit(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeReleaseCommit(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'tag':
-        return this.wrapNativeResult(nativeReleaseTag(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeReleaseTag(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'gates.run':
         return this.wrapNativeResult(await nativeReleaseGatesRun(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'rollback':
-        return this.wrapNativeResult(nativeReleaseRollback(params?.version as string, params?.reason as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeReleaseRollback(params?.version as string, params?.reason as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       case 'push':
-        return this.wrapNativeResult(nativeReleasePush(params?.version as string, params?.remote as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+        return this.wrapNativeResult(await nativeReleasePush(params?.version as string, params?.remote as string, this.projectRoot), 'cleo_mutate', operation, startTime);
       default:
         return this.createErrorResponse('cleo_mutate', 'release', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
     }
