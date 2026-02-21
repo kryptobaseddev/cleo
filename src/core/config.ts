@@ -8,8 +8,11 @@
  */
 
 import type { CleoConfig, ConfigSource, ResolvedValue } from '../types/config.js';
-import { readJson } from '../store/json.js';
+import { readJson, saveJson } from '../store/json.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
+import { existsSync } from 'node:fs';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 /** Default configuration values. */
 const DEFAULTS: CleoConfig = {
@@ -196,4 +199,84 @@ export async function getConfigValue<T>(
   // Fall back to defaults
   const defaultVal = getNestedValue(DEFAULTS as unknown as Record<string, unknown>, path);
   return { value: defaultVal as T, source: 'default' as ConfigSource };
+}
+
+/**
+ * Get a raw config value from the project config file only (no cascade).
+ * Returns undefined if the key is not found.
+ * Used by the engine layer for simple key lookups without source tracking.
+ * @task T4789
+ */
+export async function getRawConfigValue(
+  key: string,
+  cwd?: string,
+): Promise<unknown> {
+  const configPath = getConfigPath(cwd);
+  const config = await readJson<Record<string, unknown>>(configPath);
+  if (!config) return undefined;
+
+  if (!key) return config;
+
+  return getNestedValue(config, key);
+}
+
+/**
+ * Get the full raw project config (no cascade).
+ * Returns null if no config file exists.
+ * @task T4789
+ */
+export async function getRawConfig(
+  cwd?: string,
+): Promise<Record<string, unknown> | null> {
+  return readJson<Record<string, unknown>>(getConfigPath(cwd));
+}
+
+/**
+ * Parse a string value into its appropriate JS type.
+ * Handles booleans, null, integers, floats, and JSON.
+ * @task T4789
+ */
+export function parseConfigValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (value === 'null') return null;
+  if (/^-?\d+$/.test(value)) return parseInt(value, 10);
+  if (/^-?\d+\.\d+$/.test(value)) return parseFloat(value);
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Set a config value in the project config file (dot-notation supported).
+ * Creates intermediate objects as needed. Parses string values into
+ * appropriate types (boolean, number, null, JSON).
+ * @task T4789
+ */
+export async function setConfigValue(
+  key: string,
+  value: unknown,
+  cwd?: string,
+): Promise<{ key: string; value: unknown }> {
+  const configPath = getConfigPath(cwd);
+
+  // Ensure file exists
+  if (!existsSync(configPath)) {
+    const dir = dirname(configPath);
+    await mkdir(dir, { recursive: true });
+    await writeFile(configPath, '{}', 'utf-8');
+  }
+
+  const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
+
+  const parsedValue = parseConfigValue(value);
+
+  setNestedValue(config, key, parsedValue);
+
+  await saveJson(configPath, config);
+
+  return { key, value: parsedValue };
 }
