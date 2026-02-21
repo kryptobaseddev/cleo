@@ -435,6 +435,10 @@ export function sanitizeParams(
       typeof value === 'string' &&
       (key === 'taskId' || key === 'parent' || key === 'epicId')
     ) {
+      // Allow empty string for 'parent' field (means "promote to root" / remove parent)
+      if (key === 'parent' && value === '') {
+        continue;
+      }
       sanitized[key] = sanitizeTaskId(value);
       continue;
     }

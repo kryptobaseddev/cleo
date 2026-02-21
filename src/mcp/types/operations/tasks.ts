@@ -162,6 +162,15 @@ export interface TasksUpdateParams {
   status?: TaskStatus;
   priority?: TaskPriority;
   notes?: string;
+  parent?: string | null; // Set parent ID, or null/"" to promote to root
+  labels?: string[];
+  addLabels?: string[];
+  removeLabels?: string[];
+  depends?: string[];
+  addDepends?: string[];
+  removeDepends?: string[];
+  type?: string;
+  size?: string;
 }
 export type TasksUpdateResult = Task;
 
