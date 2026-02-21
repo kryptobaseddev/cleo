@@ -122,6 +122,7 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
 
   // === System Domain ===
   { domain: 'system', operation: 'version', gateway: 'query', mode: 'native' },
+  { domain: 'system', operation: 'config.show', gateway: 'query', mode: 'native' },
   { domain: 'system', operation: 'config.get', gateway: 'query', mode: 'native' },
   { domain: 'system', operation: 'context', gateway: 'query', mode: 'native' },
   { domain: 'system', operation: 'metrics', gateway: 'query', mode: 'native' },

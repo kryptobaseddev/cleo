@@ -6,11 +6,11 @@
  *
  * Supports dual-mode routing:
  * - Native: templates, validate.labels (query), generate.config (mutate)
- * - CLI-backed: diagnostics (query), create.bug, create.feature, create.help (mutate)
+ * - CLI-backed: diagnostics (query), add.bug, add.feature, add.help (mutate)
  *
  * Operations:
  * - Query: diagnostics, templates, validate.labels
- * - Mutate: create.bug, create.feature, create.help, generate.config
+ * - Mutate: add.bug, add.feature, add.help (aliases: create.bug, create.feature, create.help), generate.config
  *
  * @task T4492
  */
@@ -108,10 +108,13 @@ export class IssuesHandler implements DomainHandler {
     }
 
     switch (operation) {
+      case 'add.bug':
       case 'create.bug':
         return this.handleCreateIssue('bug', params, startTime);
+      case 'add.feature':
       case 'create.feature':
         return this.handleCreateIssue('feature', params, startTime);
+      case 'add.help':
       case 'create.help':
         return this.handleCreateIssue('help', params, startTime);
       case 'generate.config':
@@ -189,7 +192,7 @@ export class IssuesHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['diagnostics', 'templates', 'validate.labels'],
-      mutate: ['create.bug', 'create.feature', 'create.help', 'generate.config'],
+      mutate: ['add.bug', 'add.feature', 'add.help', 'create.bug', 'create.feature', 'create.help', 'generate.config'],
     };
   }
 
