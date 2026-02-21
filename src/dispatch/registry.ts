@@ -1,9 +1,8 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 140 operations mapped to 9 canonical domains.
- * Provides aliases (legacy domain support), declarative required-param checks,
- * idempotency flags, and filtering.
+ * Single source of truth for all 147 operations mapped to 9 canonical domains.
+ * Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
  * @task T4814
@@ -11,29 +10,13 @@
 
 import { Gateway, Tier, CanonicalDomain } from './types.js';
 
-/**
- * Mappings from legacy CLI domain names to new canonical V2 names.
- */
-export const LEGACY_TO_CANONICAL: Record<string, CanonicalDomain> = {
-  research: 'pipeline',
-  validate: 'check',
-  lifecycle: 'pipeline',
-  release: 'pipeline',
-  skills: 'tools',
-  providers: 'tools',
-  issues: 'tasks',
-  system: 'admin',
-};
-
 /** Definition of a single dispatchable operation. */
 export interface OperationDef {
   /** The CQRS gateway ('query' or 'mutate'). */
   gateway: Gateway;
-  /** The true canonical domain this operation belongs to. */
+  /** The canonical domain this operation belongs to. */
   domain: CanonicalDomain;
-  /** Optional legacy domain alias for backwards compatibility. */
-  legacyDomain?: string;
-  /** The specific operation name (e.g. 'show', 'add'). */
+  /** The specific operation name (e.g. 'show', 'skill.list'). */
   operation: string;
   /** Brief description of what the operation does. */
   description: string;
@@ -50,18 +33,13 @@ export interface OperationDef {
 /**
  * Resolution output for a dispatch request.
  */
-export interface AliasResolution {
-  /** The true canonical domain. */
+export interface Resolution {
+  /** The canonical domain. */
   domain: CanonicalDomain;
-  /** The true operation name. */
+  /** The operation name. */
   operation: string;
   /** The definition of the matched operation. */
   def: OperationDef;
-  /** Details about whether this request was made via a legacy alias. */
-  alias: {
-    aliased: boolean;
-    deprecation?: string;
-  };
 }
 
 /**
@@ -72,7 +50,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'show',
-    description: 'Legacy query operation tasks.show',
+    description: 'tasks.show (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -82,7 +60,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'list',
-    description: 'Legacy query operation tasks.list',
+    description: 'tasks.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -92,7 +70,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'find',
-    description: 'Legacy query operation tasks.find',
+    description: 'tasks.find (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -102,7 +80,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'exists',
-    description: 'Legacy query operation tasks.exists',
+    description: 'tasks.exists (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -112,7 +90,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'tree',
-    description: 'Legacy query operation tasks.tree',
+    description: 'tasks.tree (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -122,7 +100,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'blockers',
-    description: 'Legacy query operation tasks.blockers',
+    description: 'tasks.blockers (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -132,7 +110,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'depends',
-    description: 'Legacy query operation tasks.depends',
+    description: 'tasks.depends (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -142,7 +120,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'analyze',
-    description: 'Legacy query operation tasks.analyze',
+    description: 'tasks.analyze (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -152,7 +130,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'next',
-    description: 'Legacy query operation tasks.next',
+    description: 'tasks.next (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -162,7 +140,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'relates',
-    description: 'Legacy query operation tasks.relates',
+    description: 'tasks.relates (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -172,7 +150,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'complexity.estimate',
-    description: 'Legacy query operation tasks.complexity.estimate',
+    description: 'tasks.complexity.estimate (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -182,7 +160,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'tasks',
     operation: 'current',
-    description: 'Legacy query operation tasks.current',
+    description: 'tasks.current (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -192,7 +170,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'session',
     operation: 'status',
-    description: 'Legacy query operation session.status',
+    description: 'session.status (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -202,7 +180,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'session',
     operation: 'list',
-    description: 'Legacy query operation session.list',
+    description: 'session.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -212,7 +190,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'session',
     operation: 'show',
-    description: 'Legacy query operation session.show',
+    description: 'session.show (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -222,7 +200,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'session',
     operation: 'history',
-    description: 'Legacy query operation session.history',
+    description: 'session.history (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -232,7 +210,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'session',
     operation: 'decision.log',
-    description: 'Legacy query operation session.decision.log',
+    description: 'session.decision.log (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -242,7 +220,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'session',
     operation: 'context.drift',
-    description: 'Legacy query operation session.context.drift',
+    description: 'session.context.drift (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -252,7 +230,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'status',
-    description: 'Legacy query operation orchestrate.status',
+    description: 'orchestrate.status (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -262,7 +240,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'next',
-    description: 'Legacy query operation orchestrate.next',
+    description: 'orchestrate.next (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -272,7 +250,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'ready',
-    description: 'Legacy query operation orchestrate.ready',
+    description: 'orchestrate.ready (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -282,7 +260,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'analyze',
-    description: 'Legacy query operation orchestrate.analyze',
+    description: 'orchestrate.analyze (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -292,7 +270,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'context',
-    description: 'Legacy query operation orchestrate.context',
+    description: 'orchestrate.context (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -302,7 +280,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'waves',
-    description: 'Legacy query operation orchestrate.waves',
+    description: 'orchestrate.waves (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -312,7 +290,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'skill.list',
-    description: 'Legacy query operation orchestrate.skill.list',
+    description: 'orchestrate.skill.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -322,7 +300,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'bootstrap',
-    description: 'Legacy query operation orchestrate.bootstrap',
+    description: 'orchestrate.bootstrap (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -332,7 +310,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'unblock.opportunities',
-    description: 'Legacy query operation orchestrate.unblock.opportunities',
+    description: 'orchestrate.unblock.opportunities (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -342,7 +320,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'orchestrate',
     operation: 'critical.path',
-    description: 'Legacy query operation orchestrate.critical.path',
+    description: 'orchestrate.critical.path (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -350,10 +328,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'show',
-    description: 'Legacy query operation research.show',
+    description: 'memory.show (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -361,10 +338,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'list',
-    description: 'Legacy query operation research.list',
+    description: 'memory.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -372,10 +348,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'find',
-    description: 'Legacy query operation research.find',
+    description: 'memory.find (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -383,10 +358,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'pending',
-    description: 'Legacy query operation research.pending',
+    description: 'memory.pending (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -394,10 +368,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'stats',
-    description: 'Legacy query operation research.stats',
+    description: 'memory.stats (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -405,10 +378,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'manifest.read',
-    description: 'Legacy query operation research.manifest.read',
+    description: 'memory.manifest.read (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -416,10 +388,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'contradictions',
-    description: 'Legacy query operation research.contradictions',
+    description: 'memory.contradictions (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -427,10 +398,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'superseded',
-    description: 'Legacy query operation research.superseded',
+    description: 'memory.superseded (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -439,9 +409,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'validate',
-    description: 'Legacy query operation lifecycle.validate',
+    operation: 'stage.validate',
+    description: 'pipeline.stage.validate (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -450,9 +419,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'status',
-    description: 'Legacy query operation lifecycle.status',
+    operation: 'stage.status',
+    description: 'pipeline.stage.status (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -461,9 +429,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'history',
-    description: 'Legacy query operation lifecycle.history',
+    operation: 'stage.history',
+    description: 'pipeline.stage.history (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -472,9 +439,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'gates',
-    description: 'Legacy query operation lifecycle.gates',
+    operation: 'stage.gates',
+    description: 'pipeline.stage.gates (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -483,9 +449,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'prerequisites',
-    description: 'Legacy query operation lifecycle.prerequisites',
+    operation: 'stage.prerequisites',
+    description: 'pipeline.stage.prerequisites (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -494,9 +459,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'schema',
-    description: 'Legacy query operation validate.schema',
+    description: 'check.schema (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -505,9 +469,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'protocol',
-    description: 'Legacy query operation validate.protocol',
+    description: 'check.protocol (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -516,9 +479,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'task',
-    description: 'Legacy query operation validate.task',
+    description: 'check.task (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -527,9 +489,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'manifest',
-    description: 'Legacy query operation validate.manifest',
+    description: 'check.manifest (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -538,9 +499,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'output',
-    description: 'Legacy query operation validate.output',
+    description: 'check.output (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -549,9 +509,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'compliance.summary',
-    description: 'Legacy query operation validate.compliance.summary',
+    description: 'check.compliance.summary (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -560,9 +519,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'compliance.violations',
-    description: 'Legacy query operation validate.compliance.violations',
+    description: 'check.compliance.violations (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -571,9 +529,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'test.status',
-    description: 'Legacy query operation validate.test.status',
+    description: 'check.test.status (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -582,9 +539,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'test.coverage',
-    description: 'Legacy query operation validate.test.coverage',
+    description: 'check.test.coverage (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -593,9 +549,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'coherence.check',
-    description: 'Legacy query operation validate.coherence.check',
+    description: 'check.coherence.check (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -604,9 +559,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'version',
-    description: 'Legacy query operation system.version',
+    description: 'admin.version (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -615,9 +569,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'health',
-    description: 'Legacy query operation system.health',
+    description: 'admin.health (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -626,9 +579,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'config.get',
-    description: 'Legacy query operation system.config.get',
+    description: 'admin.config.get (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -637,9 +589,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'stats',
-    description: 'Legacy query operation system.stats',
+    description: 'admin.stats (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -648,9 +599,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'context',
-    description: 'Legacy query operation system.context',
+    description: 'admin.context (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -659,9 +609,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'job.status',
-    description: 'Legacy query operation system.job.status',
+    description: 'admin.job.status (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -670,9 +619,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'job.list',
-    description: 'Legacy query operation system.job.list',
+    description: 'admin.job.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -681,9 +629,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'dash',
-    description: 'Legacy query operation system.dash',
+    description: 'admin.dash (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -692,9 +639,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'roadmap',
-    description: 'Legacy query operation system.roadmap',
+    description: 'admin.roadmap (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -703,9 +649,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'labels',
-    description: 'Legacy query operation system.labels',
+    description: 'admin.labels (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -714,9 +659,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'compliance',
-    description: 'Legacy query operation system.compliance',
+    description: 'admin.compliance (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -725,9 +669,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'log',
-    description: 'Legacy query operation system.log',
+    description: 'admin.log (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -736,9 +679,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'archive.stats',
-    description: 'Legacy query operation system.archive.stats',
+    description: 'admin.archive.stats (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -747,20 +689,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'sequence',
-    description: 'Legacy query operation system.sequence',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'tasks',
-    legacyDomain: 'issues',
-    operation: 'diagnostics',
-    description: 'Legacy query operation issues.diagnostics',
+    description: 'admin.sequence (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -769,9 +699,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'list',
-    description: 'Legacy query operation skills.list',
+    operation: 'issue.diagnostics',
+    description: 'tools.issue.diagnostics (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -780,9 +709,28 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'show',
-    description: 'Legacy query operation skills.show',
+    operation: 'issue.templates',
+    description: 'List available issue templates',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'issue.validate.labels',
+    description: 'Validate issue labels against configured label set',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['labels'],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'skill.list',
+    description: 'tools.skill.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -791,9 +739,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'find',
-    description: 'Legacy query operation skills.find',
+    operation: 'skill.show',
+    description: 'tools.skill.show (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -802,9 +749,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'dispatch',
-    description: 'Legacy query operation skills.dispatch',
+    operation: 'skill.find',
+    description: 'tools.skill.find (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -813,9 +759,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'verify',
-    description: 'Legacy query operation skills.verify',
+    operation: 'skill.dispatch',
+    description: 'tools.skill.dispatch (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -824,9 +769,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'dependencies',
-    description: 'Legacy query operation skills.dependencies',
+    operation: 'skill.verify',
+    description: 'tools.skill.verify (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -835,9 +779,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'providers',
-    operation: 'list',
-    description: 'Legacy query operation providers.list',
+    operation: 'skill.dependencies',
+    description: 'tools.skill.dependencies (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -846,9 +789,48 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'providers',
-    operation: 'detect',
-    description: 'Legacy query operation providers.detect',
+    operation: 'skill.catalog.protocols',
+    description: 'List CAAMP protocol definitions',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'skill.catalog.profiles',
+    description: 'List CAAMP dispatch profiles',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'skill.catalog.resources',
+    description: 'List CAAMP shared resources',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'skill.catalog.info',
+    description: 'Get CAAMP catalog metadata',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'provider.list',
+    description: 'tools.provider.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -857,9 +839,18 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tools',
-    legacyDomain: 'providers',
-    operation: 'inject.status',
-    description: 'Legacy query operation providers.inject.status',
+    operation: 'provider.detect',
+    description: 'tools.provider.detect (query)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tools',
+    operation: 'provider.inject.status',
+    description: 'tools.provider.inject.status (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -869,7 +860,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'add',
-    description: 'Legacy mutate operation tasks.add',
+    description: 'tasks.add (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -879,7 +870,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'update',
-    description: 'Legacy mutate operation tasks.update',
+    description: 'tasks.update (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -889,7 +880,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'complete',
-    description: 'Legacy mutate operation tasks.complete',
+    description: 'tasks.complete (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -899,7 +890,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'delete',
-    description: 'Legacy mutate operation tasks.delete',
+    description: 'tasks.delete (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -909,7 +900,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'archive',
-    description: 'Legacy mutate operation tasks.archive',
+    description: 'tasks.archive (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -919,7 +910,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'restore',
-    description: 'Legacy mutate operation tasks.restore',
+    description: 'tasks.restore (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -929,7 +920,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'reparent',
-    description: 'Legacy mutate operation tasks.reparent',
+    description: 'tasks.reparent (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -939,7 +930,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'promote',
-    description: 'Legacy mutate operation tasks.promote',
+    description: 'tasks.promote (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -949,7 +940,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'reorder',
-    description: 'Legacy mutate operation tasks.reorder',
+    description: 'tasks.reorder (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -959,7 +950,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'reopen',
-    description: 'Legacy mutate operation tasks.reopen',
+    description: 'tasks.reopen (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -969,7 +960,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'relates.add',
-    description: 'Legacy mutate operation tasks.relates.add',
+    description: 'tasks.relates.add (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -979,7 +970,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'uncancel',
-    description: 'Legacy mutate operation tasks.uncancel',
+    description: 'tasks.uncancel (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -989,7 +980,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'start',
-    description: 'Legacy mutate operation tasks.start',
+    description: 'tasks.start (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -999,7 +990,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'tasks',
     operation: 'stop',
-    description: 'Legacy mutate operation tasks.stop',
+    description: 'tasks.stop (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1009,7 +1000,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'session',
     operation: 'start',
-    description: 'Legacy mutate operation session.start',
+    description: 'session.start (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1019,7 +1010,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'session',
     operation: 'end',
-    description: 'Legacy mutate operation session.end',
+    description: 'session.end (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1029,7 +1020,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'session',
     operation: 'resume',
-    description: 'Legacy mutate operation session.resume',
+    description: 'session.resume (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1039,7 +1030,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'session',
     operation: 'suspend',
-    description: 'Legacy mutate operation session.suspend',
+    description: 'session.suspend (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1049,7 +1040,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'session',
     operation: 'gc',
-    description: 'Legacy mutate operation session.gc',
+    description: 'session.gc (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1059,7 +1050,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'session',
     operation: 'record.decision',
-    description: 'Legacy mutate operation session.record.decision',
+    description: 'session.record.decision (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1069,7 +1060,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'session',
     operation: 'record.assumption',
-    description: 'Legacy mutate operation session.record.assumption',
+    description: 'session.record.assumption (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1079,7 +1070,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'start',
-    description: 'Legacy mutate operation orchestrate.start',
+    description: 'orchestrate.start (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1089,7 +1080,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'spawn',
-    description: 'Legacy mutate operation orchestrate.spawn',
+    description: 'orchestrate.spawn (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1099,7 +1090,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'validate',
-    description: 'Legacy mutate operation orchestrate.validate',
+    description: 'orchestrate.validate (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1109,7 +1100,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'parallel.start',
-    description: 'Legacy mutate operation orchestrate.parallel.start',
+    description: 'orchestrate.parallel.start (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1119,7 +1110,7 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'mutate',
     domain: 'orchestrate',
     operation: 'parallel.end',
-    description: 'Legacy mutate operation orchestrate.parallel.end',
+    description: 'orchestrate.parallel.end (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1127,10 +1118,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'inject',
-    description: 'Legacy mutate operation research.inject',
+    description: 'memory.inject (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1138,10 +1128,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'link',
-    description: 'Legacy mutate operation research.link',
+    description: 'memory.link (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1149,10 +1138,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'manifest.append',
-    description: 'Legacy mutate operation research.manifest.append',
+    description: 'memory.manifest.append (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1160,10 +1148,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate',
-    domain: 'pipeline',
-    legacyDomain: 'research',
+    domain: 'memory',
     operation: 'manifest.archive',
-    description: 'Legacy mutate operation research.manifest.archive',
+    description: 'memory.manifest.archive (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1172,9 +1159,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'record',
-    description: 'Legacy mutate operation lifecycle.record',
+    operation: 'stage.record',
+    description: 'pipeline.stage.record (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1183,9 +1169,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'skip',
-    description: 'Legacy mutate operation lifecycle.skip',
+    operation: 'stage.skip',
+    description: 'pipeline.stage.skip (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1194,9 +1179,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'reset',
-    description: 'Legacy mutate operation lifecycle.reset',
+    operation: 'stage.reset',
+    description: 'pipeline.stage.reset (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1205,9 +1189,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'gate.pass',
-    description: 'Legacy mutate operation lifecycle.gate.pass',
+    operation: 'stage.gate.pass',
+    description: 'pipeline.stage.gate.pass (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1216,9 +1199,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'lifecycle',
-    operation: 'gate.fail',
-    description: 'Legacy mutate operation lifecycle.gate.fail',
+    operation: 'stage.gate.fail',
+    description: 'pipeline.stage.gate.fail (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1227,9 +1209,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'compliance.record',
-    description: 'Legacy mutate operation validate.compliance.record',
+    description: 'check.compliance.record (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1238,9 +1219,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'check',
-    legacyDomain: 'validate',
     operation: 'test.run',
-    description: 'Legacy mutate operation validate.test.run',
+    description: 'check.test.run (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1249,9 +1229,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'release',
-    operation: 'prepare',
-    description: 'Legacy mutate operation release.prepare',
+    operation: 'release.prepare',
+    description: 'pipeline.release.prepare (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1260,9 +1239,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'release',
-    operation: 'changelog',
-    description: 'Legacy mutate operation release.changelog',
+    operation: 'release.changelog',
+    description: 'pipeline.release.changelog (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1271,9 +1249,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'release',
-    operation: 'commit',
-    description: 'Legacy mutate operation release.commit',
+    operation: 'release.commit',
+    description: 'pipeline.release.commit (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1282,9 +1259,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'release',
-    operation: 'tag',
-    description: 'Legacy mutate operation release.tag',
+    operation: 'release.tag',
+    description: 'pipeline.release.tag (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1293,9 +1269,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'release',
-    operation: 'push',
-    description: 'Legacy mutate operation release.push',
+    operation: 'release.push',
+    description: 'pipeline.release.push (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1304,9 +1279,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'release',
-    operation: 'gates.run',
-    description: 'Legacy mutate operation release.gates.run',
+    operation: 'release.gates.run',
+    description: 'pipeline.release.gates.run (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1315,9 +1289,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
-    legacyDomain: 'release',
-    operation: 'rollback',
-    description: 'Legacy mutate operation release.rollback',
+    operation: 'release.rollback',
+    description: 'pipeline.release.rollback (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1326,9 +1299,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'init',
-    description: 'Legacy mutate operation system.init',
+    description: 'admin.init (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1337,9 +1309,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'config.set',
-    description: 'Legacy mutate operation system.config.set',
+    description: 'admin.config.set (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1348,9 +1319,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'backup',
-    description: 'Legacy mutate operation system.backup',
+    description: 'admin.backup (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1359,9 +1329,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'restore',
-    description: 'Legacy mutate operation system.restore',
+    description: 'admin.restore (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1370,9 +1339,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'migrate',
-    description: 'Legacy mutate operation system.migrate',
+    description: 'admin.migrate (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1381,9 +1349,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'sync',
-    description: 'Legacy mutate operation system.sync',
+    description: 'admin.sync (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1392,9 +1359,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'cleanup',
-    description: 'Legacy mutate operation system.cleanup',
+    description: 'admin.cleanup (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1403,9 +1369,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'job.cancel',
-    description: 'Legacy mutate operation system.job.cancel',
+    description: 'admin.job.cancel (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1414,9 +1379,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'safestop',
-    description: 'Legacy mutate operation system.safestop',
+    description: 'admin.safestop (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1425,9 +1389,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'uncancel',
-    description: 'Legacy mutate operation system.uncancel',
+    description: 'admin.uncancel (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1436,42 +1399,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    legacyDomain: 'system',
     operation: 'inject.generate',
-    description: 'Legacy mutate operation system.inject.generate',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tasks',
-    legacyDomain: 'issues',
-    operation: 'create.bug',
-    description: 'Legacy mutate operation issues.create.bug',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tasks',
-    legacyDomain: 'issues',
-    operation: 'create.feature',
-    description: 'Legacy mutate operation issues.create.feature',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tasks',
-    legacyDomain: 'issues',
-    operation: 'create.help',
-    description: 'Legacy mutate operation issues.create.help',
+    description: 'admin.inject.generate (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1480,9 +1409,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'install',
-    description: 'Legacy mutate operation skills.install',
+    operation: 'issue.create.bug',
+    description: 'tools.issue.create.bug (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1491,9 +1419,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'uninstall',
-    description: 'Legacy mutate operation skills.uninstall',
+    operation: 'issue.create.feature',
+    description: 'tools.issue.create.feature (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1502,9 +1429,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'enable',
-    description: 'Legacy mutate operation skills.enable',
+    operation: 'issue.create.help',
+    description: 'tools.issue.create.help (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1513,9 +1439,18 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'disable',
-    description: 'Legacy mutate operation skills.disable',
+    operation: 'issue.generate.config',
+    description: 'Generate issue template configuration file',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.install',
+    description: 'tools.skill.install (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1524,9 +1459,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'configure',
-    description: 'Legacy mutate operation skills.configure',
+    operation: 'skill.uninstall',
+    description: 'tools.skill.uninstall (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1535,9 +1469,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tools',
-    legacyDomain: 'skills',
-    operation: 'refresh',
-    description: 'Legacy mutate operation skills.refresh',
+    operation: 'skill.enable',
+    description: 'tools.skill.enable (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1546,9 +1479,38 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tools',
-    legacyDomain: 'providers',
-    operation: 'inject',
-    description: 'Legacy mutate operation providers.inject',
+    operation: 'skill.disable',
+    description: 'tools.skill.disable (mutate)',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.configure',
+    description: 'tools.skill.configure (mutate)',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'skill.refresh',
+    description: 'tools.skill.refresh (mutate)',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'provider.inject',
+    description: 'tools.provider.inject (mutate)',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1556,42 +1518,21 @@ export const OPERATIONS: OperationDef[] = [
   },
 ];
 
-// --- Registration & Validation Logic ---
+// ---------------------------------------------------------------------------
+// Lookup & Validation
+// ---------------------------------------------------------------------------
 
 /**
- * Resolves a requested domain (canonical or alias) and operation
- * to its true definition.
+ * Resolves a domain + operation to its registered definition.
  */
-export function resolve(gateway: Gateway, requestedDomain: string, requestedOperation: string): AliasResolution | undefined {
-  const canonicalDomain = resolveAlias(requestedDomain);
-  
+export function resolve(gateway: Gateway, domain: string, operation: string): Resolution | undefined {
   const def = OPERATIONS.find(
-    o => o.gateway === gateway && o.domain === canonicalDomain && o.operation === requestedOperation
+    o => o.gateway === gateway && o.domain === domain && o.operation === operation,
   );
 
   if (!def) return undefined;
 
-  const aliased = requestedDomain !== canonicalDomain;
-
-  return {
-    domain: canonicalDomain,
-    operation: requestedOperation,
-    def,
-    alias: {
-      aliased,
-      deprecation: aliased ? `Domain '${requestedDomain}' is deprecated. Please use the canonical domain '${canonicalDomain}' instead.` : undefined,
-    }
-  };
-}
-
-/**
- * Normalizes any domain alias to its canonical equivalent.
- */
-export function resolveAlias(requestedDomain: string): CanonicalDomain {
-  if (requestedDomain in LEGACY_TO_CANONICAL) {
-    return LEGACY_TO_CANONICAL[requestedDomain];
-  }
-  return requestedDomain as CanonicalDomain;
+  return { domain: def.domain, operation: def.operation, def };
 }
 
 /**
@@ -1625,11 +1566,6 @@ export function getActiveDomains(): CanonicalDomain[] {
   return Array.from(active);
 }
 
-/** Check if a given string is a recognized legacy domain alias. */
-export function isLegacyDomain(domain: string): boolean {
-  return domain in LEGACY_TO_CANONICAL;
-}
-
 /**
  * Returns summary counts of operations for module validation.
  */
@@ -1643,6 +1579,6 @@ export function getCounts(): { query: number; mutate: number; total: number } {
 
 // Module load validation
 const counts = getCounts();
-if (counts.query !== 75 || counts.mutate !== 65) {
-  console.warn(`[Registry] Expected 75 query & 65 mutate ops, got ${counts.query} query & ${counts.mutate} mutate.`);
+if (counts.query !== 81 || counts.mutate !== 66) {
+  console.warn(`[Registry] Expected 81 query & 66 mutate ops, got ${counts.query} query & ${counts.mutate} mutate.`);
 }

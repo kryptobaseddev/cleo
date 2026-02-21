@@ -26,8 +26,8 @@ import {
   lifecycleReset as nativeLifecycleReset,
   lifecycleGatePass as nativeLifecycleGatePass,
   lifecycleGateFail as nativeLifecycleGateFail,
-  resolveProjectRoot,
 } from '../engine/index.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 /**
  * Lifecycle stages in RCSD-IVTR pipeline
@@ -312,7 +312,7 @@ export class LifecycleHandler implements DomainHandler {
 
   constructor(private executor: CLIExecutor, executionMode: ResolvedMode = 'cli') {
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   private useNative(operation: string, gateway: GatewayType): boolean {

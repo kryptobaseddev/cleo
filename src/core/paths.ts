@@ -14,6 +14,16 @@ import { homedir } from 'node:os';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 
 /**
+ * Check if a CLEO project is initialized at the given root.
+ * Checks for both tasks.json (canonical) and todo.json (legacy).
+ */
+export function isProjectInitialized(projectRoot?: string): boolean {
+  const root = projectRoot ?? getProjectRoot();
+  const cleoDir = join(root, '.cleo');
+  return existsSync(cleoDir) && (existsSync(join(cleoDir, 'tasks.json')) || existsSync(join(cleoDir, 'todo.json')));
+}
+
+/**
  * Get the global CLEO home directory.
  * Respects CLEO_HOME env var, defaults to ~/.cleo.
  */
@@ -66,9 +76,13 @@ export function getCleoDirAbsolute(cwd?: string): string {
 
 /**
  * Get the project root from the CLEO directory.
+ * Respects CLEO_ROOT env var, then derives from CLEO_DIR.
  * If CLEO_DIR is ".cleo", the project root is its parent.
  */
 export function getProjectRoot(cwd?: string): string {
+  if (!cwd && process.env['CLEO_ROOT']) {
+    return process.env['CLEO_ROOT'];
+  }
   const cleoDirAbs = getCleoDirAbsolute(cwd);
   if (cleoDirAbs.endsWith('/.cleo') || cleoDirAbs.endsWith('\\.cleo')) {
     return dirname(cleoDirAbs);

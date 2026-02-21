@@ -52,9 +52,8 @@ import {
   taskCurrentGet as nativeTaskCurrentGet,
   taskStart as nativeTaskStart,
   taskStop as nativeTaskStop,
-  resolveProjectRoot,
-  isProjectInitialized,
 } from '../engine/index.js';
+import { getProjectRoot, isProjectInitialized } from '../../core/paths.js';
 import { createCLIRequiredError, createNotInitializedError } from '../lib/mode-detector.js';
 import type {
   Task,
@@ -205,7 +204,7 @@ export class TasksHandler implements DomainHandler {
   ) {
     this.manifestReader = new ManifestReader(manifestPath ?? getCentralManifestPath());
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   /**

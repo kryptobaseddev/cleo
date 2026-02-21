@@ -37,9 +37,8 @@ import {
   sessionStats as nativeSessionStats,
   sessionSwitch as nativeSessionSwitch,
   sessionArchive as nativeSessionArchive,
-  resolveProjectRoot,
-  isProjectInitialized,
 } from '../engine/index.js';
+import { getProjectRoot, isProjectInitialized } from '../../core/paths.js';
 import { createCLIRequiredError, createNotInitializedError } from '../lib/mode-detector.js';
 import type {
   Session,
@@ -90,7 +89,7 @@ export class SessionHandler implements DomainHandler {
 
   constructor(private executor?: CLIExecutor, executionMode: ResolvedMode = 'cli') {
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   /**
