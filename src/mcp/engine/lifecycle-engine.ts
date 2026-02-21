@@ -1,72 +1,36 @@
 /**
  * Lifecycle Engine
  *
- * Native TypeScript implementation of lifecycle domain operations.
- * Manages RCSD-IVTR pipeline stages, gate checks, and stage transitions
- * by reading/writing .cleo/rcsd/ data directly.
+ * Thin wrapper over src/core/lifecycle/ for MCP engine layer.
+ * Types, constants, and business logic are defined in core;
+ * this file provides synchronous EngineResult-wrapped access
+ * for the MCP domain handlers.
  *
- * @task T4475
+ * @task T4785
  */
 
-import { existsSync, mkdirSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolveProjectRoot, readJsonFile, writeJsonFileAtomic } from './store.js';
+import {
+  ENGINE_LIFECYCLE_STAGES,
+  STAGE_DEFINITIONS,
+  STAGE_PREREQUISITES,
+  type EngineLifecycleStage,
+  type EngineStageStatus,
+  type EngineRcsdManifest,
+  type GateData,
+  type StageInfo,
+} from '../../core/lifecycle/index.js';
 
 /**
- * RCSD-IVTR lifecycle stages in order
+ * Re-export types and constants for consumers that import from engine.
  */
-export const LIFECYCLE_STAGES = [
-  'research',
-  'consensus',
-  'specification',
-  'decomposition',
-  'implementation',
-  'validation',
-  'testing',
-  'release',
-] as const;
-
-export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
-
-/**
- * Stage status values
- */
-export type StageStatus = 'pending' | 'completed' | 'skipped' | 'blocked';
-
-/**
- * Stage info with metadata
- */
-export interface StageInfo {
-  stage: LifecycleStage;
-  name: string;
-  description: string;
-  order: number;
-  optional: boolean;
-  pipeline: 'rcsd' | 'ivtr';
-}
-
-/**
- * RCSD manifest stored in .cleo/rcsd/{EPIC_ID}/_manifest.json
- */
-export interface RcsdManifest {
-  epicId: string;
-  title?: string;
-  stages: Record<string, {
-    status: StageStatus;
-    completedAt?: string;
-    skippedAt?: string;
-    skippedReason?: string;
-    artifacts?: string[];
-    notes?: string;
-    gates?: Record<string, {
-      status: 'passed' | 'failed' | 'pending';
-      agent?: string;
-      notes?: string;
-      reason?: string;
-      timestamp?: string;
-    }>;
-  }>;
-}
+export { ENGINE_LIFECYCLE_STAGES as LIFECYCLE_STAGES };
+export type LifecycleStage = EngineLifecycleStage;
+export type StageStatus = EngineStageStatus;
+export type { StageInfo, GateData };
+export type RcsdManifest = EngineRcsdManifest;
 
 /**
  * Engine result type
@@ -77,68 +41,34 @@ interface EngineResult<T = unknown> {
   error?: { code: string; message: string; details?: unknown };
 }
 
-/**
- * Stage definitions with metadata
- */
-const STAGE_DEFINITIONS: StageInfo[] = [
-  { stage: 'research', name: 'Research', description: 'Information gathering and exploration', order: 1, optional: false, pipeline: 'rcsd' },
-  { stage: 'consensus', name: 'Consensus', description: 'Multi-agent decisions and validation', order: 2, optional: true, pipeline: 'rcsd' },
-  { stage: 'specification', name: 'Specification', description: 'Document creation and RFC design', order: 3, optional: false, pipeline: 'rcsd' },
-  { stage: 'decomposition', name: 'Decomposition', description: 'Task breakdown and planning', order: 4, optional: false, pipeline: 'rcsd' },
-  { stage: 'implementation', name: 'Implementation', description: 'Code execution and building', order: 5, optional: false, pipeline: 'ivtr' },
-  { stage: 'validation', name: 'Validation', description: 'Validation and quality checks', order: 6, optional: false, pipeline: 'ivtr' },
-  { stage: 'testing', name: 'Testing', description: 'Test execution and coverage', order: 7, optional: false, pipeline: 'ivtr' },
-  { stage: 'release', name: 'Release', description: 'Version management and publishing', order: 8, optional: true, pipeline: 'ivtr' },
-];
+// ============================================================================
+// Internal I/O helpers (synchronous, using store.ts)
+// ============================================================================
 
-/**
- * Prerequisite map: stage -> required prior stages
- */
-const PREREQUISITES: Record<string, string[]> = {
-  research: [],
-  consensus: ['research'],
-  specification: ['research'],
-  decomposition: ['research', 'specification'],
-  implementation: ['research', 'specification', 'decomposition'],
-  validation: ['implementation'],
-  testing: ['implementation'],
-  release: ['implementation', 'validation', 'testing'],
-};
-
-/**
- * Get RCSD directory for an epic
- */
 function getRcsdDir(epicId: string, projectRoot?: string): string {
   const root = projectRoot || resolveProjectRoot();
   return join(root, '.cleo', 'rcsd', epicId);
 }
 
-/**
- * Get RCSD manifest path for an epic
- */
 function getRcsdManifestPath(epicId: string, projectRoot?: string): string {
   return join(getRcsdDir(epicId, projectRoot), '_manifest.json');
 }
 
-/**
- * Read RCSD manifest for an epic
- */
-function readRcsdManifest(epicId: string, projectRoot?: string): RcsdManifest | null {
-  const manifestPath = getRcsdManifestPath(epicId, projectRoot);
-  return readJsonFile<RcsdManifest>(manifestPath);
+function readRcsdManifest(epicId: string, projectRoot?: string): EngineRcsdManifest | null {
+  return readJsonFile<EngineRcsdManifest>(getRcsdManifestPath(epicId, projectRoot));
 }
 
-/**
- * Write RCSD manifest for an epic
- */
-function writeRcsdManifest(epicId: string, manifest: RcsdManifest, projectRoot?: string): void {
+function writeRcsdManifest(epicId: string, manifest: EngineRcsdManifest, projectRoot?: string): void {
   const dir = getRcsdDir(epicId, projectRoot);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const manifestPath = getRcsdManifestPath(epicId, projectRoot);
-  writeJsonFileAtomic(manifestPath, manifest);
+  writeJsonFileAtomic(getRcsdManifestPath(epicId, projectRoot), manifest);
 }
+
+// ============================================================================
+// Exported engine functions
+// ============================================================================
 
 /**
  * List all epic IDs that have RCSD data
@@ -153,8 +83,8 @@ export function listRcsdEpics(projectRoot?: string): string[] {
 
   try {
     return readdirSync(rcsdDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && d.name.startsWith('T'))
-      .map((d) => d.name);
+      .filter(d => d.isDirectory() && d.name.startsWith('T'))
+      .map(d => d.name);
   } catch {
     return [];
   }
@@ -162,11 +92,11 @@ export function listRcsdEpics(projectRoot?: string): string[] {
 
 /**
  * lifecycle.check / lifecycle.status - Get lifecycle status for epic
- * @task T4475
+ * @task T4785
  */
 export function lifecycleStatus(
   epicId: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!epicId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId is required' } };
@@ -180,9 +110,9 @@ export function lifecycleStatus(
       data: {
         epicId,
         currentStage: null,
-        stages: LIFECYCLE_STAGES.map((s) => ({
+        stages: ENGINE_LIFECYCLE_STAGES.map(s => ({
           stage: s,
-          status: 'pending' as StageStatus,
+          status: 'pending' as EngineStageStatus,
         })),
         nextStage: 'research',
         blockedOn: [],
@@ -191,28 +121,26 @@ export function lifecycleStatus(
     };
   }
 
-  // Build stage progress
-  const stages = LIFECYCLE_STAGES.map((s) => {
+  const stages = ENGINE_LIFECYCLE_STAGES.map(s => {
     const stageData = manifest.stages[s];
     return {
       stage: s,
-      status: (stageData?.status || 'pending') as StageStatus,
+      status: (stageData?.status || 'pending') as EngineStageStatus,
       completedAt: stageData?.completedAt,
       notes: stageData?.notes,
     };
   });
 
-  // Find current stage (last completed + 1)
-  let currentStage: LifecycleStage | null = null;
-  let nextStage: LifecycleStage | null = null;
+  let currentStage: EngineLifecycleStage | null = null;
+  let nextStage: EngineLifecycleStage | null = null;
 
-  for (let i = LIFECYCLE_STAGES.length - 1; i >= 0; i--) {
-    const s = LIFECYCLE_STAGES[i];
+  for (let i = ENGINE_LIFECYCLE_STAGES.length - 1; i >= 0; i--) {
+    const s = ENGINE_LIFECYCLE_STAGES[i];
     const status = manifest.stages[s]?.status;
     if (status === 'completed' || status === 'skipped') {
       currentStage = s;
-      if (i < LIFECYCLE_STAGES.length - 1) {
-        nextStage = LIFECYCLE_STAGES[i + 1];
+      if (i < ENGINE_LIFECYCLE_STAGES.length - 1) {
+        nextStage = ENGINE_LIFECYCLE_STAGES[i + 1];
       }
       break;
     }
@@ -222,10 +150,9 @@ export function lifecycleStatus(
     nextStage = 'research';
   }
 
-  // Find blockers
   const blockedOn: string[] = [];
   if (nextStage) {
-    const prereqs = PREREQUISITES[nextStage] || [];
+    const prereqs = STAGE_PREREQUISITES[nextStage] || [];
     for (const prereq of prereqs) {
       const prereqStatus = manifest.stages[prereq]?.status;
       if (prereqStatus !== 'completed' && prereqStatus !== 'skipped') {
@@ -250,11 +177,11 @@ export function lifecycleStatus(
 
 /**
  * lifecycle.history - Stage transition history
- * @task T4475
+ * @task T4785
  */
 export function lifecycleHistory(
   taskId: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!taskId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
@@ -273,7 +200,6 @@ export function lifecycleHistory(
     };
   }
 
-  // Build history from manifest stages
   const history: Array<{
     stage: string;
     action: string;
@@ -299,7 +225,6 @@ export function lifecycleHistory(
       });
     }
 
-    // Include gate history
     if (stageData.gates) {
       for (const [gateName, gateData] of Object.entries(stageData.gates)) {
         if (gateData.timestamp) {
@@ -314,25 +239,21 @@ export function lifecycleHistory(
     }
   }
 
-  // Sort by timestamp
   history.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
   return {
     success: true,
-    data: {
-      taskId,
-      history,
-    },
+    data: { taskId, history },
   };
 }
 
 /**
  * lifecycle.gates - Get all gate statuses for an epic
- * @task T4475
+ * @task T4785
  */
 export function lifecycleGates(
   taskId: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!taskId) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
@@ -351,7 +272,7 @@ export function lifecycleGates(
     };
   }
 
-  const gates: Record<string, Record<string, { status: string; agent?: string; notes?: string; reason?: string; timestamp?: string }>> = {};
+  const gates: Record<string, Record<string, GateData>> = {};
 
   for (const [stageName, stageData] of Object.entries(manifest.stages)) {
     if (stageData.gates && Object.keys(stageData.gates).length > 0) {
@@ -361,72 +282,69 @@ export function lifecycleGates(
 
   return {
     success: true,
-    data: {
-      taskId,
-      gates,
-    },
+    data: { taskId, gates },
   };
 }
 
 /**
  * lifecycle.prerequisites - Get required prior stages for a target stage
- * @task T4475
+ * @task T4785
  */
 export function lifecyclePrerequisites(
   targetStage: string,
-  _projectRoot?: string
+  _projectRoot?: string,
 ): EngineResult {
   if (!targetStage) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'targetStage is required' } };
   }
 
-  if (!LIFECYCLE_STAGES.includes(targetStage as LifecycleStage)) {
+  if (!ENGINE_LIFECYCLE_STAGES.includes(targetStage as EngineLifecycleStage)) {
     return {
       success: false,
       error: {
         code: 'E_INVALID_STAGE',
-        message: `Invalid stage: ${targetStage}. Valid stages: ${LIFECYCLE_STAGES.join(', ')}`,
+        message: `Invalid stage: ${targetStage}. Valid stages: ${ENGINE_LIFECYCLE_STAGES.join(', ')}`,
       },
     };
   }
 
-  const prereqs = PREREQUISITES[targetStage] || [];
+  const prereqs = STAGE_PREREQUISITES[targetStage] || [];
 
   return {
     success: true,
     data: {
       targetStage,
       prerequisites: prereqs,
-      stageInfo: STAGE_DEFINITIONS.find((s) => s.stage === targetStage),
+      stageInfo: STAGE_DEFINITIONS.find(s => s.stage === targetStage),
     },
   };
 }
 
 /**
  * lifecycle.check - Check if a stage's prerequisites are met
- * @task T4475
+ * @task T4785
  */
 export function lifecycleCheck(
   epicId: string,
   targetStage: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!epicId || !targetStage) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'epicId and targetStage are required' } };
   }
 
-  if (!LIFECYCLE_STAGES.includes(targetStage as LifecycleStage)) {
+  if (!ENGINE_LIFECYCLE_STAGES.includes(targetStage as EngineLifecycleStage)) {
     return {
       success: false,
       error: {
         code: 'E_INVALID_STAGE',
-        message: `Invalid stage: ${targetStage}. Valid stages: ${LIFECYCLE_STAGES.join(', ')}`,
+        message: `Invalid stage: ${targetStage}. Valid stages: ${ENGINE_LIFECYCLE_STAGES.join(', ')}`,
       },
     };
   }
 
   const manifest = readRcsdManifest(epicId, projectRoot);
-  const prereqs = PREREQUISITES[targetStage] || [];
+  const prereqs = STAGE_PREREQUISITES[targetStage] || [];
 
   const missingPrerequisites: string[] = [];
   const issues: Array<{ stage: string; severity: string; message: string }> = [];
@@ -458,14 +376,14 @@ export function lifecycleCheck(
 
 /**
  * lifecycle.progress / lifecycle.record - Record stage completion
- * @task T4475
+ * @task T4785
  */
 export function lifecycleProgress(
   taskId: string,
   stage: string,
   status: string,
   notes?: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!taskId || !stage || !status) {
     return {
@@ -474,15 +392,15 @@ export function lifecycleProgress(
     };
   }
 
-  if (!LIFECYCLE_STAGES.includes(stage as LifecycleStage)) {
+  if (!ENGINE_LIFECYCLE_STAGES.includes(stage as EngineLifecycleStage)) {
     return {
       success: false,
       error: { code: 'E_INVALID_STAGE', message: `Invalid stage: ${stage}` },
     };
   }
 
-  const validStatuses: StageStatus[] = ['pending', 'completed', 'skipped', 'blocked'];
-  if (!validStatuses.includes(status as StageStatus)) {
+  const validStatuses: EngineStageStatus[] = ['pending', 'completed', 'skipped', 'blocked'];
+  if (!validStatuses.includes(status as EngineStageStatus)) {
     return {
       success: false,
       error: { code: 'E_INVALID_STATUS', message: `Invalid status: ${status}. Valid: ${validStatuses.join(', ')}` },
@@ -492,10 +410,7 @@ export function lifecycleProgress(
   let manifest = readRcsdManifest(taskId, projectRoot);
 
   if (!manifest) {
-    manifest = {
-      epicId: taskId,
-      stages: {},
-    };
+    manifest = { epicId: taskId, stages: {} };
   }
 
   if (!manifest.stages[stage]) {
@@ -503,7 +418,7 @@ export function lifecycleProgress(
   }
 
   const now = new Date().toISOString();
-  manifest.stages[stage].status = status as StageStatus;
+  manifest.stages[stage].status = status as EngineStageStatus;
 
   if (status === 'completed') {
     manifest.stages[stage].completedAt = now;
@@ -529,13 +444,13 @@ export function lifecycleProgress(
 
 /**
  * lifecycle.skip - Skip a stage with reason
- * @task T4475
+ * @task T4785
  */
 export function lifecycleSkip(
   taskId: string,
   stage: string,
   reason: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!taskId || !stage || !reason) {
     return {
@@ -547,10 +462,7 @@ export function lifecycleSkip(
   let manifest = readRcsdManifest(taskId, projectRoot);
 
   if (!manifest) {
-    manifest = {
-      epicId: taskId,
-      stages: {},
-    };
+    manifest = { epicId: taskId, stages: {} };
   }
 
   if (!manifest.stages[stage]) {
@@ -578,13 +490,13 @@ export function lifecycleSkip(
 
 /**
  * lifecycle.reset - Reset a stage (emergency)
- * @task T4475
+ * @task T4785
  */
 export function lifecycleReset(
   taskId: string,
   stage: string,
   reason: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!taskId || !stage || !reason) {
     return {
@@ -630,14 +542,14 @@ export function lifecycleReset(
 
 /**
  * lifecycle.gate.pass - Mark gate as passed
- * @task T4475
+ * @task T4785
  */
 export function lifecycleGatePass(
   taskId: string,
   gateName: string,
   agent?: string,
   notes?: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!taskId || !gateName) {
     return {
@@ -649,14 +561,9 @@ export function lifecycleGatePass(
   let manifest = readRcsdManifest(taskId, projectRoot);
 
   if (!manifest) {
-    manifest = {
-      epicId: taskId,
-      stages: {},
-    };
+    manifest = { epicId: taskId, stages: {} };
   }
 
-  // Determine which stage this gate belongs to (extract from gateName convention)
-  // Gates are typically named like "research-complete" or "spec-review"
   const stageParts = gateName.split('-');
   const stageName = stageParts[0];
 
@@ -691,13 +598,13 @@ export function lifecycleGatePass(
 
 /**
  * lifecycle.gate.fail - Mark gate as failed
- * @task T4475
+ * @task T4785
  */
 export function lifecycleGateFail(
   taskId: string,
   gateName: string,
   reason?: string,
-  projectRoot?: string
+  projectRoot?: string,
 ): EngineResult {
   if (!taskId || !gateName) {
     return {
@@ -709,10 +616,7 @@ export function lifecycleGateFail(
   let manifest = readRcsdManifest(taskId, projectRoot);
 
   if (!manifest) {
-    manifest = {
-      epicId: taskId,
-      stages: {},
-    };
+    manifest = { epicId: taskId, stages: {} };
   }
 
   const stageParts = gateName.split('-');
