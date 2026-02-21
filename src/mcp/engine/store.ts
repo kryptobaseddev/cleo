@@ -361,6 +361,7 @@ export function isProjectInitialized(projectRoot: string): boolean {
 /**
  * Resolve the project root directory.
  * Checks CLEO_ROOT env, then falls back to cwd.
+ * @deprecated Use getProjectRoot() from '../../core/paths.js' instead.
  */
 export function resolveProjectRoot(): string {
   return process.env.CLEO_ROOT || process.cwd();

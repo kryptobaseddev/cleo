@@ -25,8 +25,8 @@ import {
   getTemplateForSubcommand as nativeGetTemplateForSubcommand,
   generateTemplateConfig as nativeGenerateTemplateConfig,
   validateLabels as nativeValidateLabels,
-  resolveProjectRoot,
 } from '../engine/index.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 
 export class IssuesHandler implements DomainHandler {
@@ -35,7 +35,7 @@ export class IssuesHandler implements DomainHandler {
 
   constructor(private executor: CLIExecutor, executionMode: ResolvedMode = 'cli') {
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   /**

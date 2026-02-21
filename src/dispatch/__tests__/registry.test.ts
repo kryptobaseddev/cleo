@@ -2,64 +2,68 @@ import { describe, it, expect } from 'vitest';
 import {
   OPERATIONS,
   resolve,
-  resolveAlias,
   validateRequiredParams,
   getByDomain,
   getByGateway,
   getByTier,
   getActiveDomains,
-  isLegacyDomain,
   getCounts
 } from '../registry.js';
 
 describe('Operation Registry', () => {
   describe('Module validation', () => {
-    it('should have exactly 140 operations registered', () => {
+    it('should have exactly 147 operations registered (81Q + 66M)', () => {
       const counts = getCounts();
-      expect(counts.query).toBe(75);
-      expect(counts.mutate).toBe(65);
-      expect(counts.total).toBe(140);
-      expect(OPERATIONS.length).toBe(140);
+      expect(counts.query).toBe(81);
+      expect(counts.mutate).toBe(66);
+      expect(counts.total).toBe(147);
+      expect(OPERATIONS.length).toBe(147);
+    });
+
+    it('should cover all 9 canonical domains', () => {
+      const domains = getActiveDomains();
+      expect(domains).toContain('tasks');
+      expect(domains).toContain('session');
+      expect(domains).toContain('memory');
+      expect(domains).toContain('check');
+      expect(domains).toContain('pipeline');
+      expect(domains).toContain('orchestrate');
+      expect(domains).toContain('tools');
+      expect(domains).toContain('admin');
+      // nexus is a placeholder with 0 ops — not required in active domains
     });
   });
 
-  describe('Alias Resolution', () => {
-    it('should normalize legacy domains to canonical equivalents', () => {
-      expect(resolveAlias('research')).toBe('pipeline');
-      expect(resolveAlias('validate')).toBe('check');
-      expect(resolveAlias('system')).toBe('admin');
-      
-      // Unknown remains unchanged, to be caught by operation matching
-      expect(resolveAlias('unknown')).toBe('unknown');
-      
-      // Canonical stays canonical
-      expect(resolveAlias('tasks')).toBe('tasks');
-    });
-
-    it('should correctly identify legacy domains', () => {
-      expect(isLegacyDomain('research')).toBe(true);
-      expect(isLegacyDomain('tasks')).toBe(false);
-      expect(isLegacyDomain('unknown')).toBe(false);
-    });
-  });
-
-  describe('Operation Resolution (resolve)', () => {
-    it('should resolve a canonical operation without alias warnings', () => {
+  describe('Operation Resolution', () => {
+    it('should resolve a direct canonical operation', () => {
       const result = resolve('query', 'tasks', 'show');
       expect(result).toBeDefined();
       expect(result?.domain).toBe('tasks');
       expect(result?.operation).toBe('show');
-      expect(result?.alias.aliased).toBe(false);
-      expect(result?.alias.deprecation).toBeUndefined();
     });
 
-    it('should resolve a legacy operation with alias warnings', () => {
-      const result = resolve('query', 'research', 'show');
+    it('should resolve prefixed sub-domain operations', () => {
+      const skill = resolve('query', 'tools', 'skill.list');
+      expect(skill).toBeDefined();
+      expect(skill?.domain).toBe('tools');
+      expect(skill?.operation).toBe('skill.list');
+
+      const stage = resolve('query', 'pipeline', 'stage.validate');
+      expect(stage).toBeDefined();
+      expect(stage?.domain).toBe('pipeline');
+      expect(stage?.operation).toBe('stage.validate');
+
+      const release = resolve('mutate', 'pipeline', 'release.prepare');
+      expect(release).toBeDefined();
+      expect(release?.domain).toBe('pipeline');
+      expect(release?.operation).toBe('release.prepare');
+    });
+
+    it('should resolve memory domain operations', () => {
+      const result = resolve('query', 'memory', 'show');
       expect(result).toBeDefined();
-      expect(result?.domain).toBe('pipeline'); // Normalized
+      expect(result?.domain).toBe('memory');
       expect(result?.operation).toBe('show');
-      expect(result?.alias.aliased).toBe(true);
-      expect(result?.alias.deprecation).toContain('deprecated');
     });
 
     it('should return undefined for unknown operations', () => {
@@ -68,8 +72,8 @@ describe('Operation Registry', () => {
     });
   });
 
-  describe('Validation', () => {
-    it('should return an empty array if all required params are present', () => {
+  describe('Parameter Validation', () => {
+    it('should return empty array when all required params present', () => {
       const def = {
         gateway: 'query' as const,
         domain: 'tasks' as const,
@@ -78,9 +82,9 @@ describe('Operation Registry', () => {
         tier: 0 as const,
         idempotent: true,
         sessionRequired: false,
-        requiredParams: ['id']
+        requiredParams: ['id'],
       };
-      
+
       expect(validateRequiredParams(def, { id: 'T123' })).toEqual([]);
       expect(validateRequiredParams(def, { id: 'T123', extra: true })).toEqual([]);
     });
@@ -94,9 +98,9 @@ describe('Operation Registry', () => {
         tier: 0 as const,
         idempotent: false,
         sessionRequired: false,
-        requiredParams: ['title', 'size']
+        requiredParams: ['title', 'size'],
       };
-      
+
       expect(validateRequiredParams(def, {})).toEqual(['title', 'size']);
       expect(validateRequiredParams(def, { title: 'Test' })).toEqual(['size']);
       expect(validateRequiredParams(def, { title: 'Test', size: null })).toEqual(['size']);
@@ -106,21 +110,32 @@ describe('Operation Registry', () => {
   describe('Filtered Views', () => {
     it('should get operations by domain', () => {
       const tasksOps = getByDomain('tasks');
-      expect(tasksOps.length).toBeGreaterThan(0);
+      expect(tasksOps.length).toBe(26);
       expect(tasksOps.every(o => o.domain === 'tasks')).toBe(true);
+
+      const memoryOps = getByDomain('memory');
+      expect(memoryOps.length).toBe(12);
+
+      const toolsOps = getByDomain('tools');
+      expect(toolsOps.length).toBe(27);
     });
 
     it('should get operations by gateway', () => {
       const queryOps = getByGateway('query');
-      expect(queryOps.length).toBe(75);
+      expect(queryOps.length).toBe(81);
       expect(queryOps.every(o => o.gateway === 'query')).toBe(true);
+
+      const mutateOps = getByGateway('mutate');
+      expect(mutateOps.length).toBe(66);
     });
 
-    it('should get active domains', () => {
-      const domains = getActiveDomains();
-      expect(domains.includes('tasks')).toBe(true);
-      expect(domains.includes('admin')).toBe(true);
-      expect(domains.includes('research')).toBe(false); // Legacy is resolved
+    it('should get operations by tier', () => {
+      const tier0 = getByTier(0);
+      expect(tier0.length).toBeGreaterThan(0);
+      expect(tier0.every(o => o.tier === 0)).toBe(true);
+
+      const allTiers = getByTier(2);
+      expect(allTiers.length).toBe(147);
     });
   });
 });

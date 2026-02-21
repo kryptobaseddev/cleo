@@ -17,13 +17,13 @@ export { createProtocolEnforcement } from './middleware/protocol-enforcement.js'
 export { createAudit } from './middleware/audit.js';
 export { createDispatchMeta } from './lib/meta.js';
 export {
-  OPERATIONS, resolve, resolveAlias, validateRequiredParams,
+  OPERATIONS, resolve, validateRequiredParams,
   getByDomain, getByGateway, getByTier, getActiveDomains,
-  isLegacyDomain, getCounts,
-  type OperationDef, type AliasResolution,
+  getCounts,
+  type OperationDef, type Resolution,
 } from './registry.js';
 export type {
-  Gateway, Source, Tier, CanonicalDomain, LegacyDomain, AnyDomain,
+  Gateway, Source, Tier, CanonicalDomain,
   DispatchRequest, DispatchResponse, DispatchError, DomainHandler,
   Middleware, DispatchNext,
 } from './types.js';

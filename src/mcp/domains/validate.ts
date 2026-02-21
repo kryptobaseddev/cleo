@@ -31,8 +31,8 @@ import {
   validateCoherenceCheck as nativeValidateCoherenceCheck,
   validateTestRun as nativeValidateTestRun,
   validateBatchValidate as nativeValidateBatchValidate,
-  resolveProjectRoot,
 } from '../engine/index.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 /**
  * Operation parameter types
@@ -189,7 +189,7 @@ export class ValidateHandler implements DomainHandler {
 
   constructor(private executor: CLIExecutor, executionMode: ResolvedMode = 'cli') {
     this.executionMode = executionMode;
-    this.projectRoot = resolveProjectRoot();
+    this.projectRoot = getProjectRoot();
   }
 
   private useNative(operation: string, gateway: GatewayType): boolean {
