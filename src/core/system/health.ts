@@ -9,9 +9,13 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { checkStorageMigration } from '../migration/preflight.js';
-import { checkCleoGitignore, checkVitalFilesTracked, checkLegacyAgentOutputs, type CheckResult } from '../validation/doctor/checks.js';
+import { checkCleoGitignore, checkVitalFilesTracked, checkLegacyAgentOutputs, checkNodeVersion, type CheckResult } from '../validation/doctor/checks.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 const execAsync = promisify(execFile);
+
+/** Stale JSON files that should not exist alongside tasks.db (ADR-006). */
+const STALE_JSON_FILES = ['todo.json', 'sessions.json', 'todo-archive.json'] as const;
 
 export interface HealthCheck {
   name: string;
@@ -44,7 +48,7 @@ export interface DiagnosticsResult {
   };
 }
 
-/** Run system health checks. */
+/** Run system health checks (SQLite-first per ADR-006). */
 export function getSystemHealth(
   projectRoot: string,
   opts?: { detailed?: boolean },
@@ -59,20 +63,24 @@ export function getSystemHealth(
     checks.push({ name: 'cleo_dir', status: 'fail', message: '.cleo directory not found' });
   }
 
-  // Check todo.json
-  const todoPath = join(cleoDir, 'todo.json');
-  if (existsSync(todoPath)) {
+  // Check tasks.db (primary data store per ADR-006)
+  const dbPath = join(cleoDir, 'tasks.db');
+  if (existsSync(dbPath)) {
     try {
-      JSON.parse(readFileSync(todoPath, 'utf-8'));
-      checks.push({ name: 'todo_json', status: 'pass', message: 'todo.json is valid JSON' });
+      const dbSize = statSync(dbPath).size;
+      if (dbSize > 0) {
+        checks.push({ name: 'tasks_db', status: 'pass', message: `tasks.db: ${dbSize} bytes` });
+      } else {
+        checks.push({ name: 'tasks_db', status: 'warn', message: 'tasks.db exists but is empty' });
+      }
     } catch {
-      checks.push({ name: 'todo_json', status: 'fail', message: 'todo.json is not valid JSON' });
+      checks.push({ name: 'tasks_db', status: 'fail', message: 'tasks.db exists but is not readable' });
     }
   } else {
-    checks.push({ name: 'todo_json', status: 'fail', message: 'todo.json not found' });
+    checks.push({ name: 'tasks_db', status: 'fail', message: 'tasks.db not found' });
   }
 
-  // Check config.json
+  // Check config.json (config remains JSON per ADR-006)
   const configPath = join(cleoDir, 'config.json');
   if (existsSync(configPath)) {
     try {
@@ -85,43 +93,16 @@ export function getSystemHealth(
     checks.push({ name: 'config_json', status: 'warn', message: 'config.json not found' });
   }
 
-  // Check sessions.json
-  const sessionsPath = join(cleoDir, 'sessions.json');
-  if (existsSync(sessionsPath)) {
-    try {
-      JSON.parse(readFileSync(sessionsPath, 'utf-8'));
-      checks.push({ name: 'sessions_json', status: 'pass', message: 'sessions.json is valid JSON' });
-    } catch {
-      checks.push({ name: 'sessions_json', status: 'warn', message: 'sessions.json is not valid JSON' });
+  // Check for stale JSON files alongside tasks.db
+  if (existsSync(dbPath)) {
+    const staleFiles = STALE_JSON_FILES.filter(f => existsSync(join(cleoDir, f)));
+    if (staleFiles.length > 0) {
+      checks.push({
+        name: 'stale_json',
+        status: 'warn',
+        message: `Stale JSON files found alongside tasks.db: ${staleFiles.join(', ')}. Run: cleo upgrade`,
+      });
     }
-  } else {
-    checks.push({ name: 'sessions_json', status: 'pass', message: 'sessions.json not present (optional)' });
-  }
-
-  // Check .sequence.json
-  const seqPath = join(cleoDir, '.sequence.json');
-  if (existsSync(seqPath)) {
-    try {
-      JSON.parse(readFileSync(seqPath, 'utf-8'));
-      checks.push({ name: 'sequence_json', status: 'pass', message: '.sequence.json is valid' });
-    } catch {
-      checks.push({ name: 'sequence_json', status: 'warn', message: '.sequence.json is not valid JSON' });
-    }
-  } else {
-    checks.push({ name: 'sequence_json', status: 'warn', message: '.sequence.json not found' });
-  }
-
-  // Check archive
-  const archivePath = join(cleoDir, 'todo-archive.json');
-  if (existsSync(archivePath)) {
-    try {
-      JSON.parse(readFileSync(archivePath, 'utf-8'));
-      checks.push({ name: 'archive_json', status: 'pass', message: 'todo-archive.json is valid JSON' });
-    } catch {
-      checks.push({ name: 'archive_json', status: 'warn', message: 'todo-archive.json is not valid JSON' });
-    }
-  } else {
-    checks.push({ name: 'archive_json', status: 'pass', message: 'todo-archive.json not present (optional)' });
   }
 
   if (opts?.detailed) {
@@ -161,10 +142,10 @@ export function getSystemHealth(
 }
 
 /** Run extended diagnostics with fix suggestions. */
-export function getSystemDiagnostics(
+export async function getSystemDiagnostics(
   projectRoot: string,
   opts?: { checks?: string[] },
-): DiagnosticsResult {
+): Promise<DiagnosticsResult> {
   const healthResult = getSystemHealth(projectRoot, { detailed: true });
 
   const diagChecks: DiagnosticsCheck[] = healthResult.checks.map(c => ({
@@ -195,29 +176,33 @@ export function getSystemDiagnostics(
     });
   }
 
-  // Schema version check
+  // Schema version check — read from SQLite (per ADR-006)
   const cleoDir = join(projectRoot, '.cleo');
-  const todoPath = join(cleoDir, 'todo.json');
-  if (existsSync(todoPath)) {
+  const dbPath = join(cleoDir, 'tasks.db');
+  if (existsSync(dbPath)) {
     try {
-      const todo = JSON.parse(readFileSync(todoPath, 'utf-8'));
-      const schemaVersion = todo._meta?.schemaVersion;
+      const { getDb } = await import('../../store/sqlite.js');
+      const { schemaMeta } = await import('../../store/schema.js');
+      const { eq } = await import('drizzle-orm');
+      const db = await getDb(projectRoot);
+      const row = db.select().from(schemaMeta).where(eq(schemaMeta.key, 'schemaVersion')).get();
+      const schemaVersion = row?.value;
       if (schemaVersion) {
         diagChecks.push({ name: 'schema_version', status: 'pass', details: `Schema version: ${schemaVersion}` });
       } else {
-        diagChecks.push({ name: 'schema_version', status: 'warn', details: 'No schema version in _meta', fix: 'Run: cleo migrate' });
+        diagChecks.push({ name: 'schema_version', status: 'warn', details: 'No schema version in SQLite', fix: 'Run: cleo upgrade' });
       }
     } catch {
-      // already caught in health check
+      diagChecks.push({ name: 'schema_version', status: 'warn', details: 'Could not read schema version from SQLite', fix: 'Run: cleo upgrade' });
     }
   }
 
-  // Check for stale sessions
-  const sessionsPath = join(cleoDir, 'sessions.json');
-  if (existsSync(sessionsPath)) {
+  // Check for stale sessions — read from SQLite accessor
+  if (existsSync(dbPath)) {
     try {
-      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8'));
-      const activeSessions = (sessionsData.sessions ?? []).filter((s: { status: string }) => s.status === 'active');
+      const accessor = await getAccessor(projectRoot);
+      const sessionsData = await accessor.loadSessions();
+      const activeSessions = (sessionsData.sessions ?? []).filter((s) => s.status === 'active');
       if (activeSessions.length > 3) {
         diagChecks.push({
           name: 'stale_sessions',
@@ -304,19 +289,12 @@ export async function coreDoctorReport(
 ): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
 
-  // 1. Check dependencies
-  const jqPath = await commandExists('jq');
-  checks.push({
-    check: 'jq_installed',
-    status: jqPath ? 'ok' : 'error',
-    message: jqPath ? `jq found: ${jqPath}` : 'jq not found. Install: https://jqlang.github.io/jq/download/',
-  });
-
+  // 1. Check dependencies (jq removed — no longer needed since SQLite migration, ADR-006)
   const gitPath = await commandExists('git');
   checks.push({
     check: 'git_installed',
     status: gitPath ? 'ok' : 'warning',
-    message: gitPath ? `git found: ${gitPath}` : 'git not found (optional)',
+    message: gitPath ? `git found: ${gitPath}` : 'git not found (optional, needed for version control features)',
   });
 
   // 2. Check CLEO directories
@@ -328,34 +306,35 @@ export async function coreDoctorReport(
     message: dirExists ? `Project dir: ${cleoDir}` : `Project dir not found: ${cleoDir}. Run: cleo init`,
   });
 
-  // 3. Check data files
-  const todoPath = join(cleoDir, 'todo.json');
-  const todoExists = existsSync(todoPath);
-  const todoSize = await fileSize(todoPath);
+  // 3. Check data files — SQLite is the primary store (ADR-006)
+  const dbPath = join(cleoDir, 'tasks.db');
+  const dbExists = existsSync(dbPath);
+  const dbSize = await fileSize(dbPath);
   checks.push({
-    check: 'todo_file',
-    status: todoExists ? 'ok' : 'error',
-    message: todoExists
-      ? `todo.json: ${todoSize} bytes`
-      : `todo.json not found: ${todoPath}`,
+    check: 'tasks_db',
+    status: dbExists ? 'ok' : 'error',
+    message: dbExists
+      ? `tasks.db: ${dbSize} bytes`
+      : `tasks.db not found. Run: cleo init`,
   });
 
-  if (todoExists) {
+  if (dbExists) {
     try {
-      const rawData = JSON.parse(readFileSync(todoPath, 'utf-8'));
-      const taskCount = rawData.tasks?.length ?? 0;
-      const schemaVersion = rawData._meta?.schemaVersion ?? 'unknown';
+      const accessor = await getAccessor(projectRoot);
+      const data = await accessor.loadTaskFile();
+      const taskCount = data.tasks?.length ?? 0;
+      const schemaVersion = data._meta?.schemaVersion ?? 'unknown';
       checks.push({
-        check: 'todo_data',
+        check: 'tasks_db_data',
         status: 'ok',
         message: `${taskCount} tasks, schema v${schemaVersion}`,
         details: { taskCount, schemaVersion },
       });
     } catch {
       checks.push({
-        check: 'todo_data',
+        check: 'tasks_db_data',
         status: 'error',
-        message: 'Failed to parse todo.json',
+        message: 'Failed to read tasks from SQLite database',
       });
     }
   }
@@ -368,13 +347,16 @@ export async function coreDoctorReport(
     message: configExists ? 'config.json present' : 'config.json not found (using defaults)',
   });
 
-  const archivePath = join(cleoDir, 'todo-archive.json');
-  const archiveExists = existsSync(archivePath);
-  checks.push({
-    check: 'archive_file',
-    status: 'ok',
-    message: archiveExists ? 'archive file present' : 'no archive file (normal for new projects)',
-  });
+  // Check for stale JSON files that should have been cleaned up after migration
+  const staleJsonFiles = STALE_JSON_FILES.filter(f => existsSync(join(cleoDir, f)));
+  if (dbExists && staleJsonFiles.length > 0) {
+    checks.push({
+      check: 'stale_json',
+      status: 'warning',
+      message: `Stale JSON files found alongside tasks.db: ${staleJsonFiles.join(', ')}. Run: cleo upgrade`,
+      details: { files: staleJsonFiles },
+    });
+  }
 
   const logPath = join(cleoDir, 'todo-log.jsonl');
   const logExists = existsSync(logPath);
@@ -412,12 +394,8 @@ export async function coreDoctorReport(
   checks.push(mapCheckResult(checkVitalFilesTracked(projectRoot)));
   checks.push(mapCheckResult(checkLegacyAgentOutputs(projectRoot)));
 
-  // 6. Environment
-  checks.push({
-    check: 'node_version',
-    status: 'ok',
-    message: `Node.js ${process.version}`,
-  });
+  // 6. Environment - Node.js version validation
+  checks.push(mapCheckResult(checkNodeVersion()));
 
   checks.push({
     check: 'platform',

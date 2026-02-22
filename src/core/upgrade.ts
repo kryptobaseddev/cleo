@@ -168,16 +168,11 @@ export async function runUpgrade(options: {
           unlinkSync(dbTempPath);
         }
 
-        // Step 3: Temporarily set engine to json so migrate-storage reads from JSON source
+        // Step 3: Save config backup in case we need to restore after failure
         const configPath = join(cleoDir, 'config.json');
         let configBackup: string | null = null;
         if (existsSync(configPath)) {
           configBackup = readFileSync(configPath, 'utf-8');
-          const config = JSON.parse(configBackup);
-          if (config?.storage?.engine === 'sqlite') {
-            config.storage.engine = 'json';
-            writeFileSync(configPath, JSON.stringify(config, null, 2));
-          }
         }
 
         // Step 4: Close any existing DB connection before migration
@@ -343,43 +338,37 @@ export async function runUpgrade(options: {
     });
   }
 
-  // ── Step 2: Schema + structural repairs (JSON-based) ──────────────
-  // Only run if data is still in JSON format (not just migrated to SQLite)
+  // ── Step 2: Schema + structural repairs ──────────────────────────
+  // Runs on task data via accessor (SQLite per ADR-006).
+  // Also runs if legacy todo.json still exists (pre-migration data).
   const cleoDir = getCleoDirAbsolute(options.cwd);
+  const dbPath = join(cleoDir, 'tasks.db');
   const todoPath = join(cleoDir, 'todo.json');
-  if (existsSync(todoPath)) {
+  if (existsSync(dbPath) || existsSync(todoPath)) {
     try {
       const { getAccessor } = await import('../store/data-accessor.js');
       const { computeChecksum } = await import('../store/json.js');
+      const { runAllRepairs } = await import('./repair.js');
       const accessor = await getAccessor(options.cwd);
       const data = await accessor.loadTaskFile();
 
-      // 2a. Schema version check
+      // Run all repairs via extracted functions
+      const repairActions = runAllRepairs(data, isDryRun);
+      for (const ra of repairActions) {
+        actions.push({ ...ra, status: ra.status as UpgradeAction['status'] });
+      }
+
+      // Check schema version mismatch (not fixable by repair — just report)
+      const { getCurrentSchemaVersion } = await import('./repair.js');
       const schemaVersion = data._meta?.schemaVersion;
-      const currentVersion = '2.10.0';
-      if (!schemaVersion) {
-        if (isDryRun) {
-          actions.push({
-            action: 'add_schema_version',
-            status: 'preview',
-            details: `Would set _meta.schemaVersion to ${currentVersion}`,
-          });
-        } else {
-          data._meta = data._meta ?? {} as typeof data._meta;
-          data._meta.schemaVersion = currentVersion;
-          actions.push({
-            action: 'add_schema_version',
-            status: 'applied',
-            details: `Set _meta.schemaVersion to ${currentVersion}`,
-          });
-        }
-      } else if (schemaVersion !== currentVersion) {
+      const currentVersion = getCurrentSchemaVersion();
+      if (schemaVersion && schemaVersion !== currentVersion) {
         actions.push({
           action: 'schema_version_check',
           status: isDryRun ? 'preview' : 'skipped',
           details: `Schema version ${schemaVersion} differs from current ${currentVersion}`,
         });
-      } else {
+      } else if (schemaVersion === currentVersion) {
         actions.push({
           action: 'schema_version_check',
           status: 'skipped',
@@ -387,81 +376,61 @@ export async function runUpgrade(options: {
         });
       }
 
-      // 2b. Checksum repair
-      const storedChecksum = data._meta?.checksum;
-      const computedCk = computeChecksum(data.tasks);
-      if (storedChecksum !== computedCk) {
-        if (isDryRun) {
-          actions.push({
-            action: 'fix_checksum',
-            status: 'preview',
-            details: `Would update checksum from ${storedChecksum ?? 'none'} to ${computedCk}`,
-          });
-        } else {
-          data._meta.checksum = computedCk;
-          actions.push({
-            action: 'fix_checksum',
-            status: 'applied',
-            details: `Updated checksum to ${computedCk}`,
-          });
-        }
-      }
-
-      // 2c. Fix done tasks missing completedAt
-      const doneMissingDate = data.tasks.filter((t) => t.status === 'done' && !t.completedAt);
-      if (doneMissingDate.length > 0) {
-        if (isDryRun) {
-          actions.push({
-            action: 'fix_completed_at',
-            status: 'preview',
-            details: `Would set completedAt for ${doneMissingDate.length} done task(s)`,
-          });
-        } else {
-          const now = new Date().toISOString();
-          for (const t of doneMissingDate) {
-            t.completedAt = now;
-          }
-          actions.push({
-            action: 'fix_completed_at',
-            status: 'applied',
-            details: `Set completedAt for ${doneMissingDate.length} done task(s)`,
-          });
-        }
-      }
-
-      // 2d. Fix missing size fields
-      const missingSizes = data.tasks.filter((t) => !t.size);
-      if (missingSizes.length > 0) {
-        if (isDryRun) {
-          actions.push({
-            action: 'fix_missing_sizes',
-            status: 'preview',
-            details: `Would set size='medium' for ${missingSizes.length} task(s)`,
-          });
-        } else {
-          for (const t of missingSizes) {
-            t.size = 'medium';
-          }
-          actions.push({
-            action: 'fix_missing_sizes',
-            status: 'applied',
-            details: `Set size='medium' for ${missingSizes.length} task(s)`,
-          });
-        }
-      }
-
-      // Save if changes were made to JSON
-      const appliedJson = actions.filter((a) =>
-        a.status === 'applied' && !['storage_migration', 'storage_preflight'].includes(a.action),
-      );
-      if (appliedJson.length > 0 && !isDryRun) {
+      // Save if changes were made
+      const appliedRepairs = repairActions.filter((a) => a.status === 'applied');
+      if (appliedRepairs.length > 0 && !isDryRun) {
         data._meta.checksum = computeChecksum(data.tasks);
         data.lastUpdated = new Date().toISOString();
         await accessor.saveTaskFile(data);
       }
     } catch {
-      // JSON data may no longer be the primary store (migrated to SQLite).
-      // This is expected after migration; not an error.
+      // Data load may fail if no store exists yet. Not an error.
+    }
+  }
+
+  // ── Step 2b: Stale JSON file cleanup (post-migration) ────────────
+  // If tasks.db exists, rename stale JSON files to *.json.migrated
+  // so they don't trigger false positives in doctor/preflight checks.
+  if (existsSync(join(cleoDir, 'tasks.db'))) {
+    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json'] as const;
+    const foundStale = staleJsonFiles.filter(f => existsSync(join(cleoDir, f)));
+
+    if (foundStale.length > 0) {
+      if (isDryRun) {
+        actions.push({
+          action: 'stale_json_cleanup',
+          status: 'preview',
+          details: `Would rename ${foundStale.length} stale JSON file(s) to *.json.migrated: ${foundStale.join(', ')}`,
+        });
+      } else {
+        try {
+          // Backup stale files first
+          const backupDir = join(cleoDir, 'backups', 'pre-sqlite', `${Date.now()}`);
+          mkdirSync(backupDir, { recursive: true });
+          for (const f of foundStale) {
+            const src = join(cleoDir, f);
+            copyFileSync(src, join(backupDir, f));
+          }
+
+          // Rename originals to .migrated
+          const { renameSync } = await import('node:fs');
+          for (const f of foundStale) {
+            renameSync(join(cleoDir, f), join(cleoDir, `${f}.migrated`));
+          }
+
+          actions.push({
+            action: 'stale_json_cleanup',
+            status: 'applied',
+            details: `Renamed ${foundStale.length} stale JSON file(s) to *.json.migrated (backed up to ${backupDir})`,
+          });
+        } catch (err) {
+          actions.push({
+            action: 'stale_json_cleanup',
+            status: 'error',
+            details: `Failed to clean up stale JSON files: ${String(err)}`,
+          });
+        }
+      }
     }
   }
 
@@ -666,18 +635,41 @@ export async function runUpgrade(options: {
         }
       }
     } else {
-      // Check if stale (older than 30 days)
+      // Check if stale (older than 30 days) — auto-refresh if so
       try {
         const context = JSON.parse(readFileSync(contextPath, 'utf-8'));
         if (context.detectedAt) {
           const detectedDate = new Date(context.detectedAt);
           const daysSinceDetection = (Date.now() - detectedDate.getTime()) / (1000 * 60 * 60 * 24);
           if (daysSinceDetection > 30) {
-            actions.push({
-              action: 'project_context_detection',
-              status: 'skipped',
-              details: `project-context.json is ${Math.round(daysSinceDetection)} days old. Consider re-running 'cleo init --detect'.`,
-            });
+            if (isDryRun) {
+              actions.push({
+                action: 'project_context_detection',
+                status: 'preview',
+                details: `Would refresh project-context.json (${Math.round(daysSinceDetection)} days old)`,
+              });
+            } else {
+              try {
+                const { detectProjectType } = await import('../store/project-detect.js');
+                const info = detectProjectType(projectRoot);
+                const refreshed = {
+                  ...info,
+                  detectedAt: new Date().toISOString(),
+                };
+                writeFileSync(contextPath, JSON.stringify(refreshed, null, 2));
+                actions.push({
+                  action: 'project_context_detection',
+                  status: 'applied',
+                  details: `Refreshed project-context.json (was ${Math.round(daysSinceDetection)} days old): ${info.type} (${info.testFramework})`,
+                });
+              } catch (err) {
+                actions.push({
+                  action: 'project_context_detection',
+                  status: 'error',
+                  details: `Failed to refresh project-context.json: ${String(err)}`,
+                });
+              }
+            }
           } else {
             actions.push({
               action: 'project_context_detection',

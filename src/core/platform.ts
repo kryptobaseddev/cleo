@@ -120,6 +120,9 @@ export function createTempFilePath(prefix: string = 'cleo-', suffix: string = '.
   return join(tmpdir(), `${prefix}${random}${suffix}`);
 }
 
+/** Minimum required Node.js major version. */
+export const MINIMUM_NODE_MAJOR = 24;
+
 /** Get Node.js version info. */
 export function getNodeVersionInfo(): {
   version: string;
@@ -136,6 +139,69 @@ export function getNodeVersionInfo(): {
     major,
     minor,
     patch,
-    meetsMinimum: major >= 18, // Minimum Node.js for CLEO TypeScript
+    meetsMinimum: major >= MINIMUM_NODE_MAJOR,
   };
+}
+
+/**
+ * Get platform-specific Node.js upgrade instructions.
+ * Returns actionable install/upgrade guidance based on OS and available tools.
+ */
+export function getNodeUpgradeInstructions(): {
+  platform: Platform;
+  arch: string;
+  instructions: string[];
+  recommended: string;
+} {
+  const platform = detectPlatform();
+  const arch = process.arch;
+  const instructions: string[] = [];
+
+  // Check for version managers first
+  const hasFnm = commandExists('fnm');
+  const hasNvm = commandExists('nvm') || commandExists('nvm.sh');
+  const hasVolta = commandExists('volta');
+
+  if (hasFnm) {
+    instructions.push(`fnm install ${MINIMUM_NODE_MAJOR} && fnm use ${MINIMUM_NODE_MAJOR}`);
+  }
+  if (hasNvm) {
+    instructions.push(`nvm install ${MINIMUM_NODE_MAJOR} && nvm use ${MINIMUM_NODE_MAJOR}`);
+  }
+  if (hasVolta) {
+    instructions.push(`volta install node@${MINIMUM_NODE_MAJOR}`);
+  }
+
+  // Platform-specific fallbacks
+  switch (platform) {
+    case 'linux':
+      if (commandExists('dnf')) {
+        instructions.push(`sudo dnf module enable nodejs:${MINIMUM_NODE_MAJOR} && sudo dnf install nodejs`);
+      } else if (commandExists('apt')) {
+        instructions.push(`curl -fsSL https://deb.nodesource.com/setup_${MINIMUM_NODE_MAJOR}.x | sudo -E bash - && sudo apt install -y nodejs`);
+      } else if (commandExists('pacman')) {
+        instructions.push(`sudo pacman -S nodejs`);
+      } else if (commandExists('apk')) {
+        instructions.push(`apk add nodejs npm`);
+      }
+      break;
+    case 'macos':
+      if (commandExists('brew')) {
+        instructions.push(`brew install node@${MINIMUM_NODE_MAJOR}`);
+      }
+      break;
+    case 'windows':
+      instructions.push(`winget install OpenJS.NodeJS.LTS`);
+      break;
+  }
+
+  // Universal fallback
+  if (!hasFnm && !hasNvm && !hasVolta) {
+    instructions.push(`curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${MINIMUM_NODE_MAJOR}`);
+  }
+  instructions.push(`https://nodejs.org/en/download/`);
+
+  const recommended = instructions[0] ?? `https://nodejs.org/en/download/`;
+
+  return { platform, arch, instructions, recommended };
 }

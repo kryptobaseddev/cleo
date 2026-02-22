@@ -1387,7 +1387,7 @@ export class SystemHandler implements DomainHandler {
           return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
         }
         const dp = params as SystemDiagnosticsParams;
-        return this.wrapNativeResult(nativeSystemDiagnostics(this.projectRoot, { checks: dp?.checks }), 'query', operation, startTime);
+        return this.wrapNativeResult(await nativeSystemDiagnostics(this.projectRoot, { checks: dp?.checks }), 'query', operation, startTime);
       }
       case 'help': {
         const helpp = params as SystemHelpParams;
