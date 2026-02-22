@@ -249,8 +249,8 @@ async function main(): Promise<void> {
           }
         }
 
-        // Route to domain handler via central dispatcher
-        let result = await handleMcpToolCall(name, args.domain as string, args.operation as string, args.params as Record<string, unknown> | undefined);
+        // Route to domain handler via DomainRouter (T4820 dispatch adapter not yet fully operational)
+        let result = await router.routeOperation(domainRequest);
 
         if (config.logLevel === 'debug') {
           console.error(`[CLEO MCP] Result:`, JSON.stringify(result, null, 2));
