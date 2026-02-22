@@ -1009,6 +1009,23 @@
         }
       }
     },
+    "storage": {
+      "type": "object",
+      "description": "Storage engine configuration. Controls whether CLEO uses JSON files, SQLite, or dual-write mode for data persistence. Per ADR-006, SQLite is the canonical default for all new projects.",
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "type": "string",
+          "enum": [
+            "json",
+            "sqlite",
+            "dual"
+          ],
+          "default": "sqlite",
+          "description": "Storage engine: sqlite (default, ADR-006 canonical), json (legacy/human-editable), dual (write to both for migration)."
+        }
+      }
+    },
     "analyze": {
       "type": "object",
       "description": "Configuration for the analyze command and task prioritization algorithms.",
