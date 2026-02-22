@@ -7,17 +7,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getArchiveStats } from '../commands/archive-stats.js';
 
-// Mock readJson
-vi.mock('../../store/json.js', () => ({
-  readJson: vi.fn(),
+// Mock the data accessor used by getArchiveStats
+const mockLoadArchive = vi.fn();
+
+vi.mock('../../store/data-accessor.js', () => ({
+  getAccessor: vi.fn().mockResolvedValue({
+    engine: 'json',
+    loadArchive: (...args: unknown[]) => mockLoadArchive(...args),
+    close: vi.fn(),
+  }),
 }));
 
 vi.mock('../../core/paths.js', () => ({
-  getArchivePath: (cwd?: string) => '.cleo/todo-archive.json',
+  getArchivePath: (cwd?: string) => '.cleo/tasks-archive.json',
+  getCleoDirAbsolute: (cwd?: string) => cwd ? `${cwd}/.cleo` : '.cleo',
+  getTaskPath: (cwd?: string) => cwd ? `${cwd}/.cleo/tasks.json` : '.cleo/tasks.json',
 }));
-
-import { readJson } from '../../store/json.js';
-const mockReadJson = vi.mocked(readJson);
 
 const SAMPLE_ARCHIVE = {
   archivedTasks: [
@@ -69,14 +74,14 @@ describe('getArchiveStats', () => {
   });
 
   it('returns empty result when no archive exists', async () => {
-    mockReadJson.mockResolvedValue(null);
+    mockLoadArchive.mockResolvedValue(null);
     const result = await getArchiveStats({});
     expect(result.report).toBe('summary');
     expect((result.data as Record<string, unknown>).totalArchived).toBe(0);
   });
 
   it('returns summary by default', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({});
     expect(result.report).toBe('summary');
 
@@ -86,7 +91,7 @@ describe('getArchiveStats', () => {
   });
 
   it('returns by-phase report', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ report: 'by-phase' });
     expect(result.report).toBe('by-phase');
 
@@ -97,7 +102,7 @@ describe('getArchiveStats', () => {
   });
 
   it('returns by-label report', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ report: 'by-label' });
     expect(result.report).toBe('by-label');
 
@@ -107,7 +112,7 @@ describe('getArchiveStats', () => {
   });
 
   it('returns by-priority report', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ report: 'by-priority' });
     expect(result.report).toBe('by-priority');
 
@@ -116,7 +121,7 @@ describe('getArchiveStats', () => {
   });
 
   it('returns cycle-times report with statistics', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ report: 'cycle-times' });
     expect(result.report).toBe('cycle-times');
 
@@ -128,7 +133,7 @@ describe('getArchiveStats', () => {
   });
 
   it('returns trends report', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ report: 'trends' });
     expect(result.report).toBe('trends');
 
@@ -138,21 +143,21 @@ describe('getArchiveStats', () => {
   });
 
   it('filters by since date', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ since: '2026-02-01' });
     const data = result.data as Record<string, unknown>;
     expect(data.totalArchived).toBe(1);
   });
 
   it('filters by until date', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ until: '2026-01-20' });
     const data = result.data as Record<string, unknown>;
     expect(data.totalArchived).toBe(2);
   });
 
   it('applies both since and until filters', async () => {
-    mockReadJson.mockResolvedValue(SAMPLE_ARCHIVE);
+    mockLoadArchive.mockResolvedValue(SAMPLE_ARCHIVE);
     const result = await getArchiveStats({ since: '2026-01-16', until: '2026-01-25' });
     const data = result.data as Record<string, unknown>;
     expect(data.totalArchived).toBe(1);

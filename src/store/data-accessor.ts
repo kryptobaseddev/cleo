@@ -155,15 +155,19 @@ async function detectEngine(cwd?: string): Promise<'json' | 'sqlite' | 'dual'> {
       }
     }
 
+    const { join } = await import('node:path');
+
     // Auto-detect: if tasks.db exists, use sqlite
-    const dbPath = (await import('node:path')).join(cleoDir, 'tasks.db');
-    if (existsSync(dbPath)) {
-      return 'sqlite';
-    }
+    if (existsSync(join(cleoDir, 'tasks.db'))) return 'sqlite';
+
+    // Backward compat: if todo.json or tasks.json exists (but no tasks.db), keep json
+    if (existsSync(join(cleoDir, 'todo.json'))) return 'json';
+    if (existsSync(join(cleoDir, 'tasks.json'))) return 'json';
   } catch {
     // Fall through to default
   }
-  return 'json';
+  // Default: sqlite (ADR-006 canonical storage for new projects)
+  return 'sqlite';
 }
 
 /**
