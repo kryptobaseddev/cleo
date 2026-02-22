@@ -69,7 +69,7 @@ interface OrchestrateProgressParams {
 interface OrchestrateStartParams {
   epicId: string;
   name?: string;
-  autoStart?: boolean;
+  autoFocus?: boolean;
 }
 
 interface OrchestrateSpawnParams {
@@ -599,7 +599,7 @@ export class OrchestrateHandler implements DomainHandler {
     };
 
     if (params?.name) flags.name = params.name;
-    if (params?.autoStart) flags['auto-start'] = true;
+    if (params?.autoFocus) flags['auto-focus'] = true;
 
     const result = await this.executor!.execute<OrchestrateStartResult>({
       domain: 'orchestrator',

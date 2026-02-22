@@ -42,7 +42,7 @@ describe('completeTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Test task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await completeTask({ taskId: 'T001' }, tempDir);
     expect(result.task.status).toBe('done');
@@ -51,7 +51,7 @@ describe('completeTask', () => {
 
   it('throws if task not found', async () => {
     const data = makeTodoFile([]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     await expect(
       completeTask({ taskId: 'T999' }, tempDir),
@@ -62,7 +62,7 @@ describe('completeTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Done task', status: 'done', priority: 'medium', createdAt: new Date().toISOString(), completedAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     await expect(
       completeTask({ taskId: 'T001' }, tempDir),
@@ -74,7 +74,7 @@ describe('completeTask', () => {
       { id: 'T001', title: 'Dep', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Blocked', status: 'pending', priority: 'medium', depends: ['T001'], createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     await expect(
       completeTask({ taskId: 'T002' }, tempDir),
@@ -85,7 +85,7 @@ describe('completeTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Test task', status: 'active', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await completeTask({ taskId: 'T001', notes: 'Done with tests' }, tempDir);
     expect(result.task.notes).toHaveLength(1);

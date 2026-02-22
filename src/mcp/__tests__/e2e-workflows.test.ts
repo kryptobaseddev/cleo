@@ -716,11 +716,11 @@ describe('E2E Workflow Tests (MCP Spec Section 11)', () => {
       const result = await router.routeOperation({
         gateway: 'cleo_query',
         domain: 'tasks',
-        operation: 'batch-validate',
+        operation: 'batch.validate',
         params: { taskIds: ['T2405', 'T2406', 'T2407'] },
       });
 
-      assertResponseEnvelope(result, 'cleo_query', 'tasks', 'batch-validate');
+      assertResponseEnvelope(result, 'cleo_query', 'tasks', 'batch.validate');
       assertSuccessResponse(result);
       // Verify the data contains the partial results
       const data = result.data as any;

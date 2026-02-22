@@ -531,7 +531,7 @@ describe('TasksHandler', () => {
       const ops = handler.getSupportedOperations();
 
       expect(ops.query).toHaveLength(18);
-      expect(ops.mutate).toHaveLength(14);
+      expect(ops.mutate).toHaveLength(15);
       expect(ops.query).toContain('show');
       expect(ops.query).toContain('list');
       expect(ops.query).toContain('find');
@@ -547,6 +547,7 @@ describe('TasksHandler', () => {
       expect(ops.mutate).toContain('promote');
       expect(ops.mutate).toContain('reopen');
       expect(ops.mutate).toContain('restore');
+      expect(ops.mutate).toContain('uncancel');
       expect(ops.mutate).toContain('start');
       expect(ops.mutate).toContain('stop');
     });

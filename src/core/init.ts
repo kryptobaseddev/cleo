@@ -8,7 +8,7 @@
  *   1. .cleo/ directory structure creation
  *   2. Core data files (todo.json, config.json, sessions.json, etc.)
  *   3. Schema file installation (.cleo/schemas/)
- *   4. Sequence counter (.cleo/.sequence)
+ *   4. Sequence counter (.cleo/.sequence.json)
  *   5. Project info (.cleo/project-info.json)
  *   6. CAAMP injection into agent instruction files
  *   7. MCP server installation to detected providers
@@ -30,7 +30,7 @@
  * @epic T4663
  */
 
-import { mkdir, access, writeFile, readFile, copyFile, symlink, lstat } from 'node:fs/promises';
+import { mkdir, access, writeFile, readFile, copyFile, symlink, lstat, unlink } from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';
 import { readJson } from '../store/json.js';
@@ -310,14 +310,18 @@ async function initCoreFiles(
     created.push('sessions.json');
   }
 
-  // Create .sequence (task ID counter)
-  const sequencePath = join(cleoDir, '.sequence');
+  // Create .sequence.json (task ID counter — JSON format for sequence module)
+  const sequencePath = join(cleoDir, '.sequence.json');
   if (await fileExists(sequencePath) && !force) {
-    skipped.push('.sequence');
+    skipped.push('.sequence.json');
   } else {
-    await writeFile(sequencePath, '0');
-    created.push('.sequence');
+    await writeFile(sequencePath, JSON.stringify({ counter: 0, lastId: 'T000', checksum: '' }, null, 2));
+    created.push('.sequence.json');
   }
+
+  // Remove legacy .sequence plain-text file if it exists (migration)
+  const legacySequencePath = join(cleoDir, '.sequence');
+  try { await unlink(legacySequencePath); } catch { /* ignore if absent */ }
 
   // Create backup directories
   const backupDir = join(cleoDir, 'backups');
@@ -839,7 +843,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const skipped: string[] = [];
   const warnings: string[] = [];
 
-  // T4681: Core files (todo.json, config.json, sessions.json, .sequence, etc.)
+  // T4681: Core files (todo.json, config.json, sessions.json, .sequence.json, etc.)
   await initCoreFiles(cleoDir, projectName, force, created, skipped);
 
   // T4681: Schema files (.cleo/schemas/)

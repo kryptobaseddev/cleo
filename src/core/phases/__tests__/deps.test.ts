@@ -54,7 +54,7 @@ afterEach(async () => {
 
 async function writeTodo(tasks?: Task[]) {
   await writeFile(
-    join(cleoDir, 'todo.json'),
+    join(cleoDir, 'tasks.json'),
     JSON.stringify(makeTodoFile(tasks)),
   );
 }

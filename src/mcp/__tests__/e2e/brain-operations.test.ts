@@ -45,10 +45,10 @@ import {
 const TEST_ROOT = join(process.cwd(), '.test-brain-ops');
 const CLEO_DIR = join(TEST_ROOT, '.cleo');
 const AUDIT_DIR = join(CLEO_DIR, 'audit');
-const MANIFEST_DIR = join(TEST_ROOT, 'claudedocs', 'agent-outputs');
+const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
 
 /**
- * Write todo.json with the given tasks and optional meta/focus overrides.
+ * Write tasks.json with the given tasks and optional meta/focus overrides.
  */
 function writeTodoJson(
   tasks: any[],
@@ -60,7 +60,7 @@ function writeTodoJson(
 ): void {
   mkdirSync(CLEO_DIR, { recursive: true });
   writeFileSync(
-    join(CLEO_DIR, 'todo.json'),
+    join(CLEO_DIR, 'tasks.json'),
     JSON.stringify(
       {
         tasks,

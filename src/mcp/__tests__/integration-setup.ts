@@ -387,9 +387,12 @@ export async function getAuditLogEntries(
     action?: string;
   }
 ): Promise<any[]> {
-  // Try the given path directly, then try parent (in case testDataDir was passed)
+  // Try the given path directly, then try parent (in case testDataDir was passed).
+  // The log file may be named 'tasks-log.jsonl' (current) or 'todo-log.jsonl' (legacy).
   const candidates = [
+    path.join(projectRootOrTestDataDir, '.cleo', 'tasks-log.jsonl'),
     path.join(projectRootOrTestDataDir, '.cleo', 'todo-log.jsonl'),
+    path.join(projectRootOrTestDataDir, '..', '.cleo', 'tasks-log.jsonl'),
     path.join(projectRootOrTestDataDir, '..', '.cleo', 'todo-log.jsonl'),
   ];
 

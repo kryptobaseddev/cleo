@@ -14,7 +14,7 @@ import { detectStoreEngine, createStoreProvider } from '../provider.js';
 import { createJsonStoreProvider } from '../json-provider.js';
 import type { TodoFile } from '../../types/task.js';
 
-/** Minimal todo.json for testing. */
+/** Minimal tasks.json for testing. */
 function makeTodoFile(tasks: TodoFile['tasks'] = []): TodoFile {
   return {
     version: '2.10.0',
@@ -101,8 +101,8 @@ describe('createStoreProvider (json)', () => {
   });
 
   it('json provider getTask returns null for non-existent task', async () => {
-    // Create minimal todo.json
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile()));
+    // Create minimal tasks.json
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile()));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
 
     const provider = await createStoreProvider('json', tempDir);
@@ -112,7 +112,7 @@ describe('createStoreProvider (json)', () => {
   });
 
   it('json provider listTasks returns empty array for empty project', async () => {
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile()));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile()));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
 
     const provider = await createStoreProvider('json', tempDir);
@@ -126,7 +126,7 @@ describe('createStoreProvider (json)', () => {
       { id: 'T001', title: 'First task', status: 'pending' as const, priority: 'medium' as const, createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Second task', status: 'done' as const, priority: 'high' as const, createdAt: new Date().toISOString() },
     ];
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile(tasks)));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile(tasks)));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
 
     const provider = await createStoreProvider('json', tempDir);
@@ -141,7 +141,7 @@ describe('createStoreProvider (json)', () => {
       { id: 'T001', title: 'Pending', status: 'pending' as const, priority: 'medium' as const, createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Done', status: 'done' as const, priority: 'high' as const, createdAt: new Date().toISOString() },
     ];
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile(tasks)));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile(tasks)));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
 
     const provider = await createStoreProvider('json', tempDir);
@@ -156,7 +156,7 @@ describe('createStoreProvider (json)', () => {
       { id: 'T001', title: 'Parent', status: 'pending' as const, priority: 'medium' as const, type: 'epic' as const, createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Child', status: 'pending' as const, priority: 'medium' as const, parentId: 'T001', createdAt: new Date().toISOString() },
     ];
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile(tasks)));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile(tasks)));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
 
     const provider = await createStoreProvider('json', tempDir);
@@ -223,7 +223,7 @@ describe('createJsonStoreProvider', () => {
   });
 
   it('deleteTask returns false for non-existent task', async () => {
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile()));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile()));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
 
     const provider = createJsonStoreProvider(tempDir);
@@ -232,7 +232,7 @@ describe('createJsonStoreProvider', () => {
   });
 
   it('archiveTask returns false for non-existent task', async () => {
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile()));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile()));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
 
     const provider = createJsonStoreProvider(tempDir);

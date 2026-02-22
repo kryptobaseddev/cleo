@@ -70,7 +70,7 @@ describe('SQLite store', () => {
     expect(tableNames).toContain('task_dependencies');
     expect(tableNames).toContain('task_relations');
     expect(tableNames).toContain('sessions');
-    expect(tableNames).toContain('session_focus_history');
+    expect(tableNames).toContain('task_work_history');
     expect(tableNames).toContain('schema_meta');
   });
 
@@ -93,7 +93,7 @@ describe('SQLite store', () => {
     expect(indexNames).toContain('idx_tasks_priority');
     expect(indexNames).toContain('idx_deps_depends_on');
     expect(indexNames).toContain('idx_sessions_status');
-    expect(indexNames).toContain('idx_focus_history_session');
+    expect(indexNames).toContain('idx_work_history_session');
   });
 
   it('sets schema version to 1.0.0', async () => {

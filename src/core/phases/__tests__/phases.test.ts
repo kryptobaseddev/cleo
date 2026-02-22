@@ -59,7 +59,7 @@ afterEach(async () => {
 
 async function writeTodo(overrides: Record<string, unknown> = {}) {
   await writeFile(
-    join(cleoDir, 'todo.json'),
+    join(cleoDir, 'tasks.json'),
     JSON.stringify(makeTodoFile(overrides)),
   );
 }
@@ -159,7 +159,7 @@ describe('completePhase', () => {
   it('completes active phase with no incomplete tasks', async () => {
     // Make core have all done tasks
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         ...makeTodoFile(),
         tasks: [
@@ -197,7 +197,7 @@ describe('deletePhase', () => {
   it('deletes empty phase with force', async () => {
     // Add a phase with no tasks
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         ...makeTodoFile(),
         project: {
@@ -226,7 +226,7 @@ describe('deletePhase', () => {
   it('requires force flag', async () => {
     // Use a phase with no tasks so orphan check doesn't fire first
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         ...makeTodoFile(),
         project: {

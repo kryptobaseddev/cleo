@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 async function writeTodo() {
-  await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile()));
+  await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile()));
 }
 
 describe('validateSemver (validateVersion)', () => {

@@ -656,11 +656,11 @@ describe('ValidateHandler', () => {
         'schema', 'protocol', 'manifest', 'output',
         'compliance.summary', 'compliance.violations',
         'test.status', 'test.coverage',
-        'coherence-check',
+        'coherence.check',
       ]);
       expect(operations.mutate).toEqual([
         'fix', 'schema', 'protocol', 'session', 'research', 'lifecycle',
-        'compliance.record', 'test.run', 'batch-validate',
+        'compliance.record', 'test.run', 'batch.validate',
       ]);
     });
   });

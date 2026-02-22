@@ -42,7 +42,7 @@ describe('listTasks', () => {
       { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Task 2', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await listTasks({}, tempDir);
     expect(result.tasks).toHaveLength(2);
@@ -55,7 +55,7 @@ describe('listTasks', () => {
       { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Task 2', status: 'done', priority: 'high', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await listTasks({ status: 'pending' }, tempDir);
     expect(result.tasks).toHaveLength(1);
@@ -68,7 +68,7 @@ describe('listTasks', () => {
       { id: 'T001', title: 'Task 1', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Task 2', status: 'pending', priority: 'critical', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await listTasks({ priority: 'critical' }, tempDir);
     expect(result.tasks).toHaveLength(1);
@@ -82,7 +82,7 @@ describe('listTasks', () => {
       { id: 'T003', title: 'Child 2', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
       { id: 'T004', title: 'Other', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await listTasks({ parentId: 'T001' }, tempDir);
     expect(result.tasks).toHaveLength(2);
@@ -93,7 +93,7 @@ describe('listTasks', () => {
       { id: 'T001', title: 'Bug fix', status: 'pending', priority: 'high', labels: ['bug', 'security'], createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Feature', status: 'pending', priority: 'medium', labels: ['feature'], createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await listTasks({ label: 'bug' }, tempDir);
     expect(result.tasks).toHaveLength(1);
@@ -110,7 +110,7 @@ describe('listTasks', () => {
       createdAt: new Date().toISOString(),
     }));
     const data = makeTodoFile(tasks);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const page1 = await listTasks({ limit: 3, offset: 0 }, tempDir);
     expect(page1.tasks).toHaveLength(3);

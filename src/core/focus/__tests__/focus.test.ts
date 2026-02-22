@@ -42,7 +42,7 @@ describe('Focus', () => {
   describe('showFocus', () => {
     it('returns null when no focus set', async () => {
       const data = makeTodoFile([]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const result = await showFocus(tempDir);
       expect(result.currentTask).toBeNull();
@@ -53,7 +53,7 @@ describe('Focus', () => {
         [{ id: 'T001', title: 'Task', status: 'active', priority: 'medium', createdAt: new Date().toISOString() }],
         { currentTask: 'T001', currentPhase: null },
       );
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const result = await showFocus(tempDir);
       expect(result.currentTask).toBe('T001');
@@ -65,7 +65,7 @@ describe('Focus', () => {
       const data = makeTodoFile([
         { id: 'T001', title: 'Target task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       ]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const result = await setFocus('T001', tempDir);
       expect(result.taskId).toBe('T001');
@@ -81,7 +81,7 @@ describe('Focus', () => {
         ],
         { currentTask: 'T001' },
       );
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const result = await setFocus('T002', tempDir);
       expect(result.previousTask).toBe('T001');
@@ -89,7 +89,7 @@ describe('Focus', () => {
 
     it('throws if task not found', async () => {
       const data = makeTodoFile([]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       await expect(setFocus('T999', tempDir)).rejects.toThrow('Task not found');
     });
@@ -101,7 +101,7 @@ describe('Focus', () => {
         [{ id: 'T001', title: 'Task', status: 'active', priority: 'medium', createdAt: new Date().toISOString() }],
         { currentTask: 'T001' },
       );
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const result = await clearFocus(tempDir);
       expect(result.previousTask).toBe('T001');
@@ -123,7 +123,7 @@ describe('Focus', () => {
           ],
         },
       );
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const history = await getFocusHistory(tempDir);
       expect(history).toHaveLength(2);

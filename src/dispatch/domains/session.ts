@@ -117,6 +117,11 @@ export class SessionHandler implements DomainHandler {
             autoStart: params?.autoStart as boolean | undefined,
             focus: params?.focus as string | undefined,
           });
+          // Enrich successful result with top-level sessionId for easy extraction
+          if (result.success && result.data) {
+            const session = result.data as unknown as Record<string, unknown>;
+            result.data = { ...session, sessionId: session.id } as unknown as typeof result.data;
+          }
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
         }
 
