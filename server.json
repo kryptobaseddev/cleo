@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.kryptobaseddev/cleo-mcp-server",
   "title": "CLEO MCP Server",
-  "description": "Task management protocol for solo developers and AI coding agents with 2-gateway CQRS pattern. MCP server is included in the @cleocode/cleo package.",
+  "description": "Task management for solo developers and AI coding agents — 2-gateway CQRS pattern, 140 operations, 11 domains",
   "version": "2026.2.5",
   "websiteUrl": "https://github.com/kryptobaseddev/cleo",
   "repository": {
@@ -17,7 +17,13 @@
       "transport": {
         "type": "stdio"
       },
-      "runtimeArgs": ["-y", "@cleocode/cleo", "--mcp-server"],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "--mcp-server",
+          "description": "Start the MCP stdio server instead of the CLI"
+        }
+      ],
       "environmentVariables": [
         {
           "name": "CLEO_PROJECT_DIR",
@@ -41,21 +47,11 @@
       ],
       "features": [
         "CQRS 2-gateway pattern (94% token reduction vs traditional MCP tool approach)",
-        "RCSD-IVTR lifecycle protocol enforcement",
-        "4-layer validation (schema, semantic, referential, protocol)",
         "140 operations across 11 domains",
         "Anti-hallucination validation on all task operations",
         "Atomic file operations with backup and rollback"
       ],
-      "categories": ["developer-tools", "task-management", "ai-agents"],
-      "migration": {
-        "note": "@cleocode/mcp-server is deprecated. Use @cleocode/cleo which includes CLI, MCP server, and all tools in a single package.",
-        "install": "npm install -g @cleocode/cleo",
-        "mcpConfig": {
-          "command": "npx",
-          "args": ["-y", "@cleocode/cleo", "--mcp-server"]
-        }
-      }
+      "categories": ["developer-tools", "task-management", "ai-agents"]
     }
   }
 }

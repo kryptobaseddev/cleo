@@ -2,12 +2,23 @@
   "name": "@cleocode/cleo",
   "version": "2026.2.5",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
+  "mcpName": "io.github.kryptobaseddev/cleo-mcp-server",
   "type": "module",
+  "main": "dist/cli/index.js",
+  "exports": {
+    ".": "./dist/cli/index.js",
+    "./mcp": "./dist/mcp/index.js"
+  },
   "bin": {
     "cleo": "dist/cli/index.js",
     "ct": "dist/cli/index.js",
     "cleo-mcp": "dist/mcp/index.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kryptobaseddev/cleo.git"
+  },
+  "homepage": "https://github.com/kryptobaseddev/cleo",
   "scripts": {
     "build": "node build.mjs",
     "build:check": "tsc --noEmit",
@@ -30,6 +41,9 @@
     "cleo",
     "task-management",
     "ai-agents",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
     "cli",
     "claude-code"
   ],
@@ -40,7 +54,8 @@
     "schemas",
     "templates",
     "skills",
-    "completions"
+    "completions",
+    "server.json"
   ],
   "dependencies": {
     "@cleocode/caamp": "^1.0.4",
