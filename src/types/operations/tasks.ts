@@ -235,7 +235,7 @@ export interface TasksReorderResult {
   newPosition: number;
 }
 
-// tasks.reopen
+// tasks.restore (completed tasks) — alias: reopen
 export interface TasksReopenParams {
   taskId: string;
 }

@@ -7,7 +7,7 @@
  * @task W1-T4
  */
 
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, isNull } from 'drizzle-orm';
 import { getDb, saveToFile } from './sqlite.js';
 import * as schema from './schema.js';
 import type { SessionRow } from './schema.js';
@@ -16,15 +16,17 @@ import type { Session, SessionScope, SessionStatus } from '../types/session.js';
 // === ROW <-> DOMAIN CONVERSION ===
 
 function rowToSession(row: SessionRow): Session {
+  const taskWork = {
+    taskId: row.currentTask,
+    setAt: row.taskStartedAt,
+  };
   return {
     id: row.id,
     name: row.name,
     status: row.status as SessionStatus,
     scope: parseJson<SessionScope>(row.scopeJson) ?? { type: 'global' },
-    taskWork: {
-      taskId: row.currentTask,
-      setAt: row.taskStartedAt,
-    },
+    taskWork,
+    focus: taskWork,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
     agent: row.agent,
@@ -50,13 +52,14 @@ function parseJson<T>(jsonStr: string | null | undefined): T | undefined {
 /** Create a new session. */
 export async function createSession(session: Session, cwd?: string): Promise<Session> {
   const db = await getDb(cwd);
+  const tw = session.taskWork ?? session.focus;
   db.insert(schema.sessions).values({
     id: session.id,
     name: session.name,
     status: session.status,
     scopeJson: JSON.stringify(session.scope),
-    currentTask: session.taskWork?.taskId,
-    taskStartedAt: session.taskWork?.setAt,
+    currentTask: tw?.taskId,
+    taskStartedAt: tw?.setAt,
     agent: session.agent,
     notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
     tasksCompletedJson: session.tasksCompleted ? JSON.stringify(session.tasksCompleted) : '[]',
@@ -169,7 +172,7 @@ export async function startTask(
     .set({ clearedAt: now })
     .where(and(
       eq(schema.taskWorkHistory.sessionId, sessionId),
-      eq(schema.taskWorkHistory.clearedAt, ''),
+      isNull(schema.taskWorkHistory.clearedAt),
     ))
     .run();
 
@@ -214,7 +217,7 @@ export async function stopTask(sessionId: string, cwd?: string): Promise<void> {
     .set({ clearedAt: now })
     .where(and(
       eq(schema.taskWorkHistory.sessionId, sessionId),
-      eq(schema.taskWorkHistory.clearedAt, ''),
+      isNull(schema.taskWorkHistory.clearedAt),
     ))
     .run();
 
@@ -290,3 +293,17 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
   if (rows.length === 0) return null;
   return rowToSession(rows[0]!);
 }
+
+// ---- Backward-compatible focus aliases (deprecated) ----
+
+/** @deprecated Use startTask() instead. */
+export const setFocus = startTask;
+
+/** @deprecated Use getCurrentTask() instead. */
+export const getFocus = getCurrentTask;
+
+/** @deprecated Use stopTask() instead. */
+export const clearFocus = stopTask;
+
+/** @deprecated Use workHistory() instead. */
+export const focusHistory = workHistory;

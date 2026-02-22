@@ -19,9 +19,9 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 65 operations', () => {
+  it('should have exactly 68 operations', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(65);
+    expect(totalCount).toBe(68);
   });
 
   it('should have all 11 domains', () => {
@@ -50,7 +50,7 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.validate.length).toBe(2);
     expect(MUTATE_OPERATIONS.release.length).toBe(7);
     expect(MUTATE_OPERATIONS.system.length).toBe(11);
-    expect(MUTATE_OPERATIONS.issues.length).toBe(3);
+    expect(MUTATE_OPERATIONS.issues.length).toBe(6);
     expect(MUTATE_OPERATIONS.skills.length).toBe(6);
     expect(MUTATE_OPERATIONS.providers.length).toBe(1);
   });
@@ -485,7 +485,7 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(65);
+    expect(getMutateOperationCount()).toBe(68);
   });
 
   it('should return domain-specific counts', () => {
@@ -497,7 +497,7 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('validate')).toBe(2);
     expect(getMutateOperationCount('release')).toBe(7);
     expect(getMutateOperationCount('system')).toBe(11);
-    expect(getMutateOperationCount('issues')).toBe(3);
+    expect(getMutateOperationCount('issues')).toBe(6);
     expect(getMutateOperationCount('skills')).toBe(6);
     expect(getMutateOperationCount('providers')).toBe(1);
   });

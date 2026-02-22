@@ -90,7 +90,7 @@ describe('registerNexusCommand', () => {
     expect(subcommandNames).toContain('unregister');
     expect(subcommandNames).toContain('list');
     expect(subcommandNames).toContain('status');
-    expect(subcommandNames).toContain('query');
+    expect(subcommandNames).toContain('show');
     expect(subcommandNames).toContain('discover');
     expect(subcommandNames).toContain('search');
     expect(subcommandNames).toContain('deps');

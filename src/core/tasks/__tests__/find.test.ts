@@ -57,7 +57,7 @@ describe('findTasks', () => {
 
   it('requires query or id', async () => {
     const data = makeTodoFile([]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     await expect(findTasks({}, tempDir)).rejects.toThrow('query or --id is required');
   });
@@ -68,7 +68,7 @@ describe('findTasks', () => {
       { id: 'T002', title: 'Fix database query', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T003', title: 'Update docs', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await findTasks({ query: 'auth' }, tempDir);
     expect(result.results.length).toBeGreaterThan(0);
@@ -82,7 +82,7 @@ describe('findTasks', () => {
       { id: 'T010', title: 'Task 10', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T100', title: 'Task 100', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await findTasks({ id: 'T01' }, tempDir);
     expect(result.results).toHaveLength(1); // T010 starts with T01
@@ -95,7 +95,7 @@ describe('findTasks', () => {
       { id: 'T001', title: 'Exact Match', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Not Exact Match', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await findTasks({ query: 'Exact Match', exact: true }, tempDir);
     expect(result.results).toHaveLength(1);
@@ -116,7 +116,7 @@ describe('findTasks', () => {
         createdAt: new Date().toISOString(),
       },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await findTasks({ query: 'lots' }, tempDir);
     const found = result.results[0]!;
@@ -135,7 +135,7 @@ describe('findTasks', () => {
       { id: 'T001', title: 'Done task', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Pending task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await findTasks({ query: 'task', status: 'pending' }, tempDir);
     expect(result.results).toHaveLength(1);

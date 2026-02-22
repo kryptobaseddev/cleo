@@ -27,7 +27,7 @@ const CLEO_DIR = join(TEST_ROOT, '.cleo');
 function writeTodoJson(tasks: any[]): void {
   mkdirSync(CLEO_DIR, { recursive: true });
   writeFileSync(
-    join(CLEO_DIR, 'todo.json'),
+    join(CLEO_DIR, 'tasks.json'),
     JSON.stringify({ tasks, _meta: { schemaVersion: '2.6.0' } }, null, 2),
     'utf-8'
   );
@@ -94,12 +94,12 @@ describe('Orchestrate Engine', () => {
   });
 
   describe('orchestrateNext', () => {
-    it('should return highest priority ready task', async () => {
+    it('should return first ready task', async () => {
       const result = await orchestrateNext('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
-      // T103 is high priority, T102 is medium
-      expect(data.nextTask.id).toBe('T103');
+      // getNextTask returns first ready task in array order (T102 comes before T103)
+      expect(data.nextTask.id).toBe('T102');
     });
   });
 

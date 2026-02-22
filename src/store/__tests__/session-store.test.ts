@@ -17,11 +17,13 @@ import type { Session } from '../../types/session.js';
 let tempDir: string;
 
 function makeSession(overrides: Partial<Session> & { id: string }): Session {
+  const focus = overrides.focus ?? { taskId: null, setAt: null };
   return {
     name: `Session ${overrides.id}`,
     status: 'active',
     scope: { type: 'global' },
-    focus: { taskId: null, setAt: null },
+    focus,
+    taskWork: overrides.taskWork ?? focus,
     startedAt: new Date().toISOString(),
     ...overrides,
   };
@@ -98,8 +100,8 @@ describe('SQLite session-store', () => {
       await createSession(session);
       const retrieved = await getSession('sess-003');
 
-      expect(retrieved!.focus.taskId).toBe('T001');
-      expect(retrieved!.focus.setAt).toBe(now);
+      expect(retrieved!.focus!.taskId).toBe('T001');
+      expect(retrieved!.focus!.setAt).toBe(now);
     });
 
     it('preserves agent field', async () => {

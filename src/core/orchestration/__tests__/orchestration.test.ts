@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 async function writeTodo(tasks: Task[] = epicTasks) {
-  await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile(tasks)));
+  await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile(tasks)));
 }
 
 describe('startOrchestration', () => {

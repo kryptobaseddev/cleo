@@ -44,7 +44,7 @@ describe('label operations', () => {
         { id: 'T002', title: 'Task 2', status: 'done', priority: 'high', labels: ['bug'], createdAt: new Date().toISOString() },
         { id: 'T003', title: 'Task 3', status: 'active', priority: 'low', labels: ['feature'], createdAt: new Date().toISOString() },
       ]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const labels = await listLabels(tempDir);
       expect(labels).toHaveLength(3);
@@ -61,7 +61,7 @@ describe('label operations', () => {
         { id: 'T002', title: 'Task 2', status: 'pending', priority: 'medium', labels: ['b', 'a'], createdAt: new Date().toISOString() },
         { id: 'T003', title: 'Task 3', status: 'pending', priority: 'medium', labels: ['a'], createdAt: new Date().toISOString() },
       ]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const labels = await listLabels(tempDir);
       expect(labels[0].label).toBe('a');
@@ -72,7 +72,7 @@ describe('label operations', () => {
       const data = makeTodoFile([
         { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       ]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const labels = await listLabels(tempDir);
       expect(labels).toHaveLength(0);
@@ -86,7 +86,7 @@ describe('label operations', () => {
         { id: 'T002', title: 'Feature', status: 'active', priority: 'medium', labels: ['feature'], createdAt: new Date().toISOString() },
         { id: 'T003', title: 'Another bug', status: 'done', priority: 'low', labels: ['bug', 'frontend'], createdAt: new Date().toISOString() },
       ]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const result = await showLabelTasks('bug', tempDir) as { label: string; tasks: Array<{ id: string }>; count: number };
       expect(result.label).toBe('bug');
@@ -98,7 +98,7 @@ describe('label operations', () => {
       const data = makeTodoFile([
         { id: 'T001', title: 'Task', status: 'pending', priority: 'medium', labels: ['bug'], createdAt: new Date().toISOString() },
       ]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       await expect(showLabelTasks('nonexistent', tempDir)).rejects.toThrow('No tasks found');
     });
@@ -110,7 +110,7 @@ describe('label operations', () => {
         { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', labels: ['bug', 'frontend'], createdAt: new Date().toISOString() },
         { id: 'T002', title: 'Task 2', status: 'done', priority: 'high', labels: ['bug'], createdAt: new Date().toISOString() },
       ]);
-      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+      await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
       const stats = await getLabelStats(tempDir) as { totalLabels: number; totalUsages: number; avgPerLabel: number };
       expect(stats.totalLabels).toBe(2); // 'bug' and 'frontend'

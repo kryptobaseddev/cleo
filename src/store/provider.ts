@@ -97,6 +97,11 @@ export interface StoreProvider {
   getCurrentTaskForSession(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
   stopTaskOnSession(sessionId: string): Promise<void>;
 
+  // Focus aliases (delegate to task work operations)
+  setFocus(sessionId: string, taskId: string): Promise<void>;
+  getFocus(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
+  clearFocus(sessionId: string): Promise<void>;
+
   // Lifecycle
   close(): Promise<void>;
 
@@ -267,9 +272,11 @@ export function detectStoreEngine(cwd?: string): StoreEngine {
   const dbPath = join(cleoDir, 'tasks.db');
   if (existsSync(dbPath)) return 'sqlite';
 
-  // Backward compat: if todo.json exists (but no tasks.db), keep json
+  // Backward compat: if todo.json or tasks.json exists (but no tasks.db), keep json
   const todoPath = join(cleoDir, 'todo.json');
   if (existsSync(todoPath)) return 'json';
+  const tasksJsonPath = join(cleoDir, 'tasks.json');
+  if (existsSync(tasksJsonPath)) return 'json';
 
   // Default: sqlite (CLEO V2 default for new projects)
   return 'sqlite';
@@ -325,6 +332,9 @@ async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
     startTaskOnSession: (sessionId, taskId) => sessionStore.startTask(sessionId, taskId, cwd),
     getCurrentTaskForSession: (sessionId) => sessionStore.getCurrentTask(sessionId, cwd),
     stopTaskOnSession: (sessionId) => sessionStore.stopTask(sessionId, cwd),
+    setFocus: (sessionId, taskId) => sessionStore.startTask(sessionId, taskId, cwd),
+    getFocus: (sessionId) => sessionStore.getCurrentTask(sessionId, cwd),
+    clearFocus: (sessionId) => sessionStore.stopTask(sessionId, cwd),
     close: async () => closeDb(),
     ...domainOps,
   };
@@ -491,6 +501,30 @@ async function createDualWriteProvider(cwd?: string): Promise<StoreProvider> {
     },
 
     stopTaskOnSession: async (sessionId: string) => {
+      await Promise.allSettled([
+        sqliteProvider.stopTaskOnSession(sessionId),
+        jsonProvider.stopTaskOnSession(sessionId),
+      ]);
+    },
+
+    // Focus aliases (delegate to task work operations)
+    setFocus: async (sessionId: string, taskId: string) => {
+      await Promise.allSettled([
+        sqliteProvider.startTaskOnSession(sessionId, taskId),
+        jsonProvider.startTaskOnSession(sessionId, taskId),
+      ]);
+    },
+
+    getFocus: async (sessionId: string) => {
+      try {
+        return await sqliteProvider.getCurrentTaskForSession(sessionId);
+      } catch {
+        logDiscrepancy('getFocus', `SQLite read failed for ${sessionId}`);
+        return jsonProvider.getCurrentTaskForSession(sessionId);
+      }
+    },
+
+    clearFocus: async (sessionId: string) => {
       await Promise.allSettled([
         sqliteProvider.stopTaskOnSession(sessionId),
         jsonProvider.stopTaskOnSession(sessionId),
