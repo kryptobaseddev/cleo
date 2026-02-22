@@ -1,7 +1,0 @@
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "session.status request",
-  "description": "Current session status",
-  "type": "object",
-  "additionalProperties": false
-}

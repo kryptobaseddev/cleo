@@ -768,7 +768,7 @@ export function coreTestStatus(
   message: string;
 } {
   const testDir = join(projectRoot, 'tests');
-  const mcpTestDir = join(projectRoot, 'mcp-server', 'src', '__tests__');
+  const mcpTestDir = join(projectRoot, 'src', 'mcp', '__tests__');
 
   const hasBatsTests = existsSync(testDir);
   const hasMcpTests = existsSync(mcpTestDir);
@@ -780,7 +780,7 @@ export function coreTestStatus(
     },
     mcpTests: {
       available: hasMcpTests,
-      directory: hasMcpTests ? 'mcp-server/src/__tests__/' : null,
+      directory: hasMcpTests ? 'src/mcp/__tests__/' : null,
     },
     message: 'Use validate.test.run to execute tests',
   };
@@ -1100,7 +1100,7 @@ export async function coreBatchValidate(
 export function coreTestCoverage(
   projectRoot: string,
 ): { available: boolean; message?: string; [key: string]: unknown } {
-  const coveragePath = join(projectRoot, 'mcp-server', 'coverage', 'coverage-summary.json');
+  const coveragePath = join(projectRoot, 'coverage', 'coverage-summary.json');
 
   if (!existsSync(coveragePath)) {
     return {

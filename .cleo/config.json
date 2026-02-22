@@ -64,13 +64,6 @@
           "jsonPath": ".version",
           "optional": true,
           "description": "Plugin manifest version"
-        },
-        {
-          "path": "mcp-server/package.json",
-          "strategy": "json",
-          "jsonPath": ".version",
-          "optional": true,
-          "description": "MCP server package version"
         }
       ],
       "postValidate": "./dev/validate-version.sh"

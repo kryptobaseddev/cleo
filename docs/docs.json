@@ -72,7 +72,7 @@
           {
             "group": "MCP Server",
             "pages": [
-              "getting-started/mcp-server"
+              "getting-started/mcp-setup"
             ]
           },
           {
@@ -209,7 +209,8 @@
               "commands/uncancel",
               "commands/list",
               "commands/show",
-              "commands/find"
+              "commands/find",
+              "commands/issue"
             ]
           },
           {
@@ -217,7 +218,10 @@
             "pages": [
               "commands/session",
               "commands/focus",
-              "commands/context"
+              "commands/context",
+              "commands/start",
+              "commands/stop",
+              "commands/current"
             ]
           },
           {
@@ -235,11 +239,9 @@
           {
             "group": "Hierarchy",
             "pages": [
-              "commands/tree",
               "commands/reparent",
               "commands/promote",
-              "commands/reorder",
-              "commands/populate-hierarchy"
+              "commands/reorder"
             ]
           },
           {
@@ -255,8 +257,7 @@
             "pages": [
               "commands/config",
               "commands/init",
-              "commands/setup-agents",
-              "commands/setup-claude-aliases"
+              "commands/env"
             ]
           },
           {
@@ -273,7 +274,8 @@
               "commands/compliance",
               "commands/doctor",
               "commands/release",
-              "commands/reorganize-backups",
+              "commands/detect-drift",
+              "commands/migrate-storage",
               "commands/safestop",
               "commands/self-update"
             ]
@@ -285,9 +287,10 @@
               "commands/export",
               "commands/export-tasks",
               "commands/import-tasks",
+              "commands/import",
               "commands/inject",
               "commands/nexus",
-              "commands/orchestrator",
+              "commands/orchestrate",
               "commands/research",
               "commands/sequence"
             ]
@@ -306,7 +309,6 @@
               "commands/relates",
               "commands/roadmap",
               "commands/skills",
-              "commands/unarchive",
               "commands/verify"
             ]
           }

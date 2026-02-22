@@ -403,7 +403,6 @@ function performGitOperations(
       'VERSION',
       'CHANGELOG.md',
       'package.json',
-      'mcp-server/package.json',
       'README.md',
       '.cleo/todo.json',
       '.cleo/config.json',
