@@ -35,11 +35,13 @@ describe('checkStorageMigration', () => {
 
     const result = checkStorageMigration(tmpDir);
     expect(result.migrationNeeded).toBe(true);
-    expect(result.summary).toContain('SQLite is the default');
-    expect(result.fix).toContain('migrate-storage');
+    expect(result.summary).toContain('SQLite is the only supported storage engine');
+    expect(result.fix).toContain('upgrade');
   });
 
-  it('does not flag migration for explicit JSON engine', () => {
+  it('flags migration for legacy explicit JSON engine config (ADR-006)', () => {
+    // Per ADR-006, JSON is no longer a valid engine. Even if config says json,
+    // migration is needed because the DB doesn't exist.
     writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
       tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
       _meta: { schemaVersion: '2.10.0' },
@@ -47,8 +49,8 @@ describe('checkStorageMigration', () => {
     writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ storage: { engine: 'json' } }));
 
     const result = checkStorageMigration(tmpDir);
-    expect(result.migrationNeeded).toBe(false);
-    expect(result.currentEngine).toBe('json');
+    expect(result.migrationNeeded).toBe(true);
+    expect(result.currentEngine).toBe('none');
   });
 
   it('flags broken state: config says sqlite but no DB', () => {
@@ -60,7 +62,7 @@ describe('checkStorageMigration', () => {
 
     const result = checkStorageMigration(tmpDir);
     expect(result.migrationNeeded).toBe(true);
-    expect(result.summary).toContain('tasks.db is missing');
+    expect(result.summary).toContain('no SQLite database');
   });
 
   it('does not flag when config says sqlite and DB exists', () => {

@@ -21,13 +21,16 @@ import { CleoError } from '../../core/errors.js';
 export function registerMigrateCommand(program: Command): void {
   const migrate = program
     .command('migrate')
-    .description('Schema migration system');
+    .description('Schema migration system (deprecated — JSON migrations are irrelevant with SQLite)');
 
   migrate
     .command('status')
     .description('Check migration status for all data files')
     .action(async () => {
       try {
+        process.stderr.write(
+          `\n⚠ migrate is deprecated. JSON schema migrations are irrelevant with SQLite (ADR-006). Use 'cleo upgrade' instead.\n\n`,
+        );
         const result = await getMigrationStatus();
         cliOutput(result, { command: 'migrate' });
       } catch (err) {
@@ -45,6 +48,9 @@ export function registerMigrateCommand(program: Command): void {
     .option('--dry-run', 'Preview migrations without applying')
     .action(async (fileType: string | undefined, opts: Record<string, unknown>) => {
       try {
+        process.stderr.write(
+          `\n⚠ migrate is deprecated. JSON schema migrations are irrelevant with SQLite (ADR-006). Use 'cleo upgrade' instead.\n\n`,
+        );
         if (fileType) {
           const result = await runMigration(fileType, {
             dryRun: opts['dryRun'] as boolean | undefined,

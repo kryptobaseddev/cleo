@@ -26,7 +26,7 @@ source "${INSTALLER_LIB_DIR}/core.sh"
 # ============================================
 # CONSTANTS
 # ============================================
-readonly DEPS_NODE_MIN_VERSION=20
+readonly DEPS_NODE_MIN_VERSION=24
 readonly DEPS_BASH_MIN_VERSION=4
 readonly DEPS_JQ_MIN_VERSION="1.5"
 
@@ -116,7 +116,7 @@ installer_deps_detect_package_manager() {
 # DEPENDENCY CHECKS
 # ============================================
 
-# Check Node.js availability and version (required: 20+)
+# Check Node.js availability and version (required: 24+)
 # Returns: 0 if meets requirements, 1 otherwise
 installer_deps_check_node() {
     if ! command -v node &>/dev/null; then
@@ -180,7 +180,7 @@ installer_deps_check_bash() {
     fi
 }
 
-# Check jq availability (required)
+# Check jq availability (optional — legacy, no longer needed since SQLite migration)
 # Returns: 0 if available, 1 otherwise
 installer_deps_check_jq() {
     if command -v jq &>/dev/null; then
@@ -193,7 +193,7 @@ installer_deps_check_jq() {
     else
         DEPS_VERSION_jq=""
         DEPS_STATUS_jq="missing"
-        installer_log_error "jq is required but not found"
+        installer_log_debug "jq not found (optional — no longer needed since SQLite migration)"
         return 1
     fi
 }
@@ -411,13 +411,13 @@ installer_deps_install_instructions() {
 
     if [[ "$DEPS_STATUS_node" == "missing" || "$DEPS_STATUS_node" == "fail" ]]; then
         echo "Node.js >= ${DEPS_NODE_MIN_VERSION} (required):"
-        echo "  nvm (recommended): curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
-        echo "                     nvm install ${DEPS_NODE_MIN_VERSION}"
+        echo "  fnm (recommended): curl -fsSL https://fnm.vercel.app/install | bash"
+        echo "                     fnm install ${DEPS_NODE_MIN_VERSION}"
         case "$pkg_manager" in
-            apt)    echo "  apt:     sudo apt-get install nodejs npm" ;;
-            brew)   echo "  Homebrew: brew install node@${DEPS_NODE_MIN_VERSION}" ;;
-            dnf)    echo "  dnf:     sudo dnf install nodejs npm" ;;
-            *)      echo "  Official: https://nodejs.org/" ;;
+            apt)    echo "  apt:      curl -fsSL https://deb.nodesource.com/setup_${DEPS_NODE_MIN_VERSION}.x | sudo -E bash - && sudo apt install -y nodejs" ;;
+            brew)   echo "  brew:     brew install node@${DEPS_NODE_MIN_VERSION}" ;;
+            dnf)    echo "  dnf:      sudo dnf module enable nodejs:${DEPS_NODE_MIN_VERSION} && sudo dnf install nodejs" ;;
+            *)      echo "  official: https://nodejs.org/" ;;
         esac
         echo ""
     fi
@@ -429,7 +429,7 @@ installer_deps_install_instructions() {
     fi
 
     if [[ "$DEPS_STATUS_jq" == "missing" ]]; then
-        echo "jq (optional - used by some legacy features):"
+        echo "jq (optional — legacy only, not needed for CLEO v2):"
         case "$pkg_manager" in
             apt)    echo "  sudo apt-get install jq" ;;
             dnf)    echo "  sudo dnf install jq" ;;
@@ -443,27 +443,94 @@ installer_deps_install_instructions() {
     fi
 }
 
+# Attempt to auto-install Node.js via fnm
+# Returns: 0 if Node.js installed, 1 if failed
+installer_deps_try_fnm_install() {
+    local fnm_bin="$HOME/.local/share/fnm/fnm"
+
+    # Install fnm if not present
+    if ! command -v fnm &>/dev/null && [[ ! -x "$fnm_bin" ]]; then
+        installer_log_info "Installing fnm (Fast Node Manager)..."
+        if curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell 2>/dev/null; then
+            installer_log_info "fnm installed"
+        else
+            installer_log_error "Failed to install fnm"
+            return 1
+        fi
+    fi
+
+    # Ensure fnm is on PATH for this session
+    if ! command -v fnm &>/dev/null; then
+        export PATH="$HOME/.local/share/fnm:$PATH"
+    fi
+
+    if ! command -v fnm &>/dev/null; then
+        installer_log_error "fnm not found after installation"
+        return 1
+    fi
+
+    # Initialize fnm environment
+    eval "$(fnm env 2>/dev/null)" || true
+
+    # Install and use the required Node version
+    installer_log_info "Installing Node.js ${DEPS_NODE_MIN_VERSION} via fnm..."
+    if fnm install "${DEPS_NODE_MIN_VERSION}" 2>/dev/null && fnm use "${DEPS_NODE_MIN_VERSION}" 2>/dev/null; then
+        installer_log_info "Node.js $(node -v 2>/dev/null) installed via fnm"
+        # Re-check deps
+        installer_deps_check_node
+        installer_deps_check_npm
+        return 0
+    else
+        installer_log_error "Failed to install Node.js via fnm"
+        return 1
+    fi
+}
+
 # Attempt to auto-install missing dependencies
 # Returns: 0 if all required deps installed, 1 if failed
 installer_deps_auto_install() {
-    # Node.js and npm cannot be reliably auto-installed via package managers
-    # because versions are often too old. Guide users to proper install methods.
     if [[ "$DEPS_STATUS_node" == "missing" || "$DEPS_STATUS_node" == "fail" || "$DEPS_STATUS_npm" == "missing" ]]; then
         installer_log_warn "Node.js >= ${DEPS_NODE_MIN_VERSION} and npm are required"
+
+        # Try automatic installation via fnm
+        if installer_deps_try_fnm_install; then
+            installer_log_info "Node.js installed successfully via fnm"
+            installer_log_info "fnm shell integration will be added to your profile"
+            return 0
+        fi
+
+        # Fall back to manual instructions
+        local pkg_manager
+        pkg_manager=$(installer_deps_detect_package_manager)
+
         installer_log_info ""
-        installer_log_info "Install Node.js using one of these methods:"
+        installer_log_info "Install Node.js ${DEPS_NODE_MIN_VERSION} manually:"
         installer_log_info ""
-        installer_log_info "  nvm (recommended):"
-        installer_log_info "    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
-        installer_log_info "    nvm install ${DEPS_NODE_MIN_VERSION}"
-        installer_log_info ""
-        installer_log_info "  Official installer:"
-        installer_log_info "    https://nodejs.org/"
+
+        # Check for existing version managers
+        if command -v fnm &>/dev/null; then
+            installer_log_info "  fnm:      fnm install ${DEPS_NODE_MIN_VERSION} && fnm use ${DEPS_NODE_MIN_VERSION}"
+        fi
+        if command -v nvm &>/dev/null || [[ -f "$HOME/.nvm/nvm.sh" ]]; then
+            installer_log_info "  nvm:      nvm install ${DEPS_NODE_MIN_VERSION} && nvm use ${DEPS_NODE_MIN_VERSION}"
+        fi
+        if command -v volta &>/dev/null; then
+            installer_log_info "  volta:    volta install node@${DEPS_NODE_MIN_VERSION}"
+        fi
+
+        case "$pkg_manager" in
+            dnf)    installer_log_info "  dnf:      sudo dnf module enable nodejs:${DEPS_NODE_MIN_VERSION} && sudo dnf install nodejs" ;;
+            apt)    installer_log_info "  apt:      curl -fsSL https://deb.nodesource.com/setup_${DEPS_NODE_MIN_VERSION}.x | sudo -E bash - && sudo apt install -y nodejs" ;;
+            brew)   installer_log_info "  brew:     brew install node@${DEPS_NODE_MIN_VERSION}" ;;
+        esac
+
+        installer_log_info "  fnm:      curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${DEPS_NODE_MIN_VERSION}"
+        installer_log_info "  official: https://nodejs.org/"
         installer_log_info ""
         return 1
     fi
 
-    installer_log_success "All required dependencies are installed"
+    installer_log_info "All required dependencies are installed"
     return 0
 }
 
@@ -486,4 +553,5 @@ export -f installer_deps_check_optional
 export -f installer_deps_check_all
 export -f installer_deps_report
 export -f installer_deps_install_instructions
+export -f installer_deps_try_fnm_install
 export -f installer_deps_auto_install

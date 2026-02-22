@@ -229,6 +229,11 @@ export function registerMigrateStorageCommand(program: Command): void {
     .option('--status', 'Show migration status and exit')
     .action(async (opts: Record<string, unknown>) => {
       try {
+        // Deprecation warning (ADR-006: use `cleo upgrade` instead)
+        process.stderr.write(
+          `\n⚠ migrate-storage is deprecated. Use 'cleo upgrade' instead.\n\n`,
+        );
+
         const toSqlite = !!opts['toSqlite'];
         const toJson = !!opts['toJson'];
         const dryRun = !!opts['dryRun'];
