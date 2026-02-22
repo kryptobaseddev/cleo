@@ -280,6 +280,61 @@ export async function coreValidateReport(
 }
 
 // ============================================================================
+// Validate and Fix
+// ============================================================================
+
+/** Result from validate + fix operation. */
+export interface ValidateFixResult {
+  /** Validation report (before fixes). */
+  validation: ValidateReportResult;
+  /** Repair actions taken (or previewed). */
+  repairs: Array<{ action: string; status: 'applied' | 'skipped' | 'preview'; details: string }>;
+  /** Whether all fixable issues were resolved. */
+  allFixed: boolean;
+}
+
+/**
+ * Run validation, then apply fixes for fixable issues.
+ *
+ * Fixable issues: missing sizes, missing completedAt, checksum mismatch, missing schema version.
+ * Non-fixable issues: duplicate IDs, circular deps, missing required fields.
+ */
+export async function coreValidateAndFix(
+  projectRoot: string,
+  opts?: { dryRun?: boolean },
+): Promise<ValidateFixResult> {
+  const dryRun = opts?.dryRun ?? false;
+
+  // Step 1: Run validation to identify issues
+  const validation = await coreValidateReport(projectRoot);
+
+  // Step 2: Run repairs on fixable issues
+  const { runAllRepairs } = await import('../repair.js');
+  const accessor = await getAccessor(projectRoot);
+  const data = await accessor.loadTaskFile();
+
+  const repairs = runAllRepairs(data, dryRun);
+
+  // Step 3: Save if changes were applied
+  const applied = repairs.filter((r) => r.status === 'applied');
+  if (applied.length > 0 && !dryRun) {
+    const { computeChecksum } = await import('../../store/json.js');
+    data._meta.checksum = computeChecksum(data.tasks);
+    data.lastUpdated = new Date().toISOString();
+    await accessor.saveTaskFile(data);
+  }
+
+  // Determine if all fixable issues were resolved
+  const fixableChecks = new Set(['completed_at', 'checksum', 'missing_sizes', 'schema_version']);
+  const remainingErrors = validation.details.filter(
+    (d) => d.status === 'error' && !fixableChecks.has(d.check),
+  );
+  const allFixed = remainingErrors.length === 0;
+
+  return { validation, repairs, allFixed };
+}
+
+// ============================================================================
 // Schema Validation
 // ============================================================================
 

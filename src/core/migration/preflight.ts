@@ -1,8 +1,10 @@
 /**
  * Pre-flight migration checks.
  *
- * Detects when JSON data exists but hasn't been migrated to SQLite,
- * and provides actionable diagnostics for users upgrading to v2.
+ * Detects when legacy JSON data exists but hasn't been migrated to SQLite,
+ * and provides actionable diagnostics for users upgrading from V1.
+ *
+ * Per ADR-006, SQLite is the ONLY supported storage engine.
  *
  * Core module: CLI and MCP both call these functions.
  *
@@ -17,8 +19,8 @@ import { getCleoDirAbsolute } from '../paths.js';
 export interface PreflightResult {
   /** Whether a storage migration is needed. */
   migrationNeeded: boolean;
-  /** Current detected storage engine. */
-  currentEngine: 'json' | 'sqlite' | 'dual' | 'none';
+  /** Current detected storage engine. Always 'sqlite' or 'none'. */
+  currentEngine: 'sqlite' | 'none';
   /** Human-readable summary of what was detected. */
   summary: string;
   /** Actionable fix command. */
@@ -38,7 +40,7 @@ export interface PreflightResult {
 }
 
 /**
- * Check whether JSON data needs to be migrated to SQLite.
+ * Check whether legacy JSON data needs to be migrated to SQLite.
  *
  * Returns a diagnostic result that callers can use to warn users.
  * This function is read-only and never modifies any files.
@@ -71,7 +73,7 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     }
   }
 
-  // Check todo.json
+  // Check legacy todo.json
   const todoPath = join(cleoDir, 'todo.json');
   if (existsSync(todoPath)) {
     details.todoJsonExists = true;
@@ -83,7 +85,7 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     }
   }
 
-  // Check todo-archive.json
+  // Check legacy todo-archive.json
   const archivePath = join(cleoDir, 'todo-archive.json');
   if (existsSync(archivePath)) {
     details.archiveJsonExists = true;
@@ -95,7 +97,7 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     }
   }
 
-  // Check sessions.json
+  // Check legacy sessions.json
   const sessionsPath = join(cleoDir, 'sessions.json');
   if (existsSync(sessionsPath)) {
     details.sessionsJsonExists = true;
@@ -118,67 +120,30 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     }
   }
 
-  // Determine current engine
-  let currentEngine: PreflightResult['currentEngine'] = 'none';
-  if (details.configEngine === 'sqlite' || details.configEngine === 'dual') {
-    currentEngine = details.configEngine as 'sqlite' | 'dual';
-  } else if (details.configEngine === 'json') {
-    currentEngine = 'json';
-  } else if (details.tasksDbExists) {
-    currentEngine = 'sqlite';
-  } else if (details.todoJsonExists) {
-    currentEngine = 'json';
-  }
+  // Determine current engine — per ADR-006, only sqlite or none
+  const currentEngine: PreflightResult['currentEngine'] = details.tasksDbExists ? 'sqlite' : 'none';
 
   // Determine if migration is needed
   const jsonHasData = details.todoJsonTaskCount > 0
     || details.archiveJsonTaskCount > 0
     || details.sessionsJsonCount > 0;
 
-  // Migration is flagged for broken or upgrade states:
-  //
-  // Cases:
-  // 1. Config says sqlite but tasks.db is missing (broken state)
-  // 2. No config engine set, JSON data exists, no tasks.db (v1→v2 upgrade)
-  //
-  // NOT flagged:
-  // - Config says sqlite and tasks.db exists (normal post-migration state,
-  //   even if JSON files remain as backups)
-  // - Config says json explicitly (user opted out of SQLite)
-
   let migrationNeeded = false;
   let summary = '';
   let fix: string | null = null;
 
-  if (details.configEngine === 'sqlite' && !details.tasksDbExists && jsonHasData) {
-    // Config says sqlite but DB is missing - broken state
-    migrationNeeded = true;
-    summary = `Config engine is 'sqlite' but tasks.db is missing. `
-      + `${details.todoJsonTaskCount} active tasks and ${details.archiveJsonTaskCount} archived tasks found in JSON files.`;
-    fix = 'cleo migrate-storage --to-sqlite --verify';
-  } else if (details.configEngine === 'sqlite' && !details.tasksDbExists && !jsonHasData) {
-    // Config says sqlite, no DB, no JSON data - fresh project with bad config
-    migrationNeeded = false;
-    summary = 'No data found. Run cleo init to set up a new project.';
-  } else if (
-    details.configEngine === null
-    && jsonHasData
-    && !details.tasksDbExists
-  ) {
-    // No explicit config, JSON data exists but no SQLite DB.
-    // User is upgrading from JSON era — SQLite is now the default in CLEO V2.
+  if (!details.tasksDbExists && jsonHasData) {
+    // Legacy JSON data exists but no SQLite DB — migration needed
     const totalTasks = details.todoJsonTaskCount + details.archiveJsonTaskCount;
     migrationNeeded = true;
-    summary = `Found ${totalTasks} task(s) in JSON files but no SQLite database. `
-      + `SQLite is the default storage engine in CLEO V2. `
-      + `Run migration to upgrade, or set storage.engine to 'json' in .cleo/config.json to keep using JSON.`;
-    fix = 'cleo migrate-storage --to-sqlite --verify';
-  } else if (!jsonHasData && !details.tasksDbExists) {
+    summary = `Found ${totalTasks} task(s) in legacy JSON files but no SQLite database. `
+      + `SQLite is the only supported storage engine (ADR-006). `
+      + `Run migration to upgrade.`;
+    fix = 'cleo upgrade';
+  } else if (!details.tasksDbExists && !jsonHasData) {
     summary = 'No data found. Run cleo init to set up a new project.';
   } else {
-    summary = currentEngine === 'sqlite'
-      ? `SQLite storage active (${details.tasksDbSize} bytes).`
-      : `JSON storage active (${details.todoJsonTaskCount} tasks).`;
+    summary = `SQLite storage active (${details.tasksDbSize} bytes).`;
   }
 
   return {

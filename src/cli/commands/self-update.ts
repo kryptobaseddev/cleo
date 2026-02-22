@@ -72,11 +72,14 @@ export function registerSelfUpdateCommand(program: Command): void {
     .option('--version <ver>', 'Update to specific version')
     .option('--force', 'Force update even if same version')
     .option('--post-update', 'Run post-update diagnostics and migration only')
+    .option('--no-auto-upgrade', 'Skip automatic upgrade after update')
     .action(async (opts: Record<string, unknown>) => {
       try {
+        const noAutoUpgrade = opts['autoUpgrade'] === false; // Commander normalizes --no-auto-upgrade to autoUpgrade=false
+
         // --post-update: skip version check, just run diagnostics + upgrade
         if (opts['postUpdate']) {
-          await runPostUpdateDiagnostics();
+          await runPostUpdateDiagnostics({ skipUpgrade: noAutoUpgrade });
           return;
         }
 
@@ -141,7 +144,7 @@ export function registerSelfUpdateCommand(program: Command): void {
 
         if (latest === currentVersion && !opts['force']) {
           // Up to date - still run post-update diagnostics
-          await runPostUpdateDiagnostics();
+          await runPostUpdateDiagnostics({ skipUpgrade: noAutoUpgrade });
           cliOutput({
             currentVersion,
             upToDate: true,
@@ -177,16 +180,44 @@ export function registerSelfUpdateCommand(program: Command): void {
  *
  * @task T4699
  */
-async function runPostUpdateDiagnostics(): Promise<void> {
+async function runPostUpdateDiagnostics(opts?: { skipUpgrade?: boolean }): Promise<void> {
   const preflight = checkStorageMigration();
 
   if (preflight.migrationNeeded) {
+    if (opts?.skipUpgrade) {
+      process.stderr.write(
+        `\n⚠ Storage migration detected: ${preflight.summary}\n`
+        + `  Auto-upgrade skipped (--no-auto-upgrade).\n`
+        + `  Run manually: cleo upgrade\n\n`,
+      );
+      cliOutput({
+        postUpdate: true,
+        upgradeSkipped: true,
+        storagePreflight: {
+          migrationNeeded: true,
+          summary: preflight.summary,
+          fix: preflight.fix,
+        },
+      }, { command: 'self-update', message: 'Post-update upgrade skipped.' });
+      return;
+    }
+
     process.stderr.write(
       `\n⚠ Storage migration detected: ${preflight.summary}\n`
       + `  Running automatic upgrade...\n\n`,
     );
 
     const result = await runUpgrade({ autoMigrate: true });
+
+    // Show structured output of each action taken
+    if (result.actions.length > 0) {
+      process.stderr.write('Upgrade actions:\n');
+      for (const action of result.actions) {
+        const icon = action.status === 'applied' ? '  ✓' : action.status === 'error' ? '  ✗' : '  -';
+        process.stderr.write(`${icon} ${action.action}: ${action.details}\n`);
+      }
+      process.stderr.write('\n');
+    }
 
     cliOutput({
       postUpdate: true,

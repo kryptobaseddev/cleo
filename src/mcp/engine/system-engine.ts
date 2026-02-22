@@ -687,12 +687,12 @@ export function systemHealth(
  * System diagnostics: extended health checks with fix suggestions.
  * @task T4631
  */
-export function systemDiagnostics(
+export async function systemDiagnostics(
   projectRoot: string,
   params?: { checks?: string[] },
-): EngineResult<import('../../core/system/health.js').DiagnosticsResult> {
+): Promise<EngineResult<import('../../core/system/health.js').DiagnosticsResult>> {
   try {
-    const result = getSystemDiagnostics(projectRoot, params);
+    const result = await getSystemDiagnostics(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     return { success: false, error: { code: 'E_DIAGNOSTICS_FAILED', message: (err as Error).message } };
