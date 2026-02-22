@@ -5,11 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { archiveTasks } from '../../core/tasks/archive.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the archive command.
@@ -24,22 +20,13 @@ export function registerArchiveCommand(program: Command): void {
     .option('--no-cancelled', 'Exclude cancelled tasks')
     .option('--dry-run', 'Show what would be archived without making changes')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await archiveTasks({
-          before: opts['before'] as string | undefined,
-          taskIds: opts['tasks'] ? (opts['tasks'] as string).split(',').map(s => s.trim()) : undefined,
-          includeCancelled: opts['cancelled'] !== false,
-          dryRun: opts['dryRun'] as boolean | undefined,
-        }, undefined, accessor);
+      const params: Record<string, unknown> = {};
 
-        cliOutput(result, { command: 'archive', operation: 'tasks.archive' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      if (opts['before'] !== undefined) params['before'] = opts['before'];
+      if (opts['tasks']) params['taskIds'] = (opts['tasks'] as string).split(',').map(s => s.trim());
+      if (opts['cancelled'] === false) params['includeCancelled'] = false;
+      if (opts['dryRun']) params['dryRun'] = opts['dryRun'];
+
+      await dispatchFromCli('mutate', 'tasks', 'archive', params, { command: 'archive' });
     });
 }

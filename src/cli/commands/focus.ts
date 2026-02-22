@@ -17,6 +17,7 @@ import * as taskWork from '../../core/task-work/index.js';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the focus command group (backward-compat aliases).
@@ -31,51 +32,21 @@ export function registerFocusCommand(program: Command): void {
     .command('show')
     .description('Show current task (use "cleo current" instead)')
     .action(async () => {
-      try {
-        const accessor = await getAccessor();
-        const result = await taskWork.currentTask(undefined, accessor);
-        cliOutput(result, { command: 'focus' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'tasks', 'current', {}, { command: 'focus' });
     });
 
   focus
     .command('set <taskId>')
     .description('Start working on a task (use "cleo start" instead)')
     .action(async (taskId: string) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await taskWork.startTask(taskId, undefined, accessor);
-        cliOutput(result, { command: 'focus' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'tasks', 'start', { taskId }, { command: 'focus' });
     });
 
   focus
     .command('clear')
     .description('Stop working on current task (use "cleo stop" instead)')
     .action(async () => {
-      try {
-        const accessor = await getAccessor();
-        const result = await taskWork.stopTask(undefined, accessor);
-        cliOutput(result, { command: 'focus' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'tasks', 'stop', {}, { command: 'focus' });
     });
 
   focus

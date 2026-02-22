@@ -6,14 +6,10 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { findTasks } from '../../core/tasks/find.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliOutput, cliError } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createPage } from '../../core/pagination.js';
-import type { TaskStatus } from '../../types/task.js';
-import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the find command.
@@ -33,34 +29,38 @@ export function registerFindCommand(program: Command): void {
     .option('--limit <n>', 'Max results (default: 20)', parseInt)
     .option('--offset <n>', 'Skip first N results', parseInt)
     .action(async (query: string | undefined, opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const limit = opts['limit'] as number | undefined;
-        const offset = opts['offset'] as number | undefined;
-        const result = await findTasks({
-          query,
-          id: opts['id'] as string | undefined,
-          exact: opts['exact'] as boolean | undefined,
-          status: opts['status'] as TaskStatus | undefined,
-          field: opts['field'] as string | undefined,
-          includeArchive: opts['includeArchive'] as boolean | undefined,
-          limit,
-          offset,
-        }, undefined, accessor);
+      const limit = opts['limit'] as number | undefined;
+      const offset = opts['offset'] as number | undefined;
 
-        if (result.results.length === 0) {
-          cliOutput(result, { command: 'find', message: 'No matching tasks found', operation: 'tasks.find' });
-          process.exit(ExitCode.NO_DATA);
-        }
+      const params: Record<string, unknown> = {};
+      if (query !== undefined) params['query'] = query;
+      if (opts['id'] !== undefined) params['id'] = opts['id'];
+      if (opts['exact'] !== undefined) params['exact'] = opts['exact'];
+      if (opts['status'] !== undefined) params['status'] = opts['status'];
+      if (opts['field'] !== undefined) params['field'] = opts['field'];
+      if (opts['includeArchive'] !== undefined) params['includeArchive'] = opts['includeArchive'];
+      if (limit !== undefined) params['limit'] = limit;
+      if (offset !== undefined) params['offset'] = offset;
 
-        const page = createPage({ total: result.total ?? result.results.length, limit, offset });
-        cliOutput(result, { command: 'find', operation: 'tasks.find', page });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      const response = await dispatchRaw('query', 'tasks', 'find', params);
+
+      if (!response.success) {
+        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
+        process.exit(response.error?.exitCode ?? 1);
+        return;
       }
+
+      const data = response.data as Record<string, unknown>;
+      const results = (data?.results as unknown[]) ?? [];
+
+      if (results.length === 0) {
+        cliOutput(data, { command: 'find', message: 'No matching tasks found', operation: 'tasks.find' });
+        process.exit(ExitCode.NO_DATA);
+        return;
+      }
+
+      const total = (data?.total as number) ?? results.length;
+      const page = createPage({ total, limit, offset });
+      cliOutput(data, { command: 'find', operation: 'tasks.find', page });
     });
 }

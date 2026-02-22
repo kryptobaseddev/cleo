@@ -292,7 +292,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'release.commit', 'E_INVALID_INPUT',
             'version is required', startTime);
         }
-        const result = releaseCommit(version, this.projectRoot);
+        const result = await releaseCommit(version, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'release.commit', startTime);
       }
 
@@ -302,7 +302,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'release.tag', 'E_INVALID_INPUT',
             'version is required', startTime);
         }
-        const result = releaseTag(version, this.projectRoot);
+        const result = await releaseTag(version, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'release.tag', startTime);
       }
 
@@ -313,7 +313,7 @@ export class PipelineHandler implements DomainHandler {
             'version is required', startTime);
         }
         const remote = params?.remote as string | undefined;
-        const result = releasePush(version, remote, this.projectRoot);
+        const result = await releasePush(version, remote, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'release.push', startTime);
       }
 
@@ -334,7 +334,7 @@ export class PipelineHandler implements DomainHandler {
             'version is required', startTime);
         }
         const reason = params?.reason as string | undefined;
-        const result = releaseRollback(version, reason, this.projectRoot);
+        const result = await releaseRollback(version, reason, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'release.rollback', startTime);
       }
 

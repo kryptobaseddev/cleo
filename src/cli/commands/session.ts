@@ -5,12 +5,9 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import * as sessions from '../../core/sessions/index.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliOutput, cliError } from '../renderers/index.js';
+import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the session command group.
@@ -27,26 +24,16 @@ export function registerSessionCommand(program: Command): void {
     .requiredOption('--scope <scope>', 'Session scope (epic:T### or global)')
     .requiredOption('--name <name>', 'Session name')
     .option('--auto-start', 'Auto-start on first available task')
+    .option('--auto-focus', 'Auto-focus on first available task (alias for --auto-start)')
     .option('--focus <taskId>', 'Set initial task to work on')
     .option('--agent <agent>', 'Agent identifier')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await sessions.startSession({
-          name: opts['name'] as string,
-          scope: opts['scope'] as string,
-          autoStart: opts['autoStart'] as boolean | undefined,
-          startTask: opts['startTask'] as string | undefined,
-          agent: opts['agent'] as string | undefined,
-        }, undefined, accessor);
-        cliOutput({ session: result }, { command: 'session', operation: 'session.start' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'session', 'start', {
+        scope: opts['scope'] as string,
+        name: opts['name'] as string,
+        autoStart: (opts['autoStart'] || opts['autoFocus']) as boolean | undefined,
+        focus: opts['focus'] as string | undefined,
+      }, { command: 'session', operation: 'session.start' });
     });
 
   session
@@ -56,58 +43,37 @@ export function registerSessionCommand(program: Command): void {
     .option('--session <id>', 'Specific session ID to stop')
     .option('--note <note>', 'Stop note')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await sessions.endSession({
-          sessionId: opts['session'] as string | undefined,
-          note: opts['note'] as string | undefined,
-        }, undefined, accessor);
-        cliOutput({ session: result }, { command: 'session', operation: 'session.stop' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'session', 'end', {
+        note: opts['note'] as string | undefined,
+      }, { command: 'session', operation: 'session.stop' });
     });
 
   session
     .command('status')
     .description('Show current session status')
     .action(async () => {
-      try {
-        const accessor = await getAccessor();
-        const result = await sessions.sessionStatus(undefined, accessor);
-        if (!result) {
-          cliOutput({ session: null }, { command: 'session', message: 'No active session', operation: 'session.status' });
-          process.exit(ExitCode.NO_DATA);
-        }
-        cliOutput({ session: result }, { command: 'session', operation: 'session.status' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      const response = await dispatchRaw('query', 'session', 'status');
+      if (!response.success) {
+        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
+        process.exit(response.error?.exitCode ?? 1);
+        return;
       }
+      const data = response.data as Record<string, unknown> | null;
+      if (!data || (data['session'] === null) || (data['session'] === undefined && !data['id'])) {
+        cliOutput({ session: null }, { command: 'session', message: 'No active session', operation: 'session.status' });
+        process.exit(ExitCode.NO_DATA);
+        return;
+      }
+      cliOutput({ session: data }, { command: 'session', operation: 'session.status' });
     });
 
   session
     .command('resume <sessionId>')
     .description('Resume an existing session')
     .action(async (sessionId: string) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await sessions.resumeSession(sessionId, undefined, accessor);
-        cliOutput({ session: result }, { command: 'session', operation: 'session.resume' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'session', 'resume', {
+        sessionId,
+      }, { command: 'session', operation: 'session.resume' });
     });
 
   session
@@ -116,20 +82,11 @@ export function registerSessionCommand(program: Command): void {
     .option('--status <status>', 'Filter by status (active|ended|orphaned)')
     .option('--limit <n>', 'Max results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await sessions.listSessions({
-          status: opts['status'] as string | undefined,
-          limit: opts['limit'] as number | undefined,
-        }, undefined, accessor);
-        cliOutput({ sessions: result, total: result.length }, { command: 'session', operation: 'session.list' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      const status = opts['status'] as string | undefined;
+      await dispatchFromCli('query', 'session', 'list', {
+        active: status === 'active' ? true : undefined,
+        limit: opts['limit'] as number | undefined,
+      }, { command: 'session', operation: 'session.list' });
     });
 
   session
@@ -137,16 +94,8 @@ export function registerSessionCommand(program: Command): void {
     .description('Garbage collect old sessions')
     .option('--max-age <hours>', 'Max age in hours for active sessions', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await sessions.gcSessions(opts['maxAge'] as number | undefined, undefined, accessor);
-        cliOutput(result, { command: 'session', operation: 'session.gc' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'session', 'gc', {
+        maxAgeDays: opts['maxAge'] as number | undefined,
+      }, { command: 'session', operation: 'session.gc' });
     });
 }

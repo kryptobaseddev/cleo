@@ -5,11 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { completeTask } from '../../core/tasks/complete.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliOutput, cliError } from '../renderers/index.js';
 
 /**
  * Register the complete command.
@@ -23,26 +20,26 @@ export function registerCompleteCommand(program: Command): void {
     .option('--notes <note>', 'Completion notes')
     .option('--changeset <changeset>', 'Changeset reference')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await completeTask({
-          taskId,
-          notes: opts['notes'] as string | undefined,
-          changeset: opts['changeset'] as string | undefined,
-        }, undefined, accessor);
+      const response = await dispatchRaw('mutate', 'tasks', 'complete', {
+        taskId,
+        notes: opts['notes'] as string | undefined,
+        changeset: opts['changeset'] as string | undefined,
+      });
 
-        const data: Record<string, unknown> = { task: result.task };
-        if (result.autoCompleted?.length) {
-          data['autoCompleted'] = result.autoCompleted;
-        }
-
-        cliOutput(data, { command: 'complete', operation: 'tasks.complete' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      if (!response.success) {
+        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
+        process.exit(response.error?.exitCode ?? 1);
+        return;
       }
+
+      const data = response.data as Record<string, unknown>;
+      // Engine may return {task: {...}} or the task record directly
+      const task = data?.task ?? data;
+      const output: Record<string, unknown> = { task };
+      if ((data?.autoCompleted as unknown[] | undefined)?.length) {
+        output['autoCompleted'] = data['autoCompleted'];
+      }
+
+      cliOutput(output, { command: 'complete', operation: 'tasks.complete' });
     });
 }

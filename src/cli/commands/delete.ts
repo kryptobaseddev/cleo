@@ -5,11 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { deleteTask } from '../../core/tasks/delete.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliOutput, cliError } from '../renderers/index.js';
 
 /**
  * Register the delete command.
@@ -23,26 +20,24 @@ export function registerDeleteCommand(program: Command): void {
     .option('--force', 'Force delete even with dependents or children')
     .option('--cascade', 'Delete children recursively')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await deleteTask({
-          taskId,
-          force: opts['force'] as boolean | undefined,
-          cascade: opts['cascade'] as boolean | undefined,
-        }, undefined, accessor);
+      const response = await dispatchRaw('mutate', 'tasks', 'delete', {
+        taskId,
+        force: opts['force'] as boolean | undefined,
+        cascade: opts['cascade'] as boolean | undefined,
+      });
 
-        const data: Record<string, unknown> = { deletedTask: result.deletedTask };
-        if (result.cascadeDeleted?.length) {
-          data['cascadeDeleted'] = result.cascadeDeleted;
-        }
-
-        cliOutput(data, { command: 'delete', operation: 'tasks.delete' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      if (!response.success) {
+        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
+        process.exit(response.error?.exitCode ?? 1);
+        return;
       }
+
+      const data = response.data as Record<string, unknown>;
+      const output: Record<string, unknown> = { deletedTask: data?.deletedTask };
+      if ((data?.cascadeDeleted as unknown[] | undefined)?.length) {
+        output['cascadeDeleted'] = data['cascadeDeleted'];
+      }
+
+      cliOutput(output, { command: 'delete', operation: 'tasks.delete' });
     });
 }

@@ -111,7 +111,6 @@ export function registerWebCommand(program: Command): void {
         // Find MCP server directory
         let mcpServerDir = '';
         const candidates = [
-          join(process.cwd(), 'mcp-server'),
           process.env['CLEO_MCP_SERVER'] ?? '',
           join(getCleoHome(), 'mcp-server'),
         ];

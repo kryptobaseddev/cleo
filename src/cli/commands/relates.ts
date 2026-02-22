@@ -10,6 +10,7 @@ import * as relatesCore from '../../core/tasks/relates.js';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the relates command group.
@@ -44,17 +45,7 @@ export function registerRelatesCommand(program: Command): void {
     .command('add <from> <to> <type> <reason>')
     .description('Add a relates entry to a task')
     .action(async (from: string, to: string, type: string, reason: string) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await relatesCore.addRelation(from, to, type, reason, undefined, accessor);
-        cliOutput(result, { command: 'relates' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'tasks', 'relates.add', { taskId: from, relatedId: to, type, reason }, { command: 'relates' });
     });
 
   relates
@@ -78,16 +69,6 @@ export function registerRelatesCommand(program: Command): void {
     .command('list <taskId>')
     .description('Show existing relates entries for a task')
     .action(async (taskId: string) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await relatesCore.listRelations(taskId, undefined, accessor);
-        cliOutput(result, { command: 'relates' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'tasks', 'relates', { taskId }, { command: 'relates' });
     });
 }

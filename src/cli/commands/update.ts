@@ -5,12 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { updateTask } from '../../core/tasks/update.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
-import type { TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the update command.
@@ -40,38 +35,28 @@ export function registerUpdateCommand(program: Command): void {
     .option('--parent <id>', 'Set parent ID')
     .option('--no-auto-complete', 'Disable auto-complete for epic')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await updateTask({
-          taskId,
-          title: opts['title'] as string | undefined,
-          status: opts['status'] as TaskStatus | undefined,
-          priority: opts['priority'] as TaskPriority | undefined,
-          type: opts['type'] as TaskType | undefined,
-          size: opts['size'] as TaskSize | undefined,
-          phase: opts['phase'] as string | undefined,
-          description: opts['description'] as string | undefined,
-          labels: opts['labels'] ? (opts['labels'] as string).split(',').map(s => s.trim()) : undefined,
-          addLabels: opts['addLabels'] ? (opts['addLabels'] as string).split(',').map(s => s.trim()) : undefined,
-          removeLabels: opts['removeLabels'] ? (opts['removeLabels'] as string).split(',').map(s => s.trim()) : undefined,
-          depends: opts['depends'] ? (opts['depends'] as string).split(',').map(s => s.trim()) : undefined,
-          addDepends: opts['addDepends'] ? (opts['addDepends'] as string).split(',').map(s => s.trim()) : undefined,
-          removeDepends: opts['removeDepends'] ? (opts['removeDepends'] as string).split(',').map(s => s.trim()) : undefined,
-          notes: opts['notes'] as string | undefined,
-          acceptance: opts['acceptance'] ? (opts['acceptance'] as string).split(',').map(s => s.trim()) : undefined,
-          files: opts['files'] ? (opts['files'] as string).split(',').map(s => s.trim()) : undefined,
-          blockedBy: opts['blockedBy'] as string | undefined,
-          parentId: opts['parent'] as string | undefined,
-          noAutoComplete: opts['autoComplete'] === false ? true : undefined,
-        }, undefined, accessor);
+      const params: Record<string, unknown> = { taskId };
 
-        cliOutput({ task: result.task, changes: result.changes }, { command: 'update', operation: 'tasks.update' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      if (opts['title'] !== undefined) params['title'] = opts['title'];
+      if (opts['status'] !== undefined) params['status'] = opts['status'];
+      if (opts['priority'] !== undefined) params['priority'] = opts['priority'];
+      if (opts['type'] !== undefined) params['type'] = opts['type'];
+      if (opts['size'] !== undefined) params['size'] = opts['size'];
+      if (opts['phase'] !== undefined) params['phase'] = opts['phase'];
+      if (opts['description'] !== undefined) params['description'] = opts['description'];
+      if (opts['labels']) params['labels'] = (opts['labels'] as string).split(',').map(s => s.trim());
+      if (opts['addLabels']) params['addLabels'] = (opts['addLabels'] as string).split(',').map(s => s.trim());
+      if (opts['removeLabels']) params['removeLabels'] = (opts['removeLabels'] as string).split(',').map(s => s.trim());
+      if (opts['depends']) params['depends'] = (opts['depends'] as string).split(',').map(s => s.trim());
+      if (opts['addDepends']) params['addDepends'] = (opts['addDepends'] as string).split(',').map(s => s.trim());
+      if (opts['removeDepends']) params['removeDepends'] = (opts['removeDepends'] as string).split(',').map(s => s.trim());
+      if (opts['notes'] !== undefined) params['notes'] = opts['notes'];
+      if (opts['acceptance']) params['acceptance'] = (opts['acceptance'] as string).split(',').map(s => s.trim());
+      if (opts['files']) params['files'] = (opts['files'] as string).split(',').map(s => s.trim());
+      if (opts['blockedBy'] !== undefined) params['blockedBy'] = opts['blockedBy'];
+      if (opts['parent'] !== undefined) params['parent'] = opts['parent'];
+      if (opts['autoComplete'] === false) params['noAutoComplete'] = true;
+
+      await dispatchFromCli('mutate', 'tasks', 'update', params, { command: 'update' });
     });
 }
