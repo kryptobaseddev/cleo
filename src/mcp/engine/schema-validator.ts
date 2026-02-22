@@ -70,18 +70,17 @@ function getAjv(): InstanceType<typeof Ajv> {
 
 /**
  * Resolve path to a schema file.
- * Looks in multiple locations: project schemas/, mcp-server local schemas/
+ * Looks in multiple locations: project schemas/, dist-relative schemas/
  */
 function resolveSchemaPath(schemaType: SchemaType): string | null {
   const filename = `${schemaType}.schema.json`;
 
-  // Check project root schemas/
+  // Check project root schemas/ and dist-relative locations
   const projectRoot = process.env.CLEO_ROOT || process.cwd();
   const paths = [
     join(projectRoot, 'schemas', filename),
-    join(projectRoot, '..', 'schemas', filename), // mcp-server is a subdirectory
-    join(__dirname, '..', '..', '..', 'schemas', filename), // relative from dist/
-    join(__dirname, '..', '..', 'schemas', filename),
+    join(__dirname, '..', '..', '..', 'schemas', filename), // relative from dist/mcp/engine/
+    join(__dirname, '..', '..', 'schemas', filename),        // relative from dist/mcp/
   ];
 
   for (const p of paths) {

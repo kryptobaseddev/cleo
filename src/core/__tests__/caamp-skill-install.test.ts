@@ -164,7 +164,7 @@ describe('CAAMP skill install + integrity (T4718)', () => {
     it('caampBuildServerConfig creates valid config for package source', async () => {
       const { caampBuildServerConfig } = await import('../caamp/index.js');
       const config = caampBuildServerConfig(
-        { type: 'package', value: '@cleocode/mcp-server' },
+        { type: 'package', value: '@cleocode/cleo' },
       );
       expect(config).toBeDefined();
       expect(config.command).toBeDefined();
