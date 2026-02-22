@@ -39,6 +39,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { saveJson } from '../store/json.js';
 import { getCleoDirAbsolute, getTaskPath, getConfigPath, getProjectRoot, getCleoHome } from './paths.js';
+import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import type { TaskFile } from '../types/task.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -845,6 +846,16 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
 
   // T4681: Core files (todo.json, config.json, sessions.json, .sequence.json, etc.)
   await initCoreFiles(cleoDir, projectName, force, created, skipped);
+
+  // T4700: Migrate legacy agent-output directories before proceeding
+  try {
+    const migrationResult = migrateAgentOutputs(cleoDir, projRoot);
+    if (migrationResult.migrated) {
+      created.push(`agent-outputs migration: ${migrationResult.summary}`);
+    }
+  } catch {
+    warnings.push('Agent-outputs migration failed (best-effort, run cleo upgrade to retry)');
+  }
 
   // T4681: Schema files (.cleo/schemas/)
   await initSchemas(cleoDir, force, created, warnings);

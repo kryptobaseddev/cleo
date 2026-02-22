@@ -7,6 +7,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { CleoError } from '../../errors.js';
 import { ExitCode } from '../../../types/exit-codes.js';
+import { getManifestPath } from '../../paths.js';
 
 interface ValidationResult {
   valid: boolean;
@@ -30,7 +31,7 @@ export async function validateImplementationTask(
   taskId: string,
   opts: { strict?: boolean },
 ): Promise<ValidationResult> {
-  const manifestPath = '.cleo/agent-outputs/MANIFEST.jsonl';
+  const manifestPath = getManifestPath();
   const entry = findManifestEntry(taskId, manifestPath);
   if (!entry) {
     throw new CleoError(ExitCode.NOT_FOUND, `No manifest entry found for task ${taskId}`);

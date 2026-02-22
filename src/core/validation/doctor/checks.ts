@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../../platform.js';
+import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
 
 // ============================================================================
 // Types
@@ -440,22 +441,24 @@ export function checkVitalFilesTracked(
 // ============================================================================
 
 /**
- * Check if legacy claudedocs/agent-outputs/ directory still exists.
+ * Check if any legacy output directories still exist.
+ * Delegates detection to the migration/agent-outputs utility.
  * @task T4700
  */
 export function checkLegacyAgentOutputs(
   projectRoot?: string,
 ): CheckResult {
   const root = projectRoot ?? process.cwd();
-  const legacyPath = join(root, 'claudedocs', 'agent-outputs');
+  const cleoDir = join(root, '.cleo');
+  const detection = detectLegacyAgentOutputs(root, cleoDir);
 
-  if (existsSync(legacyPath)) {
+  if (detection.hasLegacy) {
     return {
       id: 'legacy_agent_outputs',
       category: 'configuration',
       status: 'warning',
-      message: 'Legacy agent-outputs directory found at claudedocs/agent-outputs/',
-      details: { path: legacyPath, exists: true },
+      message: `Legacy output directory found: ${detection.legacyPaths.join(', ')}`,
+      details: { paths: detection.legacyPaths, exists: true },
       fix: 'cleo upgrade',
     };
   }
@@ -464,8 +467,8 @@ export function checkLegacyAgentOutputs(
     id: 'legacy_agent_outputs',
     category: 'configuration',
     status: 'passed',
-    message: 'No legacy agent-outputs directory found',
-    details: { path: legacyPath, exists: false },
+    message: 'No legacy output directories found',
+    details: { exists: false },
     fix: null,
   };
 }

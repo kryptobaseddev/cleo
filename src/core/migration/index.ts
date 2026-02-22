@@ -51,6 +51,16 @@ export type {
   SourceFileInfo
 } from './state.js';
 
+// Re-export agent-outputs migration utility (@task T4700)
+export {
+  detectLegacyAgentOutputs,
+  migrateAgentOutputs,
+} from './agent-outputs.js';
+export type {
+  LegacyDetectionResult,
+  AgentOutputsMigrationResult,
+} from './agent-outputs.js';
+
 // Re-export migration logger (@task T4727)
 export {
   MigrationLogger,
