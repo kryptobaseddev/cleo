@@ -5,12 +5,7 @@
  */
 
 import { Command } from 'commander';
-import {
-  getLogEntries,
-} from '../../core/log/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the log command.
@@ -26,21 +21,12 @@ export function registerLogCommand(program: Command): void {
     .option('--task <id>', 'Filter by task ID')
     .option('--since <date>', 'Filter entries since date')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await getLogEntries({
-          limit: opts['limit'] ? Number(opts['limit']) : 20,
-          offset: opts['offset'] ? Number(opts['offset']) : 0,
-          operation: opts['operation'] as string | undefined,
-          task: opts['task'] as string | undefined,
-          since: opts['since'] as string | undefined,
-        });
-        cliOutput(result, { command: 'log' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'log', {
+        limit: opts['limit'] ? Number(opts['limit']) : 20,
+        offset: opts['offset'] ? Number(opts['offset']) : 0,
+        operation: opts['operation'] as string | undefined,
+        taskId: opts['task'] as string | undefined,
+        since: opts['since'] as string | undefined,
+      }, { command: 'log', operation: 'admin.log' });
     });
 }

@@ -5,11 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { showTask } from '../../core/tasks/show.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the show command.
@@ -21,16 +17,6 @@ export function registerShowCommand(program: Command): void {
     .command('show <taskId>')
     .description('Show full task details by ID')
     .action(async (taskId: string) => {
-      try {
-        const accessor = await getAccessor();
-        const detail = await showTask(taskId, undefined, accessor);
-        cliOutput({ task: detail }, { command: 'show', operation: 'tasks.show' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'tasks', 'show', { taskId }, { command: 'show' });
     });
 }

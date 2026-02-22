@@ -4,28 +4,9 @@
  */
 
 import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliOutput, cliError } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getAccessor, type DataAccessor } from '../../store/data-accessor.js';
-
-/**
- * Check if a task exists in the todo file via accessor.
- */
-async function taskExistsInTaskFile(taskId: string, accessor: DataAccessor): Promise<boolean> {
-  const data = await accessor.loadTaskFile();
-  return data.tasks.some((t) => t.id === taskId);
-}
-
-/**
- * Check if a task exists in the archive file via accessor.
- */
-async function taskExistsInArchive(taskId: string, accessor: DataAccessor): Promise<boolean> {
-  const data = await accessor.loadArchive();
-  if (!data?.archivedTasks) return false;
-  return data.archivedTasks.some((t) => t.id === taskId);
-}
 
 export function registerExistsCommand(program: Command): void {
   program
@@ -34,50 +15,25 @@ export function registerExistsCommand(program: Command): void {
     .option('--include-archive', 'Search archive file too')
     .option('--verbose', 'Show which file contains the task')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const idPattern = /^T\d{3,}$/;
-        if (!idPattern.test(taskId)) {
-          throw new CleoError(ExitCode.INVALID_INPUT, `Invalid task ID format: ${taskId} (expected: T001, T002, etc.)`, {
-            fix: 'Task IDs start with T followed by 3+ digits',
-          });
-        }
+      const response = await dispatchRaw('query', 'tasks', 'exists', {
+        taskId,
+        includeArchive: opts['includeArchive'] as boolean | undefined,
+        verbose: opts['verbose'] as boolean | undefined,
+      });
 
-        const accessor = await getAccessor();
-        let found = false;
-        let location = '';
+      if (!response.success) {
+        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
+        process.exit(response.error?.exitCode ?? 1);
+        return;
+      }
 
-        if (await taskExistsInTaskFile(taskId, accessor)) {
-          found = true;
-          location = 'tasks.json';
-        }
+      const data = response.data as Record<string, unknown>;
 
-        if (!found && opts['includeArchive']) {
-          if (await taskExistsInArchive(taskId, accessor)) {
-            found = true;
-            location = 'tasks-archive.json';
-          }
-        }
-
-        if (found) {
-          cliOutput({
-            exists: true,
-            taskId,
-            location,
-          }, { command: 'exists' });
-        } else {
-          cliOutput({
-            exists: false,
-            taskId,
-            searchedArchive: !!opts['includeArchive'],
-          }, { command: 'exists' });
-          process.exit(ExitCode.NOT_FOUND);
-        }
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      if (data?.exists) {
+        cliOutput(data, { command: 'exists' });
+      } else {
+        cliOutput(data, { command: 'exists' });
+        process.exit(ExitCode.NOT_FOUND);
       }
     });
 }

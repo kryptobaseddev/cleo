@@ -5,12 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { addTask } from '../../core/tasks/add.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
-import type { TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliOutput, cliError } from '../renderers/index.js';
 
 /**
  * Register the add command.
@@ -36,46 +32,48 @@ export function registerAddCommand(program: Command): void {
     .option('--position <pos>', 'Position within sibling group', parseInt)
     .option('--dry-run', 'Show what would be created without making changes')
     .action(async (title: string, opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const result = await addTask({
-          title,
-          status: opts['status'] as TaskStatus | undefined,
-          priority: opts['priority'] as TaskPriority | undefined,
-          type: opts['type'] as TaskType | undefined,
-          parentId: opts['parent'] as string | undefined,
-          size: opts['size'] as TaskSize | undefined,
-          phase: opts['phase'] as string | undefined,
-          addPhase: opts['addPhase'] as boolean | undefined,
-          description: opts['description'] as string | undefined,
-          labels: opts['labels'] ? (opts['labels'] as string).split(',').map(s => s.trim()) : undefined,
-          files: opts['files'] ? (opts['files'] as string).split(',').map(s => s.trim()) : undefined,
-          acceptance: opts['acceptance'] ? (opts['acceptance'] as string).split(',').map(s => s.trim()) : undefined,
-          depends: opts['depends'] ? (opts['depends'] as string).split(',').map(s => s.trim()) : undefined,
-          notes: opts['notes'] as string | undefined,
-          position: opts['position'] as number | undefined,
-          dryRun: opts['dryRun'] as boolean | undefined,
-        }, undefined, accessor);
+      const params: Record<string, unknown> = { title };
 
-        if (result.duplicate) {
-          cliOutput(
-            { task: result.task, duplicate: true },
-            { command: 'add', message: 'Task with identical title was created recently', operation: 'tasks.add' },
-          );
-        } else if (result.dryRun) {
-          cliOutput(
-            { task: result.task, dryRun: true },
-            { command: 'add', message: 'Dry run - no changes made', operation: 'tasks.add' },
-          );
-        } else {
-          cliOutput({ task: result.task }, { command: 'add', operation: 'tasks.add' });
-        }
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      if (opts['status'] !== undefined) params['status'] = opts['status'];
+      if (opts['priority'] !== undefined) params['priority'] = opts['priority'];
+      if (opts['type'] !== undefined) params['type'] = opts['type'];
+      if (opts['parent'] !== undefined) params['parent'] = opts['parent'];
+      if (opts['size'] !== undefined) params['size'] = opts['size'];
+      if (opts['phase'] !== undefined) params['phase'] = opts['phase'];
+      if (opts['addPhase'] !== undefined) params['addPhase'] = opts['addPhase'];
+      if (opts['description'] !== undefined) {
+        params['description'] = opts['description'];
+      } else {
+        params['description'] = title;
+      }
+      if (opts['labels']) params['labels'] = (opts['labels'] as string).split(',').map(s => s.trim());
+      if (opts['files']) params['files'] = (opts['files'] as string).split(',').map(s => s.trim());
+      if (opts['acceptance']) params['acceptance'] = (opts['acceptance'] as string).split(',').map(s => s.trim());
+      if (opts['depends']) params['depends'] = (opts['depends'] as string).split(',').map(s => s.trim());
+      if (opts['notes'] !== undefined) params['notes'] = opts['notes'];
+      if (opts['position'] !== undefined) params['position'] = opts['position'];
+      if (opts['dryRun'] !== undefined) params['dryRun'] = opts['dryRun'];
+
+      const response = await dispatchRaw('mutate', 'tasks', 'add', params);
+
+      if (!response.success) {
+        const exitCode = response.error?.exitCode ?? 1;
+        cliError(response.error?.message ?? 'Unknown error', exitCode, {
+          name: response.error?.code,
+          details: response.error?.details,
+          fix: response.error?.fix,
+        });
+        process.exit(exitCode);
+        return;
+      }
+
+      const data = response.data as Record<string, unknown>;
+      if (data?.duplicate) {
+        cliOutput(data, { command: 'add', message: 'Task with identical title was created recently', operation: 'tasks.add' });
+      } else if (data?.dryRun) {
+        cliOutput(data, { command: 'add', message: 'Dry run - no changes made', operation: 'tasks.add' });
+      } else {
+        cliOutput(data, { command: 'add', operation: 'tasks.add' });
       }
     });
 }

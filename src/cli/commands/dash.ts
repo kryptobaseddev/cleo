@@ -5,12 +5,7 @@
  */
 
 import { Command } from 'commander';
-import {
-  getDashboard,
-} from '../../core/stats/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the dash command.
@@ -25,23 +20,7 @@ export function registerDashCommand(program: Command): void {
     .option('--no-chart', 'Disable ASCII charts/progress bars')
     .option('--sections <list>', 'Comma-separated list of sections to show')
     .option('-v, --verbose', 'Show full task details')
-    .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await getDashboard({
-          compact: opts['compact'] as boolean | undefined,
-          period: opts['period'] ? Number(opts['period']) : 7,
-          showCharts: opts['chart'] !== false,
-          sections: opts['sections'] ? (opts['sections'] as string).split(',') : undefined,
-          verbose: opts['verbose'] as boolean | undefined,
-          quiet: opts['quiet'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'dash' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+    .action(async () => {
+      await dispatchFromCli('query', 'admin', 'dash', {}, { command: 'dash' });
     });
 }
