@@ -6,10 +6,11 @@
  */
 
 import { Command } from 'commander';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { loadConfig } from '../../core/config.js';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
-import { loadConfig, getConfigValue, setConfigValue } from '../../core/config.js';
 
 export function registerConfigCommand(program: Command): void {
   const config = program
@@ -20,46 +21,18 @@ export function registerConfigCommand(program: Command): void {
     .command('get <key>')
     .description('Get a configuration value')
     .action(async (key: string) => {
-      try {
-        const resolved = await getConfigValue<unknown>(key);
-        cliOutput({
-          key,
-          value: resolved.value,
-          source: resolved.source,
-        }, { command: 'config' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'config.get', { key }, { command: 'config' });
     });
 
   config
     .command('set <key> <value>')
     .description('Set a configuration value')
     .option('--global', 'Set in global config instead of project config')
-    .action(async (key: string, value: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await setConfigValue(key, value, undefined, {
-          global: !!opts['global'],
-        });
-
-        cliOutput({
-          key: result.key,
-          value: result.value,
-          scope: result.scope,
-        }, { command: 'config' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+    .action(async (key: string, value: string) => {
+      await dispatchFromCli('mutate', 'admin', 'config.set', { key, value }, { command: 'config' });
     });
 
+  // config list uses core directly — no dispatch op for listing all resolved config
   config
     .command('list')
     .description('Show all resolved configuration')

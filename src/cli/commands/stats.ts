@@ -5,12 +5,7 @@
  */
 
 import { Command } from 'commander';
-import {
-  getProjectStats,
-} from '../../core/stats/index.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
-import { cliOutput } from '../renderers/index.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the stats command.
@@ -23,18 +18,8 @@ export function registerStatsCommand(program: Command): void {
     .option('-p, --period <period>', 'Analysis period: today/week/month/quarter/year or days', '30')
     .option('-v, --verbose', 'Show detailed breakdowns per category')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await getProjectStats({
-          period: opts['period'] as string | undefined,
-          verbose: opts['verbose'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'stats', operation: 'system.stats' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'stats', {
+        period: opts['period'] ? Number(opts['period']) : 30,
+      }, { command: 'stats', operation: 'admin.stats' });
     });
 }

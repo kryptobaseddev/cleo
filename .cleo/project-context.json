@@ -1,0 +1,8 @@
+{
+  "type": "node",
+  "testFramework": "vitest",
+  "hasTypeScript": true,
+  "monorepo": false,
+  "packageManager": "npm",
+  "detectedAt": "2026-02-21T06:28:21.522Z"
+}

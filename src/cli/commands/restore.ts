@@ -87,6 +87,7 @@ export function registerRestoreCommand(program: Command): void {
     .description('Restore task from terminal state (archived, cancelled, or completed) back to active')
     .option('--status <status>', 'Status to restore task as (default: pending)', 'pending')
     .option('--preserve-status', 'Keep the original task status')
+    .option('--reason <reason>', 'Reason for restoring/reopening the task')
     .option('--dry-run', 'Preview changes without applying')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
       try {

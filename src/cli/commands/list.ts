@@ -6,14 +6,10 @@
  */
 
 import { Command } from 'commander';
-import { getAccessor } from '../../store/data-accessor.js';
-import { listTasks } from '../../core/tasks/list.js';
-import { formatError } from '../../core/output.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { cliOutput, cliError } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createPage } from '../../core/pagination.js';
-import type { TaskStatus, TaskPriority, TaskType } from '../../types/task.js';
-import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the list command.
@@ -35,35 +31,39 @@ export function registerListCommand(program: Command): void {
     .option('--limit <n>', 'Limit number of results', parseInt)
     .option('--offset <n>', 'Skip first N results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const accessor = await getAccessor();
-        const limit = opts['limit'] as number | undefined;
-        const offset = opts['offset'] as number | undefined;
-        const result = await listTasks({
-          status: opts['status'] as TaskStatus | undefined,
-          priority: opts['priority'] as TaskPriority | undefined,
-          type: opts['type'] as TaskType | undefined,
-          parentId: opts['parent'] as string | undefined,
-          phase: opts['phase'] as string | undefined,
-          label: opts['label'] as string | undefined,
-          children: opts['children'] as boolean | undefined,
-          limit,
-          offset,
-        }, undefined, accessor);
+      const limit = opts['limit'] as number | undefined;
+      const offset = opts['offset'] as number | undefined;
 
-        if (result.tasks.length === 0) {
-          cliOutput(result, { command: 'list', message: 'No tasks found', operation: 'tasks.list' });
-          process.exit(ExitCode.NO_DATA);
-        }
+      const params: Record<string, unknown> = {};
+      if (opts['status'] !== undefined) params['status'] = opts['status'];
+      if (opts['priority'] !== undefined) params['priority'] = opts['priority'];
+      if (opts['type'] !== undefined) params['type'] = opts['type'];
+      if (opts['parent'] !== undefined) params['parent'] = opts['parent'];
+      if (opts['phase'] !== undefined) params['phase'] = opts['phase'];
+      if (opts['label'] !== undefined) params['label'] = opts['label'];
+      if (opts['children'] !== undefined) params['children'] = opts['children'];
+      if (limit !== undefined) params['limit'] = limit;
+      if (offset !== undefined) params['offset'] = offset;
 
-        const page = createPage({ total: result.total ?? result.tasks.length, limit, offset });
-        cliOutput(result, { command: 'list', operation: 'tasks.list', page });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      const response = await dispatchRaw('query', 'tasks', 'list', params);
+
+      if (!response.success) {
+        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
+        process.exit(response.error?.exitCode ?? 1);
+        return;
       }
+
+      const data = response.data as Record<string, unknown>;
+      const tasks = (data?.tasks as unknown[]) ?? [];
+
+      if (tasks.length === 0) {
+        cliOutput(data, { command: 'list', message: 'No tasks found', operation: 'tasks.list' });
+        process.exit(ExitCode.NO_DATA);
+        return;
+      }
+
+      const total = (data?.total as number) ?? tasks.length;
+      const page = createPage({ total, limit, offset });
+      cliOutput(data, { command: 'list', operation: 'tasks.list', page });
     });
 }

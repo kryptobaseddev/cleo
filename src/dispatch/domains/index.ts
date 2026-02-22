@@ -8,6 +8,7 @@
  */
 
 import type { DomainHandler } from '../types.js';
+import { TasksHandler } from './tasks.js';
 import { SessionHandler } from './session.js';
 import { CheckHandler } from './check.js';
 import { AdminHandler } from './admin.js';
@@ -18,18 +19,16 @@ import { ToolsHandler } from './tools.js';
 import { NexusHandler } from './nexus.js';
 
 export {
-  SessionHandler, CheckHandler, AdminHandler, MemoryHandler,
+  TasksHandler, SessionHandler, CheckHandler, AdminHandler, MemoryHandler,
   OrchestrateHandler, PipelineHandler, ToolsHandler, NexusHandler,
 };
 
 /**
- * Create a Map of all canonical domain handlers.
- *
- * NOTE: The 'tasks' handler is not yet included here -- it currently
- * lives in src/mcp/domains/tasks.ts and will be migrated separately.
+ * Create a Map of all 9 canonical domain handlers.
  */
 export function createDomainHandlers(): Map<string, DomainHandler> {
   const handlers = new Map<string, DomainHandler>();
+  handlers.set('tasks', new TasksHandler());
   handlers.set('session', new SessionHandler());
   handlers.set('memory', new MemoryHandler());
   handlers.set('check', new CheckHandler());
