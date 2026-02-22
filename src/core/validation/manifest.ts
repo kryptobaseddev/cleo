@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { mkdir, appendFile } from 'node:fs/promises';
+import { getManifestPath as getConfigManifestPath } from '../paths.js';
 
 // ============================================================================
 // Types
@@ -76,6 +77,8 @@ export interface ComplianceEntry {
 // Defaults
 // ============================================================================
 
+// Resolve at call time via getConfigManifestPath() — this static default
+// is only used if the import above fails or as a documentation reference.
 const DEFAULT_MANIFEST_PATH = '.cleo/agent-outputs/MANIFEST.jsonl';
 const DEFAULT_COMPLIANCE_PATH = '.cleo/metrics/COMPLIANCE.jsonl';
 
@@ -89,8 +92,15 @@ const DEFAULT_COMPLIANCE_PATH = '.cleo/metrics/COMPLIANCE.jsonl';
  */
 export async function findManifestEntry(
   taskId: string,
-  manifestPath: string = DEFAULT_MANIFEST_PATH,
+  manifestPath?: string,
 ): Promise<ManifestEntry | null> {
+  if (!manifestPath) {
+    try {
+      manifestPath = getConfigManifestPath();
+    } catch {
+      manifestPath = DEFAULT_MANIFEST_PATH;
+    }
+  }
   if (!existsSync(manifestPath)) return null;
 
   const content = await readFile(manifestPath, 'utf-8');

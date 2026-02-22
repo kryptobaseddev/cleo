@@ -17,6 +17,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFi
 import { join } from 'node:path';
 import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
+import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
 import { MigrationLogger } from './migration/logger.js';
 import { forceCheckpointBeforeOperation } from '../store/data-safety.js';
 import { acquireLock, type ReleaseFn } from '../store/lock.js';
@@ -519,81 +520,29 @@ export async function runUpgrade(options: {
     // Gitignore repair is best-effort
   }
 
-  // ── Step 5: Agent-outputs migration ─────────────────────────────
+  // ── Step 5: Agent-outputs migration (delegated to migration utility)
   try {
     const projectRoot = getProjectRoot(options.cwd);
-    const legacyDir = join(projectRoot, 'claudedocs', 'agent-outputs');
-    const newDir = join(cleoDir, 'agent-outputs');
+    const detection = detectLegacyAgentOutputs(projectRoot, cleoDir);
 
-    if (existsSync(legacyDir)) {
-      if (existsSync(newDir)) {
-        // Both exist — warn, do not overwrite
-        actions.push({
-          action: 'agent_outputs_migration',
-          status: 'skipped',
-          details: 'Both claudedocs/agent-outputs/ and .cleo/agent-outputs/ exist. Manual cleanup needed.',
-        });
-      } else {
-        if (isDryRun) {
-          actions.push({
-            action: 'agent_outputs_migration',
-            status: 'preview',
-            details: 'Would copy claudedocs/agent-outputs/ to .cleo/agent-outputs/',
-          });
-        } else {
-          // Copy all files from old to new
-          mkdirSync(newDir, { recursive: true });
-          const files = readdirSync(legacyDir);
-          for (const file of files) {
-            const srcPath = join(legacyDir, file);
-            const dstPath = join(newDir, file);
-            try {
-              copyFileSync(srcPath, dstPath);
-            } catch {
-              // Skip files that can't be copied (e.g., directories)
-              try {
-                // If it's a directory, mkdir and copy contents
-                const stat = (await import('node:fs')).statSync(srcPath);
-                if (stat.isDirectory()) {
-                  mkdirSync(dstPath, { recursive: true });
-                  const subFiles = readdirSync(srcPath);
-                  for (const sf of subFiles) {
-                    try { copyFileSync(join(srcPath, sf), join(dstPath, sf)); } catch { /* skip */ }
-                  }
-                }
-              } catch { /* skip */ }
-            }
-          }
-
-          // Update config if it still points to legacy path
-          const configPath = join(cleoDir, 'config.json');
-          if (existsSync(configPath)) {
-            try {
-              const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-              const currentDir = config.agentOutputs?.directory ?? config.agentOutputs;
-              if (currentDir === 'claudedocs/agent-outputs') {
-                if (typeof config.agentOutputs === 'object') {
-                  config.agentOutputs.directory = '.cleo/agent-outputs';
-                } else {
-                  config.agentOutputs = { directory: '.cleo/agent-outputs' };
-                }
-                writeFileSync(configPath, JSON.stringify(config, null, 2));
-              }
-            } catch { /* config update is best-effort */ }
-          }
-
-          actions.push({
-            action: 'agent_outputs_migration',
-            status: 'applied',
-            details: `Copied ${files.length} items from claudedocs/agent-outputs/ to .cleo/agent-outputs/`,
-          });
-        }
-      }
-    } else {
+    if (!detection.hasLegacy) {
       actions.push({
         action: 'agent_outputs_migration',
         status: 'skipped',
-        details: 'No legacy claudedocs/agent-outputs/ directory found',
+        details: 'No legacy output directories found',
+      });
+    } else if (isDryRun) {
+      actions.push({
+        action: 'agent_outputs_migration',
+        status: 'preview',
+        details: `Would migrate ${detection.legacyPaths.join(' + ')} → .cleo/agent-outputs/${detection.hasCanonical ? ' (merging with existing)' : ''}`,
+      });
+    } else {
+      const result = migrateAgentOutputs(projectRoot, cleoDir);
+      actions.push({
+        action: 'agent_outputs_migration',
+        status: result.migrated ? 'applied' : 'skipped',
+        details: result.summary,
       });
     }
   } catch {
