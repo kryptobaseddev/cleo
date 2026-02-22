@@ -235,6 +235,36 @@ installer_profile_update() {
     local path_cmd
     path_cmd=$(installer_profile_get_path_cmd "$shell_type")
 
+    # Detect fnm for Node.js version management
+    local fnm_block=""
+    local fnm_dir="$HOME/.local/share/fnm"
+    if [[ -d "$fnm_dir" ]] || command -v fnm &>/dev/null; then
+        case "$shell_type" in
+            fish)
+                fnm_block=$(cat <<'FNMEOF'
+
+# fnm (Fast Node Manager) - managed by CLEO
+if test -d "$HOME/.local/share/fnm"
+    set -gx PATH "$HOME/.local/share/fnm" $PATH
+    fnm env | source
+end
+FNMEOF
+)
+                ;;
+            *)
+                fnm_block=$(cat <<'FNMEOF'
+
+# fnm (Fast Node Manager) - managed by CLEO
+if [[ -d "$HOME/.local/share/fnm" ]]; then
+    export PATH="$HOME/.local/share/fnm:$PATH"
+    eval "$(fnm env)"
+fi
+FNMEOF
+)
+                ;;
+        esac
+    fi
+
     local cleo_block
     cleo_block=$(cat <<EOF
 
@@ -243,7 +273,7 @@ $PROFILE_START_MARKER
 # CLEO task management CLI
 if [[ -d "$PROFILE_BIN_DIR" ]]; then
     $path_cmd
-fi
+fi${fnm_block}
 $PROFILE_END_MARKER
 EOF
 )
