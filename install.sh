@@ -22,7 +22,7 @@ set -euo pipefail
 # Configuration
 GITHUB_REPO="kryptobaseddev/cleo"
 NPM_PACKAGE="@cleocode/cleo"
-NODE_MIN_VERSION=20
+NODE_MIN_VERSION=24
 INSTALL_DIR="${CLEO_HOME:-$HOME/.cleo}"
 
 # Detect script location (empty if piped)
@@ -75,7 +75,7 @@ Usage:
   ./install.sh [OPTIONS]                              # From cloned repo
 
 Prerequisites:
-  Node.js >= 20       https://nodejs.org/
+  Node.js >= 24       https://nodejs.org/
   npm                 (included with Node.js)
 
 Installation Modes:
@@ -170,43 +170,141 @@ check_node_version() {
     fi
 }
 
+# Detect OS for platform-specific install guidance
+detect_os() {
+    case "$(uname -s)" in
+        Linux*)   echo "linux" ;;
+        Darwin*)  echo "macos" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+        *)        echo "unknown" ;;
+    esac
+}
+
+# Attempt to install Node.js via fnm (Fast Node Manager)
+try_install_node_via_fnm() {
+    info "Attempting to install Node.js ${NODE_MIN_VERSION} via fnm..."
+    echo ""
+
+    # Install fnm if not present
+    if ! command -v fnm >/dev/null 2>&1; then
+        info "Installing fnm (Fast Node Manager)..."
+        if curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell 2>/dev/null; then
+            # Source fnm for current session
+            export PATH="$HOME/.local/share/fnm:$PATH"
+            eval "$(fnm env 2>/dev/null)" || true
+        else
+            return 1
+        fi
+    fi
+
+    if command -v fnm >/dev/null 2>&1; then
+        if fnm install "${NODE_MIN_VERSION}" 2>/dev/null && fnm use "${NODE_MIN_VERSION}" 2>/dev/null; then
+            success "Node.js $(node -v 2>/dev/null) installed via fnm"
+            echo ""
+            warn "Add fnm to your shell profile for persistence:"
+            echo '  eval "$(fnm env)"'
+            echo ""
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 # Check for required commands
 check_deps() {
-    local missing=()
+    local node_missing=false
     local node_too_old=false
+    local current_ver=""
 
     # Node.js is required
     if ! command -v node >/dev/null 2>&1; then
-        missing+=("node")
+        node_missing=true
     elif ! check_node_version; then
         node_too_old=true
-        local current_ver
         current_ver=$(node -v 2>/dev/null || echo "unknown")
-        error "Node.js ${current_ver} is too old. CLEO requires Node.js >= ${NODE_MIN_VERSION}."
+    fi
+
+    # Handle missing or outdated Node.js
+    if $node_missing || $node_too_old; then
+        if $node_missing; then
+            error "Node.js not found. CLEO requires Node.js >= ${NODE_MIN_VERSION}."
+        else
+            error "Node.js ${current_ver} is too old. CLEO requires Node.js >= ${NODE_MIN_VERSION}."
+        fi
         echo ""
-        echo "Update Node.js:"
-        echo "  nvm:     nvm install ${NODE_MIN_VERSION} && nvm use ${NODE_MIN_VERSION}"
-        echo "  Homebrew: brew install node@${NODE_MIN_VERSION}"
-        echo "  Official: https://nodejs.org/"
+
+        # Offer automatic installation if interactive TTY
+        if [[ -t 0 ]]; then
+            echo -e "${BOLD}Install Node.js ${NODE_MIN_VERSION} automatically?${RESET}"
+            echo ""
+            echo -e "  ${GREEN}1)${RESET} Yes, install via fnm ${DIM}(recommended — fast, no sudo needed)${RESET}"
+            echo -e "  ${GREEN}2)${RESET} No, show manual instructions"
+            echo ""
+            read -p "Enter choice [1]: " node_choice
+            node_choice="${node_choice:-1}"
+
+            if [[ "$node_choice" == "1" ]]; then
+                if try_install_node_via_fnm; then
+                    return 0
+                else
+                    error "Automatic installation failed. Please install manually."
+                fi
+            fi
+        fi
+
+        # Show manual instructions based on OS
+        local os
+        os=$(detect_os)
+        echo ""
+        echo "Install Node.js ${NODE_MIN_VERSION}:"
+
+        # Check for existing version managers
+        if command -v fnm >/dev/null 2>&1; then
+            echo "  fnm:      fnm install ${NODE_MIN_VERSION} && fnm use ${NODE_MIN_VERSION}"
+        fi
+        if command -v nvm >/dev/null 2>&1 || [[ -f "$HOME/.nvm/nvm.sh" ]]; then
+            echo "  nvm:      nvm install ${NODE_MIN_VERSION} && nvm use ${NODE_MIN_VERSION}"
+        fi
+        if command -v volta >/dev/null 2>&1; then
+            echo "  volta:    volta install node@${NODE_MIN_VERSION}"
+        fi
+
+        # Platform-specific options
+        case "$os" in
+            linux)
+                if command -v dnf >/dev/null 2>&1; then
+                    echo "  dnf:      sudo dnf module enable nodejs:${NODE_MIN_VERSION} && sudo dnf install nodejs"
+                elif command -v apt-get >/dev/null 2>&1; then
+                    echo "  apt:      curl -fsSL https://deb.nodesource.com/setup_${NODE_MIN_VERSION}.x | sudo -E bash - && sudo apt install -y nodejs"
+                fi
+                ;;
+            macos)
+                if command -v brew >/dev/null 2>&1; then
+                    echo "  brew:     brew install node@${NODE_MIN_VERSION}"
+                fi
+                ;;
+            windows)
+                echo "  winget:   winget install OpenJS.NodeJS.LTS"
+                ;;
+        esac
+
+        echo "  fnm:      curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${NODE_MIN_VERSION}"
+        echo "  official: https://nodejs.org/"
         exit 1
     fi
 
-    # npm is required
+    # npm is required (always included with Node.js, but verify)
     if ! command -v npm >/dev/null 2>&1; then
-        missing+=("npm")
+        error "npm not found. It should be included with Node.js."
+        echo ""
+        echo "Try reinstalling Node.js, which includes npm."
+        exit 1
     fi
 
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        error "Missing required dependencies: ${missing[*]}"
-        echo ""
-        echo "CLEO requires Node.js >= ${NODE_MIN_VERSION} and npm."
-        echo ""
-        echo "Install Node.js:"
-        echo "  nvm (recommended): curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
-        echo "                     nvm install ${NODE_MIN_VERSION}"
-        echo "  Homebrew:          brew install node@${NODE_MIN_VERSION}"
-        echo "  Official:          https://nodejs.org/"
-        exit 1
+    # git is optional but recommended
+    if ! command -v git >/dev/null 2>&1; then
+        warn "git not found (optional, needed for version control features)"
     fi
 }
 

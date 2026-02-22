@@ -89,6 +89,7 @@ import { registerStatsCommand } from './commands/stats.js';
 import { registerUpgradeCommand } from './commands/upgrade.js';
 import { registerValidateCommand } from './commands/validate.js';
 import { registerVerifyCommand } from './commands/verify.js';
+import { registerDetectDriftCommand } from './commands/detect-drift.js';
 
 // Wave 5: Storage migration (T4647, T4648)
 import { registerMigrateStorageCommand } from './commands/migrate-storage.js';
@@ -99,6 +100,21 @@ import { checkStorageMigration } from '../core/migration/preflight.js';
 // T4665: Output format resolution (LAFS middleware)
 import { resolveFormat } from './middleware/output-format.js';
 import { setFormatContext } from './format-context.js';
+
+// Startup guard: fail fast if Node.js version is below minimum
+import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../core/platform.js';
+
+const nodeInfo = getNodeVersionInfo();
+if (!nodeInfo.meetsMinimum) {
+  const upgrade = getNodeUpgradeInstructions();
+  process.stderr.write(
+    `\nError: CLEO requires Node.js v${MINIMUM_NODE_MAJOR}+ but found v${nodeInfo.version}\n`
+    + `\nUpgrade options:\n`
+    + upgrade.instructions.map(i => `  - ${i}`).join('\n')
+    + `\n\n`,
+  );
+  process.exit(1);
+}
 
 /** Read version from package.json (single source of truth). */
 function getPackageVersion(): string {
@@ -241,6 +257,9 @@ registerVerifyCommand(program);
 // T4647, T4648: Storage migration
 registerMigrateStorageCommand(program);
 
+// T4705: Documentation drift detection
+registerDetectDriftCommand(program);
+
 // T4665: Resolve output format from --json/--human/--quiet flags before any command.
 // Uses LAFS resolveOutputFormat() with TTY auto-detection fallback.
 // Sets the format context singleton so cliOutput() can dispatch accordingly.
@@ -274,4 +293,16 @@ program.hook('preAction', (thisCommand) => {
   }
 });
 
-program.parse();
+// Handle --mcp-server flag: start MCP stdio server instead of CLI (W5)
+// Must check argv before Commander.js parses to support: npx @cleocode/cleo --mcp-server
+if (process.argv.includes('--mcp-server')) {
+  import('../mcp/index.js').then((m: Record<string, unknown>) => {
+    const fn = (m['main'] ?? m['startMcpServer']) as (() => void) | undefined;
+    if (typeof fn === 'function') fn();
+  }).catch((err: unknown) => {
+    process.stderr.write(`Failed to start MCP server: ${err}\n`);
+    process.exit(1);
+  });
+} else {
+  program.parse();
+}

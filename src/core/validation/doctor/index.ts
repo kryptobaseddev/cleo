@@ -11,6 +11,7 @@ export {
   checkCliVersion,
   checkDocsAccessibility,
   checkAtReferenceResolution,
+  checkNodeVersion,
   checkRootGitignore,
   runAllGlobalChecks,
   calculateHealthStatus,

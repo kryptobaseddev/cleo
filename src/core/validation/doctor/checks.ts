@@ -12,6 +12,7 @@ import { existsSync, readFileSync, accessSync, constants, statSync } from 'node:
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../../platform.js';
 
 // ============================================================================
 // Types
@@ -359,20 +360,10 @@ export function checkCleoGitignore(
 
 /**
  * Detect the storage engine from project config.
- * Returns 'sqlite' | 'json' | 'dual' | 'unknown'.
+ * Per ADR-006, always returns 'sqlite'.
  */
-function detectStorageEngine(projectRoot: string): string {
-  const configPath = join(projectRoot, '.cleo', 'config.json');
-  if (existsSync(configPath)) {
-    try {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      if (config.storage?.engine) return config.storage.engine;
-    } catch { /* fallback */ }
-  }
-  // Auto-detect: if tasks.db exists, assume sqlite
-  if (existsSync(join(projectRoot, '.cleo', 'tasks.db'))) return 'sqlite';
-  if (existsSync(join(projectRoot, '.cleo', 'todo.json'))) return 'json';
-  return 'unknown';
+function detectStorageEngine(_projectRoot: string): string {
+  return 'sqlite';
 }
 
 /**
@@ -404,15 +395,8 @@ export function checkVitalFilesTracked(
     '.cleo/.gitignore',
   ];
 
-  // Add engine-specific data files
-  if (engine === 'sqlite' || engine === 'dual') {
-    vitalFiles.push('.cleo/tasks.db');
-  }
-  if (engine === 'json' || engine === 'dual') {
-    vitalFiles.push('.cleo/todo.json');
-  }
-  // Always check common files
-  vitalFiles.push('.cleo/todo-log.jsonl');
+  // SQLite is the only engine per ADR-006
+  vitalFiles.push('.cleo/tasks.db');
 
   const untracked: string[] = [];
 
@@ -487,6 +471,50 @@ export function checkLegacyAgentOutputs(
 }
 
 // ============================================================================
+// Check: Node.js Version
+// ============================================================================
+
+/**
+ * Check that Node.js meets the minimum required version.
+ * Provides OS-specific upgrade instructions when below minimum.
+ */
+export function checkNodeVersion(): CheckResult {
+  const nodeInfo = getNodeVersionInfo();
+  const { version, major, minor, patch, meetsMinimum } = nodeInfo;
+
+  if (meetsMinimum) {
+    return {
+      id: 'node_version',
+      category: 'runtime',
+      status: 'passed',
+      message: `Node.js v${version} meets minimum requirement (v${MINIMUM_NODE_MAJOR}+)`,
+      details: { version, major, minor, patch, minimum: MINIMUM_NODE_MAJOR },
+      fix: null,
+    };
+  }
+
+  const upgrade = getNodeUpgradeInstructions();
+
+  return {
+    id: 'node_version',
+    category: 'runtime',
+    status: 'failed',
+    message: `Node.js v${version} is below minimum v${MINIMUM_NODE_MAJOR}.0.0`,
+    details: {
+      version,
+      major,
+      minor,
+      patch,
+      minimum: MINIMUM_NODE_MAJOR,
+      platform: upgrade.platform,
+      arch: upgrade.arch,
+      upgradeOptions: upgrade.instructions,
+    },
+    fix: upgrade.recommended,
+  };
+}
+
+// ============================================================================
 // Run All Checks
 // ============================================================================
 
@@ -501,6 +529,7 @@ export function runAllGlobalChecks(
   const home = cleoHome ?? join(homedir(), '.cleo');
 
   return [
+    checkNodeVersion(),
     checkCliInstallation(home),
     checkCliVersion(home),
     checkDocsAccessibility(home),

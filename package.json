@@ -35,7 +35,7 @@
     "cleo:update-status": "node dist/scripts/update-task-status.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   },
   "keywords": [
     "cleo",
