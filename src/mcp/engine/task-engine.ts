@@ -139,6 +139,7 @@ export interface EngineResult<T = unknown> {
     code: string;
     message: string;
     details?: unknown;
+    exitCode?: number;
   };
 }
 
@@ -165,13 +166,19 @@ export async function taskShow(
     return { success: true, data: taskToRecord(detail) };
   } catch (err: unknown) {
     const code = (err as { code?: number })?.code;
-    if (code === 5 /* NOT_FOUND */) {
+    if (code === 4 /* NOT_FOUND */) {
       return {
         success: false,
-        error: { code: 'E_NOT_FOUND', message: `Task '${taskId}' not found` },
+        error: { code: 'E_NOT_FOUND', message: (err as Error).message || `Task '${taskId}' not found` },
       };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    if (code === 2 /* INVALID_INPUT */) {
+      return {
+        success: false,
+        error: { code: 'E_INVALID_INPUT', message: (err as Error).message || 'Invalid input' },
+      };
+    }
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: (err as Error).message || 'No todo.json found' } };
   }
 }
 
@@ -290,18 +297,27 @@ export async function taskCreate(
     return { success: true, data: taskToRecord(result.task) };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
-    // Map CleoError exit codes to engine error codes
-    if (cleoErr.code === 7 /* PARENT_NOT_FOUND */) {
-      return { success: false, error: { code: 'E_PARENT_NOT_FOUND', message: cleoErr.message ?? 'Parent task not found' } };
+    // Map CleoError exit codes to engine error codes (see src/types/exit-codes.ts)
+    if (cleoErr.code === 10 /* PARENT_NOT_FOUND */) {
+      return { success: false, error: { code: 'E_PARENT_NOT_FOUND', message: cleoErr.message ?? 'Parent task not found', exitCode: 10 } };
     }
-    if (cleoErr.code === 9 /* DEPTH_EXCEEDED */) {
-      return { success: false, error: { code: 'E_DEPTH_EXCEEDED', message: cleoErr.message ?? 'Max hierarchy depth exceeded' } };
+    if (cleoErr.code === 11 /* DEPTH_EXCEEDED */) {
+      return { success: false, error: { code: 'E_DEPTH_EXCEEDED', message: cleoErr.message ?? 'Max hierarchy depth exceeded', exitCode: 11 } };
     }
-    if (cleoErr.code === 10 /* SIBLING_LIMIT */) {
-      return { success: false, error: { code: 'E_SIBLING_LIMIT', message: cleoErr.message ?? 'Max siblings exceeded' } };
+    if (cleoErr.code === 12 /* SIBLING_LIMIT */) {
+      return { success: false, error: { code: 'E_SIBLING_LIMIT', message: cleoErr.message ?? 'Max siblings exceeded', exitCode: 12 } };
     }
-    if (cleoErr.code === 4 /* VALIDATION_ERROR */ || cleoErr.code === 3 /* INVALID_INPUT */) {
-      return { success: false, error: { code: 'E_VALIDATION_FAILED', message: cleoErr.message ?? 'Validation failed' } };
+    if (cleoErr.code === 13 /* INVALID_PARENT_TYPE */) {
+      return { success: false, error: { code: 'E_INVALID_PARENT', message: cleoErr.message ?? 'Invalid parent type', exitCode: 13 } };
+    }
+    if (cleoErr.code === 14 /* CIRCULAR_REFERENCE */) {
+      return { success: false, error: { code: 'E_CIRCULAR_REFERENCE', message: cleoErr.message ?? 'Circular reference detected', exitCode: 14 } };
+    }
+    if (cleoErr.code === 6 /* VALIDATION_ERROR */ || cleoErr.code === 2 /* INVALID_INPUT */) {
+      return { success: false, error: { code: 'E_VALIDATION_FAILED', message: cleoErr.message ?? 'Validation failed', exitCode: cleoErr.code } };
+    }
+    if (cleoErr.code === 4 /* NOT_FOUND */) {
+      return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? 'Task not found', exitCode: 4 } };
     }
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
   }
@@ -355,13 +371,13 @@ export async function taskUpdate(
     return { success: true, data: taskToRecord(result.task) };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
-    if (cleoErr.code === 5 /* NOT_FOUND */) {
+    if (cleoErr.code === 4 /* NOT_FOUND */) {
       return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? `Task '${taskId}' not found` } };
     }
-    if (cleoErr.code === 4 /* VALIDATION_ERROR */ || cleoErr.code === 3 /* INVALID_INPUT */) {
+    if (cleoErr.code === 6 /* VALIDATION_ERROR */ || cleoErr.code === 2 /* INVALID_INPUT */) {
       return { success: false, error: { code: 'E_VALIDATION_FAILED', message: cleoErr.message ?? 'Validation failed' } };
     }
-    if (cleoErr.code === 50 /* NO_CHANGE */) {
+    if (cleoErr.code === 102 /* NO_CHANGE */) {
       return { success: false, error: { code: 'E_NO_CHANGE', message: cleoErr.message ?? 'No changes specified' } };
     }
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
@@ -401,10 +417,10 @@ export async function taskDelete(
     return { success: true, data: { deleted: true, taskId } };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
-    if (cleoErr.code === 5 /* NOT_FOUND */) {
+    if (cleoErr.code === 4 /* NOT_FOUND */) {
       return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? `Task '${taskId}' not found` } };
     }
-    if (cleoErr.code === 11 /* HAS_CHILDREN */) {
+    if (cleoErr.code === 16 /* HAS_CHILDREN */) {
       return { success: false, error: { code: 'E_HAS_CHILDREN', message: cleoErr.message ?? `Task '${taskId}' has children` } };
     }
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
@@ -433,7 +449,7 @@ export async function taskArchive(
     };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
-    if (cleoErr.code === 5 /* NOT_FOUND */) {
+    if (cleoErr.code === 4 /* NOT_FOUND */) {
       return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? `Task not found` } };
     }
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };

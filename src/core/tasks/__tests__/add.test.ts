@@ -219,7 +219,7 @@ describe('addTask (integration)', () => {
     await mkdir(cleoDir, { recursive: true });
     await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
 
-    // Create minimal todo.json
+    // Create minimal tasks.json
     const todoData = {
       version: '2.10.0',
       project: { name: 'test', phases: {}, currentPhase: null },
@@ -231,7 +231,7 @@ describe('addTask (integration)', () => {
       },
       tasks: [],
     };
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData, null, 2));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(todoData, null, 2));
   });
 
   afterEach(async () => {

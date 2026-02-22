@@ -70,7 +70,7 @@ export type SessionHistoryResult = SessionHistoryEntry[];
 export interface SessionStartParams {
   scope: string;
   name?: string;
-  autoStart?: boolean;
+  autoFocus?: boolean;
   startTask?: string;
 }
 export type SessionStartResult = Session;

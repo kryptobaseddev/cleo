@@ -41,7 +41,7 @@ describe('showTask', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Test task', status: 'pending', priority: 'high', description: 'Detailed info', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await showTask('T001', tempDir);
     expect(result.id).toBe('T001');
@@ -51,7 +51,7 @@ describe('showTask', () => {
 
   it('throws if task not found', async () => {
     const data = makeTodoFile([]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     await expect(showTask('T999', tempDir)).rejects.toThrow('Task not found');
   });
@@ -62,7 +62,7 @@ describe('showTask', () => {
       { id: 'T002', title: 'Child 1', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
       { id: 'T003', title: 'Child 2', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await showTask('T001', tempDir);
     expect(result.children).toEqual(['T002', 'T003']);
@@ -73,7 +73,7 @@ describe('showTask', () => {
       { id: 'T001', title: 'Dependency', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Blocked task', status: 'pending', priority: 'medium', depends: ['T001'], createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await showTask('T002', tempDir);
     expect(result.dependencyStatus).toHaveLength(1);
@@ -90,7 +90,7 @@ describe('showTask', () => {
       { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', parentId: 'T001', createdAt: new Date().toISOString() },
       { id: 'T003', title: 'Subtask', status: 'pending', priority: 'medium', parentId: 'T002', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await showTask('T003', tempDir);
     expect(result.hierarchyPath).toEqual(['T001', 'T002', 'T003']);

@@ -69,7 +69,7 @@ describe('compareSemver', () => {
 describe('getMigrationStatus', () => {
   it('reports status for existing files', async () => {
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         version: '1.0.0',
         _meta: { schemaVersion: '2.6.0', checksum: 'abc', configVersion: '2.0.0' },
@@ -91,9 +91,9 @@ describe('getMigrationStatus', () => {
 });
 
 describe('runMigration', () => {
-  it('runs migrations on todo.json', async () => {
+  it('runs migrations on tasks.json', async () => {
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         version: '1.0.0',
         _meta: { schemaVersion: '2.6.0', checksum: 'abc', configVersion: '2.0.0' },
@@ -112,7 +112,7 @@ describe('runMigration', () => {
 
   it('supports dry run', async () => {
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         version: '1.0.0',
         _meta: { schemaVersion: '2.6.0', checksum: 'abc', configVersion: '2.0.0' },
@@ -132,7 +132,7 @@ describe('runMigration', () => {
 
   it('returns no-op for current version', async () => {
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         version: '1.0.0',
         _meta: { schemaVersion: '2.10.0', checksum: 'abc', configVersion: '2.0.0' },

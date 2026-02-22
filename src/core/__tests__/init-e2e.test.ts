@@ -53,9 +53,9 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(existsSync(join(testDir, '.cleo'))).toBe(true);
   });
 
-  it('creates todo.json with valid structure', async () => {
+  it('creates tasks.json with valid structure', async () => {
     await initProject({ name: 'test-project' });
-    const todoPath = join(testDir, '.cleo', 'todo.json');
+    const todoPath = join(testDir, '.cleo', 'tasks.json');
     expect(await fileExists(todoPath)).toBe(true);
 
     const content = JSON.parse(await readFile(todoPath, 'utf-8'));
@@ -89,12 +89,13 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(content.sessions).toEqual([]);
   });
 
-  it('creates .sequence file', async () => {
+  it('creates .sequence.json file', async () => {
     await initProject({ name: 'test-project' });
-    const sequencePath = join(testDir, '.cleo', '.sequence');
+    const sequencePath = join(testDir, '.cleo', '.sequence.json');
     expect(await fileExists(sequencePath)).toBe(true);
-    const content = await readFile(sequencePath, 'utf-8');
-    expect(content.trim()).toBe('0');
+    const content = JSON.parse(await readFile(sequencePath, 'utf-8'));
+    expect(content.counter).toBe(0);
+    expect(content.lastId).toBe('T000');
   });
 
   it('creates .cleo/.gitignore', async () => {
@@ -151,7 +152,7 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     await initProject({ name: 'first-run' });
     const result = await initProject({ name: 'second-run' });
     // Key files should be in skipped list
-    expect(result.skipped).toContain('todo.json');
+    expect(result.skipped).toContain('tasks.json');
     expect(result.skipped).toContain('config.json');
     expect(result.skipped).toContain('sessions.json');
   });
@@ -160,10 +161,10 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     await initProject({ name: 'first-run' });
     const result = await initProject({ name: 'overwrite-run', force: true });
     // Should recreate key files
-    expect(result.created).toContain('todo.json');
+    expect(result.created).toContain('tasks.json');
     expect(result.created).toContain('config.json');
 
-    const content = JSON.parse(await readFile(join(testDir, '.cleo', 'todo.json'), 'utf-8'));
+    const content = JSON.parse(await readFile(join(testDir, '.cleo', 'tasks.json'), 'utf-8'));
     expect(content.project.name).toBe('overwrite-run');
   });
 

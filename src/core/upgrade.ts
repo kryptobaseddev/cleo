@@ -19,6 +19,7 @@ import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
 import { MigrationLogger } from './migration/logger.js';
 import { forceCheckpointBeforeOperation } from '../store/data-safety.js';
+import { acquireLock, type ReleaseFn } from '../store/lock.js';
 import {
   createMigrationState,
   updateMigrationPhase,
@@ -108,11 +109,27 @@ export async function runUpgrade(options: {
       // that unconditionally deleted tasks.db before migration, causing
       // total data loss of 4,295 tasks. This fix follows the project's
       // atomic operation pattern: backup → migrate to temp → validate → rename.
+      let migrationLock: ReleaseFn | null = null;
       try {
+        // CRITICAL: Acquire migration lock before any destructive operations
+        const cleoDir = getCleoDirAbsolute(options.cwd);
+        const dbPath = join(cleoDir, 'tasks.db');
+        try {
+          migrationLock = await acquireLock(dbPath, { stale: 30_000, retries: 0 });
+        } catch {
+          // Lock acquisition failed — another migration is in progress
+          actions.push({
+            action: 'storage_migration',
+            status: 'error',
+            details: 'Cannot acquire migration lock: Another migration is currently in progress',
+            fix: 'Wait for the other migration to complete, then retry.',
+          });
+          errors.push('Cannot acquire migration lock: Another migration is currently in progress');
+          return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors };
+        }
+
         // CRITICAL: Force checkpoint before ANY destructive operations
         await forceCheckpointBeforeOperation('storage-migration', options.cwd);
-
-        const cleoDir = getCleoDirAbsolute(options.cwd);
 
         // Initialize migration state tracking
         const logger = new MigrationLogger(cleoDir);
@@ -123,7 +140,6 @@ export async function runUpgrade(options: {
         });
         await updateMigrationPhase(cleoDir, 'backup');
         logger.info('init', 'start', 'Migration state initialized');
-        const dbPath = join(cleoDir, 'tasks.db');
         const dbBackupPath = join(cleoDir, 'backups', 'safety', `tasks.db.pre-migration.${Date.now()}`);
         const dbTempPath = join(cleoDir, 'tasks.db.migrating');
 
@@ -300,6 +316,15 @@ export async function runUpgrade(options: {
           fix: preflight.fix ?? undefined,
         });
         errors.push(String(err));
+      } finally {
+        // Always release the migration lock
+        if (migrationLock) {
+          try {
+            await migrationLock();
+          } catch {
+            // Best-effort lock release
+          }
+        }
       }
     } else {
       // autoMigrate=false: just report

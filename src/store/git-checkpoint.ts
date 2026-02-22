@@ -35,7 +35,7 @@ const STATE_FILES = [
   // Always-present files
   'config.json',
   'todo-log.jsonl',
-  '.sequence',
+  '.sequence.json',
   'project-context.json',
   // Metrics
   'metrics/COMPLIANCE.jsonl',

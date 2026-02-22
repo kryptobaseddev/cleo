@@ -102,10 +102,13 @@ export function mapDomainToCommand(domain: string, operation: string): { command
       complete: { command: 'complete', addOperationAsSubcommand: false },
       delete: { command: 'delete', addOperationAsSubcommand: false },
       archive: { command: 'archive', addOperationAsSubcommand: false },
-      restore: { command: 'restore', addOperationAsSubcommand: false },
-      reopen: { command: 'reopen', addOperationAsSubcommand: false },
+      restore: { command: 'restore task', addOperationAsSubcommand: false },
+      reopen: { command: 'restore task', addOperationAsSubcommand: false },
       exists: { command: 'exists', addOperationAsSubcommand: false },
       next: { command: 'next', addOperationAsSubcommand: false },
+      current: { command: 'current', addOperationAsSubcommand: false },
+      start: { command: 'start', addOperationAsSubcommand: false },
+      stop: { command: 'stop', addOperationAsSubcommand: false },
       depends: { command: 'deps show', addOperationAsSubcommand: false },
       blockers: { command: 'blockers', addOperationAsSubcommand: false },
       tree: { command: 'tree', addOperationAsSubcommand: false },
@@ -123,6 +126,7 @@ export function mapDomainToCommand(domain: string, operation: string): { command
       archive: { command: 'session', addOperationAsSubcommand: true },
       cleanup: { command: 'session', addOperationAsSubcommand: true },
       switch: { command: 'session', addOperationAsSubcommand: true },
+      focus: { command: 'focus', addOperationAsSubcommand: false },
     },
     lifecycle: {
       status: { command: 'lifecycle show', addOperationAsSubcommand: false },
@@ -186,8 +190,10 @@ export function mapDomainToCommand(domain: string, operation: string): { command
     },
     system: {
       version: { command: 'version', addOperationAsSubcommand: false },
+      config: { command: 'config', addOperationAsSubcommand: false },
       'config.show': { command: 'config', addOperationAsSubcommand: false },
       'config.get': { command: 'config', addOperationAsSubcommand: false },
+      'config.set': { command: 'config', addOperationAsSubcommand: false },
       backup: { command: 'backup', addOperationAsSubcommand: false },
       cleanup: { command: 'cleanup', addOperationAsSubcommand: false },
       health: { command: 'doctor', addOperationAsSubcommand: false },
@@ -262,7 +268,8 @@ export function buildCLICommand(
   // 'orchestrate', 'research', 'tasks', 'focus', 'system', 'validate').
   const validCliCommands = [
     'add', 'list', 'show', 'find', 'update', 'complete', 'delete', 'archive',
-    'restore', 'exists', 'next', 'version', 'dash', 'analyze', 'config',
+    'exists', 'next', 'current', 'start', 'stop',
+    'version', 'dash', 'analyze', 'config',
     'backup', 'init', 'blockers', 'deps', 'tree',
   ];
 

@@ -18,6 +18,7 @@ export interface StartSessionOptions {
   scope: string; // e.g. "epic:T001" or "global"
   autoStart?: boolean;
   startTask?: string;
+  focus?: string;
   agent?: string;
 }
 
@@ -134,6 +135,7 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
     }
   }
 
+  const focusTaskId = options.focus ?? options.startTask ?? null;
   const session: Session = {
     id: generateSessionId(),
     name: options.name,
@@ -144,8 +146,8 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
       setAt: options.startTask ? new Date().toISOString() : null,
     },
     focus: {
-      taskId: options.startTask ?? null,
-      setAt: options.startTask ? new Date().toISOString() : null,
+      taskId: focusTaskId,
+      setAt: focusTaskId ? new Date().toISOString() : null,
     },
     startedAt: new Date().toISOString(),
     agent: options.agent ?? null,
@@ -338,3 +340,97 @@ export type { RecordDecisionParams, DecisionLogParams } from './decisions.js';
 export { recordAssumption } from './assumptions.js';
 export type { RecordAssumptionParams } from './assumptions.js';
 export type { SessionRecord, FocusState, SessionsFileExt, TodoFileExt, DecisionRecord, AssumptionRecord } from './types.js';
+
+// =============================================================================
+// CROSS-SESSION RESUME INTEGRATION
+// @task T4805 - SQLite-backed resume flow integration
+// =============================================================================
+
+import { checkSessionResume, SessionResumeCheckResult } from '../lifecycle/resume.js';
+
+/** Options for starting a session with resume check. */
+export interface StartSessionWithResumeOptions extends StartSessionOptions {
+  /** Whether to check for resumable pipelines on start */
+  checkResume?: boolean;
+  /** Whether to auto-resume if single candidate found */
+  autoResume?: boolean;
+  /** Minimum priority for resume candidates */
+  minResumePriority?: 'critical' | 'high' | 'medium' | 'low';
+}
+
+/** Result of starting a session with resume check. */
+export interface StartSessionWithResumeResult {
+  /** The created/resumed session */
+  session: Session;
+  /** Resume check result if checkResume was enabled */
+  resumeCheck?: SessionResumeCheckResult;
+  /** Whether a pipeline was auto-resumed */
+  autoResumed: boolean;
+}
+
+/**
+ * Start a new session with optional resume check.
+ *
+ * This enhanced version of startSession integrates with the lifecycle
+ * resume flow (T4805) to check for active pipelines and optionally
+ * auto-resume work from a previous session.
+ *
+ * @param options - Session options with resume check configuration
+ * @param cwd - Working directory
+ * @param accessor - Data accessor for testing
+ * @returns Promise resolving to session and resume check results
+ *
+ * @example
+ * ```typescript
+ * // Start session and check for resumable work
+ * const result = await startSessionWithResume({
+ *   name: 'Development Session',
+ *   scope: 'epic:T4805',
+ *   checkResume: true,
+ *   autoResume: true
+ * });
+ *
+ * if (result.autoResumed) {
+ *   console.log(`Auto-resumed ${result.resumeCheck?.resumedTaskId}`);
+ * } else if (result.resumeCheck?.requiresUserChoice) {
+ *   console.log('Choose a pipeline to resume:', result.resumeCheck.options);
+ * }
+ * ```
+ *
+ * @task T4805
+ * @integration Session Start Hook
+ */
+export async function startSessionWithResume(
+  options: StartSessionWithResumeOptions,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<StartSessionWithResumeResult> {
+  // First, start the session normally
+  const session = await startSession(options, cwd, accessor);
+
+  // If resume check not enabled, return just the session
+  if (!options.checkResume) {
+    return { session, autoResumed: false };
+  }
+
+  // Check for resumable pipelines
+  const scope = options.scope.startsWith('epic:')
+    ? { type: 'epic' as const, epicId: options.scope.replace('epic:', '') }
+    : { type: 'global' as const };
+
+  const resumeCheck = await checkSessionResume(
+    {
+      autoResume: options.autoResume,
+      scope,
+      minPriority: options.minResumePriority,
+      includeBlocked: true,
+    },
+    cwd,
+  );
+
+  return {
+    session,
+    resumeCheck,
+    autoResumed: resumeCheck.didResume,
+  };
+}

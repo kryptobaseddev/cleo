@@ -19,7 +19,7 @@ import { readJson } from '../json.js';
 import type { StoreProvider } from '../provider.js';
 import type { TodoFile } from '../../types/task.js';
 
-/** Create a minimal todo.json for testing. */
+/** Create a minimal tasks.json for testing. */
 function makeTodoFile(tasks: TodoFile['tasks'] = []): TodoFile {
   return {
     version: '2.10.0',
@@ -40,8 +40,10 @@ async function setupTestDir(): Promise<{ tempDir: string; cleoDir: string }> {
   const cleoDir = join(tempDir, '.cleo');
   await mkdir(cleoDir, { recursive: true });
   await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
-  await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(makeTodoFile()));
+  await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile()));
   await writeFile(join(cleoDir, 'todo-log.jsonl'), '');
+  // Sequence file needed for ID generation and safety validation
+  await writeFile(join(cleoDir, '.sequence.json'), JSON.stringify({ counter: 0, lastId: 'T000', checksum: 'init' }));
   return { tempDir, cleoDir };
 }
 
@@ -259,7 +261,7 @@ describe('JSON StoreProvider task CRUD', () => {
 
     // Verify it's in the archive
     const archiveData = await readJson<{ archivedTasks: Array<{ id: string }> }>(
-      join(cleoDir, 'todo-archive.json'),
+      join(cleoDir, 'tasks-archive.json'),
     );
     expect(archiveData).not.toBeNull();
     expect(archiveData!.archivedTasks.some(t => t.id === created.id)).toBe(true);
@@ -297,7 +299,7 @@ describe('JSON StoreProvider round-trip data integrity', () => {
     });
 
     // Read raw JSON file
-    const rawData = await readJson<TodoFile>(join(cleoDir, 'todo.json'));
+    const rawData = await readJson<TodoFile>(join(cleoDir, 'tasks.json'));
     expect(rawData).not.toBeNull();
     const rawTask = rawData!.tasks.find(t => t.id === created.id);
     expect(rawTask).toBeDefined();
@@ -327,7 +329,7 @@ describe('JSON StoreProvider round-trip data integrity', () => {
     await provider.updateTask(t1.id, { status: 'active' });
 
     // Verify via raw file read
-    const rawData = await readJson<TodoFile>(join(cleoDir, 'todo.json'));
+    const rawData = await readJson<TodoFile>(join(cleoDir, 'tasks.json'));
     expect(rawData).not.toBeNull();
     expect(rawData!.tasks).toHaveLength(2);
 

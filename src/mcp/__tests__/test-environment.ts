@@ -117,10 +117,19 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
       tmpBase,
       'add "Test Epic" --description "Epic for integration testing" --json'
     );
-    const epicParsed = JSON.parse(epicResult.stdout.trim());
-    const epicId = epicParsed.result?.task?.id ?? epicParsed.data?.task?.id ?? epicParsed.task?.id;
+    const epicOutput = epicResult.stdout.trim() || epicResult.stderr.trim();
+    let epicParsed: any;
+    try {
+      epicParsed = JSON.parse(epicOutput);
+    } catch {
+      throw new Error(
+        `Failed to parse epic creation output (exit ${epicResult.exitCode}): ` +
+        `stdout=${JSON.stringify(epicResult.stdout)}, stderr=${JSON.stringify(epicResult.stderr)}`
+      );
+    }
+    const epicId = epicParsed.result?.task?.id ?? epicParsed.result?.id ?? epicParsed.data?.task?.id ?? epicParsed.data?.id ?? epicParsed.task?.id ?? epicParsed.id;
     if (!epicId) {
-      throw new Error(`Failed to create test epic: ${epicResult.stdout}`);
+      throw new Error(`Failed to create test epic: ${epicOutput}`);
     }
 
     // Create child tasks under the epic
@@ -139,8 +148,17 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
         tmpBase,
         `add "${task.title}" --description "${task.desc}" --parent ${epicId} --json`
       );
-      const parsed = JSON.parse(result.stdout.trim());
-      const taskId = parsed.result?.task?.id ?? parsed.data?.task?.id ?? parsed.task?.id;
+      const taskOutput = result.stdout.trim() || result.stderr.trim();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(taskOutput);
+      } catch {
+        throw new Error(
+          `Failed to parse task creation output for "${task.title}" (exit ${result.exitCode}): ` +
+          `stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}`
+        );
+      }
+      const taskId = parsed.result?.task?.id ?? parsed.result?.id ?? parsed.data?.task?.id ?? parsed.data?.id ?? parsed.task?.id ?? parsed.id;
       if (taskId) {
         taskIds.push(taskId);
       }

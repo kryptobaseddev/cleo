@@ -379,8 +379,10 @@ export async function sessionStart(
     (current as Record<string, unknown>).lastUpdated = now;
     await accessor.saveTodoFile(todoData);
 
-    // If multi-session enabled, also write to sessions.json
-    if (current._meta?.multiSessionEnabled) {
+    // Always write to sessions.json so resume/suspend can find the session.
+    // Previously only written when multi-session enabled, but session resume
+    // always looks in sessions.json regardless of multi-session mode.
+    {
       const sessionsData = await accessor.loadSessions();
       const sessions = sessionsData as unknown as SessionsFileExt;
 
@@ -498,18 +500,8 @@ export async function sessionResume(
     const todoData = await accessor.loadTodoFile();
     const current = todoData as unknown as TodoFileExt;
 
-    const multiSession = current._meta?.multiSessionEnabled === true;
-
-    if (!multiSession) {
-      return {
-        success: false,
-        error: {
-          code: 'E_NOT_SUPPORTED',
-          message: 'Session resume requires multi-session mode',
-        },
-      };
-    }
-
+    // Sessions are always written to sessions.json (even without multi-session mode),
+    // so resume can always look them up there.
     const sessionsData = await accessor.loadSessions();
     const sessions = sessionsData as unknown as SessionsFileExt;
 

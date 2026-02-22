@@ -153,7 +153,7 @@ describe('path helper functions', () => {
 
   it('getTodoPath returns correct path', () => {
     delete process.env['CLEO_DIR'];
-    expect(getTodoPath('/my/project')).toBe('/my/project/.cleo/todo.json');
+    expect(getTodoPath('/my/project')).toBe('/my/project/.cleo/tasks.json');
   });
 
   it('getConfigPath returns correct path', () => {

@@ -351,7 +351,7 @@ describe('LAFS Integration with Core Modules', () => {
     process.env['CLEO_DIR'] = cleoDir;
 
     await writeFile(
-      join(cleoDir, 'todo.json'),
+      join(cleoDir, 'tasks.json'),
       JSON.stringify({
         version: '2.10.0',
         project: { name: 'Test', phases: { core: { order: 1, name: 'Core', status: 'active' } } },

@@ -43,18 +43,18 @@ describe('archiveTasks', () => {
       { id: 'T001', title: 'Done task', status: 'done', priority: 'medium', createdAt: '2025-01-01T00:00:00Z', completedAt: '2025-01-02T00:00:00Z' },
       { id: 'T002', title: 'Pending task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({}, tempDir);
     expect(result.archived).toContain('T001');
     expect(result.archived).not.toContain('T002');
 
-    const updated = JSON.parse(await readFile(join(cleoDir, 'todo.json'), 'utf8'));
+    const updated = JSON.parse(await readFile(join(cleoDir, 'tasks.json'), 'utf8'));
     expect(updated.tasks).toHaveLength(1);
     expect(updated.tasks[0].id).toBe('T002');
 
-    const archive = JSON.parse(await readFile(join(cleoDir, 'todo-archive.json'), 'utf8'));
+    const archive = JSON.parse(await readFile(join(cleoDir, 'tasks-archive.json'), 'utf8'));
     expect(archive.archivedTasks).toHaveLength(1);
     expect(archive.archivedTasks[0].id).toBe('T001');
   });
@@ -63,7 +63,7 @@ describe('archiveTasks', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Cancelled', status: 'cancelled', priority: 'medium', createdAt: '2025-01-01T00:00:00Z', cancelledAt: '2025-01-02T00:00:00Z' },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({}, tempDir);
@@ -74,7 +74,7 @@ describe('archiveTasks', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Cancelled', status: 'cancelled', priority: 'medium', createdAt: '2025-01-01T00:00:00Z' },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await archiveTasks({ includeCancelled: false }, tempDir);
     expect(result.archived).toHaveLength(0);
@@ -85,7 +85,7 @@ describe('archiveTasks', () => {
       { id: 'T001', title: 'Old', status: 'done', priority: 'medium', createdAt: '2024-01-01T00:00:00Z', completedAt: '2024-06-01T00:00:00Z' },
       { id: 'T002', title: 'Recent', status: 'done', priority: 'medium', createdAt: '2025-12-01T00:00:00Z', completedAt: '2025-12-15T00:00:00Z' },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({ before: '2025-01-01T00:00:00Z' }, tempDir);
@@ -98,7 +98,7 @@ describe('archiveTasks', () => {
       { id: 'T001', title: 'Done 1', status: 'done', priority: 'medium', createdAt: '2025-01-01T00:00:00Z' },
       { id: 'T002', title: 'Done 2', status: 'done', priority: 'medium', createdAt: '2025-01-01T00:00:00Z' },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
     await writeFile(join(cleoDir, 'todo-log.jsonl'), JSON.stringify({ _meta: { version: '2.1.0' }, entries: [] }));
 
     const result = await archiveTasks({ taskIds: ['T001'] }, tempDir);
@@ -109,14 +109,14 @@ describe('archiveTasks', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Done', status: 'done', priority: 'medium', createdAt: '2025-01-01T00:00:00Z' },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await archiveTasks({ dryRun: true }, tempDir);
     expect(result.dryRun).toBe(true);
     expect(result.archived).toContain('T001');
 
     // Verify no changes were made
-    const updated = JSON.parse(await readFile(join(cleoDir, 'todo.json'), 'utf8'));
+    const updated = JSON.parse(await readFile(join(cleoDir, 'tasks.json'), 'utf8'));
     expect(updated.tasks).toHaveLength(1);
   });
 
@@ -125,7 +125,7 @@ describe('archiveTasks', () => {
       { id: 'T001', title: 'Epic', status: 'done', priority: 'medium', type: 'epic', createdAt: '2025-01-01T00:00:00Z' },
       { id: 'T002', title: 'Active child', status: 'active', priority: 'medium', parentId: 'T001', createdAt: '2025-01-01T00:00:00Z' },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await archiveTasks({}, tempDir);
     expect(result.skipped).toContain('T001');
@@ -136,7 +136,7 @@ describe('archiveTasks', () => {
     const data = makeTodoFile([
       { id: 'T001', title: 'Active', status: 'active', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
     const result = await archiveTasks({}, tempDir);
     expect(result.archived).toHaveLength(0);
@@ -146,8 +146,8 @@ describe('archiveTasks', () => {
     const data = makeTodoFile([
       { id: 'T002', title: 'New done', status: 'done', priority: 'medium', createdAt: '2025-01-01T00:00:00Z' },
     ]);
-    await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(data));
-    await writeFile(join(cleoDir, 'todo-archive.json'), JSON.stringify({
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+    await writeFile(join(cleoDir, 'tasks-archive.json'), JSON.stringify({
       archivedTasks: [{ id: 'T001', title: 'Already archived', status: 'done', priority: 'medium', createdAt: '2024-01-01T00:00:00Z' }],
       version: '1.0.0',
     }));
@@ -155,7 +155,7 @@ describe('archiveTasks', () => {
 
     await archiveTasks({}, tempDir);
 
-    const archive = JSON.parse(await readFile(join(cleoDir, 'todo-archive.json'), 'utf8'));
+    const archive = JSON.parse(await readFile(join(cleoDir, 'tasks-archive.json'), 'utf8'));
     expect(archive.archivedTasks).toHaveLength(2);
   });
 });

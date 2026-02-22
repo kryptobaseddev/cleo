@@ -93,6 +93,8 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
       try {
         const acc = await getAcc();
         const detail = await showTask(taskId, cwd, acc);
+        // Filter out archived tasks — getTask should only return active tasks
+        if (detail.isArchived) return null;
         return detail;
       } catch {
         return null;
@@ -249,6 +251,27 @@ export function createJsonStoreProvider(cwd?: string): StoreProvider {
     },
 
     stopTaskOnSession: async (_sessionId: string): Promise<void> => {
+      const acc = await getAcc();
+      await stopTask(cwd, acc);
+    },
+
+    // ---- Focus aliases (delegate to task work) ----
+
+    setFocus: async (_sessionId: string, taskId: string): Promise<void> => {
+      const acc = await getAcc();
+      await startTask(taskId, cwd, acc);
+    },
+
+    getFocus: async (_sessionId: string): Promise<{ taskId: string | null; since: string | null }> => {
+      const acc = await getAcc();
+      const current = await currentTask(cwd, acc);
+      return {
+        taskId: current.currentTask,
+        since: null,
+      };
+    },
+
+    clearFocus: async (_sessionId: string): Promise<void> => {
       const acc = await getAcc();
       await stopTask(cwd, acc);
     },
