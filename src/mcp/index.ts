@@ -25,6 +25,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { loadConfig} from './lib/config.js';
 import { DomainRouter, DomainRequest } from './lib/router.js';
+import { initMcpDispatcher, handleMcpToolCall, getMcpDispatcher } from '../dispatch/adapters/mcp.js';
 import { createExecutor } from './lib/executor.js';
 import { registerQueryTool } from './gateways/query.js';
 import { registerMutateTool } from './gateways/mutate.js';
@@ -38,7 +39,7 @@ import { enforceBudget } from './lib/budget.js';
  * Server state for cleanup
  */
 interface ServerState {
-  router: DomainRouter;
+  dispatcher: any;
   server: Server;
   cache: QueryCache;
   jobManager: BackgroundJobManager;
@@ -51,6 +52,18 @@ let serverState: ServerState | null = null;
  * Initialize and start MCP server
  */
 async function main(): Promise<void> {
+  // Startup guard: fail fast if Node.js version is below minimum
+  const { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } = await import('../core/platform.js');
+  const nodeInfo = getNodeVersionInfo();
+  if (!nodeInfo.meetsMinimum) {
+    const upgrade = getNodeUpgradeInstructions();
+    console.error(
+      `[CLEO MCP] Error: Requires Node.js v${MINIMUM_NODE_MAJOR}+ but found v${nodeInfo.version}\n`
+      + `Upgrade: ${upgrade.recommended}`,
+    );
+    process.exit(1);
+  }
+
   try {
     // Load configuration
     console.error('[CLEO MCP] Loading configuration...');
@@ -102,27 +115,21 @@ async function main(): Promise<void> {
       console.error(`[CLEO MCP] CLI version: ${cliVersion}`);
     }
 
-    // Initialize domain router with executor, rate limiting config, and execution mode
-    console.error('[CLEO MCP] Initializing domain router...');
-    const router = new DomainRouter(executor, true, config.rateLimiting, executionMode);
-    console.error('[CLEO MCP] Domain router initialized');
-    console.error(`[CLEO MCP] Rate limiting: ${config.rateLimiting.enabled ? 'enabled' : 'disabled'} (query: ${config.rateLimiting.query.maxRequests}/min, mutate: ${config.rateLimiting.mutate.maxRequests}/min, spawn: ${config.rateLimiting.spawn.maxRequests}/min)`);
-    console.error(`[CLEO MCP] Registered domains: ${router.getDomains().join(', ')}`);
+    // Initialize MCP dispatcher pipeline
+    console.error('[CLEO MCP] Initializing MCP dispatcher...');
+    const dispatcher = initMcpDispatcher({ rateLimiting: config.rateLimiting });
+    console.error('[CLEO MCP] Dispatcher initialized');
+    console.error(`[CLEO MCP] Rate limiting: ${config.rateLimiting.enabled ? 'enabled' : 'disabled'}`);
 
     // Initialize background job manager
     const jobManager = new BackgroundJobManager({ maxJobs: 10, retentionMs: 3600000 });
     console.error('[CLEO MCP] Background job manager initialized (max: 10, retention: 1h)');
 
-    // Wire job manager into system handler via router
-    const systemOps = router.getDomainOperations('system');
-    if (systemOps) {
-      // Access the system handler through the router to inject job manager
-      // The SystemHandler.setJobManager method allows post-construction injection
-      const systemHandler = (router as any).handlers.get('system');
-      if (systemHandler && typeof systemHandler.setJobManager === 'function') {
-        systemHandler.setJobManager(jobManager);
-        console.error('[CLEO MCP] Background job manager wired to system handler');
-      }
+    // Wire job manager into system handler
+    const systemHandler = (dispatcher as any).handlers.get('system');
+    if (systemHandler && typeof systemHandler.setJobManager === 'function') {
+      systemHandler.setJobManager(jobManager);
+      console.error('[CLEO MCP] Background job manager wired to system handler');
     }
 
     // Initialize query cache
@@ -242,8 +249,8 @@ async function main(): Promise<void> {
           }
         }
 
-        // Route to domain handler
-        let result = await router.routeOperation(domainRequest);
+        // Route to domain handler via central dispatcher
+        let result = await handleMcpToolCall(name, args.domain as string, args.operation as string, args.params as Record<string, unknown> | undefined);
 
         if (config.logLevel === 'debug') {
           console.error(`[CLEO MCP] Result:`, JSON.stringify(result, null, 2));
@@ -323,7 +330,7 @@ async function main(): Promise<void> {
 
     // Store server state for cleanup
     serverState = {
-      router,
+      dispatcher,
       server,
       cache,
       jobManager,

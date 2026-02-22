@@ -35,24 +35,24 @@ set -euo pipefail
 # ============================================
 # EARLY NODE.JS CHECK
 # ============================================
-# CLEO is a TypeScript/Node.js package. Node.js >= 20 is required.
+# CLEO is a TypeScript/Node.js package. Node.js >= 24 is required.
 if ! command -v node >/dev/null 2>&1; then
     echo "ERROR: Node.js is required but not found." >&2
     echo "" >&2
-    echo "Install Node.js >= 20:" >&2
-    echo "  nvm:      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && nvm install 20" >&2
-    echo "  Homebrew:  brew install node@20" >&2
+    echo "Install Node.js >= 24:" >&2
+    echo "  nvm:      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && nvm install 24" >&2
+    echo "  Homebrew:  brew install node@24" >&2
     echo "  Official:  https://nodejs.org/" >&2
     exit 1
 fi
 
 NODE_MAJOR=$(node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)
-if [[ "${NODE_MAJOR:-0}" -lt 20 ]]; then
-    echo "ERROR: Node.js v$(node -v) is too old. CLEO requires Node.js >= 20." >&2
+if [[ "${NODE_MAJOR:-0}" -lt 24 ]]; then
+    echo "ERROR: Node.js v$(node -v) is too old. CLEO requires Node.js >= 24." >&2
     echo "" >&2
     echo "Update Node.js:" >&2
-    echo "  nvm:      nvm install 20 && nvm use 20" >&2
-    echo "  Homebrew:  brew install node@20" >&2
+    echo "  nvm:      nvm install 24 && nvm use 24" >&2
+    echo "  Homebrew:  brew install node@24" >&2
     echo "  Official:  https://nodejs.org/" >&2
     exit 1
 fi
