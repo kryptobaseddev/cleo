@@ -2,22 +2,22 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.kryptobaseddev/cleo-mcp-server",
   "title": "CLEO MCP Server",
-  "description": "Task management protocol for solo developers and AI coding agents with 2-gateway CQRS pattern",
-  "version": "2026.2.1",
+  "description": "Task management protocol for solo developers and AI coding agents with 2-gateway CQRS pattern. MCP server is included in the @cleocode/cleo package.",
+  "version": "2026.2.5",
   "websiteUrl": "https://github.com/kryptobaseddev/cleo",
   "repository": {
     "url": "https://github.com/kryptobaseddev/cleo.git",
-    "source": "github",
-    "subfolder": "mcp-server"
+    "source": "github"
   },
   "packages": [
     {
       "registryType": "npm",
-      "identifier": "@cleocode/mcp-server",
-      "version": "2026.2.1",
+      "identifier": "@cleocode/cleo",
+      "version": "2026.2.5",
       "transport": {
         "type": "stdio"
       },
+      "runtimeArgs": ["-y", "@cleocode/cleo", "--mcp-server"],
       "environmentVariables": [
         {
           "name": "CLEO_PROJECT_DIR",
@@ -32,22 +32,30 @@
       "tools": [
         {
           "name": "cleo_query",
-          "description": "Read-only operations across 8 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system"
+          "description": "Read-only operations across 11 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers"
         },
         {
           "name": "cleo_mutate",
-          "description": "Write operations across 8 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system"
+          "description": "Write operations across 11 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers"
         }
       ],
       "features": [
         "CQRS 2-gateway pattern (94% token reduction vs traditional MCP tool approach)",
         "RCSD-IVTR lifecycle protocol enforcement",
         "4-layer validation (schema, semantic, referential, protocol)",
-        "123 operations across 10 domains",
+        "140 operations across 11 domains",
         "Anti-hallucination validation on all task operations",
         "Atomic file operations with backup and rollback"
       ],
-      "categories": ["developer-tools", "task-management", "ai-agents"]
+      "categories": ["developer-tools", "task-management", "ai-agents"],
+      "migration": {
+        "note": "@cleocode/mcp-server is deprecated. Use @cleocode/cleo which includes CLI, MCP server, and all tools in a single package.",
+        "install": "npm install -g @cleocode/cleo",
+        "mcpConfig": {
+          "command": "npx",
+          "args": ["-y", "@cleocode/cleo", "--mcp-server"]
+        }
+      }
     }
   }
 }

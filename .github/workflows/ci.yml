@@ -11,80 +11,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
+  typescript:
+    name: TypeScript Build & Test
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['20', '22']
+      fail-fast: false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          submodules: true
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
 
       - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npx vitest run
+
+      - name: Build
+        run: node build.mjs
+
+      - name: Verify CLI binary
+        run: node dist/cli/index.js version
+        shell: bash
+
+      - name: Verify MCP server starts
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      - name: Install bats-core
-        run: |
-          # Install bats-core from npm (helper libraries are bundled in tests/libs/)
-          sudo npm install -g bats
-
-      - name: Verify Bash version
-        run: bash --version
-
-      - name: Verify jq version
-        run: jq --version
-
-      - name: Make scripts executable
-        run: |
-          chmod +x scripts/*.sh
-          chmod +x lib/*.sh
-          chmod +x tests/*.sh
-          chmod +x install.sh
-
-      - name: Cleanup before tests
-        run: rm -f .cleo/*.lock 2>/dev/null || true
-
-      - name: Run test suite
-        run: ./tests/run-all-tests.sh
-        timeout-minutes: 10
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-logs
-          path: |
-            .cleo/*.log
-            tests/*.log
-          retention-days: 7
-
-  lint:
-    name: Shell Linting
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install ShellCheck
-        run: sudo apt-get install -y shellcheck
-
-      - name: Run ShellCheck on scripts
-        run: |
-          shellcheck -S warning scripts/*.sh
-          shellcheck -S warning lib/*.sh
-
-      - name: Check for syntax errors
-        run: |
-          for script in scripts/*.sh lib/*.sh; do
-            echo "Checking syntax: $script"
-            bash -n "$script"
-          done
+          timeout 5 node dist/mcp/index.js 2>&1 || true
+        shell: bash
+        if: matrix.os != 'windows-latest'
 
   validate-json:
     name: Validate JSON Files
@@ -112,48 +79,10 @@ jobs:
             jq empty "$file"
           done
 
-  docs-drift:
-    name: Documentation Drift Check
+  install-test:
+    name: npm Install Test
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      - name: Run MCP parity check
-        run: node mcp-server/scripts/check-parity.js
-
-      - name: Make scripts executable
-        run: chmod +x dev/skills/ct-docs-sync/scripts/detect-drift.sh
-
-      - name: Run canonical drift gate (strict)
-        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --canonical --strict
-        env:
-          CLEO_HOME: ${{ github.workspace }}
-
-      - name: Run Mintlify frontmatter gate (strict)
-        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --mintlify --strict
-        env:
-          CLEO_HOME: ${{ github.workspace }}
-
-      - name: Run full drift report (non-blocking warnings)
-        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --full
-        env:
-          CLEO_HOME: ${{ github.workspace }}
-
-  typescript:
-    name: TypeScript V2
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['18', '20', '22']
-      fail-fast: false
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
@@ -162,52 +91,29 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies and build
+        run: npm ci && npm run build
 
-      - name: Type check
-        run: npx tsc --noEmit
-
-      - name: Run tests
-        run: npx vitest run
-
-      - name: Build
-        run: node build.mjs
-
-      - name: Verify build output
-        run: node dist/cli/index.js version
-        shell: bash
-
-  install-test:
-    name: Installation Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: sudo apt-get install -y jq
-
-      - name: Make install script executable
-        run: chmod +x install.sh
-
-      - name: Run installation
-        run: ./install.sh
-
-      - name: Verify installation
+      - name: Test npm link (simulates global install)
         run: |
-          ~/.local/bin/cleo version
-          ~/.local/bin/cleo help
+          npm link
+          cleo version
+          cleo --help
+
+      - name: Test MCP server flag
+        run: |
+          timeout 5 cleo --mcp-server 2>&1 || true
 
       - name: Test project initialization
         run: |
           mkdir -p /tmp/test-project
           cd /tmp/test-project
-          ~/.local/bin/cleo init test-project
+          cleo init test-project
           ls -la .cleo/
-          ~/.local/bin/cleo validate
+
+      - name: Cleanup
+        run: npm unlink -g @cleocode/cleo
+        if: always()

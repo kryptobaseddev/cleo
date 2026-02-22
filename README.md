@@ -92,21 +92,47 @@ CLEO provides:
 | **Current (Shipped)** | Bash-native CLI is production baseline with atomic operations, anti-hallucination validation, lifecycle enforcement, and persistent project memory |
 | **Strategic (Gated)** | Nexus validation, memory/reasoning expansion, and Tier M/L multi-agent intelligence are roadmap-driven and evidence-gated |
 
-### MCP Server (Deployed)
+### MCP Server
 
-Auto-configure CLEO's MCP server across your AI tools:
+The MCP server is included in the `@cleocode/cleo` package. No separate install needed.
+
+**Auto-configure** across your AI tools:
 
 ```bash
 cleo mcp-install              # Auto-detect and configure all AI tools
 cleo mcp-install --list-tools # Show 12 supported tools
 ```
 
+**Manual MCP config** (for any MCP-compatible tool):
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "npx",
+      "args": ["-y", "@cleocode/cleo", "--mcp-server"]
+    }
+  }
+}
+```
+
+Or if installed globally (`npm install -g @cleocode/cleo`):
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "cleo-mcp"
+    }
+  }
+}
+```
+
 Supports: Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex
 
 - Canonical MCP contract: [`docs/specs/MCP-SERVER-SPECIFICATION.md`](docs/specs/MCP-SERVER-SPECIFICATION.md)
-- Implementation package docs: [`mcp-server/README.md`](mcp-server/README.md)
-- Implementation API index: [`mcp-server/docs/INDEX.md`](mcp-server/docs/INDEX.md)
-- Operation matrix source of truth: `mcp-server/src/gateways/query.ts` and `mcp-server/src/gateways/mutate.ts`
+- MCP source: [`src/mcp/`](src/mcp/) (gateways, domains, engine)
+- Operation matrix: `src/mcp/gateways/query.ts` and `src/mcp/gateways/mutate.ts`
 
 #### Using the MCP Tools
 
@@ -119,12 +145,12 @@ cleo_query  domain=system  operation=dash
 cleo_query  domain=tasks   operation=next
 
 # Write operations (creates or modifies data)
-cleo_mutate domain=tasks   operation=create   params={"title": "...", "description": "..."}
+cleo_mutate domain=tasks   operation=add     params={"title": "...", "description": "..."}
 cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes": "Done."}
-cleo_mutate domain=issues  operation=create_bug params={"title": "...", "body": "...", "dryRun": true}
+cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
 ```
 
-10 domains, 123 operations (63 query + 60 mutate) across tasks, sessions, issues, orchestration, research, lifecycle, validation, releases, skills, and system management. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+11 domains, 140 operations (75 query + 65 mutate) across tasks, sessions, issues, orchestration, research, lifecycle, validation, releases, skills, providers, and system management. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
 
 ### Source of Truth Hierarchy
 

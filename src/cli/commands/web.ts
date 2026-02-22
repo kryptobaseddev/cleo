@@ -108,28 +108,9 @@ export function registerWebCommand(program: Command): void {
           throw new CleoError(ExitCode.GENERAL_ERROR, `Server already running (PID: ${status.pid})`);
         }
 
-        // Find MCP server directory
-        let mcpServerDir = '';
-        const candidates = [
-          process.env['CLEO_MCP_SERVER'] ?? '',
-          join(getCleoHome(), 'mcp-server'),
-        ];
-
-        for (const candidate of candidates) {
-          if (!candidate) continue;
-          try {
-            await stat(candidate);
-            mcpServerDir = candidate;
-            break;
-          } catch {
-            continue;
-          }
-        }
-
-        if (!mcpServerDir) {
-          throw new CleoError(ExitCode.NOT_FOUND,
-            'MCP server not found. Run from a CLEO project or set CLEO_MCP_SERVER');
-        }
+        // Resolve MCP server location — uses src/mcp/ from the main @cleocode/cleo package
+        const projectRoot = process.env['CLEO_ROOT'] ?? process.cwd();
+        const distMcpDir = join(projectRoot, 'dist', 'mcp');
 
         // Ensure log directory exists
         await mkdir(join(getCleoHome(), 'logs'), { recursive: true });
@@ -141,14 +122,14 @@ export function registerWebCommand(program: Command): void {
           startedAt: new Date().toISOString(),
         }));
 
-        // Check if web server is built
-        const webIndexPath = join(mcpServerDir, 'dist', 'web', 'index.js');
+        // Check if MCP server is built (dist/mcp/index.js from @cleocode/cleo)
+        const webIndexPath = join(distMcpDir, 'index.js');
         try {
           await stat(webIndexPath);
         } catch {
           // Need to build
           try {
-            execFileSync('npm', ['run', 'build'], { cwd: mcpServerDir, stdio: 'ignore' });
+            execFileSync('npm', ['run', 'build'], { cwd: projectRoot, stdio: 'ignore' });
           } catch {
             throw new CleoError(ExitCode.GENERAL_ERROR, `Build failed. Check logs: ${logFile}`);
           }
@@ -156,7 +137,7 @@ export function registerWebCommand(program: Command): void {
 
         // Start server
         const serverProcess = spawn('node', [webIndexPath], {
-          cwd: mcpServerDir,
+          cwd: projectRoot,
           env: {
             ...process.env,
             CLEO_WEB_PORT: String(port),
