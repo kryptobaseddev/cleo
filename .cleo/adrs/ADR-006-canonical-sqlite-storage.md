@@ -155,11 +155,12 @@ CREATE TABLE project_registry (
 
 - **Engine**: SQLite via Node built-in `node:sqlite` (`DatabaseSync`) with WAL enabled for cross-process concurrency and multi-agent safety.
 - **Runtime Requirement**: Node.js `>=24.0.0` (enforced via `package.json` engines).
-- **ORM**: `drizzle-orm` for strict TypeScript schema definition, automated migrations, and type-safe query building.
+- **ORM**: `drizzle-orm` v1.0.0-beta (floor: beta.15) for strict TypeScript schema definition, type-safe query building, and consolidated validation. `drizzle-kit` v1.0.0-beta for migration tooling.
+- **Validation**: Schema-derived Zod validation via `drizzle-orm/zod` (consolidated into the main package in Drizzle v1). Separate `drizzle-zod` package MUST NOT be installed.
 
 ## 6. Related ADRs and Decision Trail
 
-- **ADR-010** (`.cleo/adrs/ADR-010-node-sqlite-engine-choice.md`): Engine selection amendment -- documents the decision to use `node:sqlite` over `sql.js` and `better-sqlite3`. ADR-010 amends Section 5 of this document.
+- **ADR-010** (`.cleo/adrs/ADR-010-node-sqlite-engine-choice.md`): Engine and ORM layer selection amendment -- documents the decision to use `node:sqlite` over `sql.js`/`better-sqlite3` and `drizzle-orm` v1.0.0-beta over v0.45.x. ADR-010 amends Section 5 of this document.
 - **ADR-001** (archived): Original storage architecture decision. Superseded by this ADR.
 - **ADR-002** (archived): Hybrid storage strategy that originally selected `sql.js`. Superseded by this ADR.
 - **Compliance Review**: `.cleo/agent-outputs/2026-02-23_T4820-adr006-compliance-review.md` -- clause-by-clause compliance traceability for the engine migration.
