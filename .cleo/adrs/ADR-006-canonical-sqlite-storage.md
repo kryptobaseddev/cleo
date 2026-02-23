@@ -94,7 +94,7 @@ CREATE TABLE lifecycle_pipelines (
 CREATE TABLE lifecycle_stages (
   id TEXT PRIMARY KEY,
   pipeline_id TEXT NOT NULL REFERENCES lifecycle_pipelines(id) ON DELETE CASCADE,
-  stage_name TEXT NOT NULL CHECK(stage_name IN ('research', 'consensus', 'adr', 'spec', 'decompose', 'implement', 'verify', 'test', 'release')),
+  stage_name TEXT NOT NULL CHECK(stage_name IN ('research', 'consensus', 'specification', 'decomposition', 'implementation', 'validation', 'testing', 'release')),
   status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed', 'blocked', 'skipped')),
   started_at TEXT,
   completed_at TEXT,

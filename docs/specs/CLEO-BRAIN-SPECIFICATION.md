@@ -63,17 +63,19 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 #### 2.1.1 Current State (v0.80.0)
 
-**Storage Architecture**:
+**Storage Architecture** (per ADR-006):
 ```
 .cleo/
-├── todo.json              # Active tasks
-├── todo-archive.json      # Completed tasks
-├── sessions.json          # Session state
-├── context-state.json     # Agent context
-└── rcsd/                  # RCSD lifecycle state
+├── cleo.db                # SQLite database (tasks, sessions, lifecycle — per ADR-006)
+│   ├── tasks              # Active + archived tasks (status-based)
+│   ├── sessions           # Session state
+│   ├── lifecycle_*        # RCSD-IVTR pipeline state
+│   └── task_*             # Dependencies, relations, work history
+├── config.json            # Human-editable configuration (JSON — ADR-006 exception)
+└── todo-log.jsonl         # Immutable audit trail (append-only)
 
 claudedocs/agent-outputs/
-└── MANIFEST.jsonl         # Research artifacts
+└── MANIFEST.jsonl         # Research artifacts (append-only)
 ```
 
 **Capabilities**:
@@ -92,69 +94,80 @@ claudedocs/agent-outputs/
 
 | Capability | Description | Data Structure | Implementation |
 |------------|-------------|----------------|----------------|
-| **Context Persistence** | Resume conversation state across sessions | `session-context.json` | Phase 1 |
-| **Decision Memory** | Record architectural decisions with rationale | `decisions.jsonl` | Phase 2 |
-| **Pattern Memory** | Store recognized workflow patterns | `patterns.jsonl` | Phase 2 |
-| **Learning Memory** | Accumulated insights from completed work | `learning.jsonl` | Phase 3 |
-| **Temporal Queries** | "What was decided about X in January?" | SQLite FTS | Phase 2 |
+| **Context Persistence** | Resume conversation state across sessions | `sessions` table (SQLite, per ADR-006) | Phase 1 |
+| **Decision Memory** | Record architectural decisions with rationale | `brain_decisions` table (SQLite, per ADR-009) | Phase 2 |
+| **Pattern Memory** | Store recognized workflow patterns | `brain_patterns` table (SQLite, per ADR-009) | Phase 2 |
+| **Learning Memory** | Accumulated insights from completed work | `brain_learnings` table (SQLite, per ADR-009) | Phase 3 |
+| **Temporal Queries** | "What was decided about X in January?" | SQLite FTS on brain_decisions | Phase 2 |
 | **Memory Consolidation** | Compress old memories into summaries | Consolidation pipeline | Phase 3 |
+| **Memory Export/Import** | Portable JSONL export for cross-project transfer | JSONL files (export format only, per ADR-009) | Phase 2 |
 
 #### 2.1.3 Data Structures
 
-**Session Context** (`.cleo/memory/session-context.json`)
+> **Storage Note (ADR-006 / ADR-009)**: All BRAIN memory data is stored in SQLite tables at runtime. JSONL is used only as an export/import format for portability. See ADR-009 Section 3 for the full hybrid storage model.
+
+**Session Context** — stored in `sessions` table (`.cleo/cleo.db`, per ADR-006)
+
+Context fields are stored as JSON columns within the existing sessions table. Example row:
 
 ```json
 {
-  "_meta": {
-    "schemaVersion": "1.0.0",
-    "type": "session-context"
-  },
-  "sessionId": "session_20260203_094904_1a1046",
-  "context": {
-    "conversationSummary": "Working on CLEO Consolidation Sprint (T2975). Completed 5/27 tasks. Current focus: BRAIN specification.",
-    "keyDecisions": [
-      {
-        "timestamp": "2026-02-03T17:00:00Z",
-        "decision": "Use BRAIN model for cognitive architecture",
-        "rationale": "Provides concrete structure vs vague 'intelligence' claims"
-      }
-    ],
-    "openQuestions": [
-      "Should Nexus be expanded or consolidated based on validation?"
-    ],
-    "nextActions": [
-      "Complete T3002 (BRAIN specification)",
-      "Implement memory layer data structures"
-    ]
-  },
-  "lastUpdated": "2026-02-03T17:49:00Z",
-  "tokenBudget": {
-    "used": 55000,
-    "total": 200000,
-    "percentage": 27.5
-  }
+  "id": "session_20260203_094904_1a1046",
+  "name": "BRAIN Specification Work",
+  "status": "active",
+  "scope_json": "{\"type\":\"epic\",\"id\":\"T2975\"}",
+  "notes_json": "[\"Working on CLEO Consolidation Sprint. Current focus: BRAIN specification.\"]",
+  "started_at": "2026-02-03T09:49:04Z"
 }
 ```
 
-**Decision Memory** (`.cleo/memory/decisions.jsonl`)
+**Decision Memory** — `brain_decisions` table (`.cleo/cleo.db`, per ADR-009)
 
-```jsonl
-{"id":"D001","timestamp":"2026-02-03T17:00:00Z","type":"architecture","decision":"Adopt BRAIN model for cognitive infrastructure","rationale":"Provides concrete capabilities vs abstract intelligence","context":{"epic":"T2975","task":"T3002"},"outcome":null,"confidence":"high","alternatives":["Continue as task manager","RAG-only approach"],"linkedTasks":["T3002"]}
-{"id":"D002","timestamp":"2026-02-03T18:00:00Z","type":"technical","decision":"Use SQLite-vec for semantic search","rationale":"No external dependencies, proven stability","context":{"phase":"Phase 2"},"outcome":"pending","confidence":"medium","alternatives":["PostgreSQL pgvector","External vector DB"],"linkedTasks":["T2973"]}
+```sql
+-- See ADR-009 Section 3.2 for full schema
+-- Example rows:
+INSERT INTO brain_decisions (id, type, decision, rationale, confidence, context_epic_id, context_task_id, created_at)
+VALUES
+  ('D001', 'architecture', 'Adopt BRAIN model for cognitive infrastructure',
+   'Provides concrete capabilities vs abstract intelligence', 'high', 'T2975', 'T3002', '2026-02-03T17:00:00Z'),
+  ('D002', 'technical', 'Use SQLite-vec for semantic search',
+   'No external dependencies, proven stability', 'medium', NULL, 'T2973', '2026-02-03T18:00:00Z');
 ```
 
-**Pattern Memory** (`.cleo/memory/patterns.jsonl`)
+**Pattern Memory** — `brain_patterns` table (`.cleo/cleo.db`, per ADR-009)
 
-```jsonl
-{"id":"P001","type":"workflow","pattern":"Research → Consensus → Specification → Decomposition","context":"RCSD lifecycle","frequency":15,"successRate":0.93,"extractedAt":"2026-02-03T18:00:00Z","examples":["T2968","T2975"],"antiPattern":"Skipping consensus leads to 40% rework rate"}
-{"id":"P002","type":"blocker","pattern":"Database tasks without migration plan block 2-3 downstream tasks","context":"Schema changes","frequency":8,"impact":"high","extractedAt":"2026-02-03T18:00:00Z","examples":["T1234","T1456"],"mitigation":"Require migration plan in task description"}
+```sql
+-- See ADR-009 Section 3.2 for full schema
+-- Example rows:
+INSERT INTO brain_patterns (id, type, pattern, context, frequency, success_rate, examples_json, extracted_at)
+VALUES
+  ('P001', 'workflow', 'Research -> Consensus -> Specification -> Decomposition',
+   'RCSD lifecycle', 15, 0.93, '["T2968","T2975"]', '2026-02-03T18:00:00Z'),
+  ('P002', 'blocker', 'Database tasks without migration plan block 2-3 downstream tasks',
+   'Schema changes', 8, NULL, '["T1234","T1456"]', '2026-02-03T18:00:00Z');
 ```
 
-**Learning Memory** (`.cleo/memory/learning.jsonl`)
+**Learning Memory** — `brain_learnings` table (`.cleo/cleo.db`, per ADR-009)
 
-```jsonl
-{"id":"L001","timestamp":"2026-02-03T18:00:00Z","insight":"Tasks labeled 'research' take 2-4 days median, 80% CI","source":"50 completed research tasks","confidence":0.85,"applicableToTypes":["research"],"actionable":true,"application":"Suggest realistic timeline for new research tasks"}
-{"id":"L002","timestamp":"2026-02-03T18:00:00Z","insight":"Epics with >15 subtasks have 60% higher failure rate","source":"30 completed epics","confidence":0.78,"applicableToTypes":["epic"],"actionable":true,"application":"Warn when epic exceeds 12 subtasks, suggest decomposition"}
+```sql
+-- See ADR-009 Section 3.2 for full schema
+-- Example rows:
+INSERT INTO brain_learnings (id, insight, source, confidence, actionable, applicable_types_json, application, created_at)
+VALUES
+  ('L001', 'Tasks labeled research take 2-4 days median, 80% CI',
+   '50 completed research tasks', 0.85, 1, '["research"]',
+   'Suggest realistic timeline for new research tasks', '2026-02-03T18:00:00Z'),
+  ('L002', 'Epics with >15 subtasks have 60% higher failure rate',
+   '30 completed epics', 0.78, 1, '["epic"]',
+   'Warn when epic exceeds 12 subtasks, suggest decomposition', '2026-02-03T18:00:00Z');
+```
+
+**JSONL Export Format** (for portability — not runtime storage)
+
+BRAIN memory can be exported to JSONL for cross-project transfer via Nexus:
+```bash
+cleo memory export --type decisions --output decisions.jsonl
+cleo memory import --type decisions --input decisions.jsonl
 ```
 
 #### 2.1.4 Interfaces (CLI Commands)
@@ -449,7 +462,7 @@ Outcome Analysis:
   - Blockers Encountered
   - Patterns Observed
     ↓
-Store in Learning Memory (learning.jsonl)
+Store in Learning Memory (brain_learnings table)
     ↓
 Update Agent Performance History
     ↓
@@ -532,7 +545,7 @@ Extract Pattern:
   - Common preconditions
   - Successful fixes
     ↓
-Store in Pattern Memory (patterns.jsonl)
+Store in Pattern Memory (brain_patterns table)
     ↓
 Generate Proactive Warning for Similar Context
     ↓
@@ -776,7 +789,7 @@ cd /path/to/project-a
 cleo network export-pattern P001 --global
 
 # Pattern P001: "RCSD lifecycle reduces rework by 40%"
-# Exported to: ~/.cleo/global-patterns/P001.json
+# Exported to: ~/.cleo/cleo-nexus.db (global_patterns table)
 
 # Import to project B
 cd /path/to/project-b
@@ -975,8 +988,8 @@ cleo network similarity --project backend-api  # Find similar projects
 
 | Task | Description | Timeline |
 |------|-------------|----------|
-| Design decision schema | `decisions.jsonl` structure | 1 week |
-| Design pattern schema | `patterns.jsonl` structure | 1 week |
+| Design decision schema | `brain_decisions` SQLite table (per ADR-009) | 1 week |
+| Design pattern schema | `brain_patterns` SQLite table (per ADR-009) | 1 week |
 | Implement decision logging | `cleo memory store --type decision` | 2 weeks |
 | Implement pattern extraction | Auto-extract from completed epics | 3 weeks |
 | Build query interface | `cleo memory recall`, `cleo memory search` | 2 weeks |
@@ -1037,7 +1050,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 | Task | Description | Timeline |
 |------|-------------|----------|
-| Global pattern library | `~/.cleo/global-patterns/` | 2 weeks |
+| Global pattern library | `~/.cleo/cleo-nexus.db` (global_patterns table) | 2 weeks |
 | Export/import interface | `cleo network export-pattern` | 2 weeks |
 | Pattern adaptation logic | Context-aware adjustments | 3 weeks |
 | Effectiveness tracking | Measure transfer impact | 1 week |
@@ -1058,7 +1071,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 | Task | Description | Timeline |
 |------|-------------|----------|
-| Design learning schema | `learning.jsonl` structure | 1 week |
+| Design learning schema | `brain_learnings` SQLite table (per ADR-009) | 1 week |
 | Implement learning extraction | Auto-extract insights from completed work | 4 weeks |
 | Build consolidation pipeline | Compress old memories into summaries | 3 weeks |
 | Semantic linking | Connect related memories | 2 weeks |
@@ -1600,17 +1613,17 @@ All 5 dimensions MUST meet certification criteria:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ USER INTERACTION LAYER                                       │
-│ - CLI commands                                               │
-│ - MCP Server                                                 │
+│ - CLI commands (76 commands)                                 │
+│ - MCP Server (cleo_query / cleo_mutate)                     │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ INTELLIGENCE LAYER (Validation + Adaptation)                 │
 │ - 4-layer validation                                         │
-│ - Adaptive validation                                        │
-│ - Proactive suggestions                                      │
-│ - Quality prediction                                         │
+│ - Adaptive validation (Phase 2)                              │
+│ - Proactive suggestions (Phase 3)                            │
+│ - Quality prediction (Phase 3)                               │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
@@ -1618,37 +1631,38 @@ All 5 dimensions MUST meet certification criteria:
 │ AGENT LAYER (Orchestration)                                  │
 │ - ct-orchestrator                                            │
 │ - cleo-subagent                                              │
-│ - Self-healing                                               │
-│ - Load balancing                                             │
-│ - Learning from execution                                    │
+│ - Self-healing (Phase 1)                                     │
+│ - Load balancing (Phase 2)                                   │
+│ - Learning from execution (Phase 3)                          │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ REASONING LAYER (Inference)                                  │
-│ - Causal inference                                           │
-│ - Similarity detection                                       │
-│ - Impact prediction                                          │
-│ - Timeline analysis                                          │
+│ - Causal inference (Phase 2)                                 │
+│ - Similarity detection (Phase 2)                             │
+│ - Impact prediction (Phase 2)                                │
+│ - Timeline analysis (Phase 3)                                │
+│ - Domain placement: DEFERRED (ADR-009 Section 2.5)          │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ BASE LAYER (Memory)                                          │
-│ - Task storage (.cleo/todo.json)                            │
-│ - Session context (.cleo/memory/session-context.json)       │
-│ - Decision memory (.cleo/memory/decisions.jsonl)            │
-│ - Pattern memory (.cleo/memory/patterns.jsonl)              │
-│ - Learning memory (.cleo/memory/learning.jsonl)             │
-│ - Research artifacts (claudedocs/agent-outputs/)            │
+│ BASE LAYER (Memory) — SQLite per ADR-006                     │
+│ - Tasks + sessions (.cleo/cleo.db — tasks, sessions tables) │
+│ - Decision memory (.cleo/cleo.db — brain_decisions table)   │
+│ - Pattern memory (.cleo/cleo.db — brain_patterns table)     │
+│ - Learning memory (.cleo/cleo.db — brain_learnings table)   │
+│ - Research artifacts (MANIFEST.jsonl — append-only)          │
+│ - JSONL export/import for portability (ADR-009)              │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ NETWORK LAYER (Cross-Project)                                │
-│ - Nexus registry (~/.cleo/nexus/)                           │
-│ - Global patterns (~/.cleo/global-patterns/)                │
-│ - Agent registry (federated)                                 │
+│ NETWORK LAYER (Cross-Project) — SQLite per ADR-006           │
+│ - Global Registry (~/.cleo/cleo-nexus.db)                   │
+│ - Global patterns (cleo-nexus.db — future table)            │
+│ - Agent registry (federated, Phase 3)                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
