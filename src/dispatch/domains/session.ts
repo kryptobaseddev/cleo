@@ -27,7 +27,7 @@ import {
   sessionDecisionLog,
   sessionContextDrift,
   sessionRecordAssumption,
-} from '../../mcp/engine/index.js';
+} from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
 // SessionHandler

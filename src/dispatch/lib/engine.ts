@@ -1,57 +1,16 @@
 /**
- * Native TypeScript Engine - Barrel Export
+ * Engine Re-exports for Dispatch Domain Handlers
  *
- * The engine provides cross-platform data operations that work
- * without the CLEO CLI (bash). Used when MCP_EXECUTION_MODE is
- * 'native' or 'auto' (when CLI is unavailable).
+ * Centralizes the dispatch layer's dependency on mcp/engine into a single file.
+ * Domain handlers import from here instead of directly from ../../mcp/engine/.
+ *
+ * This file will be replaced with direct core imports as the engine functions
+ * are migrated to src/core/ modules.
+ *
+ * @epic T4820
  */
 
-// Store: atomic file I/O, locking, backup rotation
-export {
-  readJsonFile,
-  writeJsonFileAtomic,
-  withLock,
-  withFileLock,
-  withMultiLock,
-  isProjectInitialized,
-  resolveProjectRoot,
-  getDataPath,
-  listBackups,
-} from './store.js';
-
-// Schema validation (Ajv-based)
-export {
-  validateSchema,
-  validateTask,
-  clearSchemaCache,
-  type ValidationResult,
-  type ValidationError,
-  type SchemaType,
-} from './schema-validator.js';
-
-// Anti-hallucination validation rules
-export {
-  validateTitleDescription,
-  validateTimestamps,
-  validateIdUniqueness,
-  validateNoDuplicateDescription,
-  validateHierarchy,
-  validateStatusTransition,
-  validateNewTask,
-  hasErrors,
-  type RuleViolation,
-} from './validation-rules.js';
-
-// Task ID generation
-export {
-  generateNextId,
-  generateNextIdFromSet,
-  collectAllIds,
-  findHighestId,
-  isValidTaskId,
-} from './id-generator.js';
-
-// Task engine (CRUD operations)
+// Task engine (CRUD + non-CRUD operations)
 export {
   taskShow,
   taskList,
@@ -67,6 +26,7 @@ export {
   taskTree,
   taskDeps,
   taskRelates,
+  taskRelatesAdd,
   taskAnalyze,
   taskRestore,
   taskUnarchive,
@@ -74,7 +34,6 @@ export {
   taskReparent,
   taskPromote,
   taskReopen,
-  taskRelatesAdd,
   taskComplexityEstimate,
   taskDepends,
   taskStats,
@@ -85,7 +44,7 @@ export {
   taskImport,
   type TaskRecord,
   type MinimalTaskRecord,
-} from './task-engine.js';
+} from '../../mcp/engine/task-engine.js';
 
 // Session engine
 export {
@@ -111,9 +70,9 @@ export {
   sessionArchive,
   type SessionRecord,
   type DecisionRecord,
-} from './session-engine.js';
+} from '../../mcp/engine/session-engine.js';
 
-// System engine (system queries + mutate operations)
+// System engine
 export {
   systemDash,
   systemStats,
@@ -159,13 +118,13 @@ export {
   type SyncData,
   type SafestopData,
   type UncancelData,
-} from './system-engine.js';
+} from '../../mcp/engine/system-engine.js';
 
 // Config engine
 export {
   configGet,
   configSet,
-} from './config-engine.js';
+} from '../../mcp/engine/config-engine.js';
 
 // Init engine
 export {
@@ -173,43 +132,7 @@ export {
   isAutoInitEnabled,
   ensureInitialized,
   getVersion,
-} from './init-engine.js';
-
-// CAAMP adapter (provider registry, MCP config, injection, batch ops)
-export {
-  providerList,
-  providerGet,
-  providerDetect,
-  providerInstalled,
-  providerCount,
-  registryVersion,
-  mcpList,
-  mcpListAll,
-  mcpInstall,
-  mcpRemove,
-  mcpConfigPath,
-  injectionCheck,
-  injectionCheckAll,
-  injectionUpdate,
-  injectionUpdateAll,
-  batchInstallWithRollback,
-  dualScopeConfigure,
-  caampResolveAlias,
-  caampBuildServerConfig,
-  caampGenerateInjectionContent,
-  caampGetInstructionFiles,
-} from './caamp-adapter.js';
-
-// Template parser engine
-export {
-  parseIssueTemplates,
-  getTemplateForSubcommand,
-  generateTemplateConfig,
-  validateLabels,
-  type IssueTemplate,
-  type TemplateConfig,
-  type TemplateSection,
-} from './template-parser.js';
+} from '../../mcp/engine/init-engine.js';
 
 // Lifecycle engine
 export {
@@ -227,7 +150,7 @@ export {
   type LifecycleStage,
   type StageStatus,
   type RcsdManifest,
-} from './lifecycle-engine.js';
+} from '../../mcp/engine/lifecycle-engine.js';
 
 // Validate engine
 export {
@@ -244,7 +167,7 @@ export {
   validateCoherenceCheck,
   validateTestRun,
   validateBatchValidate,
-} from './validate-engine.js';
+} from '../../mcp/engine/validate-engine.js';
 
 // Orchestrate engine
 export {
@@ -265,7 +188,7 @@ export {
   orchestrateParallelEnd,
   orchestrateCheck,
   orchestrateSkillInject,
-} from './orchestrate-engine.js';
+} from '../../mcp/engine/orchestrate-engine.js';
 
 // Memory engine (formerly research-engine)
 export {
@@ -299,17 +222,15 @@ export {
   releaseGatesRun,
   releaseRollback,
   releasePush,
-} from './release-engine.js';
+} from '../../mcp/engine/release-engine.js';
 
-// Capability matrix
+// Template parser engine
 export {
-  getOperationMode,
-  canRunNatively,
-  requiresCLI,
-  getNativeOperations,
-  generateCapabilityReport,
-  getCapabilityMatrix,
-  type ExecutionMode,
-  type OperationCapability,
-  type CapabilityReport,
-} from './capability-matrix.js';
+  parseIssueTemplates,
+  getTemplateForSubcommand,
+  generateTemplateConfig,
+  validateLabels,
+  type IssueTemplate,
+  type TemplateConfig,
+  type TemplateSection,
+} from '../../mcp/engine/template-parser.js';

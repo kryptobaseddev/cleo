@@ -10,7 +10,7 @@
 
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { getConfig } from '../../mcp/lib/config.js';
+import { getConfig } from '../lib/config.js';
 
 /**
  * Audit entry interface

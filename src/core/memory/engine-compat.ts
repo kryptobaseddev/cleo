@@ -1,34 +1,30 @@
 /**
- * Research Engine
+ * Memory Engine Compatibility Layer
  *
- * Thin wrapper over src/core/research/ for MCP engine layer.
- * Types and filter logic are defined in core; this file provides
- * synchronous EngineResult-wrapped access for MCP domain handlers.
+ * Async wrappers around core/memory functions that return EngineResult<T>
+ * format for consumption by the dispatch layer. Replaces the sync
+ * mcp/engine/research-engine.ts middleman.
  *
- * @task T4787
+ * @epic T4820
  */
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { resolveProjectRoot } from './store.js';
-import { getManifestPath as getCentralManifestPath, getManifestArchivePath } from '../../core/paths.js';
+import { getManifestPath as getCentralManifestPath, getManifestArchivePath, getProjectRoot } from '../paths.js';
 import {
   filterManifestEntries,
   type ExtendedManifestEntry,
   type ResearchFilter,
   type ContradictionDetail,
   type SupersededDetail,
-} from '../../core/research/index.js';
+} from './index.js';
 
-/**
- * Re-export types for consumers that import from engine.
- */
+// Re-export types for consumers
 export type ManifestEntry = ExtendedManifestEntry;
 export type { ResearchFilter, ContradictionDetail, SupersededDetail };
+export { filterManifestEntries };
 
-/**
- * Engine result type
- */
+/** Standard engine result envelope. */
 interface EngineResult<T = unknown> {
   success: boolean;
   data?: T;
@@ -36,15 +32,19 @@ interface EngineResult<T = unknown> {
 }
 
 // ============================================================================
-// Internal I/O helpers (synchronous)
+// Internal I/O helpers
 // ============================================================================
 
 function getManifestPath(projectRoot?: string): string {
   return getCentralManifestPath(projectRoot);
 }
 
+function resolveRoot(projectRoot?: string): string {
+  return projectRoot || getProjectRoot();
+}
+
 /**
- * Read all manifest entries from MANIFEST.jsonl (synchronous).
+ * Read all manifest entries from MANIFEST.jsonl.
  */
 export function readManifestEntries(projectRoot?: string): ExtendedManifestEntry[] {
   const manifestPath = getManifestPath(projectRoot);
@@ -83,14 +83,11 @@ export function filterEntries(entries: ExtendedManifestEntry[], filter: Research
 }
 
 // ============================================================================
-// Exported engine functions
+// EngineResult-wrapped functions
 // ============================================================================
 
-/**
- * research.show - Get research entry details by ID
- * @task T4787
- */
-export function researchShow(
+/** memory.show - Get research entry details by ID */
+export function memoryShow(
   researchId: string,
   projectRoot?: string,
 ): EngineResult {
@@ -104,14 +101,11 @@ export function researchShow(
   if (!entry) {
     return {
       success: false,
-      error: {
-        code: 'E_NOT_FOUND',
-        message: `Research entry '${researchId}' not found`,
-      },
+      error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` },
     };
   }
 
-  const root = projectRoot || resolveProjectRoot();
+  const root = resolveRoot(projectRoot);
   let fileContent: string | null = null;
   try {
     const filePath = resolve(root, entry.file);
@@ -124,19 +118,12 @@ export function researchShow(
 
   return {
     success: true,
-    data: {
-      ...entry,
-      fileContent,
-      fileExists: fileContent !== null,
-    },
+    data: { ...entry, fileContent, fileExists: fileContent !== null },
   };
 }
 
-/**
- * research.list - List research entries with filters
- * @task T4787
- */
-export function researchList(
+/** memory.list - List research entries with filters */
+export function memoryList(
   params: ResearchFilter & { type?: string },
   projectRoot?: string,
 ): EngineResult {
@@ -151,18 +138,12 @@ export function researchList(
 
   return {
     success: true,
-    data: {
-      entries: filtered,
-      total: filtered.length,
-    },
+    data: { entries: filtered, total: filtered.length },
   };
 }
 
-/**
- * research.query / research.find - Find research entries by text
- * @task T4787
- */
-export function researchQuery(
+/** memory.query / memory.find - Find research entries by text */
+export function memoryQuery(
   query: string,
   options?: { confidence?: number; limit?: number },
   projectRoot?: string,
@@ -176,23 +157,10 @@ export function researchQuery(
 
   const scored = entries.map(entry => {
     let score = 0;
-
-    if (entry.title.toLowerCase().includes(queryLower)) {
-      score += 0.5;
-    }
-
-    if (entry.topics.some(t => t.toLowerCase().includes(queryLower))) {
-      score += 0.3;
-    }
-
-    if (entry.key_findings?.some(f => f.toLowerCase().includes(queryLower))) {
-      score += 0.2;
-    }
-
-    if (entry.id.toLowerCase().includes(queryLower)) {
-      score += 0.1;
-    }
-
+    if (entry.title.toLowerCase().includes(queryLower)) score += 0.5;
+    if (entry.topics.some(t => t.toLowerCase().includes(queryLower))) score += 0.3;
+    if (entry.key_findings?.some(f => f.toLowerCase().includes(queryLower))) score += 0.2;
+    if (entry.id.toLowerCase().includes(queryLower)) score += 0.1;
     return { entry, score };
   });
 
@@ -209,36 +177,25 @@ export function researchQuery(
     success: true,
     data: {
       query,
-      results: results.map(r => ({
-        ...r.entry,
-        relevanceScore: Math.round(r.score * 100) / 100,
-      })),
+      results: results.map(r => ({ ...r.entry, relevanceScore: Math.round(r.score * 100) / 100 })),
       total: results.length,
     },
   };
 }
 
-/**
- * research.pending - Get pending research items
- * @task T4787
- */
-export function researchPending(
+/** memory.pending - Get pending research items */
+export function memoryPending(
   epicId?: string,
   projectRoot?: string,
 ): EngineResult {
   const entries = readManifestEntries(projectRoot);
 
   let pending = entries.filter(
-    e =>
-      e.status === 'partial' ||
-      e.status === 'blocked' ||
-      (e.needs_followup && e.needs_followup.length > 0),
+    e => e.status === 'partial' || e.status === 'blocked' || (e.needs_followup && e.needs_followup.length > 0),
   );
 
   if (epicId) {
-    pending = pending.filter(
-      e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId),
-    );
+    pending = pending.filter(e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
   }
 
   return {
@@ -249,19 +206,14 @@ export function researchPending(
       byStatus: {
         partial: pending.filter(e => e.status === 'partial').length,
         blocked: pending.filter(e => e.status === 'blocked').length,
-        needsFollowup: pending.filter(
-          e => e.needs_followup && e.needs_followup.length > 0,
-        ).length,
+        needsFollowup: pending.filter(e => e.needs_followup && e.needs_followup.length > 0).length,
       },
     },
   };
 }
 
-/**
- * research.stats - Research statistics
- * @task T4787
- */
-export function researchStats(
+/** memory.stats - Research statistics */
+export function memoryStats(
   epicId?: string,
   projectRoot?: string,
 ): EngineResult {
@@ -269,9 +221,7 @@ export function researchStats(
 
   let filtered = entries;
   if (epicId) {
-    filtered = entries.filter(
-      e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId),
-    );
+    filtered = entries.filter(e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
   }
 
   const byStatus: Record<string, number> = {};
@@ -296,19 +246,13 @@ export function researchStats(
       byType,
       actionable,
       needsFollowup,
-      averageFindings:
-        filtered.length > 0
-          ? Math.round((totalFindings / filtered.length) * 10) / 10
-          : 0,
+      averageFindings: filtered.length > 0 ? Math.round((totalFindings / filtered.length) * 10) / 10 : 0,
     },
   };
 }
 
-/**
- * research.manifest.read - Read manifest entries with optional filter
- * @task T4787
- */
-export function researchManifestRead(
+/** memory.manifest.read - Read manifest entries with optional filter */
+export function memoryManifestRead(
   filter?: ResearchFilter,
   projectRoot?: string,
 ): EngineResult {
@@ -317,55 +261,34 @@ export function researchManifestRead(
 
   return {
     success: true,
-    data: {
-      entries: filtered,
-      total: filtered.length,
-      filter: filter || {},
-    },
+    data: { entries: filtered, total: filtered.length, filter: filter || {} },
   };
 }
 
-/**
- * research.link - Link research entry to a task
- * @task T4787
- */
-export function researchLink(
+/** memory.link - Link research entry to a task */
+export function memoryLink(
   taskId: string,
   researchId: string,
   notes?: string,
   projectRoot?: string,
 ): EngineResult {
   if (!taskId || !researchId) {
-    return {
-      success: false,
-      error: { code: 'E_INVALID_INPUT', message: 'taskId and researchId are required' },
-    };
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and researchId are required' } };
   }
 
-  const root = projectRoot || resolveProjectRoot();
+  const root = resolveRoot(projectRoot);
   const manifestPath = getManifestPath(root);
   const entries = readManifestEntries(root);
 
   const entryIndex = entries.findIndex(e => e.id === researchId);
   if (entryIndex === -1) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` },
-    };
+    return { success: false, error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` } };
   }
 
   const entry = entries[entryIndex];
 
   if (entry.linked_tasks?.includes(taskId)) {
-    return {
-      success: true,
-      data: {
-        taskId,
-        researchId,
-        linked: true,
-        alreadyLinked: true,
-      },
-    };
+    return { success: true, data: { taskId, researchId, linked: true, alreadyLinked: true } };
   }
 
   if (!entry.linked_tasks) {
@@ -376,30 +299,16 @@ export function researchLink(
   const content = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
   writeFileSync(manifestPath, content, 'utf-8');
 
-  return {
-    success: true,
-    data: {
-      taskId,
-      researchId,
-      linked: true,
-      notes: notes || null,
-    },
-  };
+  return { success: true, data: { taskId, researchId, linked: true, notes: notes || null } };
 }
 
-/**
- * research.manifest.append - Append entry to MANIFEST.jsonl
- * @task T4787
- */
-export function researchManifestAppend(
+/** memory.manifest.append - Append entry to MANIFEST.jsonl */
+export function memoryManifestAppend(
   entry: ExtendedManifestEntry,
   projectRoot?: string,
 ): EngineResult {
   if (!entry) {
-    return {
-      success: false,
-      error: { code: 'E_INVALID_INPUT', message: 'entry is required' },
-    };
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'entry is required' } };
   }
 
   const errors: string[] = [];
@@ -413,10 +322,7 @@ export function researchManifestAppend(
   if (entry.actionable === undefined) errors.push('actionable is required');
 
   if (errors.length > 0) {
-    return {
-      success: false,
-      error: { code: 'E_VALIDATION_FAILED', message: `Invalid manifest entry: ${errors.join(', ')}` },
-    };
+    return { success: false, error: { code: 'E_VALIDATION_FAILED', message: `Invalid manifest entry: ${errors.join(', ')}` } };
   }
 
   const manifestPath = getManifestPath(projectRoot);
@@ -429,32 +335,19 @@ export function researchManifestAppend(
   const serialized = JSON.stringify(entry);
   appendFileSync(manifestPath, serialized + '\n', 'utf-8');
 
-  return {
-    success: true,
-    data: {
-      appended: true,
-      entryId: entry.id,
-      file: getCentralManifestPath(),
-    },
-  };
+  return { success: true, data: { appended: true, entryId: entry.id, file: getCentralManifestPath() } };
 }
 
-/**
- * research.manifest.archive - Archive old manifest entries
- * @task T4787
- */
-export function researchManifestArchive(
+/** memory.manifest.archive - Archive old manifest entries */
+export function memoryManifestArchive(
   beforeDate: string,
   projectRoot?: string,
 ): EngineResult {
   if (!beforeDate) {
-    return {
-      success: false,
-      error: { code: 'E_INVALID_INPUT', message: 'beforeDate is required (ISO-8601 format: YYYY-MM-DD)' },
-    };
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'beforeDate is required (ISO-8601 format: YYYY-MM-DD)' } };
   }
 
-  const root = projectRoot || resolveProjectRoot();
+  const root = resolveRoot(projectRoot);
   const manifestPath = getManifestPath(root);
   const archivePath = getManifestArchivePath(root);
   const entries = readManifestEntries(root);
@@ -463,14 +356,7 @@ export function researchManifestArchive(
   const toKeep = entries.filter(e => e.date >= beforeDate);
 
   if (toArchive.length === 0) {
-    return {
-      success: true,
-      data: {
-        archived: 0,
-        remaining: entries.length,
-        message: 'No entries found before the specified date',
-      },
-    };
+    return { success: true, data: { archived: 0, remaining: entries.length, message: 'No entries found before the specified date' } };
   }
 
   const archiveDir = dirname(archivePath);
@@ -480,26 +366,14 @@ export function researchManifestArchive(
   const archiveContent = toArchive.map(e => JSON.stringify(e)).join('\n') + '\n';
   appendFileSync(archivePath, archiveContent, 'utf-8');
 
-  const remainingContent = toKeep.length > 0
-    ? toKeep.map(e => JSON.stringify(e)).join('\n') + '\n'
-    : '';
+  const remainingContent = toKeep.length > 0 ? toKeep.map(e => JSON.stringify(e)).join('\n') + '\n' : '';
   writeFileSync(manifestPath, remainingContent, 'utf-8');
 
-  return {
-    success: true,
-    data: {
-      archived: toArchive.length,
-      remaining: toKeep.length,
-      archiveFile: getManifestArchivePath(),
-    },
-  };
+  return { success: true, data: { archived: toArchive.length, remaining: toKeep.length, archiveFile: getManifestArchivePath() } };
 }
 
-/**
- * research.contradictions - Find entries with overlapping topics but conflicting key_findings
- * @task T4787
- */
-export function researchContradictions(
+/** memory.contradictions - Find entries with overlapping topics but conflicting key_findings */
+export function memoryContradictions(
   projectRoot?: string,
   params?: { topic?: string },
 ): EngineResult<{ contradictions: ContradictionDetail[] }> {
@@ -510,9 +384,7 @@ export function researchContradictions(
     if (!entry.key_findings || entry.key_findings.length === 0) continue;
     for (const topic of entry.topics) {
       if (params?.topic && topic !== params.topic) continue;
-      if (!byTopic.has(topic)) {
-        byTopic.set(topic, []);
-      }
+      if (!byTopic.has(topic)) byTopic.set(topic, []);
       byTopic.get(topic)!.push(entry);
     }
   }
@@ -554,28 +426,17 @@ export function researchContradictions(
         }
 
         if (conflicts.length > 0) {
-          contradictions.push({
-            entryA: a,
-            entryB: b,
-            topic,
-            conflictDetails: conflicts.join('; '),
-          });
+          contradictions.push({ entryA: a, entryB: b, topic, conflictDetails: conflicts.join('; ') });
         }
       }
     }
   }
 
-  return {
-    success: true,
-    data: { contradictions },
-  };
+  return { success: true, data: { contradictions } };
 }
 
-/**
- * research.superseded - Identify research entries replaced by newer work on same topic
- * @task T4787
- */
-export function researchSuperseded(
+/** memory.superseded - Identify research entries replaced by newer work on same topic */
+export function memorySuperseded(
   projectRoot?: string,
   params?: { topic?: string },
 ): EngineResult<{ superseded: SupersededDetail[] }> {
@@ -586,9 +447,7 @@ export function researchSuperseded(
     for (const topic of entry.topics) {
       if (params?.topic && topic !== params.topic) continue;
       const key = `${topic}::${entry.agent_type}`;
-      if (!byTopicAndType.has(key)) {
-        byTopicAndType.set(key, []);
-      }
+      if (!byTopicAndType.has(key)) byTopicAndType.set(key, []);
       byTopicAndType.get(key)!.push(entry);
     }
   }
@@ -607,37 +466,24 @@ export function researchSuperseded(
       if (seenPairs.has(pairKey)) continue;
       seenPairs.add(pairKey);
 
-      superseded.push({
-        old: sorted[i],
-        replacement: sorted[sorted.length - 1],
-        topic,
-      });
+      superseded.push({ old: sorted[i], replacement: sorted[sorted.length - 1], topic });
     }
   }
 
-  return {
-    success: true,
-    data: { superseded },
-  };
+  return { success: true, data: { superseded } };
 }
 
-/**
- * research.inject - Read protocol injection content for a given protocol type
- * @task T4787
- */
-export function researchInject(
+/** memory.inject - Read protocol injection content for a given protocol type */
+export function memoryInject(
   protocolType: string,
   params?: { taskId?: string; variant?: string },
   projectRoot?: string,
 ): EngineResult {
   if (!protocolType) {
-    return {
-      success: false,
-      error: { code: 'E_INVALID_INPUT', message: 'protocolType is required' },
-    };
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'protocolType is required' } };
   }
 
-  const root = projectRoot || resolveProjectRoot();
+  const root = resolveRoot(projectRoot);
 
   const protocolLocations = [
     resolve(root, 'protocols', `${protocolType}.md`),
@@ -663,10 +509,7 @@ export function researchInject(
   if (!protocolContent) {
     return {
       success: false,
-      error: {
-        code: 'E_NOT_FOUND',
-        message: `Protocol '${protocolType}' not found in protocols/, skills/_shared/, or agents/cleo-subagent/protocols/`,
-      },
+      error: { code: 'E_NOT_FOUND', message: `Protocol '${protocolType}' not found in protocols/, skills/_shared/, or agents/cleo-subagent/protocols/` },
     };
   }
 
@@ -684,23 +527,14 @@ export function researchInject(
   };
 }
 
-/**
- * research.compact - Compact MANIFEST.jsonl by removing duplicate/stale entries
- * @task T4787
- */
-export function researchCompact(
+/** memory.compact - Compact MANIFEST.jsonl by removing duplicate/stale entries */
+export function memoryCompact(
   projectRoot?: string,
 ): EngineResult {
   const manifestPath = getManifestPath(projectRoot);
 
   if (!existsSync(manifestPath)) {
-    return {
-      success: true,
-      data: {
-        compacted: false,
-        message: 'No manifest file found',
-      },
-    };
+    return { success: true, data: { compacted: false, message: 'No manifest file found' } };
   }
 
   try {
@@ -713,7 +547,6 @@ export function researchCompact(
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-
       try {
         entries.push(JSON.parse(trimmed) as ExtendedManifestEntry);
       } catch {
@@ -731,64 +564,36 @@ export function researchCompact(
     const compacted = Array.from(idMap.values());
     const duplicatesRemoved = entries.length - compacted.length;
 
-    const compactedContent = compacted.length > 0
-      ? compacted.map(e => JSON.stringify(e)).join('\n') + '\n'
-      : '';
+    const compactedContent = compacted.length > 0 ? compacted.map(e => JSON.stringify(e)).join('\n') + '\n' : '';
     writeFileSync(manifestPath, compactedContent, 'utf-8');
 
     return {
       success: true,
-      data: {
-        compacted: true,
-        originalLines: originalCount,
-        malformedRemoved: malformedCount,
-        duplicatesRemoved,
-        remainingEntries: compacted.length,
-      },
+      data: { compacted: true, originalLines: originalCount, malformedRemoved: malformedCount, duplicatesRemoved, remainingEntries: compacted.length },
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'E_COMPACT_FAILED',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    return { success: false, error: { code: 'E_COMPACT_FAILED', message: error instanceof Error ? error.message : String(error) } };
   }
 }
 
-/**
- * research.validate - Validate research entries for a task
- * @task T4787
- */
-export function researchValidate(
+/** memory.validate - Validate research entries for a task */
+export function memoryValidate(
   taskId: string,
   projectRoot?: string,
 ): EngineResult {
   if (!taskId) {
-    return {
-      success: false,
-      error: { code: 'E_INVALID_INPUT', message: 'taskId is required' },
-    };
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
   }
 
-  const root = projectRoot || resolveProjectRoot();
+  const root = resolveRoot(projectRoot);
   const entries = readManifestEntries(root);
 
-  const linked = entries.filter(
-    e => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId),
-  );
+  const linked = entries.filter(e => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId));
 
   if (linked.length === 0) {
     return {
       success: true,
-      data: {
-        taskId,
-        valid: true,
-        entriesFound: 0,
-        message: `No research entries found for task ${taskId}`,
-        issues: [],
-      },
+      data: { taskId, valid: true, entriesFound: 0, message: `No research entries found for task ${taskId}`, issues: [] },
     };
   }
 

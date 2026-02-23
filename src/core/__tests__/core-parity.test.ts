@@ -39,7 +39,6 @@ describe('Import Graph Verification (T4796)', () => {
     'lifecycle-engine.ts',
     'system-engine.ts',
     'orchestrate-engine.ts',
-    'research-engine.ts',
     'validate-engine.ts',
   ];
 
@@ -161,14 +160,7 @@ describe('Import Graph Verification (T4796)', () => {
     expect(content).toContain("from '../../core/orchestration/index.js'");
   });
 
-  it('research-engine.ts imports from core/research/', async () => {
-    const content = await readFile(
-      join(ENGINE_DIR, 'research-engine.ts'),
-      'utf-8',
-    );
-
-    expect(content).toContain("from '../../core/research/index.js'");
-  });
+  // research-engine.ts has been consolidated into core/memory/engine-compat.ts
 });
 
 // ============================================================================
@@ -305,11 +297,11 @@ describe('Task CRUD Data Parity (T4796)', () => {
     expect(engineResult.success).toBe(true);
     expect(engineResult.data).toBeDefined();
 
-    // Compare key fields (engine wraps core result in EngineResult)
-    expect(engineResult.data!.id).toBe(coreResult.id);
-    expect(engineResult.data!.title).toBe(coreResult.title);
-    expect(engineResult.data!.status).toBe(coreResult.status);
-    expect(engineResult.data!.priority).toBe(coreResult.priority);
+    // Compare key fields (engine wraps core result in { task: ... })
+    expect(engineResult.data!.task.id).toBe(coreResult.id);
+    expect(engineResult.data!.task.title).toBe(coreResult.title);
+    expect(engineResult.data!.task.status).toBe(coreResult.status);
+    expect(engineResult.data!.task.priority).toBe(coreResult.priority);
   });
 
   it('taskShow and core showTask both fail for missing task', async () => {
@@ -346,11 +338,11 @@ describe('Task CRUD Data Parity (T4796)', () => {
     expect(engineResult.data).toBeDefined();
 
     // Same number of tasks
-    expect(engineResult.data!.length).toBe(coreResult.tasks.length);
+    expect(engineResult.data!.tasks.length).toBe(coreResult.tasks.length);
 
     // Same task IDs
     const coreIds = coreResult.tasks.map((t) => t.id).sort();
-    const engineIds = engineResult.data!.map((t) => t.id).sort();
+    const engineIds = engineResult.data!.tasks.map((t) => t.id).sort();
     expect(engineIds).toEqual(coreIds);
   });
 
@@ -372,7 +364,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
     expect(engineResult.success).toBe(true);
     const coreIds = coreResult.tasks.map((t) => t.id).sort();
-    const engineIds = engineResult.data!.map((t) => t.id).sort();
+    const engineIds = engineResult.data!.tasks.map((t) => t.id).sort();
     expect(engineIds).toEqual(coreIds);
   });
 
@@ -397,7 +389,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
     // Both should find T001
     const coreIds = coreResult.results.map((r) => r.id);
-    const engineIds = engineResult.data!.map((r) => r.id);
+    const engineIds = engineResult.data!.results.map((r) => r.id);
 
     expect(coreIds).toContain('T001');
     expect(engineIds).toContain('T001');
@@ -414,9 +406,9 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
     expect(engineResult.success).toBe(true);
     expect(engineResult.data).toBeDefined();
-    expect(engineResult.data!.id).toMatch(/^T\d+$/);
-    expect(engineResult.data!.title).toBe('Engine-created task');
-    expect(engineResult.data!.status).toBe('pending');
+    expect(engineResult.data!.task.id).toMatch(/^T\d+$/);
+    expect(engineResult.data!.task.title).toBe('Engine-created task');
+    expect(engineResult.data!.task.status).toBe('pending');
   });
 });
 

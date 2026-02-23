@@ -111,7 +111,7 @@ export async function sessionStatus(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -175,7 +175,7 @@ export async function sessionList(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -219,7 +219,7 @@ export async function taskCurrentGet(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -265,7 +265,7 @@ export async function taskStop(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No valid todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -404,7 +404,7 @@ export async function sessionStart(
       success: false,
       error: {
         code: 'E_NOT_INITIALIZED',
-        message: 'No valid todo.json found',
+        message: 'Task database not initialized',
       },
     };
   }
@@ -479,7 +479,7 @@ export async function sessionEnd(
       success: false,
       error: {
         code: 'E_NOT_INITIALIZED',
-        message: 'No valid todo.json found',
+        message: 'Task database not initialized',
       },
     };
   }
@@ -590,7 +590,7 @@ export async function sessionResume(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -683,7 +683,7 @@ export async function sessionGc(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -740,7 +740,7 @@ export async function sessionHistory(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -758,7 +758,7 @@ export async function sessionCleanup(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }
@@ -944,7 +944,7 @@ export async function sessionArchive(
   } catch {
     return {
       success: false,
-      error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' },
+      error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
     };
   }
 }

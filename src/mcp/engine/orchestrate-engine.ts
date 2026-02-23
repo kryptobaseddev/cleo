@@ -14,7 +14,7 @@ import { getManifestPath as getCentralManifestPath } from '../../core/paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { TaskRecord } from './task-engine.js';
 import type { Task } from '../../types/task.js';
-import type { BrainState } from '../types/operations/orchestrate.js';
+import type { BrainState } from '../../types/operations/orchestrate.js';
 
 // Core module imports
 import {

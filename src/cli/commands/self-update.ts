@@ -21,6 +21,7 @@ import { checkStorageMigration } from '../../core/migration/preflight.js';
 import { runUpgrade } from '../../core/upgrade.js';
 import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
+import * as readline from 'node:readline';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -73,13 +74,14 @@ export function registerSelfUpdateCommand(program: Command): void {
     .option('--force', 'Force update even if same version')
     .option('--post-update', 'Run post-update diagnostics and migration only')
     .option('--no-auto-upgrade', 'Skip automatic upgrade after update')
+    .option('--auto-migrate', 'Automatically migrate storage without prompting')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const noAutoUpgrade = opts['autoUpgrade'] === false; // Commander normalizes --no-auto-upgrade to autoUpgrade=false
 
         // --post-update: skip version check, just run diagnostics + upgrade
         if (opts['postUpdate']) {
-          await runPostUpdateDiagnostics({ skipUpgrade: noAutoUpgrade });
+          await runPostUpdateDiagnostics({ skipUpgrade: noAutoUpgrade, autoMigrate: !!opts['autoMigrate'] || !!opts['force'] });
           return;
         }
 
@@ -144,7 +146,7 @@ export function registerSelfUpdateCommand(program: Command): void {
 
         if (latest === currentVersion && !opts['force']) {
           // Up to date - still run post-update diagnostics
-          await runPostUpdateDiagnostics({ skipUpgrade: noAutoUpgrade });
+          await runPostUpdateDiagnostics({ skipUpgrade: noAutoUpgrade, autoMigrate: !!opts['autoMigrate'] || !!opts['force'] });
           cliOutput({
             currentVersion,
             upToDate: true,
@@ -180,7 +182,7 @@ export function registerSelfUpdateCommand(program: Command): void {
  *
  * @task T4699
  */
-async function runPostUpdateDiagnostics(opts?: { skipUpgrade?: boolean }): Promise<void> {
+async function runPostUpdateDiagnostics(opts?: { skipUpgrade?: boolean, autoMigrate?: boolean }): Promise<void> {
   const preflight = checkStorageMigration();
 
   if (preflight.migrationNeeded) {
@@ -204,8 +206,31 @@ async function runPostUpdateDiagnostics(opts?: { skipUpgrade?: boolean }): Promi
 
     process.stderr.write(
       `\n⚠ Storage migration detected: ${preflight.summary}\n`
-      + `  Running automatic upgrade...\n\n`,
     );
+
+    let shouldMigrate = !!opts?.autoMigrate;
+    
+    if (!shouldMigrate) {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      shouldMigrate = await new Promise<boolean>((resolve) => {
+        rl.question('  Do you want to run the upgrade now? [Y/n] ', (answer) => {
+          rl.close();
+          const clean = answer.trim().toLowerCase();
+          resolve(clean === '' || clean === 'y' || clean === 'yes');
+        });
+      });
+    }
+
+    if (!shouldMigrate) {
+      process.stderr.write(`\n  Upgrade skipped. Run manually later: cleo upgrade\n\n`);
+      return;
+    }
+
+    process.stderr.write(`  Running upgrade...\n\n`);
 
     const result = await runUpgrade({ autoMigrate: true });
 

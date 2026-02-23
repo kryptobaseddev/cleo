@@ -65,7 +65,7 @@ describe('checkStorageMigration', () => {
     expect(result.summary).toContain('no SQLite database');
   });
 
-  it('does not flag when config says sqlite and DB exists', () => {
+  it('flags when config says sqlite and DB exists but legacy files exist', () => {
     writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
       tasks: [{ id: 'T1', title: 'Test', status: 'pending', createdAt: '2026-01-01' }],
       _meta: { schemaVersion: '2.10.0' },
@@ -75,7 +75,7 @@ describe('checkStorageMigration', () => {
     writeFileSync(join(cleoDir, 'tasks.db'), Buffer.alloc(4096));
 
     const result = checkStorageMigration(tmpDir);
-    expect(result.migrationNeeded).toBe(false);
+    expect(result.migrationNeeded).toBe(true);
     expect(result.currentEngine).toBe('sqlite');
   });
 

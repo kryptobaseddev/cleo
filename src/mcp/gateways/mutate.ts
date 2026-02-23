@@ -4,21 +4,74 @@
  * Handles all state-modifying operations with strict validation,
  * audit logging, and rollback support.
  *
- * Domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills
- * Total operations: 65
+ * Canonical domains (9): tasks, session, memory, check, pipeline,
+ *   orchestrate, tools, admin, nexus
+ * Legacy aliases (backward compat): research, lifecycle, validate,
+ *   release, system, issues, skills, providers
+ *
+ * The dispatch adapter (src/dispatch/adapters/mcp.ts) resolves legacy
+ * domain names to canonical names before routing.
  *
  * @task T2929
  */
 
-import { DomainRequest, DomainResponse } from '../lib/router.js';
-
 import { logMutation, AuditEntry } from '../lib/audit.js';
+
+/**
+ * Request from MCP gateway (inline — replaces legacy router.ts import)
+ */
+export interface DomainRequest {
+  gateway: 'cleo_query' | 'cleo_mutate';
+  domain: string;
+  operation: string;
+  params?: Record<string, unknown>;
+}
+
+/**
+ * Response from domain handler (inline — replaces legacy router.ts import)
+ */
+export interface DomainResponse {
+  _meta: {
+    gateway: string;
+    domain: string;
+    operation: string;
+    timestamp: string;
+    duration_ms: number;
+    [key: string]: unknown;
+  };
+  success: boolean;
+  data?: unknown;
+  partial?: boolean;
+  error?: {
+    code: string;
+    exitCode?: number;
+    message: string;
+    details?: Record<string, unknown>;
+    fix?: string;
+    alternatives?: Array<{ action: string; command: string }>;
+  };
+}
+
+/**
+ * All accepted domain names for cleo_mutate.
+ *
+ * Includes both canonical dispatch names and legacy MCP names
+ * for backward compatibility. The dispatch adapter resolves
+ * legacy names to canonical names at routing time.
+ */
+type MutateDomain =
+  // Canonical domains
+  | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
+  | 'orchestrate' | 'tools' | 'admin'
+  // Legacy aliases (backward compat)
+  | 'research' | 'lifecycle' | 'validate' | 'release'
+  | 'system' | 'issues' | 'skills' | 'providers';
 
 /**
  * Mutate request interface
  */
 export interface MutateRequest {
-  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'release' | 'system' | 'issues' | 'skills' | 'providers';
+  domain: MutateDomain;
   operation: string;
   params?: Record<string, unknown>;
 }
@@ -30,9 +83,15 @@ export type MutateResponse = DomainResponse;
 
 /**
  * Mutate operation matrix - all write operations by domain
+ *
+ * Contains BOTH legacy domain names (for backward compatibility with
+ * existing agents) AND canonical domain aliases (for the dispatch layer).
+ * The dispatch adapter resolves legacy -> canonical at routing time.
+ *
  * Reference: MCP-SERVER-SPECIFICATION.md Section 2.2.2
  */
 export const MUTATE_OPERATIONS: Record<string, string[]> = {
+  // ── Canonical domains ──────────────────────────────────────────────
   tasks: [
     'add',         // Create new task
     'update',      // Update task fields
@@ -65,6 +124,75 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'parallel.start',  // Start parallel wave
     'parallel.end',    // End parallel wave
   ],
+
+  // ── Canonical: memory (research alias) ─────────────────────────────
+  memory: [
+    'inject',          // Get protocol injection
+    'link',            // Link research to task
+    'manifest.append', // Append manifest entry
+    'manifest.archive', // Archive old entries
+  ],
+
+  // ── Canonical: check (validate alias) ──────────────────────────────
+  check: [
+    'compliance.record', // Record compliance check
+    'test.run',         // Execute test suite
+  ],
+
+  // ── Canonical: pipeline (lifecycle + release alias) ────────────────
+  pipeline: [
+    // lifecycle operations (stage.* prefix used in dispatch)
+    'stage.record',      // Record stage completion
+    'stage.skip',        // Skip optional stage
+    'stage.reset',       // Reset stage (emergency)
+    'stage.gate.pass',   // Mark gate as passed
+    'stage.gate.fail',   // Mark gate as failed
+    // release operations (release.* prefix used in dispatch)
+    'release.prepare',     // Prepare release
+    'release.changelog',   // Generate changelog
+    'release.commit',      // Create release commit
+    'release.tag',         // Create git tag
+    'release.push',        // Push to remote
+    'release.gates.run',   // Run release gates
+    'release.rollback',    // Rollback release
+  ],
+
+  // ── Canonical: admin (system alias) ────────────────────────────────
+  admin: [
+    'init',              // Initialize CLEO
+    'config.set',        // Set config value
+    'backup',            // Create backup
+    'restore',           // Restore from backup
+    'migrate',           // Run migrations
+    'sync',              // Sync with TodoWrite
+    'cleanup',           // Cleanup stale data
+    'job.cancel',        // Cancel background job
+    'safestop',          // Graceful agent shutdown
+    'uncancel',          // Alias for restore (cancelled tasks)
+    'inject.generate',   // Generate MVI injection
+  ],
+
+  // ── Canonical: tools (skills + issues + providers alias) ───────────
+  tools: [
+    // skill.* operations
+    'skill.install',        // Install a skill
+    'skill.uninstall',      // Uninstall a skill
+    'skill.enable',         // Enable a skill
+    'skill.disable',        // Disable a skill
+    'skill.configure',      // Configure a skill
+    'skill.refresh',        // Refresh skill registry
+    // issue.* operations
+    'issue.add.bug',        // File a bug report
+    'issue.add.feature',    // Request a feature
+    'issue.add.help',       // Ask a question
+    'issue.create.bug',     // Alias (backward compat)
+    'issue.create.feature', // Alias (backward compat)
+    'issue.create.help',    // Alias (backward compat)
+    // provider.* operations
+    'provider.inject',      // Inject content into provider instruction files
+  ],
+
+  // ── Legacy aliases (backward compat) ───────────────────────────────
   research: [
     'inject',          // Get protocol injection
     'link',            // Link research to task
@@ -127,8 +255,12 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
 
 /**
  * Total operation count check
+ *
+ * Includes operations across both canonical domains and legacy aliases.
+ * Legacy aliases duplicate operations from their canonical counterparts,
+ * so the total is higher than unique operations.
  */
-const EXPECTED_MUTATE_COUNT = 68;
+const EXPECTED_MUTATE_COUNT = 110;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(
@@ -245,6 +377,7 @@ function validateOperationParams(
   error?: DomainResponse;
 } {
   // Domain-specific parameter validation
+  // Handles both canonical domain names and legacy aliases
   switch (domain) {
     case 'tasks':
       return validateTasksParams(operation, params);
@@ -253,17 +386,24 @@ function validateOperationParams(
     case 'orchestrate':
       return validateOrchestrateParams(operation, params);
     case 'research':
+    case 'memory':
       return validateResearchParams(operation, params);
     case 'lifecycle':
       return validateLifecycleParams(operation, params);
     case 'validate':
+    case 'check':
       return validateValidateParams(operation, params);
     case 'release':
       return validateReleaseParams(operation, params);
+    case 'pipeline':
+      return validatePipelineParams(operation, params);
     case 'system':
+    case 'admin':
       return validateSystemParams(operation, params);
     case 'skills':
       return validateSkillsParams(operation, params);
+    case 'tools':
+      return validateToolsParams(operation, params);
     default:
       return { valid: true };
   }
@@ -1018,6 +1158,48 @@ function validateSkillsParams(
       break;
   }
 
+  return { valid: true };
+}
+
+/**
+ * Validate pipeline (canonical) domain parameters
+ *
+ * Handles stage.* and release.* prefixed operations that map to
+ * the legacy lifecycle and release domains respectively.
+ */
+function validatePipelineParams(
+  operation: string,
+  params?: Record<string, unknown>
+): { valid: boolean; error?: DomainResponse } {
+  // Stage operations (lifecycle alias)
+  if (operation.startsWith('stage.')) {
+    const stageOp = operation.slice('stage.'.length);
+    return validateLifecycleParams(stageOp, params);
+  }
+  // Release operations
+  if (operation.startsWith('release.')) {
+    const releaseOp = operation.slice('release.'.length);
+    return validateReleaseParams(releaseOp, params);
+  }
+  return { valid: true };
+}
+
+/**
+ * Validate tools (canonical) domain parameters
+ *
+ * Handles skill.*, issue.*, and provider.* prefixed operations that
+ * map to the legacy skills, issues, and providers domains respectively.
+ */
+function validateToolsParams(
+  operation: string,
+  params?: Record<string, unknown>
+): { valid: boolean; error?: DomainResponse } {
+  // Skill operations
+  if (operation.startsWith('skill.')) {
+    const skillOp = operation.slice('skill.'.length);
+    return validateSkillsParams(skillOp, params);
+  }
+  // Issue and provider operations pass through without extra validation
   return { valid: true };
 }
 

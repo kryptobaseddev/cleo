@@ -5,23 +5,8 @@
  */
 
 import { Command } from 'commander';
-import {
-  getComplianceSummary,
-  listComplianceViolations,
-  getComplianceTrend,
-  auditEpicCompliance,
-  syncComplianceMetrics,
-  getSkillReliability,
-  getValueMetrics,
-} from '../../core/compliance/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
-/**
- * Register the compliance command group.
- * @task T4535
- */
 export function registerComplianceCommand(program: Command): void {
   const compliance = program
     .command('compliance')
@@ -33,19 +18,9 @@ export function registerComplianceCommand(program: Command): void {
     .option('--since <date>', 'Filter metrics from this date (ISO 8601)')
     .option('--agent <id>', 'Filter by agent/skill ID')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await getComplianceSummary({
-          since: opts['since'] as string | undefined,
-          agent: opts['agent'] as string | undefined,
-        });
-        cliOutput(result, { command: 'compliance' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'compliance.summary', {
+        since: opts['since'], agent: opts['agent'],
+      }, { command: 'compliance' });
     });
 
   compliance
@@ -55,36 +30,18 @@ export function registerComplianceCommand(program: Command): void {
     .option('--since <date>', 'Filter from date')
     .option('--agent <id>', 'Filter by agent ID')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await listComplianceViolations({
-          severity: opts['severity'] as string | undefined,
-          since: opts['since'] as string | undefined,
-          agent: opts['agent'] as string | undefined,
-        });
-        cliOutput(result, { command: 'compliance' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'compliance.violations', {
+        severity: opts['severity'], since: opts['since'], agent: opts['agent'],
+      }, { command: 'compliance' });
     });
 
   compliance
     .command('trend [days]')
     .description('Show compliance trend over N days')
     .action(async (days: string | undefined) => {
-      try {
-        const result = await getComplianceTrend(days ? Number(days) : 7);
-        cliOutput(result, { command: 'compliance' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'compliance.summary', {
+        type: 'trend', days: days ? Number(days) : 7,
+      }, { command: 'compliance' });
     });
 
   compliance
@@ -92,18 +49,9 @@ export function registerComplianceCommand(program: Command): void {
     .description('Check compliance for specific epic tasks')
     .option('--since <date>', 'Filter from date')
     .action(async (epicId: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await auditEpicCompliance(epicId, {
-          since: opts['since'] as string | undefined,
-        });
-        cliOutput(result, { command: 'compliance' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'compliance.summary', {
+        type: 'audit', epicId, since: opts['since'],
+      }, { command: 'compliance' });
     });
 
   compliance
@@ -111,18 +59,9 @@ export function registerComplianceCommand(program: Command): void {
     .description('Sync project metrics to global aggregation')
     .option('--force', 'Force full sync')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await syncComplianceMetrics({
-          force: opts['force'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'compliance' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'admin', 'sync', {
+        type: 'compliance', force: opts['force'],
+      }, { command: 'compliance' });
     });
 
   compliance
@@ -130,33 +69,17 @@ export function registerComplianceCommand(program: Command): void {
     .description('Per-skill/agent reliability stats')
     .option('--global', 'Use global metrics file')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await getSkillReliability({
-          global: opts['global'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'compliance' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'compliance.summary', {
+        type: 'skills', global: opts['global'],
+      }, { command: 'compliance' });
     });
 
   compliance
     .command('value [days]')
     .description('VALUE PROOF: Token savings & validation impact')
     .action(async (days: string | undefined) => {
-      try {
-        const result = await getValueMetrics(days ? Number(days) : 7);
-        cliOutput(result, { command: 'compliance' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'compliance.summary', {
+        type: 'value', days: days ? Number(days) : 7,
+      }, { command: 'compliance' });
     });
 }

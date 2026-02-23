@@ -1,17 +1,13 @@
 /**
  * CLEO MCP Server Entry Point
  *
- * Exposes CLEO's 65 CLI commands and 280+ library functions through
- * two gateway tools using CQRS pattern:
- * - cleo_query: 48 read operations (never modifies state)
- * - cleo_mutate: 48 write operations (validated, logged, atomic)
+ * Routes all MCP requests through the unified dispatch layer.
+ * Preserves MCP-specific features: query caching, LAFS budget enforcement,
+ * background job management, and cache invalidation on mutate.
  *
- * Wires together:
- * 1. Configuration loader
- * 2. CLI executor wrapper
- * 3. Domain router
- * 4. Gateway tools (query + mutate)
- * 5. MCP SDK server with stdio transport
+ * Gateway tools (CQRS pattern):
+ * - cleo_query: read operations (never modifies state)
+ * - cleo_mutate: write operations (validated, logged, atomic)
  *
  * @task T2926
  * @see MCP-SERVER-SPECIFICATION.md for complete API documentation
@@ -23,23 +19,18 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { loadConfig} from './lib/config.js';
-import { DomainRouter, DomainRequest } from './lib/router.js';
-import { initMcpDispatcher, handleMcpToolCall, getMcpDispatcher } from '../dispatch/adapters/mcp.js';
-import { createExecutor } from './lib/executor.js';
 import { registerQueryTool } from './gateways/query.js';
 import { registerMutateTool } from './gateways/mutate.js';
 import { QueryCache } from './lib/cache.js';
 import { BackgroundJobManager } from './lib/background-jobs.js';
-import { detectExecutionMode, type ResolvedMode } from './lib/mode-detector.js';
-import { generateCapabilityReport } from './engine/capability-matrix.js';
 import { enforceBudget } from './lib/budget.js';
+import { loadConfig } from './lib/config.js';
+import { initMcpDispatcher, handleMcpToolCall } from '../dispatch/adapters/mcp.js';
 
 /**
  * Server state for cleanup
  */
 interface ServerState {
-  dispatcher: any;
   server: Server;
   cache: QueryCache;
   jobManager: BackgroundJobManager;
@@ -69,68 +60,22 @@ async function main(): Promise<void> {
     console.error('[CLEO MCP] Loading configuration...');
     const config = loadConfig();
 
-    // Detect execution mode
-    console.error('[CLEO MCP] Detecting execution mode...');
-    const modeDetection = detectExecutionMode();
-    const executionMode: ResolvedMode = modeDetection.mode;
-    console.error(`[CLEO MCP] Execution mode: ${executionMode} (${modeDetection.reason})`);
-
-    if (executionMode === 'native') {
-      const report = generateCapabilityReport();
-      console.error(`[CLEO MCP] Native mode: ${report.native} native + ${report.hybrid} hybrid operations available`);
-      console.error(`[CLEO MCP] CLI-only operations (${report.cli}) will return E_CLI_REQUIRED`);
-    }
-
     // Log startup info (to stderr, not stdout which is used by MCP)
     console.error('[CLEO MCP] Starting server...');
-    console.error(`[CLEO MCP] CLI path: ${config.cliPath}`);
-    console.error(`[CLEO MCP] Timeout: ${config.timeout}ms`);
     console.error(`[CLEO MCP] Log level: ${config.logLevel}`);
     console.error(`[CLEO MCP] Metrics: ${config.enableMetrics ? 'enabled' : 'disabled'}`);
-    console.error(`[CLEO MCP] Max retries: ${config.maxRetries}`);
 
-    // Create CLI executor
-    console.error('[CLEO MCP] Creating CLI executor...');
-    const executor = createExecutor(config.cliPath, config.timeout, config.maxRetries);
-
-    // Test CLI connection (non-fatal in native/auto mode)
-    console.error('[CLEO MCP] Testing CLI connection...');
-    const connected = await executor.testConnection();
-    if (!connected) {
-      if (executionMode === 'cli' && modeDetection.configuredMode === 'cli') {
-        // CLI mode was forced but CLI isn't available
-        throw new Error(`Failed to connect to CLEO CLI at ${config.cliPath}`);
-      }
-      // In native/auto mode, CLI unavailability is expected
-      console.error('[CLEO MCP] CLI not available - running in native TypeScript mode');
-      executor.setAvailable(false);
-    } else {
-      console.error('[CLEO MCP] CLI connection successful');
-      executor.setAvailable(true);
-    }
-
-    // Get CLI version (only if connected)
-    if (connected) {
-      const cliVersion = await executor.getVersion();
-      console.error(`[CLEO MCP] CLI version: ${cliVersion}`);
-    }
-
-    // Initialize MCP dispatcher pipeline
-    console.error('[CLEO MCP] Initializing MCP dispatcher...');
-    const dispatcher = initMcpDispatcher({ rateLimiting: config.rateLimiting });
-    console.error('[CLEO MCP] Dispatcher initialized');
-    console.error(`[CLEO MCP] Rate limiting: ${config.rateLimiting.enabled ? 'enabled' : 'disabled'}`);
+    // Initialize dispatch layer (replaces DomainRouter + executor + mode detection)
+    console.error('[CLEO MCP] Initializing dispatch layer...');
+    initMcpDispatcher({
+      rateLimiting: config.rateLimiting,
+      strictMode: true,
+    });
+    console.error('[CLEO MCP] Dispatch layer initialized');
 
     // Initialize background job manager
     const jobManager = new BackgroundJobManager({ maxJobs: 10, retentionMs: 3600000 });
     console.error('[CLEO MCP] Background job manager initialized (max: 10, retention: 1h)');
-
-    // Wire job manager into system handler
-    const systemHandler = (dispatcher as any).handlers.get('system');
-    if (systemHandler && typeof systemHandler.setJobManager === 'function') {
-      systemHandler.setJobManager(jobManager);
-      console.error('[CLEO MCP] Background job manager wired to system handler');
-    }
 
     // Initialize query cache
     const cache = new QueryCache(config.queryCacheTtl, config.queryCache);
@@ -217,22 +162,15 @@ async function main(): Promise<void> {
           };
         }
 
-        // Build domain request
-        const domainRequest: DomainRequest = {
-          gateway: name as 'cleo_query' | 'cleo_mutate',
-          domain: args.domain as string,
-          operation: args.operation as string,
-          params: args.params as Record<string, unknown> | undefined,
-        };
+        const domain = args.domain as string;
+        const operation = args.operation as string;
+        const params = args.params as Record<string, unknown> | undefined;
 
         // Check cache bypass flag
-        const bypassCache = !!(args.params as Record<string, unknown> | undefined)?.bypassCache;
+        const bypassCache = !!params?.bypassCache;
 
         // For query operations, check cache first
         if (name === 'cleo_query' && !bypassCache) {
-          const domain = args.domain as string;
-          const operation = args.operation as string;
-          const params = args.params as Record<string, unknown> | undefined;
           const cached = cache.get(domain, operation, params);
           if (cached !== undefined) {
             if (config.logLevel === 'debug') {
@@ -249,15 +187,15 @@ async function main(): Promise<void> {
           }
         }
 
-        // Route to domain handler via DomainRouter (T4820 dispatch adapter not yet fully operational)
-        let result = await router.routeOperation(domainRequest);
+        // Route through dispatch layer (handles domain alias resolution)
+        let result = await handleMcpToolCall(name, domain, operation, params);
 
         if (config.logLevel === 'debug') {
           console.error(`[CLEO MCP] Result:`, JSON.stringify(result, null, 2));
         }
 
         // Apply LAFS token budget enforcement (@task T4701)
-        const tokenBudget = (args.params as Record<string, unknown> | undefined)?.tokenBudget as number | undefined;
+        const tokenBudget = params?.tokenBudget as number | undefined;
         if (tokenBudget) {
           const { response: enforced, enforcement } = enforceBudget(
             result as unknown as Record<string, unknown>,
@@ -271,19 +209,14 @@ async function main(): Promise<void> {
 
         // Cache successful query results
         if (name === 'cleo_query' && result.success && !bypassCache) {
-          cache.set(
-            args.domain as string,
-            args.operation as string,
-            args.params as Record<string, unknown> | undefined,
-            result
-          );
+          cache.set(domain, operation, params, result);
         }
 
         // Invalidate domain cache on mutate operations
         if (name === 'cleo_mutate') {
-          const invalidated = cache.invalidateDomain(args.domain as string);
+          const invalidated = cache.invalidateDomain(domain);
           if (invalidated > 0 && config.logLevel === 'debug') {
-            console.error(`[CLEO MCP] Cache invalidated ${invalidated} entries for domain: ${args.domain}`);
+            console.error(`[CLEO MCP] Cache invalidated ${invalidated} entries for domain: ${domain}`);
           }
         }
 
@@ -330,7 +263,6 @@ async function main(): Promise<void> {
 
     // Store server state for cleanup
     serverState = {
-      dispatcher,
       server,
       cache,
       jobManager,

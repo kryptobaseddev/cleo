@@ -159,11 +159,11 @@ export interface EngineResult<T = unknown> {
 export async function taskShow(
   projectRoot: string,
   taskId: string
-): Promise<EngineResult<TaskRecord>> {
+): Promise<EngineResult<{ task: TaskRecord }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const detail = await coreShowTask(taskId, projectRoot, accessor);
-    return { success: true, data: taskToRecord(detail) };
+    return { success: true, data: { task: taskToRecord(detail) } };
   } catch (err: unknown) {
     const code = (err as { code?: number })?.code;
     if (code === 4 /* NOT_FOUND */) {
@@ -178,7 +178,7 @@ export async function taskShow(
         error: { code: 'E_INVALID_INPUT', message: (err as Error).message || 'Invalid input' },
       };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: (err as Error).message || 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: (err as Error).message || 'Task database not initialized' } };
   }
 }
 
@@ -194,7 +194,7 @@ export async function taskList(
     status?: string;
     limit?: number;
   }
-): Promise<EngineResult<TaskRecord[]>> {
+): Promise<EngineResult<{ tasks: TaskRecord[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreListTasks({
@@ -202,9 +202,9 @@ export async function taskList(
       status: params?.status as import('../../types/task.js').TaskStatus | undefined,
       limit: params?.limit,
     }, projectRoot, accessor);
-    return { success: true, data: tasksToRecords(result.tasks) };
+    return { success: true, data: { tasks: tasksToRecords(result.tasks), total: result.total } };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -217,7 +217,7 @@ export async function taskFind(
   projectRoot: string,
   query: string,
   limit?: number
-): Promise<EngineResult<MinimalTaskRecord[]>> {
+): Promise<EngineResult<{ results: MinimalTaskRecord[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const findResult = await coreFindTasks({
@@ -233,9 +233,9 @@ export async function taskFind(
       parentId: r.parentId,
     }));
 
-    return { success: true, data: results };
+    return { success: true, data: { results, total: results.length } };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -274,7 +274,7 @@ export async function taskCreate(
     labels?: string[];
     type?: string;
   }
-): Promise<EngineResult<TaskRecord>> {
+): Promise<EngineResult<{ task: TaskRecord; duplicate: boolean }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreAddTask({
@@ -287,14 +287,10 @@ export async function taskCreate(
       type: (params.type as import('../../types/task.js').TaskType) || undefined,
     }, projectRoot, accessor);
 
-    if (result.duplicate) {
-      return {
-        success: true,
-        data: taskToRecord(result.task),
-      };
-    }
-
-    return { success: true, data: taskToRecord(result.task) };
+    return {
+      success: true,
+      data: { task: taskToRecord(result.task), duplicate: result.duplicate ?? false },
+    };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
     // Map CleoError exit codes to engine error codes (see src/types/exit-codes.ts)
@@ -319,7 +315,7 @@ export async function taskCreate(
     if (cleoErr.code === 4 /* NOT_FOUND */) {
       return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? 'Task not found', exitCode: 4 } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'Task database not initialized' } };
   }
 }
 
@@ -346,7 +342,7 @@ export async function taskUpdate(
     type?: string;
     size?: string;
   }
-): Promise<EngineResult<TaskRecord>> {
+): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreUpdateTask({
@@ -368,7 +364,7 @@ export async function taskUpdate(
       size: updates.size as import('../../types/task.js').TaskSize | undefined,
     }, projectRoot, accessor);
 
-    return { success: true, data: taskToRecord(result.task) };
+    return { success: true, data: { task: taskToRecord(result.task), changes: result.changes } };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
     if (cleoErr.code === 4 /* NOT_FOUND */) {
@@ -380,7 +376,7 @@ export async function taskUpdate(
     if (cleoErr.code === 102 /* NO_CHANGE */) {
       return { success: false, error: { code: 'E_NO_CHANGE', message: cleoErr.message ?? 'No changes specified' } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'Task database not initialized' } };
   }
 }
 
@@ -391,7 +387,7 @@ export async function taskComplete(
   projectRoot: string,
   taskId: string,
   notes?: string
-): Promise<EngineResult<TaskRecord>> {
+): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
   return taskUpdate(projectRoot, taskId, {
     status: 'done',
     notes: notes || undefined,
@@ -405,16 +401,23 @@ export async function taskDelete(
   projectRoot: string,
   taskId: string,
   force?: boolean
-): Promise<EngineResult<{ deleted: boolean; taskId: string }>> {
+): Promise<EngineResult<{ deletedTask: TaskRecord; deleted: boolean; cascadeDeleted?: string[] }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    await coreDeleteTask({
+    const result = await coreDeleteTask({
       taskId,
       force: force ?? false,
       cascade: force ?? false,
     }, projectRoot, accessor);
 
-    return { success: true, data: { deleted: true, taskId } };
+    return {
+      success: true,
+      data: {
+        deletedTask: taskToRecord(result.deletedTask),
+        deleted: true,
+        cascadeDeleted: result.cascadeDeleted,
+      },
+    };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
     if (cleoErr.code === 4 /* NOT_FOUND */) {
@@ -423,7 +426,7 @@ export async function taskDelete(
     if (cleoErr.code === 16 /* HAS_CHILDREN */) {
       return { success: false, error: { code: 'E_HAS_CHILDREN', message: cleoErr.message ?? `Task '${taskId}' has children` } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'Task database not initialized' } };
   }
 }
 
@@ -435,7 +438,7 @@ export async function taskArchive(
   projectRoot: string,
   taskId?: string,
   before?: string
-): Promise<EngineResult<{ archived: number; taskIds: string[] }>> {
+): Promise<EngineResult<{ archivedCount: number; archivedTasks: Array<{ id: string }> }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreArchiveTasks({
@@ -445,14 +448,17 @@ export async function taskArchive(
 
     return {
       success: true,
-      data: { archived: result.archived.length, taskIds: result.archived },
+      data: {
+        archivedCount: result.archived.length,
+        archivedTasks: result.archived.map((id: string) => ({ id })),
+      },
     };
   } catch (err: unknown) {
     const cleoErr = err as { code?: number; message?: string };
     if (cleoErr.code === 4 /* NOT_FOUND */) {
       return { success: false, error: { code: 'E_NOT_FOUND', message: cleoErr.message ?? `Task not found` } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'No valid todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: cleoErr.message ?? 'Task database not initialized' } };
   }
 }
 
@@ -485,7 +491,7 @@ export async function taskNext(
     const result = await coreTaskNext(projectRoot, params);
     return { success: true, data: result };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -517,7 +523,7 @@ export async function taskBlockers(
     const result = await coreTaskBlockers(projectRoot, params);
     return { success: true, data: result };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -539,7 +545,7 @@ export async function taskTree(
     if (message.includes('not found')) {
       return { success: false, error: { code: 'E_NOT_FOUND', message } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -567,7 +573,7 @@ export async function taskDeps(
     if (message.includes('not found')) {
       return { success: false, error: { code: 'E_NOT_FOUND', message } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -597,7 +603,7 @@ export async function taskRelates(
     if (message.includes('not found')) {
       return { success: false, error: { code: 'E_NOT_FOUND', message } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -652,7 +658,7 @@ export async function taskAnalyze(
     const result = await coreTaskAnalyze(projectRoot, taskId);
     return { success: true, data: result };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -837,7 +843,7 @@ export async function taskComplexityEstimate(
     if (message.includes('not found')) {
       return { success: false, error: { code: 'E_NOT_FOUND', message } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -865,7 +871,7 @@ export async function taskDepends(
     if (message.includes('not found')) {
       return { success: false, error: { code: 'E_NOT_FOUND', message } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -892,7 +898,7 @@ export async function taskStats(
     const result = await coreTaskStats(projectRoot, epicId);
     return { success: true, data: result };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -914,7 +920,7 @@ export async function taskExport(
     const result = await coreTaskExport(projectRoot, params);
     return { success: true, data: result };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -960,7 +966,7 @@ export async function taskLint(
     if (message.includes('not found')) {
       return { success: false, error: { code: 'E_NOT_FOUND', message } };
     }
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 
@@ -993,7 +999,7 @@ export async function taskBatchValidate(
     const result = await coreTaskBatchValidate(projectRoot, taskIds, checkMode);
     return { success: true, data: result };
   } catch {
-    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'No todo.json found' } };
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
   }
 }
 

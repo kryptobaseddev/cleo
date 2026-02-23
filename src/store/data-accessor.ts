@@ -43,7 +43,7 @@ export interface SessionsFile {
  */
 export interface DataAccessor {
   /** The storage engine backing this accessor. */
-  readonly engine: 'json' | 'sqlite' | 'dual';
+  readonly engine: 'json' | 'sqlite';
 
   // ---- Task data (tasks.json equivalent) ----
 
@@ -97,7 +97,7 @@ export interface DataAccessor {
  * @param cwd - Working directory (defaults to process.cwd())
  */
 export async function createDataAccessor(
-  engine?: 'json' | 'sqlite' | 'dual',
+  engine?: 'json' | 'sqlite',
   cwd?: string,
 ): Promise<DataAccessor> {
   const resolvedEngine = engine ?? (await detectEngine(cwd));
@@ -110,16 +110,7 @@ export async function createDataAccessor(
       inner = await createSqliteDataAccessor(cwd);
       break;
     }
-    case 'dual': {
-      // Dual mode: write to both, read from SQLite with JSON fallback
-      const { createJsonDataAccessor } = await import('./json-data-accessor.js');
-      const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
-      inner = createDualDataAccessor(
-        await createJsonDataAccessor(cwd),
-        await createSqliteDataAccessor(cwd),
-      );
-      break;
-    }
+
     case 'json':
     default: {
       const { createJsonDataAccessor } = await import('./json-data-accessor.js');
@@ -140,7 +131,7 @@ export async function getAccessor(cwd?: string): Promise<DataAccessor> {
 
 // ---- Internal helpers ----
 
-async function detectEngine(cwd?: string): Promise<'json' | 'sqlite' | 'dual'> {
+async function detectEngine(cwd?: string): Promise<'json' | 'sqlite' > {
   try {
     const { existsSync, readFileSync } = await import('node:fs');
     const { getCleoDirAbsolute } = await import('../core/paths.js');
@@ -150,7 +141,7 @@ async function detectEngine(cwd?: string): Promise<'json' | 'sqlite' | 'dual'> {
     if (existsSync(configPath)) {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       const engine = config?.storage?.engine;
-      if (engine === 'sqlite' || engine === 'dual' || engine === 'json') {
+      if (engine === 'sqlite' || engine === 'json') {
         return engine;
       }
     }
@@ -168,77 +159,4 @@ async function detectEngine(cwd?: string): Promise<'json' | 'sqlite' | 'dual'> {
   }
   // Default: sqlite (ADR-006 canonical storage for new projects)
   return 'sqlite';
-}
-
-/**
- * Dual-write DataAccessor.
- * Writes to both JSON and SQLite. Reads from SQLite, falls back to JSON.
- */
-function createDualDataAccessor(json: DataAccessor, sqlite: DataAccessor): DataAccessor {
-  return {
-    engine: 'dual' as const,
-
-    async loadTaskFile() {
-      try {
-        return await sqlite.loadTaskFile();
-      } catch {
-        return await json.loadTaskFile();
-      }
-    },
-
-    async saveTaskFile(data) {
-      await Promise.allSettled([
-        json.saveTaskFile(data),
-        sqlite.saveTaskFile(data),
-      ]);
-    },
-
-    // Deprecated aliases
-    async loadTodoFile() {
-      return this.loadTaskFile();
-    },
-
-    async saveTodoFile(data: TaskFile) {
-      return this.saveTaskFile(data);
-    },
-
-    async loadArchive() {
-      try {
-        return await sqlite.loadArchive();
-      } catch {
-        return await json.loadArchive();
-      }
-    },
-
-    async saveArchive(data) {
-      await Promise.allSettled([
-        json.saveArchive(data),
-        sqlite.saveArchive(data),
-      ]);
-    },
-
-    async loadSessions() {
-      try {
-        return await sqlite.loadSessions();
-      } catch {
-        return await json.loadSessions();
-      }
-    },
-
-    async saveSessions(data) {
-      await Promise.allSettled([
-        json.saveSessions(data),
-        sqlite.saveSessions(data),
-      ]);
-    },
-
-    async appendLog(entry) {
-      // Logs always go to JSONL file (append-only, both backends)
-      await json.appendLog(entry);
-    },
-
-    async close() {
-      await Promise.allSettled([json.close(), sqlite.close()]);
-    },
-  };
 }

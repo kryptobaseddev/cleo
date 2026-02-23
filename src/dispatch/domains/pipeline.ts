@@ -33,7 +33,7 @@ import {
   releasePush,
   releaseGatesRun,
   releaseRollback,
-} from '../../mcp/engine/index.js';
+} from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
 // PipelineHandler

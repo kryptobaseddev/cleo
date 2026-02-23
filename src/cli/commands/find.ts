@@ -50,7 +50,10 @@ export function registerFindCommand(program: Command): void {
         return;
       }
 
-      const data = response.data as Record<string, unknown>;
+      const rawData = response.data;
+      const data = (Array.isArray(rawData)
+        ? { results: rawData, total: rawData.length }
+        : rawData as Record<string, unknown>) ?? {};
       const results = (data?.results as unknown[]) ?? [];
 
       if (results.length === 0) {

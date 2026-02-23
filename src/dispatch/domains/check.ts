@@ -27,7 +27,7 @@ import {
   validateTestCoverage,
   validateCoherenceCheck,
   validateTestRun,
-} from '../../mcp/engine/index.js';
+} from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
 // CheckHandler

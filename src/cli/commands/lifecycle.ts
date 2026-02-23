@@ -5,22 +5,8 @@
  */
 
 import { Command } from 'commander';
-import {
-  getLifecycleState,
-  startStage,
-  completeStage,
-  skipStage,
-  checkGate,
-} from '../../core/lifecycle/index.js';
-import type { LifecycleStage } from '../../core/lifecycle/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 
-/**
- * Register the lifecycle command group.
- * @task T4467
- */
 export function registerLifecycleCommand(program: Command): void {
   const lifecycle = program
     .command('lifecycle')
@@ -30,32 +16,16 @@ export function registerLifecycleCommand(program: Command): void {
     .command('show <epicId>')
     .description('Show lifecycle state for an epic')
     .action(async (epicId: string) => {
-      try {
-        const result = await getLifecycleState(epicId);
-        cliOutput(result, { command: 'lifecycle' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'pipeline', 'stage.status', { epicId }, { command: 'lifecycle' });
     });
 
   lifecycle
     .command('start <epicId> <stage>')
     .description('Start a lifecycle stage')
     .action(async (epicId: string, stage: string) => {
-      try {
-        const result = await startStage(epicId, stage as LifecycleStage);
-        cliOutput(result, { command: 'lifecycle' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'stage.record', {
+        taskId: epicId, stage, status: 'in_progress',
+      }, { command: 'lifecycle' });
     });
 
   lifecycle
@@ -64,19 +34,9 @@ export function registerLifecycleCommand(program: Command): void {
     .option('--artifacts <artifacts>', 'Comma-separated artifact paths')
     .option('--notes <notes>', 'Completion notes')
     .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
-      try {
-        const artifacts = opts['artifacts']
-          ? (opts['artifacts'] as string).split(',').map(s => s.trim())
-          : undefined;
-        const result = await completeStage(epicId, stage as LifecycleStage, artifacts);
-        cliOutput(result, { command: 'lifecycle' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'stage.record', {
+        taskId: epicId, stage, status: 'completed', notes: opts['notes'],
+      }, { command: 'lifecycle' });
     });
 
   lifecycle
@@ -84,34 +44,29 @@ export function registerLifecycleCommand(program: Command): void {
     .description('Skip a lifecycle stage')
     .requiredOption('--reason <reason>', 'Reason for skipping')
     .action(async (epicId: string, stage: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await skipStage(epicId, stage as LifecycleStage, opts['reason'] as string);
-        cliOutput(result, { command: 'lifecycle' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'stage.skip', {
+        taskId: epicId, stage, reason: opts['reason'],
+      }, { command: 'lifecycle' });
     });
 
   lifecycle
     .command('gate <epicId> <stage>')
     .description('Check lifecycle gate for a stage')
     .action(async (epicId: string, stage: string) => {
-      try {
-        const result = await checkGate(epicId, stage as LifecycleStage);
-        cliOutput(result, { command: 'lifecycle' });
-        if (!result.allowed) {
-          process.exit(80); // LIFECYCLE_GATE_FAILED
+      const result = await dispatchRaw('query', 'pipeline', 'stage.validate', {
+        epicId, targetStage: stage,
+      });
+      if (result.success) {
+        const { cliOutput } = await import('../renderers/index.js');
+        cliOutput(result.data, { command: 'lifecycle' });
+        const data = result.data as Record<string, unknown> | undefined;
+        if (data && !data['allowed']) {
+          process.exit(80);
         }
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
+      } else {
+        const { cliError } = await import('../renderers/index.js');
+        cliError(result.error?.message ?? 'Gate check failed', result.error?.exitCode ?? 1);
+        process.exit(result.error?.exitCode ?? 1);
       }
     });
 }
