@@ -35,7 +35,7 @@
     "cleo:update-status": "node dist/scripts/update-task-status.js"
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.13.1"
   },
   "keywords": [
     "cleo",
@@ -62,12 +62,11 @@
     "@cleocode/ct-skills": "^2.0.0",
     "@cleocode/lafs-protocol": "^1.2.3",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "ajv": "^8.17.1",
+    "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "commander": "^12.1.0",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^1.0.0-beta.15",
     "proper-lockfile": "^4.1.2",
-    "sql.js": "^1.14.0",
     "write-file-atomic": "^6.0.0",
     "yaml": "^2.8.2"
   },
@@ -76,13 +75,12 @@
     "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.19.11",
     "@types/proper-lockfile": "^4.1.4",
-    "@types/sql.js": "^1.4.9",
     "@types/write-file-atomic": "^4.0.3",
-    "drizzle-kit": "^0.31.9",
-    "esbuild": "^0.24.0",
-    "typescript": "^5.5.2",
-    "vitest": "^2.1.0"
+    "drizzle-kit": "^1.0.0-beta.15",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }
