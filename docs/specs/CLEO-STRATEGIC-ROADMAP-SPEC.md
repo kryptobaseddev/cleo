@@ -517,7 +517,7 @@ The agent coordination system **SHOULD**:
 **Requirements** (RFC 2119)
 
 The PostgreSQL backend **MUST**:
-1. Replace ~/.cleo/nexus/*.json files with PostgreSQL database
+1. Migrate ~/.cleo/cleo-nexus.db (SQLite, per ADR-006) to PostgreSQL database
 2. Support graph queries (dependencies, relationships, LCA)
 3. Maintain JSON file compatibility (migration path)
 4. Scale to 10+ projects, 10,000+ tasks
