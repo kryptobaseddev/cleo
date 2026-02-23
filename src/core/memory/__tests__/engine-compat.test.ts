@@ -1,27 +1,32 @@
 /**
- * Research Engine Tests
+ * Memory Engine Compatibility Layer Tests
  *
- * Tests native TypeScript research operations.
+ * Tests EngineResult wrappers around core/memory functions.
+ * Migrated from mcp/engine/__tests__/research-engine.test.ts.
  *
- * @task T4474
+ * @epic T4820
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
-  researchShow,
-  researchList,
-  researchQuery,
-  researchPending,
-  researchStats,
-  researchManifestRead,
-  researchLink,
-  researchManifestAppend,
-  researchManifestArchive,
-} from '../research-engine.js';
+  memoryShow,
+  memoryList,
+  memoryQuery,
+  memoryPending,
+  memoryStats,
+  memoryManifestRead,
+  memoryLink,
+  memoryManifestAppend,
+  memoryManifestArchive,
+  memoryContradictions,
+  memorySuperseded,
+  memoryCompact,
+  memoryValidate,
+} from '../engine-compat.js';
 
-const TEST_ROOT = join(process.cwd(), '.test-research-engine');
+const TEST_ROOT = join(process.cwd(), '.test-memory-engine-compat');
 const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
 const MANIFEST_PATH = join(MANIFEST_DIR, 'MANIFEST.jsonl');
 
@@ -37,7 +42,7 @@ function writeManifest(entries: any[]): void {
   writeFileSync(MANIFEST_PATH, content, 'utf-8');
 }
 
-describe('Research Engine', () => {
+describe('Memory Engine Compat', () => {
   beforeEach(() => {
     mkdirSync(MANIFEST_DIR, { recursive: true });
     writeManifest(SAMPLE_ENTRIES);
@@ -49,101 +54,101 @@ describe('Research Engine', () => {
     }
   });
 
-  describe('researchShow', () => {
+  describe('memoryShow', () => {
     it('should find entry by ID', () => {
-      const result = researchShow('T001-research', TEST_ROOT);
+      const result = memoryShow('T001-research', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).id).toBe('T001-research');
       expect((result.data as any).title).toBe('First Research');
     });
 
     it('should return error for missing entry', () => {
-      const result = researchShow('T999-missing', TEST_ROOT);
+      const result = memoryShow('T999-missing', TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NOT_FOUND');
     });
 
     it('should return error for empty ID', () => {
-      const result = researchShow('', TEST_ROOT);
+      const result = memoryShow('', TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
   });
 
-  describe('researchList', () => {
+  describe('memoryList', () => {
     it('should list all entries', () => {
-      const result = researchList({}, TEST_ROOT);
+      const result = memoryList({}, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(3);
     });
 
     it('should filter by status', () => {
-      const result = researchList({ status: 'complete' }, TEST_ROOT);
+      const result = memoryList({ status: 'complete' }, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
 
     it('should filter by topic', () => {
-      const result = researchList({ topic: 'engine' }, TEST_ROOT);
+      const result = memoryList({ topic: 'engine' }, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(2);
     });
 
     it('should filter by type', () => {
-      const result = researchList({ type: 'research' }, TEST_ROOT);
+      const result = memoryList({ type: 'research' }, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
 
     it('should apply limit', () => {
-      const result = researchList({ limit: 2 }, TEST_ROOT);
+      const result = memoryList({ limit: 2 }, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(2);
     });
   });
 
-  describe('researchQuery', () => {
+  describe('memoryQuery', () => {
     it('should search by title', () => {
-      const result = researchQuery('Research', {}, TEST_ROOT);
+      const result = memoryQuery('Research', {}, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBeGreaterThan(0);
     });
 
     it('should search by topic', () => {
-      const result = researchQuery('mcp', {}, TEST_ROOT);
+      const result = memoryQuery('mcp', {}, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBeGreaterThan(0);
     });
 
     it('should return error for empty query', () => {
-      const result = researchQuery('', {}, TEST_ROOT);
+      const result = memoryQuery('', {}, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
 
     it('should apply confidence threshold', () => {
-      const result = researchQuery('Research', { confidence: 0.5 }, TEST_ROOT);
+      const result = memoryQuery('Research', { confidence: 0.5 }, TEST_ROOT);
       expect(result.success).toBe(true);
     });
   });
 
-  describe('researchPending', () => {
+  describe('memoryPending', () => {
     it('should return partial and blocked entries', () => {
-      const result = researchPending(undefined, TEST_ROOT);
+      const result = memoryPending(undefined, TEST_ROOT);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(2); // partial + blocked
+      expect((result.data as any).total).toBe(2);
     });
 
     it('should filter by epicId', () => {
-      const result = researchPending('T002', TEST_ROOT);
+      const result = memoryPending('T002', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
   });
 
-  describe('researchStats', () => {
+  describe('memoryStats', () => {
     it('should compute stats', () => {
-      const result = researchStats(undefined, TEST_ROOT);
+      const result = memoryStats(undefined, TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.total).toBe(3);
@@ -153,34 +158,34 @@ describe('Research Engine', () => {
     });
 
     it('should filter by epicId', () => {
-      const result = researchStats('T001', TEST_ROOT);
+      const result = memoryStats('T001', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
-      expect(data.total).toBe(2); // T001-research and T003-impl (linked to T001)
+      expect(data.total).toBe(2);
     });
   });
 
-  describe('researchLink', () => {
+  describe('memoryLink', () => {
     it('should link task to research entry', () => {
-      const result = researchLink('T999', 'T001-research', undefined, TEST_ROOT);
+      const result = memoryLink('T999', 'T001-research', undefined, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).linked).toBe(true);
     });
 
     it('should handle already linked', () => {
-      const result = researchLink('T001', 'T001-research', undefined, TEST_ROOT);
+      const result = memoryLink('T001', 'T001-research', undefined, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).alreadyLinked).toBe(true);
     });
 
     it('should return error for missing entry', () => {
-      const result = researchLink('T999', 'T999-missing', undefined, TEST_ROOT);
+      const result = memoryLink('T999', 'T999-missing', undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NOT_FOUND');
     });
   });
 
-  describe('researchManifestAppend', () => {
+  describe('memoryManifestAppend', () => {
     it('should append valid entry', () => {
       const newEntry = {
         id: 'T004-new',
@@ -192,30 +197,98 @@ describe('Research Engine', () => {
         topics: ['test'],
         actionable: true,
       };
-      const result = researchManifestAppend(newEntry, TEST_ROOT);
+      const result = memoryManifestAppend(newEntry, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).appended).toBe(true);
     });
 
     it('should reject invalid entry', () => {
-      const result = researchManifestAppend({} as any, TEST_ROOT);
+      const result = memoryManifestAppend({} as any, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_VALIDATION_FAILED');
     });
   });
 
-  describe('researchManifestArchive', () => {
+  describe('memoryManifestArchive', () => {
     it('should archive entries before date', () => {
-      const result = researchManifestArchive('2026-02-01', TEST_ROOT);
+      const result = memoryManifestArchive('2026-02-01', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).archived).toBe(1);
       expect((result.data as any).remaining).toBe(2);
     });
 
     it('should return 0 when no entries match', () => {
-      const result = researchManifestArchive('2020-01-01', TEST_ROOT);
+      const result = memoryManifestArchive('2020-01-01', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).archived).toBe(0);
+    });
+  });
+
+  describe('memoryContradictions', () => {
+    it('should return empty array when no contradictions', () => {
+      const result = memoryContradictions(TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).contradictions).toBeDefined();
+    });
+  });
+
+  describe('memorySuperseded', () => {
+    it('should return empty array when no superseded entries', () => {
+      const result = memorySuperseded(TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).superseded).toBeDefined();
+    });
+  });
+
+  describe('memoryCompact', () => {
+    it('should compact manifest successfully', () => {
+      const result = memoryCompact(TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).compacted).toBe(true);
+      expect((result.data as any).remainingEntries).toBe(3);
+    });
+
+    it('should handle non-existent manifest', () => {
+      rmSync(MANIFEST_PATH, { force: true });
+      const result = memoryCompact(TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).compacted).toBe(false);
+    });
+  });
+
+  describe('memoryValidate', () => {
+    it('should validate entries for task', () => {
+      const result = memoryValidate('T001', TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).taskId).toBe('T001');
+      expect((result.data as any).entriesFound).toBeGreaterThan(0);
+    });
+
+    it('should return error for empty taskId', () => {
+      const result = memoryValidate('', TEST_ROOT);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('should handle task with no entries', () => {
+      const result = memoryValidate('T999', TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).entriesFound).toBe(0);
+      expect((result.data as any).valid).toBe(true);
+    });
+  });
+
+  describe('memoryManifestRead', () => {
+    it('should read all entries without filter', () => {
+      const result = memoryManifestRead(undefined, TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).total).toBe(3);
+    });
+
+    it('should apply filter', () => {
+      const result = memoryManifestRead({ status: 'complete' }, TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).total).toBe(1);
     });
   });
 });

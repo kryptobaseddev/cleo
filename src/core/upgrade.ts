@@ -95,7 +95,28 @@ export async function runUpgrade(options: {
     return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors: [String(err)] };
   }
 
-  if (preflight.migrationNeeded) {
+  // Determine what actions are actually needed
+  const cleoDir = getCleoDirAbsolute(options.cwd);
+  const dbPath = join(cleoDir, 'tasks.db');
+  const dbExists = existsSync(dbPath);
+  
+  // Check if JSON files have actual data (not just empty files)
+  const todoPath = join(cleoDir, 'todo.json');
+  const hasJsonData = existsSync(todoPath) && (() => {
+    try {
+      const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+      return (data.tasks?.length ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  })();
+  
+  // Migration needed only if: no DB exists AND JSON has data
+  const needsMigration = !dbExists && hasJsonData;
+  // Cleanup needed if: DB exists AND stale JSON files exist
+  const needsCleanup = dbExists && preflight.migrationNeeded;
+
+  if (needsMigration) {
     if (isDryRun) {
       actions.push({
         action: 'storage_migration',
@@ -342,9 +363,6 @@ export async function runUpgrade(options: {
   // ── Step 2: Schema + structural repairs ──────────────────────────
   // Runs on task data via accessor (SQLite per ADR-006).
   // Also runs if legacy todo.json still exists (pre-migration data).
-  const cleoDir = getCleoDirAbsolute(options.cwd);
-  const dbPath = join(cleoDir, 'tasks.db');
-  const todoPath = join(cleoDir, 'todo.json');
   if (existsSync(dbPath) || existsSync(todoPath)) {
     try {
       const { getAccessor } = await import('../store/data-accessor.js');
@@ -390,10 +408,10 @@ export async function runUpgrade(options: {
   }
 
   // ── Step 2b: Stale JSON file cleanup (post-migration) ────────────
-  // If tasks.db exists, rename stale JSON files to *.json.migrated
-  // so they don't trigger false positives in doctor/preflight checks.
-  if (existsSync(join(cleoDir, 'tasks.db'))) {
-    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json'] as const;
+  // If tasks.db exists and there are stale legacy files, safely backup and delete them
+  // so they don't trigger false positives or cause confusion.
+  if (needsCleanup) {
+    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', 'tasks.json'];
     const foundStale = staleJsonFiles.filter(f => existsSync(join(cleoDir, f)));
 
     if (foundStale.length > 0) {
@@ -401,34 +419,34 @@ export async function runUpgrade(options: {
         actions.push({
           action: 'stale_json_cleanup',
           status: 'preview',
-          details: `Would rename ${foundStale.length} stale JSON file(s) to *.json.migrated: ${foundStale.join(', ')}`,
+          details: `Would backup and delete ${foundStale.length} legacy JSON file(s): ${foundStale.join(', ')}`,
         });
       } else {
         try {
           // Backup stale files first
-          const backupDir = join(cleoDir, 'backups', 'pre-sqlite', `${Date.now()}`);
+          const backupDir = join(cleoDir, '.backups', `legacy-json-${Date.now()}`);
           mkdirSync(backupDir, { recursive: true });
           for (const f of foundStale) {
             const src = join(cleoDir, f);
             copyFileSync(src, join(backupDir, f));
           }
 
-          // Rename originals to .migrated
-          const { renameSync } = await import('node:fs');
+          // Delete the originals
+          const { unlinkSync } = await import('node:fs');
           for (const f of foundStale) {
-            renameSync(join(cleoDir, f), join(cleoDir, `${f}.migrated`));
+            unlinkSync(join(cleoDir, f));
           }
 
           actions.push({
             action: 'stale_json_cleanup',
             status: 'applied',
-            details: `Renamed ${foundStale.length} stale JSON file(s) to *.json.migrated (backed up to ${backupDir})`,
+            details: `Deleted ${foundStale.length} legacy JSON file(s) (backed up to ${backupDir})`,
           });
         } catch (err) {
           actions.push({
             action: 'stale_json_cleanup',
             status: 'error',
-            details: `Failed to clean up stale JSON files: ${String(err)}`,
+            details: `Failed to clean up legacy JSON files: ${String(err)}`,
           });
         }
       }

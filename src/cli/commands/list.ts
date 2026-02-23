@@ -53,7 +53,10 @@ export function registerListCommand(program: Command): void {
         return;
       }
 
-      const data = response.data as Record<string, unknown>;
+      const rawData = response.data;
+      const data = (Array.isArray(rawData)
+        ? { tasks: rawData, total: rawData.length }
+        : rawData as Record<string, unknown>) ?? {};
       const tasks = (data?.tasks as unknown[]) ?? [];
 
       if (tasks.length === 0) {

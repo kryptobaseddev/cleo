@@ -21,7 +21,7 @@ import {
   getTemplateForSubcommand,
   generateTemplateConfig,
   validateLabels,
-} from '../../mcp/engine/template-parser.js';
+} from '../lib/engine.js';
 import { catalog } from '@cleocode/caamp';
 
 // ---------------------------------------------------------------------------

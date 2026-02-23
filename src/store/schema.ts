@@ -130,6 +130,94 @@ export const taskWorkHistory = sqliteTable('task_work_history', {
   index('idx_work_history_session').on(table.sessionId),
 ]);
 
+// === LIFECYCLE PIPELINES ===
+
+export const lifecyclePipelines = sqliteTable('lifecycle_pipelines', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  status: text('status', {
+    enum: ['active', 'completed', 'aborted'],
+  }).notNull().default('active'),
+  currentStageId: text('current_stage_id'),
+  startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_lifecycle_pipelines_task_id').on(table.taskId),
+  index('idx_lifecycle_pipelines_status').on(table.status),
+]);
+
+// === LIFECYCLE STAGES ===
+
+export const lifecycleStages = sqliteTable('lifecycle_stages', {
+  id: text('id').primaryKey(),
+  pipelineId: text('pipeline_id').notNull().references(() => lifecyclePipelines.id, { onDelete: 'cascade' }),
+  stageName: text('stage_name').notNull(),
+  status: text('status', {
+    enum: ['pending', 'active', 'blocked', 'completed', 'skipped'],
+  }).notNull().default('pending'),
+  sequence: integer('sequence').notNull(),
+  startedAt: text('started_at'),
+  completedAt: text('completed_at'),
+  blockedAt: text('blocked_at'),
+  blockReason: text('block_reason'),
+  skippedAt: text('skipped_at'),
+  skipReason: text('skip_reason'),
+  notesJson: text('notes_json').default('[]'),
+  metadataJson: text('metadata_json').default('{}'),
+}, (table) => [
+  index('idx_lifecycle_stages_pipeline_id').on(table.pipelineId),
+  index('idx_lifecycle_stages_stage_name').on(table.stageName),
+  index('idx_lifecycle_stages_status').on(table.status),
+]);
+
+// === LIFECYCLE GATE RESULTS ===
+
+export const lifecycleGateResults = sqliteTable('lifecycle_gate_results', {
+  id: text('id').primaryKey(),
+  stageId: text('stage_id').notNull().references(() => lifecycleStages.id, { onDelete: 'cascade' }),
+  gateName: text('gate_name').notNull(),
+  result: text('result', {
+    enum: ['pass', 'fail', 'warn'],
+  }).notNull(),
+  checkedAt: text('checked_at').notNull().default(sql`(datetime('now'))`),
+  checkedBy: text('checked_by').notNull(),
+  details: text('details'),
+  reason: text('reason'),
+}, (table) => [
+  index('idx_lifecycle_gate_results_stage_id').on(table.stageId),
+]);
+
+// === LIFECYCLE EVIDENCE ===
+
+export const lifecycleEvidence = sqliteTable('lifecycle_evidence', {
+  id: text('id').primaryKey(),
+  stageId: text('stage_id').notNull().references(() => lifecycleStages.id, { onDelete: 'cascade' }),
+  uri: text('uri').notNull(),
+  type: text('type', {
+    enum: ['file', 'url', 'manifest'],
+  }).notNull(),
+  recordedAt: text('recorded_at').notNull().default(sql`(datetime('now'))`),
+  recordedBy: text('recorded_by'),
+  description: text('description'),
+}, (table) => [
+  index('idx_lifecycle_evidence_stage_id').on(table.stageId),
+]);
+
+// === LIFECYCLE TRANSITIONS ===
+
+export const lifecycleTransitions = sqliteTable('lifecycle_transitions', {
+  id: text('id').primaryKey(),
+  pipelineId: text('pipeline_id').notNull().references(() => lifecyclePipelines.id, { onDelete: 'cascade' }),
+  fromStageId: text('from_stage_id').notNull(),
+  toStageId: text('to_stage_id').notNull(),
+  transitionType: text('transition_type', {
+    enum: ['automatic', 'manual', 'forced'],
+  }).notNull().default('automatic'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_lifecycle_transitions_pipeline_id').on(table.pipelineId),
+]);
+
 // === SCHEMA METADATA ===
 
 export const schemaMeta = sqliteTable('schema_meta', {
@@ -146,3 +234,13 @@ export type NewSessionRow = typeof sessions.$inferInsert;
 export type TaskDependencyRow = typeof taskDependencies.$inferSelect;
 export type TaskRelationRow = typeof taskRelations.$inferSelect;
 export type WorkHistoryRow = typeof taskWorkHistory.$inferSelect;
+export type LifecyclePipelineRow = typeof lifecyclePipelines.$inferSelect;
+export type NewLifecyclePipelineRow = typeof lifecyclePipelines.$inferInsert;
+export type LifecycleStageRow = typeof lifecycleStages.$inferSelect;
+export type NewLifecycleStageRow = typeof lifecycleStages.$inferInsert;
+export type LifecycleGateResultRow = typeof lifecycleGateResults.$inferSelect;
+export type NewLifecycleGateResultRow = typeof lifecycleGateResults.$inferInsert;
+export type LifecycleEvidenceRow = typeof lifecycleEvidence.$inferSelect;
+export type NewLifecycleEvidenceRow = typeof lifecycleEvidence.$inferInsert;
+export type LifecycleTransitionRow = typeof lifecycleTransitions.$inferSelect;
+export type NewLifecycleTransitionRow = typeof lifecycleTransitions.$inferInsert;

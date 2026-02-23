@@ -82,7 +82,7 @@ export class SafetyDataAccessor implements DataAccessor {
   }
 
   /** The storage engine backing this accessor. */
-  get engine(): 'json' | 'sqlite' | 'dual' {
+  get engine(): 'json' | 'sqlite' {
     return this.inner.engine;
   }
 

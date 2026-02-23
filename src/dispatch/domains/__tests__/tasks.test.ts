@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock engine functions before importing the handler
-vi.mock('../../../mcp/engine/index.js', () => ({
+vi.mock('../../lib/engine.js', () => ({
   taskShow: vi.fn(),
   taskList: vi.fn(),
   taskFind: vi.fn(),
@@ -61,7 +61,7 @@ import {
   taskCurrentGet,
   taskStart,
   taskStop,
-} from '../../../mcp/engine/index.js';
+} from '../../lib/engine.js';
 
 describe('TasksHandler', () => {
   let handler: TasksHandler;

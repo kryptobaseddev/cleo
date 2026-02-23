@@ -7,9 +7,10 @@
  *
  * @epic T4454
  * @task W1-T1
+ * @task T4810 - Data loss prevention guards
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/sql-js';
@@ -21,13 +22,15 @@ import { getCleoDirAbsolute } from '../core/paths.js';
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
 
-/** Schema version stored in schema_meta table. */
-const SCHEMA_VERSION = '1.0.0';
+/** Schema version for newly created databases. */
+const SCHEMA_VERSION = '2.0.0';
 
 /** Singleton state for lazy initialization. */
 let _db: SQLJsDatabase<typeof schema> | null = null;
 let _nativeDb: SqlJsNativeDb | null = null;
 let _dbPath: string | null = null;
+/** Track whether the DB was loaded from an existing file or created fresh. */
+let _isNewDb = false;
 
 /**
  * Get the path to the SQLite database file.
@@ -62,9 +65,11 @@ export async function getDb(cwd?: string): Promise<SQLJsDatabase<typeof schema>>
   if (existsSync(dbPath)) {
     const buffer = readFileSync(dbPath);
     nativeDb = new SQL.Database(buffer);
+    _isNewDb = false;
   } else {
     mkdirSync(dirname(dbPath), { recursive: true });
     nativeDb = new SQL.Database();
+    _isNewDb = true;
   }
 
   _nativeDb = nativeDb;
@@ -73,7 +78,7 @@ export async function getDb(cwd?: string): Promise<SQLJsDatabase<typeof schema>>
   const db = drizzle(nativeDb, { schema });
   _db = db;
 
-  // Ensure tables exist
+  // Ensure tables exist (only saves to disk for new databases)
   await createTablesIfNeeded(nativeDb);
 
   return db;
@@ -82,6 +87,10 @@ export async function getDb(cwd?: string): Promise<SQLJsDatabase<typeof schema>>
 /**
  * Create all tables if they don't exist.
  * Uses raw SQL since drizzle-kit migrations aren't needed for initial setup.
+ *
+ * @task T4810 - Only writes schema version and saves to disk for NEW databases.
+ * Existing databases retain their schema version and are not overwritten
+ * with an empty DB on init.
  */
 async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
   nativeDb.run(`
@@ -185,21 +194,48 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
   nativeDb.run('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);');
   nativeDb.run('CREATE INDEX IF NOT EXISTS idx_work_history_session ON task_work_history(session_id);');
 
-  // Set schema version
-  nativeDb.run(
-    `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
-  );
-
-  // Save to disk
-  saveToFile();
+  // Only set schema version and save for NEW databases.
+  // Existing databases already have their version and data — don't overwrite.
+  if (_isNewDb) {
+    nativeDb.run(
+      `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
+    );
+    saveToFile();
+  }
 }
 
 /**
  * Save the in-memory database to disk.
  * Must be called after any write operation since sql.js is in-memory.
+ *
+ * @task T4810 - Guard against overwriting a populated DB with an empty one.
+ * If the on-disk file has data but the in-memory DB has zero tasks,
+ * refuse to save and log a warning to stderr.
  */
 export function saveToFile(): void {
   if (!_nativeDb || !_dbPath) return;
+
+  // Data loss guard: don't overwrite a non-empty DB file with an empty in-memory DB
+  if (existsSync(_dbPath)) {
+    try {
+      const existingSize = statSync(_dbPath).size;
+      // Only check if existing file is substantial (> 100KB = likely has real data)
+      if (existingSize > 100_000) {
+        const result = _nativeDb.exec('SELECT COUNT(*) FROM tasks');
+        const taskCount = (result[0]?.values?.[0]?.[0] ?? 0) as number;
+        if (taskCount === 0) {
+          console.error(
+            `[CLEO SQLite] BLOCKED: Refusing to overwrite ${_dbPath} (${existingSize} bytes) with empty database (0 tasks). ` +
+            `This is a safety guard against data loss. If intentional, delete the file first.`,
+          );
+          return;
+        }
+      }
+    } catch {
+      // If the guard check itself fails, proceed with save — don't block normal operations
+    }
+  }
+
   const data = _nativeDb.export();
   const buffer = Buffer.from(data);
   mkdirSync(dirname(_dbPath), { recursive: true });
@@ -235,6 +271,7 @@ export function resetDbState(): void {
   }
   _db = null;
   _dbPath = null;
+  _isNewDb = false;
 }
 
 /**

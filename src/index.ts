@@ -55,7 +55,7 @@ export {
   readManifest,
   appendManifest,
   queryManifest,
-} from './core/research/index.js';
+} from './core/memory/index.js';
 
 // Orchestration
 export {

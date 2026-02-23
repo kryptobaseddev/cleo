@@ -26,7 +26,6 @@ import { registerResearchCommand } from './commands/research.js';
 import { registerOrchestrateCommand } from './commands/orchestrate.js';
 import { registerLifecycleCommand } from './commands/lifecycle.js';
 import { registerReleaseCommand } from './commands/release.js';
-import { registerMigrateCommand } from './commands/migrate.js';
 import { registerEnvCommand } from './commands/env.js';
 import { registerMcpInstallCommand } from './commands/mcp-install.js';
 
@@ -90,9 +89,6 @@ import { registerUpgradeCommand } from './commands/upgrade.js';
 import { registerValidateCommand } from './commands/validate.js';
 import { registerVerifyCommand } from './commands/verify.js';
 import { registerDetectDriftCommand } from './commands/detect-drift.js';
-
-// Wave 5: Storage migration (T4647, T4648)
-import { registerMigrateStorageCommand } from './commands/migrate-storage.js';
 
 // Core: pre-flight migration check (@task T4699)
 import { checkStorageMigration } from '../core/migration/preflight.js';
@@ -185,9 +181,6 @@ registerOrchestrateCommand(program);
 registerLifecycleCommand(program);
 registerReleaseCommand(program);
 
-// T4468: Migration commands
-registerMigrateCommand(program);
-
 // T4581: Environment command
 registerEnvCommand(program);
 
@@ -253,9 +246,6 @@ registerStatsCommand(program);
 registerUpgradeCommand(program);
 registerValidateCommand(program);
 registerVerifyCommand(program);
-
-// T4647, T4648: Storage migration
-registerMigrateStorageCommand(program);
 
 // T4705: Documentation drift detection
 registerDetectDriftCommand(program);

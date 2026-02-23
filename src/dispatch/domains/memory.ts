@@ -14,19 +14,19 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import {
-  researchShow,
-  researchList,
-  researchQuery,
-  researchPending,
-  researchStats,
-  researchManifestRead,
-  researchContradictions,
-  researchSuperseded,
-  researchInject,
-  researchLink,
-  researchManifestAppend,
-  researchManifestArchive,
-} from '../../mcp/engine/index.js';
+  memoryShow,
+  memoryList,
+  memoryQuery,
+  memoryPending,
+  memoryStats,
+  memoryManifestRead,
+  memoryContradictions,
+  memorySuperseded,
+  memoryInject,
+  memoryLink,
+  memoryManifestAppend,
+  memoryManifestArchive,
+} from '../../core/memory/engine-compat.js';
 
 // ---------------------------------------------------------------------------
 // MemoryHandler
@@ -56,13 +56,13 @@ export class MemoryHandler implements DomainHandler {
           if (!entryId) {
             return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'entryId is required', startTime);
           }
-          const result = researchShow(entryId, this.projectRoot);
+          const result = memoryShow(entryId, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'list': {
-          const result = researchList(
-            (params ?? {}) as Parameters<typeof researchList>[0],
+          const result = memoryList(
+            (params ?? {}) as Parameters<typeof memoryList>[0],
             this.projectRoot,
           );
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
@@ -73,7 +73,7 @@ export class MemoryHandler implements DomainHandler {
           if (!query) {
             return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
           }
-          const result = researchQuery(
+          const result = memoryQuery(
             query,
             { confidence: params?.confidence as number | undefined, limit: params?.limit as number | undefined },
             this.projectRoot,
@@ -82,30 +82,30 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'pending': {
-          const result = researchPending(params?.epicId as string | undefined, this.projectRoot);
+          const result = memoryPending(params?.epicId as string | undefined, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'stats': {
-          const result = researchStats(params?.epicId as string | undefined, this.projectRoot);
+          const result = memoryStats(params?.epicId as string | undefined, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'manifest.read': {
-          const result = researchManifestRead(
-            params as Parameters<typeof researchManifestRead>[0],
+          const result = memoryManifestRead(
+            params as Parameters<typeof memoryManifestRead>[0],
             this.projectRoot,
           );
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'contradictions': {
-          const result = researchContradictions(this.projectRoot, params as { topic?: string } | undefined);
+          const result = memoryContradictions(this.projectRoot, params as { topic?: string } | undefined);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'superseded': {
-          const result = researchSuperseded(this.projectRoot, params as { topic?: string } | undefined);
+          const result = memorySuperseded(this.projectRoot, params as { topic?: string } | undefined);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -134,7 +134,7 @@ export class MemoryHandler implements DomainHandler {
           if (!protocolType) {
             return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'protocolType is required', startTime);
           }
-          const result = researchInject(
+          const result = memoryInject(
             protocolType,
             { taskId: params?.taskId as string | undefined, variant: params?.variant as string | undefined },
             this.projectRoot,
@@ -148,16 +148,16 @@ export class MemoryHandler implements DomainHandler {
           if (!taskId || !entryId) {
             return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'taskId and entryId are required', startTime);
           }
-          const result = researchLink(taskId, entryId, params?.notes as string | undefined, this.projectRoot);
+          const result = memoryLink(taskId, entryId, params?.notes as string | undefined, this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
         case 'manifest.append': {
-          const entry = params?.entry as Parameters<typeof researchManifestAppend>[0];
+          const entry = params?.entry as Parameters<typeof memoryManifestAppend>[0];
           if (!entry) {
             return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'entry is required', startTime);
           }
-          const result = researchManifestAppend(entry, this.projectRoot);
+          const result = memoryManifestAppend(entry, this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
@@ -166,7 +166,7 @@ export class MemoryHandler implements DomainHandler {
           if (!beforeDate) {
             return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'beforeDate is required (ISO-8601: YYYY-MM-DD)', startTime);
           }
-          const result = researchManifestArchive(beforeDate, this.projectRoot);
+          const result = memoryManifestArchive(beforeDate, this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 

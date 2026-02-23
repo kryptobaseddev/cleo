@@ -5,17 +5,8 @@
  */
 
 import { Command } from 'commander';
-import {
-  injectTasks,
-} from '../../core/inject/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
-/**
- * Register the inject command.
- * @task T4539
- */
 export function registerInjectCommand(program: Command): void {
   program
     .command('inject')
@@ -27,22 +18,13 @@ export function registerInjectCommand(program: Command): void {
     .option('--save-state', 'Save session state for extraction', true)
     .option('--dry-run', 'Preview without writing')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await injectTasks({
-          maxTasks: opts['maxTasks'] ? Number(opts['maxTasks']) : 8,
-          focusedOnly: opts['focusedOnly'] as boolean | undefined,
-          phase: opts['phase'] as string | undefined,
-          output: opts['output'] as string | undefined,
-          saveState: opts['saveState'] as boolean | undefined,
-          dryRun: opts['dryRun'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'inject' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'admin', 'inject.generate', {
+        maxTasks: opts['maxTasks'] ? Number(opts['maxTasks']) : 8,
+        focusedOnly: opts['focusedOnly'],
+        phase: opts['phase'],
+        output: opts['output'],
+        saveState: opts['saveState'],
+        dryRun: opts['dryRun'],
+      }, { command: 'inject' });
     });
 }

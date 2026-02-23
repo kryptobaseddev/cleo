@@ -27,7 +27,7 @@ import {
   orchestrateParallelStart,
   orchestrateParallelEnd,
   orchestrateCheck,
-} from '../../mcp/engine/index.js';
+} from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
 // OrchestrateHandler

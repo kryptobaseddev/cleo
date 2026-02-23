@@ -33,7 +33,7 @@ import {
   configSet,
   getVersion,
   initProject,
-} from '../../mcp/engine/index.js';
+} from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
 // AdminHandler

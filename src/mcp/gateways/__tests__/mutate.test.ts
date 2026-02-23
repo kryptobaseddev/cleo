@@ -19,17 +19,24 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 68 operations', () => {
+  it('should have exactly 110 operations (canonical + legacy)', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(68);
+    expect(totalCount).toBe(110);
   });
 
-  it('should have all 11 domains', () => {
+  it('should have all 16 domains (8 canonical + 8 legacy)', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
     expect(domains).toEqual([
+      // Canonical domains
       'tasks',
       'session',
       'orchestrate',
+      'memory',
+      'check',
+      'pipeline',
+      'admin',
+      'tools',
+      // Legacy aliases (backward compat)
       'research',
       'lifecycle',
       'validate',
@@ -42,9 +49,16 @@ describe('MUTATE_OPERATIONS', () => {
   });
 
   it('should have correct operation counts per domain', () => {
+    // Canonical domains
     expect(MUTATE_OPERATIONS.tasks.length).toBe(14);
     expect(MUTATE_OPERATIONS.session.length).toBe(7);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(4);
+    expect(MUTATE_OPERATIONS.check.length).toBe(2);
+    expect(MUTATE_OPERATIONS.pipeline.length).toBe(12);
+    expect(MUTATE_OPERATIONS.admin.length).toBe(11);
+    expect(MUTATE_OPERATIONS.tools.length).toBe(13);
+    // Legacy aliases
     expect(MUTATE_OPERATIONS.research.length).toBe(4);
     expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
     expect(MUTATE_OPERATIONS.validate.length).toBe(2);
@@ -485,13 +499,20 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(68);
+    expect(getMutateOperationCount()).toBe(110);
   });
 
   it('should return domain-specific counts', () => {
+    // Canonical domains
     expect(getMutateOperationCount('tasks')).toBe(14);
     expect(getMutateOperationCount('session')).toBe(7);
     expect(getMutateOperationCount('orchestrate')).toBe(5);
+    expect(getMutateOperationCount('memory')).toBe(4);
+    expect(getMutateOperationCount('check')).toBe(2);
+    expect(getMutateOperationCount('pipeline')).toBe(12);
+    expect(getMutateOperationCount('admin')).toBe(11);
+    expect(getMutateOperationCount('tools')).toBe(13);
+    // Legacy aliases
     expect(getMutateOperationCount('research')).toBe(4);
     expect(getMutateOperationCount('lifecycle')).toBe(5);
     expect(getMutateOperationCount('validate')).toBe(2);
@@ -524,9 +545,16 @@ describe('getMutateDomains', () => {
   it('should return all mutate domains', () => {
     const domains = getMutateDomains();
     expect(domains).toEqual([
+      // Canonical domains
       'tasks',
       'session',
       'orchestrate',
+      'memory',
+      'check',
+      'pipeline',
+      'admin',
+      'tools',
+      // Legacy aliases (backward compat)
       'research',
       'lifecycle',
       'validate',
@@ -562,9 +590,16 @@ describe('registerMutateTool', () => {
     expect(tool.inputSchema.type).toBe('object');
     expect(tool.inputSchema.required).toEqual(['domain', 'operation']);
     expect(tool.inputSchema.properties.domain.enum).toEqual([
+      // Canonical domains
       'tasks',
       'session',
       'orchestrate',
+      'memory',
+      'check',
+      'pipeline',
+      'admin',
+      'tools',
+      // Legacy aliases (backward compat)
       'research',
       'lifecycle',
       'validate',

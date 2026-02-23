@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock engine functions before importing the handler
-vi.mock('../../../mcp/engine/index.js', () => ({
+vi.mock('../../lib/engine.js', () => ({
   systemDash: vi.fn(),
   systemStats: vi.fn(),
   systemLog: vi.fn(),
@@ -45,7 +45,7 @@ import {
   configSet,
   getVersion,
   initProject,
-} from '../../../mcp/engine/index.js';
+} from '../../lib/engine.js';
 
 describe('AdminHandler', () => {
   let handler: AdminHandler;

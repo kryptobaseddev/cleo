@@ -1,5 +1,5 @@
 import { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
-import { sanitizeParams as legacySanitizeParams } from '../../mcp/lib/security.js';
+import { sanitizeParams as legacySanitizeParams } from '../lib/security.js';
 
 /**
  * Creates a middleware that sanitizes incoming request parameters.
