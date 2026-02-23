@@ -3,6 +3,7 @@
 **Date**: 2026-02-21
 **Status**: accepted
 **Supersedes**: ADR-001, ADR-002
+**Amended By**: ADR-010, ADR-011
 
 ## 1. Explicit Canonical Decision
 
@@ -10,7 +11,7 @@ This ADR defines the 100% complete, definitive, and canonical data storage archi
 
 All operational data, state machines, relational graphs, audit logs, and **Architecture Decision Records (ADRs)** MUST be stored in SQLite databases using `drizzle-orm` for strict end-to-end type safety.
 
-JSON and JSONL are STRICTLY PROHIBITED for any data that requires concurrent writes, multi-agent access, relational querying, historical lifecycle tracking, or transactional state transitions. JSON is EXCLUSIVELY RESERVED for human-editable, git-tracked configuration files (`config.json`, `project-info.json`).
+JSON and JSONL are STRICTLY PROHIBITED for any data that requires concurrent writes, multi-agent access, relational querying, historical lifecycle tracking, or transactional state transitions. JSON is EXCLUSIVELY RESERVED for human-editable, git-tracked configuration files (`config.json`, `project-info.json`, `project-context.json`).
 
 There are exactly two SQLite databases in the CLEO ecosystem:
 1. **The Global Registry (`~/.cleo/cleo-nexus.db`)**: Manages cross-project Nexus tooling, global token usage, global agent registry, and system-wide configurations.
@@ -152,5 +153,13 @@ CREATE TABLE project_registry (
 
 ## 5. Technology Stack
 
-- **Engine**: SQLite via `sql.js` (WASM) to guarantee zero native-binding cross-platform failures.
+- **Engine**: SQLite via Node built-in `node:sqlite` (`DatabaseSync`) with WAL enabled for cross-process concurrency and multi-agent safety.
+- **Runtime Requirement**: Node.js `>=24.0.0` (enforced via `package.json` engines).
 - **ORM**: `drizzle-orm` for strict TypeScript schema definition, automated migrations, and type-safe query building.
+
+## 6. Related ADRs and Decision Trail
+
+- **ADR-010** (`.cleo/adrs/ADR-010-node-sqlite-engine-choice.md`): Engine selection amendment -- documents the decision to use `node:sqlite` over `sql.js` and `better-sqlite3`. ADR-010 amends Section 5 of this document.
+- **ADR-001** (archived): Original storage architecture decision. Superseded by this ADR.
+- **ADR-002** (archived): Hybrid storage strategy that originally selected `sql.js`. Superseded by this ADR.
+- **Compliance Review**: `.cleo/agent-outputs/2026-02-23_T4820-adr006-compliance-review.md` -- clause-by-clause compliance traceability for the engine migration.
