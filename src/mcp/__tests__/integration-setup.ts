@@ -8,10 +8,15 @@
  * Uses an isolated test CLEO environment (via test-environment.ts) to avoid
  * corrupting production data.
  *
+ * The CLIExecutor class (previously in src/mcp/lib/executor.ts, deleted in
+ * Phase 5 migration) is now defined inline here. It spawns the CLEO CLI as
+ * a subprocess and parses JSON output.
+ *
  * @task T2922
  */
 
-import { CLIExecutor, createExecutor } from '../lib/executor.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 import {
@@ -19,6 +24,478 @@ import {
   destroyTestEnvironment,
   type TestEnvironment,
 } from './test-environment.js';
+
+const execAsync = promisify(exec);
+
+// ---------------------------------------------------------------------------
+// Exit code to name mapping (from ExitCode enum in src/types/exit-codes.ts)
+// ---------------------------------------------------------------------------
+
+const EXIT_CODE_NAMES: Record<number, string> = {
+  0: 'SUCCESS',
+  1: 'GENERAL_ERROR',
+  2: 'INVALID_INPUT',
+  3: 'FILE_ERROR',
+  4: 'NOT_FOUND',
+  5: 'DEPENDENCY_ERROR',
+  6: 'VALIDATION_ERROR',
+  7: 'LOCK_TIMEOUT',
+  8: 'CONFIG_ERROR',
+  10: 'PARENT_NOT_FOUND',
+  11: 'DEPTH_EXCEEDED',
+  12: 'SIBLING_LIMIT',
+  13: 'INVALID_PARENT_TYPE',
+  14: 'CIRCULAR_REFERENCE',
+  15: 'ORPHAN_DETECTED',
+  16: 'HAS_CHILDREN',
+  17: 'TASK_COMPLETED',
+  18: 'CASCADE_FAILED',
+  19: 'HAS_DEPENDENTS',
+  20: 'CHECKSUM_MISMATCH',
+  21: 'CONCURRENT_MODIFICATION',
+  22: 'ID_COLLISION',
+  30: 'SESSION_EXISTS',
+  31: 'SESSION_NOT_FOUND',
+  32: 'SCOPE_CONFLICT',
+  33: 'SCOPE_INVALID',
+  34: 'TASK_NOT_IN_SCOPE',
+  35: 'TASK_CLAIMED',
+  36: 'SESSION_REQUIRED',
+  37: 'SESSION_CLOSE_BLOCKED',
+  38: 'FOCUS_REQUIRED',
+  39: 'NOTES_REQUIRED',
+  50: 'CONTEXT_WARNING',
+  51: 'CONTEXT_CAUTION',
+  52: 'CONTEXT_CRITICAL',
+  53: 'CONTEXT_EMERGENCY',
+  54: 'CONTEXT_STALE',
+  60: 'PROTOCOL_MISSING',
+  75: 'NEXUS_REGISTRY_CORRUPT',
+  80: 'LIFECYCLE_GATE_FAILED',
+  100: 'NO_DATA',
+  101: 'ALREADY_EXISTS',
+  102: 'NO_CHANGE',
+};
+
+// ---------------------------------------------------------------------------
+// ExecutorResult — the shape returned by CLIExecutor.execute()
+// ---------------------------------------------------------------------------
+
+interface ExecutorResult<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: { code?: string; message: string; details?: any };
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  /** Execution duration in milliseconds */
+  duration?: number;
+}
+
+// ---------------------------------------------------------------------------
+// CLIExecutor — minimal replacement for deleted src/mcp/lib/executor.ts
+// ---------------------------------------------------------------------------
+
+/**
+ * Executes CLEO CLI commands as subprocesses and parses JSON output.
+ *
+ * This is a minimal reimplementation of the CLIExecutor that was previously
+ * in src/mcp/lib/executor.ts. It provides the same interface used by the
+ * integration and E2E test suites.
+ */
+class CLIExecutor {
+  constructor(
+    private cliPath: string,
+    private timeout: number = 60000,
+    private maxRetries: number = 1,
+  ) {}
+
+  /**
+   * Escape a shell argument using single quotes.
+   */
+  private escapeArg(arg: string | number | boolean): string {
+    const str = String(arg);
+    const escaped = str.replace(/'/g, "'\\''");
+    return `'${escaped}'`;
+  }
+
+  /**
+   * Map domain+operation to the actual CLI command structure.
+   * Replicates the mapping from the deleted command-builder.ts.
+   */
+  private mapToCliCommand(domain: string, operation: string): { command: string; addOperationAsSubcommand: boolean } {
+    // Tasks domain: operation IS the top-level CLI command
+    const taskOps: Record<string, string> = {
+      show: 'show', list: 'list', find: 'find', add: 'add',
+      update: 'update', complete: 'complete', delete: 'delete',
+      archive: 'archive', restore: 'restore task', reopen: 'restore task',
+      exists: 'exists', next: 'next', current: 'current',
+      start: 'start', stop: 'stop', depends: 'deps show',
+      blockers: 'blockers', tree: 'tree', analyze: 'analyze',
+    };
+    if (domain === 'tasks' && taskOps[operation]) {
+      return { command: taskOps[operation], addOperationAsSubcommand: false };
+    }
+
+    // Session domain: 'cleo session <operation>'
+    if (domain === 'session') {
+      if (operation === 'focus') return { command: 'focus', addOperationAsSubcommand: false };
+      return { command: 'session', addOperationAsSubcommand: true };
+    }
+
+    // Lifecycle domain: 'cleo lifecycle <subcommand>'
+    const lifecycleOps: Record<string, string> = {
+      status: 'lifecycle show', show: 'lifecycle show', stages: 'lifecycle show',
+      validate: 'lifecycle gate', record: 'lifecycle complete',
+      start: 'lifecycle start', complete: 'lifecycle complete',
+      enforce: 'lifecycle gate', skip: 'lifecycle skip',
+      gate: 'lifecycle gate', gates: 'lifecycle show',
+      prerequisites: 'lifecycle show', history: 'lifecycle show',
+      reset: 'lifecycle start', report: 'lifecycle show',
+      'gate.pass': 'lifecycle gate', 'gate.fail': 'lifecycle gate',
+    };
+    if (domain === 'lifecycle' && lifecycleOps[operation]) {
+      return { command: lifecycleOps[operation], addOperationAsSubcommand: false };
+    }
+    if (domain === 'lifecycle') {
+      return { command: 'lifecycle', addOperationAsSubcommand: true };
+    }
+
+    // Orchestrate domain: 'cleo orchestrate <operation>'
+    const orchOps: Record<string, string> = {
+      status: 'orchestrate context', waves: 'orchestrate analyze',
+      parallel: 'orchestrate ready', check: 'orchestrate validate',
+    };
+    if (domain === 'orchestrate' && orchOps[operation]) {
+      return { command: orchOps[operation], addOperationAsSubcommand: false };
+    }
+    if (domain === 'orchestrate') {
+      return { command: 'orchestrate', addOperationAsSubcommand: true };
+    }
+
+    // Research domain: 'cleo research <operation>'
+    const researchOps: Record<string, string> = {
+      stats: 'research manifest',
+      'manifest.append': 'research add',
+      'manifest.read': 'research list',
+      'manifest.archive': 'research archive',
+    };
+    if (domain === 'research' && researchOps[operation]) {
+      return { command: researchOps[operation], addOperationAsSubcommand: false };
+    }
+    if (domain === 'research') {
+      return { command: 'research', addOperationAsSubcommand: true };
+    }
+
+    // System domain
+    const systemOps: Record<string, string> = {
+      version: 'version', config: 'config', 'config.show': 'config',
+      'config.get': 'config', 'config.set': 'config',
+      backup: 'backup', cleanup: 'cleanup', health: 'doctor',
+      stats: 'stats', context: 'context',
+    };
+    if (domain === 'system' && systemOps[operation]) {
+      return { command: systemOps[operation], addOperationAsSubcommand: false };
+    }
+
+    // Validate domain
+    if (domain === 'validate' && operation === 'compliance') {
+      return { command: 'compliance', addOperationAsSubcommand: false };
+    }
+    if (domain === 'validate') {
+      return { command: 'validate', addOperationAsSubcommand: false };
+    }
+
+    // Version (pseudo-domain)
+    if (domain === 'version') {
+      return { command: 'version', addOperationAsSubcommand: false };
+    }
+
+    // Default: domain as command, operation as subcommand
+    return { command: domain, addOperationAsSubcommand: true };
+  }
+
+  /**
+   * Execute a CLEO CLI command.
+   *
+   * Translates the test-friendly { domain, operation, args, flags } format
+   * into the proper CLI invocation using the domain-to-command mapping.
+   */
+  async execute<T = unknown>(options: {
+    domain: string;
+    operation: string;
+    args?: string[];
+    flags?: Record<string, unknown>;
+    cwd?: string;
+    maxRetries?: number;
+    sessionId?: string;
+  }): Promise<ExecutorResult<T>> {
+    const { domain, operation, args = [], flags = {}, cwd } = options;
+
+    // Build CLI command using domain-to-command mapping
+    const parts: string[] = [this.cliPath];
+    const mapping = this.mapToCliCommand(domain, operation);
+    parts.push(mapping.command);
+    if (mapping.addOperationAsSubcommand && operation) {
+      parts.push(this.escapeArg(operation));
+    }
+
+    // Add positional arguments (escaped)
+    for (const arg of args) {
+      parts.push(this.escapeArg(arg));
+    }
+
+    // Convert flags to CLI flags
+    for (const [key, value] of Object.entries(flags)) {
+      if (value === undefined || value === null) continue;
+      if (typeof value === 'boolean') {
+        if (value) parts.push(`--${key}`);
+        continue;
+      }
+      parts.push(`--${key}`, this.escapeArg(value as string | number | boolean));
+    }
+
+    const command = parts.join(' ');
+    const retries = options.maxRetries ?? this.maxRetries;
+
+    let lastResult: ExecutorResult<T> | undefined;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const startTime = Date.now();
+      try {
+        const { stdout, stderr } = await execAsync(command, {
+          cwd,
+          timeout: this.timeout,
+          env: { ...process.env },
+          maxBuffer: 10 * 1024 * 1024,
+        });
+
+        const result = this.parseOutput<T>(stdout, stderr, 0);
+        result.duration = Date.now() - startTime;
+        if (result.success || attempt >= retries) return result;
+        lastResult = result;
+      } catch (err: any) {
+        const stdout = err.stdout || '';
+        const stderr = err.stderr || '';
+        // Note: exec() is used here intentionally for test CLI execution
+        // child_process errors: exit code may be in err.code (number)
+        // or err.status; err.code can also be an error string like 'ERR_...'
+        const exitCode = typeof err.code === 'number' ? err.code
+          : (typeof err.status === 'number' ? err.status : 1);
+        const result = this.parseOutput<T>(stdout, stderr, exitCode);
+        result.duration = Date.now() - startTime;
+        if (attempt >= retries) return result;
+        lastResult = result;
+      }
+    }
+
+    return lastResult!;
+  }
+
+  /**
+   * Extract a JSON object from mixed output (warnings + JSON).
+   * CLI may prepend warning text (e.g., storage migration notices) before JSON.
+   * Scans for each '{' in the output and tries to parse valid JSON from it.
+   */
+  private extractJson(output: string): string | null {
+    const trimmed = output.trim();
+    if (!trimmed) return null;
+
+    // If it starts with '{', try it directly
+    if (trimmed.startsWith('{')) {
+      try {
+        JSON.parse(trimmed);
+        return trimmed;
+      } catch {
+        // May have trailing content
+      }
+    }
+
+    // Scan for JSON objects by finding each '{' and trying to parse
+    let searchFrom = 0;
+    while (searchFrom < trimmed.length) {
+      const bracePos = trimmed.indexOf('{', searchFrom);
+      if (bracePos === -1) break;
+
+      const candidate = trimmed.slice(bracePos).trim();
+      try {
+        JSON.parse(candidate);
+        return candidate;
+      } catch {
+        // Not valid JSON from this position, try next '{'
+        searchFrom = bracePos + 1;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse CLI stdout into an ExecutorResult.
+   * Matches the behavior of the deleted src/mcp/lib/executor.ts parseOutput method.
+   */
+  private parseOutput<T>(stdout: string, stderr: string, exitCode: number): ExecutorResult<T> {
+    // Fall back to stderr when stdout is empty (some commands output JSON to stderr)
+    // Extract JSON from mixed output (CLI may prepend warnings before JSON)
+    const rawOutput = this.extractJson(stdout) || this.extractJson(stderr) || (stdout.trim() || stderr.trim());
+
+    if (!rawOutput) {
+      if (exitCode === 0) {
+        return { success: true, data: undefined as T, stdout, stderr, exitCode };
+      }
+      return {
+        success: false,
+        error: { code: 'E_UNKNOWN', message: stderr.trim() || 'Command failed with no output' },
+        stdout,
+        stderr,
+        exitCode,
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(rawOutput);
+
+      if (typeof parsed === 'object' && parsed !== null && 'success' in parsed) {
+        if (parsed.success === true) {
+          // Extract payload from V2 (.data), LAFS (.result), or V1 (top-level)
+          const rawPayload = parsed.data ?? parsed.result ?? parsed;
+          const unwrapped = this.unwrapPrimaryField(rawPayload);
+          return {
+            success: true,
+            data: unwrapped as T,
+            stdout,
+            stderr,
+            exitCode,
+          };
+        }
+
+        // Structured error response
+        // V2 CLI uses numeric codes (e.g., {code: 4}) matching ExitCode enum.
+        // Normalize to string error codes (E_NOT_FOUND) for compatibility.
+        let errorCode = parsed.error?.code;
+        if (typeof errorCode === 'number') {
+          const name = parsed.error?.name || EXIT_CODE_NAMES[errorCode];
+          errorCode = name ? `E_${name}` : `E_EXIT_${errorCode}`;
+        }
+        const errorExitCode = typeof parsed.error?.code === 'number'
+          ? parsed.error.code
+          : (parsed.error?.exitCode || exitCode);
+
+        return {
+          success: false,
+          error: {
+            code: errorCode || 'E_UNKNOWN',
+            exitCode: errorExitCode,
+            message: parsed.error?.message || 'Command failed',
+            details: parsed.error?.details,
+          },
+          stdout,
+          stderr,
+          exitCode,
+        };
+      }
+
+      // JSON without success field - treat as data
+      return {
+        success: exitCode === 0,
+        data: parsed as T,
+        stdout,
+        stderr,
+        exitCode,
+      };
+    } catch {
+      // Non-JSON output
+      if (exitCode === 0) {
+        return { success: true, data: stdout.trim() as T, stdout, stderr, exitCode };
+      }
+      return {
+        success: false,
+        error: {
+          code: 'E_UNKNOWN',
+          message: stderr.trim() || stdout.trim() || 'Command failed',
+        },
+        stdout,
+        stderr,
+        exitCode,
+      };
+    }
+  }
+
+  /**
+   * Unwrap primary payload fields.
+   * E.g. {tasks: [...]} -> [...], but {task: {id,...}, duplicate: true} stays as-is.
+   */
+  private unwrapPrimaryField(payload: any): any {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return payload;
+    }
+
+    const primaryFields = [
+      'task', 'tasks', 'session', 'sessions', 'matches', 'results',
+      'result', 'focus', 'entries', 'stages', 'summary',
+    ];
+
+    const metaKeys = new Set([
+      'total', 'filtered', 'count', 'query', 'searchType',
+      'message', 'mode', 'initialized', 'directory', 'created',
+      'skipped', 'duplicate',
+    ]);
+
+    const found = primaryFields.find((f) => payload[f] !== undefined);
+    if (!found) return payload;
+
+    if (Array.isArray(payload[found])) {
+      return payload[found];
+    }
+
+    const companions = Object.keys(payload).filter(
+      (k) => k !== found && !metaKeys.has(k),
+    );
+    if (companions.length === 0) {
+      return payload[found];
+    }
+
+    return payload;
+  }
+
+  /**
+   * Get CLEO version.
+   */
+  async getVersion(): Promise<string> {
+    const result = await this.execute<any>({
+      domain: 'version',
+      operation: '',
+    });
+    if (result.success && result.data?.version) {
+      return result.data.version;
+    }
+    // Try parsing from stdout directly
+    const match = result.stdout?.match(/(\d+\.\d+\.\d+)/);
+    return match ? match[1] : 'unknown';
+  }
+
+  /**
+   * Test CLI connectivity.
+   */
+  async testConnection(): Promise<boolean> {
+    try {
+      const result = await this.execute({ domain: 'version', operation: '' });
+      return result.exitCode === 0;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Create a CLIExecutor instance.
+ */
+function createExecutor(cliPath: string, timeout?: number, maxRetries?: number): CLIExecutor {
+  return new CLIExecutor(cliPath, timeout, maxRetries);
+}
+
+// ---------------------------------------------------------------------------
+// Payload unwrapping helpers (exported for use by other test utilities)
+// ---------------------------------------------------------------------------
 
 /**
  * Extract the actual payload from an executor result's data field.
@@ -323,7 +800,7 @@ export async function startTestSession(
 /**
  * Get current CLEO version
  */
-export async function getCleoVersion(executor: CLIExecutor | WrappedExecutor): Promise<string> {
+export async function getCleoVersion(executor: WrappedExecutor): Promise<string> {
   return executor.getVersion();
 }
 
@@ -331,7 +808,7 @@ export async function getCleoVersion(executor: CLIExecutor | WrappedExecutor): P
  * Check if a task exists
  */
 export async function taskExists(
-  executor: CLIExecutor | WrappedExecutor,
+  executor: WrappedExecutor,
   taskId: string,
   cwd?: string
 ): Promise<boolean> {

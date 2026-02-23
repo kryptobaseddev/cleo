@@ -2,7 +2,7 @@
  * Tests for cleo_query gateway
  *
  * Validates:
- * - All 63 query operations across 9 domains
+ * - All 124 query operations across 15 domains (canonical + legacy)
  * - Parameter validation
  * - Error handling
  * - Read-only enforcement
@@ -24,18 +24,25 @@ import {
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
-    it('should have exactly 76 query operations', () => {
+    it('should have exactly 124 query operations (canonical + legacy)', () => {
       const total = getQueryOperationCount();
-      expect(total).toBe(76);
+      expect(total).toBe(124);
     });
 
-    it('should have 10 query domains', () => {
+    it('should have 15 query domains (8 canonical + 7 legacy)', () => {
       const domains = getQueryDomains();
-      expect(domains).toHaveLength(10);
+      expect(domains).toHaveLength(15);
       expect(domains).toEqual([
+        // Canonical domains
         'tasks',
         'session',
         'orchestrate',
+        'memory',
+        'check',
+        'pipeline',
+        'admin',
+        'tools',
+        // Legacy aliases (backward compat)
         'research',
         'lifecycle',
         'validate',
@@ -153,7 +160,7 @@ describe('Query Gateway', () => {
     it('should have all query domains in enum', () => {
       const tool = registerQueryTool();
       const enumValues = tool.inputSchema.properties.domain.enum;
-      expect(enumValues).toHaveLength(10);
+      expect(enumValues).toHaveLength(15);
       expect(enumValues).toEqual(getQueryDomains());
     });
 

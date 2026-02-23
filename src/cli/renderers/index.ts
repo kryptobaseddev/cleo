@@ -10,11 +10,13 @@
  *
  * @task T4665
  * @task T4666
+ * @task T4813
  * @epic T4663
  */
 
 import { getFormatContext } from '../format-context.js';
 import { formatSuccess, type FormatOptions } from '../../core/output.js';
+import { normalizeForHuman } from './normalizer.js';
 
 // Task renderers
 import {
@@ -93,18 +95,21 @@ export interface CliOutputOptions {
  * Output data to stdout in the resolved format (JSON or human-readable).
  *
  * Replaces `console.log(formatSuccess(data))` in all V2 commands.
- * When format is 'human', dispatches to the appropriate renderer.
+ * When format is 'human', normalizes the data shape then dispatches to
+ * the appropriate renderer.
  * When format is 'json', delegates to existing formatSuccess().
  *
  * @task T4665
  * @task T4666
+ * @task T4813
  */
 export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const ctx = getFormatContext();
 
   if (ctx.format === 'human') {
+    const normalized = normalizeForHuman(opts.command, data as Record<string, unknown>);
     const renderer = renderers[opts.command] ?? renderGeneric;
-    const text = renderer(data as Record<string, unknown>, ctx.quiet);
+    const text = renderer(normalized, ctx.quiet);
     if (text) {
       console.log(text);
     }
@@ -121,13 +126,23 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
 }
 
 /**
+ * Error details for structured error output.
+ */
+export interface CliErrorDetails {
+  name?: string;
+  details?: unknown;
+  fix?: unknown;
+}
+
+/**
  * Output an error in the resolved format.
  * For JSON: delegates to formatError (already handled in command catch blocks).
  * For human: prints a plain error message to stderr.
  *
  * @task T4666
+ * @task T4813
  */
-export function cliError(message: string, code?: number | string): void {
+export function cliError(message: string, code?: number | string, _details?: CliErrorDetails): void {
   const ctx = getFormatContext();
 
   if (ctx.format === 'human') {

@@ -243,7 +243,7 @@ export function renderAdd(data: Record<string, unknown>, quiet: boolean): string
 /** Render update result. */
 export function renderUpdate(data: Record<string, unknown>, quiet: boolean): string {
   const task = data['task'] as Task | undefined;
-  const changes = data['changes'] as Record<string, unknown> | undefined;
+  const changes = data['changes'] as string[] | Record<string, unknown> | undefined;
 
   if (!task) return 'No task updated.';
   if (quiet) return task.id;
@@ -251,7 +251,9 @@ export function renderUpdate(data: Record<string, unknown>, quiet: boolean): str
   const lines: string[] = [];
   lines.push(`${GREEN}Updated:${NC} ${BOLD}${task.id}${NC} ${task.title}`);
 
-  if (changes && Object.keys(changes).length > 0) {
+  if (Array.isArray(changes) && changes.length > 0) {
+    lines.push(`  ${DIM}Changed:${NC} ${changes.join(', ')}`);
+  } else if (changes && typeof changes === 'object' && Object.keys(changes).length > 0) {
     for (const [key, val] of Object.entries(changes)) {
       lines.push(`  ${DIM}${key}:${NC} ${String(val)}`);
     }

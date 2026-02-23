@@ -49,10 +49,9 @@ export type {
 
 /**
  * Store engine type.
- * 'dual' writes to both JSON and SQLite, reads from SQLite with JSON fallback.
  * @task T4647
  */
-export type StoreEngine = 'json' | 'sqlite' | 'dual';
+export type StoreEngine = 'json' | 'sqlite';
 
 /** Common task filter options. */
 export interface TaskFilters {
@@ -184,7 +183,7 @@ export interface StoreProvider {
 /**
  * Create high-level domain operation methods that delegate to core modules.
  * An accessor is created once and passed to every core call, ensuring that
- * the configured storage engine (JSON, SQLite, dual) is actually used.
+ * the configured storage engine (JSON, SQLite) is actually used.
  *
  * @task T4656
  * @epic T4654
@@ -262,7 +261,7 @@ export function detectStoreEngine(cwd?: string): StoreEngine {
     try {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
       const engine = config?.storage?.engine;
-      if (engine === 'sqlite' || engine === 'json' || engine === 'dual') return engine;
+      if (engine === 'sqlite' || engine === 'json') return engine;
     } catch {
       // Fall through to auto-detection
     }
@@ -296,9 +295,6 @@ export async function createStoreProvider(
     return createSqliteProvider(cwd);
   }
 
-  if (resolvedEngine === 'dual') {
-    return createDualWriteProvider(cwd);
-  }
 
   // JSON store - delegates to existing core module functions
   const { createJsonStoreProvider } = await import('./json-provider.js');
@@ -340,207 +336,3 @@ async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
   };
 }
 
-/**
- * Create a dual-write store provider.
- *
- * Writes to BOTH JSON and SQLite stores. Reads from SQLite, falling
- * back to JSON if the SQLite read fails. Logs discrepancies to stderr.
- *
- * @task T4647
- * @epic T4638
- */
-async function createDualWriteProvider(cwd?: string): Promise<StoreProvider> {
-  const { createJsonStoreProvider } = await import('./json-provider.js');
-  const jsonProvider = createJsonStoreProvider(cwd);
-  const sqliteProvider = await createSqliteProvider(cwd);
-  const domainOps = await createDomainOps(cwd);
-
-  /** Log dual-write discrepancy to stderr. */
-  function logDiscrepancy(op: string, detail: string): void {
-    process.stderr.write(`[dual-write] ${op}: ${detail}\n`);
-  }
-
-  return {
-    engine: 'dual' as StoreEngine,
-
-    // --- Task CRUD: write to both, read from SQLite with JSON fallback ---
-
-    createTask: async (task) => {
-      const [sqliteResult] = await Promise.allSettled([
-        sqliteProvider.createTask(task),
-        jsonProvider.createTask(task),
-      ]);
-      if (sqliteResult.status === 'fulfilled') return sqliteResult.value;
-      logDiscrepancy('createTask', `SQLite write failed: ${String((sqliteResult as PromiseRejectedResult).reason)}`);
-      return jsonProvider.createTask(task);
-    },
-
-    getTask: async (taskId) => {
-      try {
-        return await sqliteProvider.getTask(taskId);
-      } catch {
-        logDiscrepancy('getTask', `SQLite read failed for ${taskId}, falling back to JSON`);
-        return jsonProvider.getTask(taskId);
-      }
-    },
-
-    updateTask: async (taskId, updates) => {
-      const [sqliteResult] = await Promise.allSettled([
-        sqliteProvider.updateTask(taskId, updates),
-        jsonProvider.updateTask(taskId, updates),
-      ]);
-      if (sqliteResult.status === 'fulfilled') return sqliteResult.value;
-      logDiscrepancy('updateTask', `SQLite write failed for ${taskId}`);
-      return jsonProvider.updateTask(taskId, updates);
-    },
-
-    deleteTask: async (taskId) => {
-      const [sqliteResult] = await Promise.allSettled([
-        sqliteProvider.deleteTask(taskId),
-        jsonProvider.deleteTask(taskId),
-      ]);
-      if (sqliteResult.status === 'fulfilled') return sqliteResult.value;
-      logDiscrepancy('deleteTask', `SQLite write failed for ${taskId}`);
-      return jsonProvider.deleteTask(taskId);
-    },
-
-    listTasks: async (filters) => {
-      try {
-        return await sqliteProvider.listTasks(filters);
-      } catch {
-        logDiscrepancy('listTasks', 'SQLite read failed, falling back to JSON');
-        return jsonProvider.listTasks(filters);
-      }
-    },
-
-    findTasks: async (query, limit) => {
-      try {
-        return await sqliteProvider.findTasks(query, limit);
-      } catch {
-        logDiscrepancy('findTasks', 'SQLite read failed, falling back to JSON');
-        return jsonProvider.findTasks(query, limit);
-      }
-    },
-
-    archiveTask: async (taskId, reason) => {
-      const [sqliteResult] = await Promise.allSettled([
-        sqliteProvider.archiveTask(taskId, reason),
-        jsonProvider.archiveTask(taskId, reason),
-      ]);
-      if (sqliteResult.status === 'fulfilled') return sqliteResult.value;
-      logDiscrepancy('archiveTask', `SQLite write failed for ${taskId}`);
-      return jsonProvider.archiveTask(taskId, reason);
-    },
-
-    // --- Session CRUD: write to both, read from SQLite with JSON fallback ---
-
-    createSession: async (session) => {
-      const [sqliteResult] = await Promise.allSettled([
-        sqliteProvider.createSession(session),
-        jsonProvider.createSession(session),
-      ]);
-      if (sqliteResult.status === 'fulfilled') return sqliteResult.value;
-      logDiscrepancy('createSession', 'SQLite write failed');
-      return jsonProvider.createSession(session);
-    },
-
-    getSession: async (sessionId) => {
-      try {
-        return await sqliteProvider.getSession(sessionId);
-      } catch {
-        logDiscrepancy('getSession', `SQLite read failed for ${sessionId}, falling back to JSON`);
-        return jsonProvider.getSession(sessionId);
-      }
-    },
-
-    updateSession: async (sessionId, updates) => {
-      const [sqliteResult] = await Promise.allSettled([
-        sqliteProvider.updateSession(sessionId, updates),
-        jsonProvider.updateSession(sessionId, updates),
-      ]);
-      if (sqliteResult.status === 'fulfilled') return sqliteResult.value;
-      logDiscrepancy('updateSession', `SQLite write failed for ${sessionId}`);
-      return jsonProvider.updateSession(sessionId, updates);
-    },
-
-    listSessions: async (filters) => {
-      try {
-        return await sqliteProvider.listSessions(filters);
-      } catch {
-        logDiscrepancy('listSessions', 'SQLite read failed, falling back to JSON');
-        return jsonProvider.listSessions(filters);
-      }
-    },
-
-    endSession: async (sessionId, note) => {
-      const [sqliteResult] = await Promise.allSettled([
-        sqliteProvider.endSession(sessionId, note),
-        jsonProvider.endSession(sessionId, note),
-      ]);
-      if (sqliteResult.status === 'fulfilled') return sqliteResult.value;
-      logDiscrepancy('endSession', `SQLite write failed for ${sessionId}`);
-      return jsonProvider.endSession(sessionId, note);
-    },
-
-    // --- Task work: write to both, read from SQLite with JSON fallback ---
-
-    startTaskOnSession: async (sessionId: string, taskId: string) => {
-      await Promise.allSettled([
-        sqliteProvider.startTaskOnSession(sessionId, taskId),
-        jsonProvider.startTaskOnSession(sessionId, taskId),
-      ]);
-    },
-
-    getCurrentTaskForSession: async (sessionId: string) => {
-      try {
-        return await sqliteProvider.getCurrentTaskForSession(sessionId);
-      } catch {
-        logDiscrepancy('getCurrentTaskForSession', `SQLite read failed for ${sessionId}`);
-        return jsonProvider.getCurrentTaskForSession(sessionId);
-      }
-    },
-
-    stopTaskOnSession: async (sessionId: string) => {
-      await Promise.allSettled([
-        sqliteProvider.stopTaskOnSession(sessionId),
-        jsonProvider.stopTaskOnSession(sessionId),
-      ]);
-    },
-
-    // Focus aliases (delegate to task work operations)
-    setFocus: async (sessionId: string, taskId: string) => {
-      await Promise.allSettled([
-        sqliteProvider.startTaskOnSession(sessionId, taskId),
-        jsonProvider.startTaskOnSession(sessionId, taskId),
-      ]);
-    },
-
-    getFocus: async (sessionId: string) => {
-      try {
-        return await sqliteProvider.getCurrentTaskForSession(sessionId);
-      } catch {
-        logDiscrepancy('getFocus', `SQLite read failed for ${sessionId}`);
-        return jsonProvider.getCurrentTaskForSession(sessionId);
-      }
-    },
-
-    clearFocus: async (sessionId: string) => {
-      await Promise.allSettled([
-        sqliteProvider.stopTaskOnSession(sessionId),
-        jsonProvider.stopTaskOnSession(sessionId),
-      ]);
-    },
-
-    // --- Lifecycle ---
-
-    close: async () => {
-      await Promise.allSettled([
-        sqliteProvider.close(),
-        jsonProvider.close(),
-      ]);
-    },
-
-    // --- High-level domain operations (delegate to core modules) ---
-    ...domainOps,
-  };
-}

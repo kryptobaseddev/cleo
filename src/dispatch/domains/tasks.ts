@@ -42,7 +42,7 @@ import {
   taskCurrentGet,
   taskStart,
   taskStop,
-} from '../../mcp/engine/index.js';
+} from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
 // TasksHandler

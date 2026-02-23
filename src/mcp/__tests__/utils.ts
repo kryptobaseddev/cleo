@@ -3,13 +3,66 @@
  *
  * Provides mock factories, response builders, and test fixtures.
  *
+ * Types previously imported from the deleted src/mcp/lib/executor.ts and
+ * src/mcp/types/index.ts are now defined inline.
+ *
  * @task T2921
  */
 
 import type { Mocked } from 'vitest';
-import type { CLIExecutor } from '../lib/executor.js';
-import type { ExecutorResult } from '../lib/executor.js';
-import type { Task, MinimalTask } from '../types/index.js';
+
+// ---------------------------------------------------------------------------
+// Inline type definitions (previously from deleted modules)
+// ---------------------------------------------------------------------------
+
+/** Minimal CLIExecutor interface for mocking. */
+interface CLIExecutor {
+  execute<T = unknown>(options: any): Promise<ExecutorResult<T>>;
+  isAvailable(): boolean;
+  setAvailable(v: boolean): void;
+  getVersion(): Promise<string>;
+  testConnection(): Promise<boolean>;
+}
+
+/** Executor result shape. */
+interface ExecutorResult<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    exitCode?: number;
+    message: string;
+    details?: unknown;
+    fix?: string;
+    alternatives?: Array<{ action: string; command: string }>;
+  };
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  duration: number;
+}
+
+/** Minimal Task type for test fixtures. */
+interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  created?: string;
+  updated?: string;
+  [key: string]: unknown;
+}
+
+/** Minimal task shape for search results. */
+interface MinimalTask {
+  id: string;
+  title: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+// Re-export for consumers
+export type { CLIExecutor, ExecutorResult, Task, MinimalTask };
 
 /**
  * Creates a mock CLIExecutor for testing

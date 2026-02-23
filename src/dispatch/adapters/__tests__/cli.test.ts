@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock engine imports (all domain handlers need these)
-vi.mock('../../../mcp/engine/index.js', () => ({
+vi.mock('../../lib/engine.js', () => ({
   // Task engine
   taskShow: vi.fn(() => ({ success: true, data: { id: 'T001', title: 'Test' } })),
   taskList: vi.fn(() => ({ success: true, data: [] })),

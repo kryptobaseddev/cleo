@@ -17,8 +17,8 @@ import type { TaskFile, Task, ProjectMeta, FocusState as TaskWorkState, FileMeta
 import type { Session } from '../types/session.js';
 import { getDb, saveToFile, closeDb } from './sqlite.js';
 import * as schema from './schema.js';
-import { appendJsonl, saveJson, computeChecksum } from './json.js';
-import { getTaskPath, getLogPath, getBackupDir } from '../core/paths.js';
+import { appendJsonl, computeChecksum } from './json.js';
+import { getLogPath } from '../core/paths.js';
 
 // ---- Schema meta helpers ----
 
@@ -399,13 +399,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // 6. Persist to disk
       saveToFile();
-
-      // 7. Also persist the tasks.json for backward compatibility
-      try {
-        await saveJson(getTaskPath(cwd), data, { backupDir: getBackupDir(cwd) });
-      } catch {
-        // Non-fatal: SQLite is the source of truth in sqlite mode
-      }
     },
 
     // ---- loadArchive ----
@@ -574,10 +567,12 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // Upsert all sessions
       for (const session of data.sessions) {
+        // Default name for sessions created without one (e.g., autoStart)
+        const sessionName = session.name || `session-${session.id}`;
         db.insert(schema.sessions)
           .values({
             id: session.id,
-            name: session.name,
+            name: sessionName,
             status: session.status,
             scopeJson: JSON.stringify(session.scope ?? { type: 'global' }),
             currentTask: session.taskWork?.taskId ?? null,
@@ -596,7 +591,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           .onConflictDoUpdate({
             target: schema.sessions.id,
             set: {
-              name: session.name,
+              name: sessionName,
               status: session.status,
               scopeJson: JSON.stringify(session.scope ?? { type: 'global' }),
               currentTask: session.taskWork?.taskId ?? null,

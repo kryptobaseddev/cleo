@@ -1,5 +1,5 @@
 import { DispatchResponse, Middleware, DispatchNext } from '../types.js';
-import { ProtocolEnforcer } from '../../mcp/lib/protocol-enforcement.js';
+import { ProtocolEnforcer } from '../lib/protocol-enforcement.js';
 
 /**
  * Creates a middleware that enforces protocol compliance.

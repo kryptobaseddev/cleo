@@ -46,10 +46,6 @@ export function registerUpgradeCommand(program: Command): void {
           storageMigration: result.storageMigration,
         }, { command: 'upgrade' });
 
-        if (result.applied > 0) {
-          process.exit(2); // exit 2 = changes applied (per bash convention)
-        }
-
         if (!result.success) {
           process.exit(1);
         }

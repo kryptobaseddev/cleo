@@ -96,11 +96,11 @@ describe('SQLite store', () => {
     expect(indexNames).toContain('idx_work_history_session');
   });
 
-  it('sets schema version to 1.0.0', async () => {
+  it('sets schema version to 2.0.0', async () => {
     const { getSchemaVersion, closeDb: close } = await import('../sqlite.js');
     close();
     const version = await getSchemaVersion();
-    expect(version).toBe('1.0.0');
+    expect(version).toBe('2.0.0');
   });
 
   it('closeDb saves and releases resources', async () => {

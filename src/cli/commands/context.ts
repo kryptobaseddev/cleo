@@ -5,19 +5,8 @@
  */
 
 import { Command } from 'commander';
-import {
-  getContextStatus,
-  checkContextThreshold,
-  listContextSessions,
-} from '../../core/context/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
-/**
- * Register the context command group.
- * @task T4535
- */
 export function registerContextCommand(program: Command): void {
   const context = program
     .command('context')
@@ -28,18 +17,9 @@ export function registerContextCommand(program: Command): void {
     .description('Show current context state (default)')
     .option('--session <id>', 'Check specific CLEO session')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await getContextStatus({
-          session: opts['session'] as string | undefined,
-        });
-        cliOutput(result, { command: 'context' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'context', {
+        action: 'status', session: opts['session'],
+      }, { command: 'context' });
     });
 
   context
@@ -47,36 +27,17 @@ export function registerContextCommand(program: Command): void {
     .description('Check threshold, return exit code for scripting')
     .option('--session <id>', 'Check specific CLEO session')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await checkContextThreshold({
-          session: opts['session'] as string | undefined,
-        });
-        cliOutput(result, { command: 'context' });
-        if (result.exitCode) {
-          process.exit(result.exitCode);
-        }
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'context', {
+        action: 'check', session: opts['session'],
+      }, { command: 'context' });
     });
 
   context
     .command('list')
     .description('List all context state files (multi-session)')
     .action(async () => {
-      try {
-        const result = await listContextSessions();
-        cliOutput(result, { command: 'context' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'context', {
+        action: 'list',
+      }, { command: 'context' });
     });
 }

@@ -4,19 +4,72 @@
  * Handles all read-only operations for discovery, status, analysis,
  * and validation checks. Never modifies state.
  *
- * Domains: tasks, session, orchestrate, research, lifecycle, validate, system, issues, skills
- * Total operations: 75
+ * Canonical domains (9): tasks, session, memory, check, pipeline,
+ *   orchestrate, tools, admin, nexus
+ * Legacy aliases (backward compat): research, lifecycle, validate,
+ *   release, system, issues, skills, providers
+ *
+ * The dispatch adapter (src/dispatch/adapters/mcp.ts) resolves legacy
+ * domain names to canonical names before routing.
  *
  * @task T2915
  */
 
-import { DomainRequest, DomainResponse } from '../lib/router.js';
+/**
+ * Request from MCP gateway (inline — replaces legacy router.ts import)
+ */
+export interface DomainRequest {
+  gateway: 'cleo_query' | 'cleo_mutate';
+  domain: string;
+  operation: string;
+  params?: Record<string, unknown>;
+}
+
+/**
+ * Response from domain handler (inline — replaces legacy router.ts import)
+ */
+export interface DomainResponse {
+  _meta: {
+    gateway: string;
+    domain: string;
+    operation: string;
+    timestamp: string;
+    duration_ms: number;
+    [key: string]: unknown;
+  };
+  success: boolean;
+  data?: unknown;
+  partial?: boolean;
+  error?: {
+    code: string;
+    exitCode?: number;
+    message: string;
+    details?: Record<string, unknown>;
+    fix?: string;
+    alternatives?: Array<{ action: string; command: string }>;
+  };
+}
+
+/**
+ * All accepted domain names for cleo_query.
+ *
+ * Includes both canonical dispatch names and legacy MCP names
+ * for backward compatibility. The dispatch adapter resolves
+ * legacy names to canonical names at routing time.
+ */
+type QueryDomain =
+  // Canonical domains
+  | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
+  | 'orchestrate' | 'tools' | 'admin'
+  // Legacy aliases (backward compat)
+  | 'research' | 'lifecycle' | 'validate'
+  | 'system' | 'issues' | 'skills' | 'providers';
 
 /**
  * Query request interface
  */
 export interface QueryRequest {
-  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'system' | 'issues' | 'skills' | 'providers';
+  domain: QueryDomain;
   operation: string;
   params?: Record<string, unknown>;
 }
@@ -28,9 +81,15 @@ export type QueryResponse = DomainResponse;
 
 /**
  * Query operation matrix - all read operations by domain
+ *
+ * Contains BOTH legacy domain names (for backward compatibility with
+ * existing agents) AND canonical domain aliases (for the dispatch layer).
+ * The dispatch adapter resolves legacy -> canonical at routing time.
+ *
  * Reference: MCP-SERVER-SPECIFICATION.md Section 2.1.2
  */
 export const QUERY_OPERATIONS: Record<string, string[]> = {
+  // ── Canonical domains ──────────────────────────────────────────────
   tasks: [
     'show',       // Get single task details
     'list',       // List tasks with filters
@@ -65,6 +124,80 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'unblock.opportunities', // Unblocking opportunities analysis
     'critical.path', // Longest dependency chain analysis
   ],
+
+  // ── Canonical: memory (research alias) ─────────────────────────────
+  memory: [
+    'show',           // Research entry details
+    'list',           // List research entries
+    'find',           // Find research
+    'pending',        // Pending research
+    'stats',            // Research statistics
+    'manifest.read',    // Read manifest entries
+    'contradictions',   // Find conflicting research findings
+    'superseded',       // Find superseded research entries
+  ],
+
+  // ── Canonical: check (validate alias) ──────────────────────────────
+  check: [
+    'schema',               // JSON Schema validation
+    'protocol',             // Protocol compliance
+    'task',                 // Anti-hallucination check
+    'manifest',             // Manifest entry check
+    'output',               // Output file validation
+    'compliance.summary',   // Aggregated compliance
+    'compliance.violations', // List violations
+    'test.status',          // Test suite status
+    'test.coverage',        // Coverage metrics
+    'coherence.check',      // Task graph consistency
+  ],
+
+  // ── Canonical: pipeline (lifecycle + release alias) ────────────────
+  pipeline: [
+    // lifecycle operations (stage.* prefix used in dispatch)
+    'stage.validate',       // Check stage prerequisites
+    'stage.status',         // Current lifecycle state
+    'stage.history',        // Stage transition history
+    'stage.gates',          // All gate statuses
+    'stage.prerequisites',  // Required prior stages
+  ],
+
+  // ── Canonical: admin (system alias) ────────────────────────────────
+  admin: [
+    'version',        // CLEO version
+    'health',         // Health check
+    'config.show',    // Show config value
+    'config.get',     // Alias (backward compat)
+    'stats',          // Project statistics
+    'context',        // Context window info
+    'job.status',     // Get background job status
+    'job.list',       // List background jobs
+    'dash',           // Project overview dashboard
+    'roadmap',        // Roadmap generation
+    'labels',         // Label listing and stats
+    'compliance',     // Compliance metrics
+    'log',            // Audit log entries
+    'archive.stats',  // Archive analytics
+    'sequence',       // ID sequence inspection
+  ],
+
+  // ── Canonical: tools (skills + issues + providers alias) ───────────
+  tools: [
+    // skill.* operations
+    'skill.list',           // List available skills
+    'skill.show',           // Skill details
+    'skill.find',           // Find skills
+    'skill.dispatch',       // Simulate skill dispatch
+    'skill.verify',         // Validate skill frontmatter
+    'skill.dependencies',   // Skill dependency tree
+    // issue.* operations
+    'issue.diagnostics',    // System diagnostics for bug reports
+    // provider.* operations
+    'provider.list',           // List all registered providers
+    'provider.detect',         // Detect installed providers
+    'provider.inject.status',  // Check injection status
+  ],
+
+  // ── Legacy aliases (backward compat) ───────────────────────────────
   research: [
     'show',           // Research entry details
     'list',           // List research entries
@@ -131,8 +264,12 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
 
 /**
  * Total operation count check
+ *
+ * Includes operations across both canonical domains and legacy aliases.
+ * Legacy aliases duplicate operations from their canonical counterparts,
+ * so the total is higher than unique operations.
  */
-const EXPECTED_QUERY_COUNT = 76;
+const EXPECTED_QUERY_COUNT = 124;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

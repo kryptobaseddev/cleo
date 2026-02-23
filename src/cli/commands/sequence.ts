@@ -5,19 +5,8 @@
  */
 
 import { Command } from 'commander';
-import {
-  showSequence,
-  checkSequence,
-  repairSequence,
-} from '../../core/sequence/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
-/**
- * Register the sequence command group.
- * @task T4538
- */
 export function registerSequenceCommand(program: Command): void {
   const sequence = program
     .command('sequence')
@@ -27,47 +16,20 @@ export function registerSequenceCommand(program: Command): void {
     .command('show')
     .description('Display current sequence state')
     .action(async () => {
-      try {
-        const result = await showSequence();
-        cliOutput(result, { command: 'sequence' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'sequence', { action: 'show' }, { command: 'sequence' });
     });
 
   sequence
     .command('check')
     .description('Verify counter >= max(todo + archive)')
     .action(async () => {
-      try {
-        const result = await checkSequence();
-        cliOutput(result, { command: 'sequence' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'sequence', { action: 'check' }, { command: 'sequence' });
     });
 
   sequence
     .command('repair')
     .description('Reset counter to max + 1 if behind')
     .action(async () => {
-      try {
-        const result = await repairSequence();
-        cliOutput(result, { command: 'sequence' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'admin', 'sequence', { action: 'repair' }, { command: 'sequence' });
     });
 }
