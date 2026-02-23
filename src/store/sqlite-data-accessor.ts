@@ -5,7 +5,7 @@
  * allowing core modules to continue using whole-file data structures
  * while storage is backed by the relational database.
  *
- * Uses existing sqlite.ts engine (sql.js / drizzle-orm) and
+ * Uses existing sqlite.ts engine (node:sqlite / drizzle-orm) and
  * task-store.ts / session-store.ts for row-level operations.
  *
  * @epic T4454
@@ -15,7 +15,7 @@ import { eq, ne } from 'drizzle-orm';
 import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
 import type { TaskFile, Task, ProjectMeta, FocusState as TaskWorkState, FileMeta } from '../types/task.js';
 import type { Session } from '../types/session.js';
-import { getDb, saveToFile, closeDb } from './sqlite.js';
+import { getDb, closeDb } from './sqlite.js';
 import * as schema from './schema.js';
 import { appendJsonl, computeChecksum } from './json.js';
 import { getLogPath } from '../core/paths.js';
@@ -25,7 +25,7 @@ import { getLogPath } from '../core/paths.js';
 /** Read a JSON blob from the schema_meta table by key. */
 async function getMetaValue<T>(cwd: string | undefined, key: string): Promise<T | null> {
   const db = await getDb(cwd);
-  const rows = db
+  const rows = await db
     .select()
     .from(schema.schemaMeta)
     .where(eq(schema.schemaMeta.key, key))
@@ -39,10 +39,10 @@ async function getMetaValue<T>(cwd: string | undefined, key: string): Promise<T 
 }
 
 /** Write a JSON blob to the schema_meta table by key. */
-async function setMetaValue(cwd: string | undefined, key: string, value: unknown): Promise<void> {
+export async function setMetaValue(cwd: string | undefined, key: string, value: unknown): Promise<void> {
   const db = await getDb(cwd);
   const json = JSON.stringify(value);
-  db.insert(schema.schemaMeta)
+  await db.insert(schema.schemaMeta)
     .values({ key, value: json })
     .onConflictDoUpdate({
       target: schema.schemaMeta.key,
@@ -230,7 +230,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const db = await getDb(cwd);
 
       // 1. Query all non-archived tasks
-      const taskRows = db
+      const taskRows = await db
         .select()
         .from(schema.tasks)
         .where(ne(schema.tasks.status, 'archived'))
@@ -238,15 +238,16 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const tasks: Task[] = taskRows.map(rowToTask);
 
-      // 2. Load dependencies for all tasks (batch query)
+      // 2. Load dependencies for all tasks (batch query), filtering orphaned refs
       if (tasks.length > 0) {
         const taskIds = tasks.map((t) => t.id);
-        const allDeps = db.select().from(schema.taskDependencies).all();
+        const allTaskIds = new Set(taskIds);
+        const allDeps = await db.select().from(schema.taskDependencies).all();
 
-        // Build lookup: taskId -> [dependsOn]
+        // Build lookup: taskId -> [dependsOn], filtering out orphaned references
         const depMap = new Map<string, string[]>();
         for (const dep of allDeps) {
-          if (taskIds.includes(dep.taskId)) {
+          if (allTaskIds.has(dep.taskId) && allTaskIds.has(dep.dependsOn)) {
             let arr = depMap.get(dep.taskId);
             if (!arr) {
               arr = [];
@@ -313,7 +314,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const incomingIds = new Set(data.tasks.map((t) => t.id));
 
       // 2. Get existing non-archived task IDs from DB
-      const existingRows = db
+      const existingRows = await db
         .select({ id: schema.tasks.id })
         .from(schema.tasks)
         .where(ne(schema.tasks.status, 'archived'))
@@ -323,17 +324,17 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       // 3. Delete tasks that are in DB but NOT in incoming data (non-archived only)
       for (const eid of existingIds) {
         if (!incomingIds.has(eid)) {
-          db.delete(schema.taskDependencies)
+          await db.delete(schema.taskDependencies)
             .where(eq(schema.taskDependencies.taskId, eid))
             .run();
-          db.delete(schema.tasks).where(eq(schema.tasks.id, eid)).run();
+          await db.delete(schema.tasks).where(eq(schema.tasks.id, eid)).run();
         }
       }
 
       // 4. Upsert all tasks from data.tasks
       for (const task of data.tasks) {
         const row = taskToRow(task);
-        db.insert(schema.tasks)
+        await db.insert(schema.tasks)
           .values(row)
           .onConflictDoUpdate({
             target: schema.tasks.id,
@@ -370,16 +371,18 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           .run();
 
         // Update dependencies: delete old, insert new
-        db.delete(schema.taskDependencies)
+        await db.delete(schema.taskDependencies)
           .where(eq(schema.taskDependencies.taskId, task.id))
           .run();
 
         if (task.depends && task.depends.length > 0) {
           for (const depId of task.depends) {
-            db.insert(schema.taskDependencies)
-              .values({ taskId: task.id, dependsOn: depId })
-              .onConflictDoNothing()
-              .run();
+            if (incomingIds.has(depId)) {
+              await db.insert(schema.taskDependencies)
+                .values({ taskId: task.id, dependsOn: depId })
+                .onConflictDoNothing()
+                .run();
+            }
           }
         }
       }
@@ -396,9 +399,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         ...data._meta,
         checksum: computeChecksum(data.tasks),
       });
-
-      // 6. Persist to disk
-      saveToFile();
     },
 
     // ---- loadArchive ----
@@ -407,7 +407,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const db = await getDb(cwd);
 
       // Query tasks where status = 'archived'
-      const archivedRows = db
+      const archivedRows = await db
         .select()
         .from(schema.tasks)
         .where(eq(schema.tasks.status, 'archived'))
@@ -429,14 +429,23 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         } as Task & { archivedAt?: string; archiveReason?: string; cycleTimeDays?: number };
       });
 
-      // Load dependencies for archived tasks
+      // Load dependencies for archived tasks, filtering orphaned refs
       if (archivedTasks.length > 0) {
         const taskIds = archivedTasks.map((t) => t.id);
-        const allDeps = db.select().from(schema.taskDependencies).all();
+        const archivedIdSet = new Set(taskIds);
+        const allDeps = await db.select().from(schema.taskDependencies).all();
+
+        // Also load all active task IDs so we can validate cross-references
+        const activeRows = await db
+          .select({ id: schema.tasks.id })
+          .from(schema.tasks)
+          .where(ne(schema.tasks.status, 'archived'))
+          .all();
+        const allKnownIds = new Set([...archivedIdSet, ...activeRows.map(r => r.id)]);
 
         const depMap = new Map<string, string[]>();
         for (const dep of allDeps) {
-          if (taskIds.includes(dep.taskId)) {
+          if (archivedIdSet.has(dep.taskId) && allKnownIds.has(dep.dependsOn)) {
             let arr = depMap.get(dep.taskId);
             if (!arr) {
               arr = [];
@@ -475,7 +484,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           cycleTimeDays?: number;
         };
 
-        db.insert(schema.tasks)
+        await db.insert(schema.tasks)
           .values({
             ...row,
             archivedAt: taskAny.archivedAt ?? row.completedAt ?? new Date().toISOString(),
@@ -516,21 +525,36 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           .run();
 
         // Upsert dependencies for archived tasks too
-        db.delete(schema.taskDependencies)
+        await db.delete(schema.taskDependencies)
           .where(eq(schema.taskDependencies.taskId, task.id))
           .run();
 
         if (task.depends && task.depends.length > 0) {
+          // Guard: only insert dep if target task exists in DB or incoming archive
+          const archiveIds = new Set(data.archivedTasks.map(t => t.id));
           for (const depId of task.depends) {
-            db.insert(schema.taskDependencies)
-              .values({ taskId: task.id, dependsOn: depId })
-              .onConflictDoNothing()
-              .run();
+            // Check if dep target exists in either archive batch or active tasks table
+            if (archiveIds.has(depId)) {
+              await db.insert(schema.taskDependencies)
+                .values({ taskId: task.id, dependsOn: depId })
+                .onConflictDoNothing()
+                .run();
+            } else {
+              // Check if it exists as an active task in DB
+              const exists = await db.select({ id: schema.tasks.id })
+                .from(schema.tasks)
+                .where(eq(schema.tasks.id, depId))
+                .all();
+              if (exists.length > 0) {
+                await db.insert(schema.taskDependencies)
+                  .values({ taskId: task.id, dependsOn: depId })
+                  .onConflictDoNothing()
+                  .run();
+              }
+            }
           }
         }
       }
-
-      saveToFile();
     },
 
     // ---- loadSessions ----
@@ -538,7 +562,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     async loadSessions(): Promise<SessionsFile> {
       const db = await getDb(cwd);
 
-      const sessionRows = db.select().from(schema.sessions).all();
+      const sessionRows = await db.select().from(schema.sessions).all();
       const sessions: Session[] = sessionRows.map(rowToSession);
 
       return {
@@ -554,14 +578,14 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const db = await getDb(cwd);
 
       // Get existing session IDs
-      const existingRows = db.select({ id: schema.sessions.id }).from(schema.sessions).all();
+      const existingRows = await db.select({ id: schema.sessions.id }).from(schema.sessions).all();
       const existingIds = new Set(existingRows.map((r) => r.id));
       const incomingIds = new Set(data.sessions.map((s) => s.id));
 
       // Delete sessions that are no longer in the data
       for (const eid of existingIds) {
         if (!incomingIds.has(eid)) {
-          db.delete(schema.sessions).where(eq(schema.sessions.id, eid)).run();
+          await db.delete(schema.sessions).where(eq(schema.sessions.id, eid)).run();
         }
       }
 
@@ -569,7 +593,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       for (const session of data.sessions) {
         // Default name for sessions created without one (e.g., autoStart)
         const sessionName = session.name || `session-${session.id}`;
-        db.insert(schema.sessions)
+        await db.insert(schema.sessions)
           .values({
             id: session.id,
             name: sessionName,
@@ -610,8 +634,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           })
           .run();
       }
-
-      saveToFile();
     },
 
     // ---- appendLog ----

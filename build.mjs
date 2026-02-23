@@ -24,7 +24,7 @@ const buildOptions = {
   outdir: 'dist',
   sourcemap: true,
   banner: {
-    js: '#!/usr/bin/env node',
+    js: '#!/usr/bin/env -S node --disable-warning=ExperimentalWarning',
   },
   external: [
     // Keep native modules external

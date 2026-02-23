@@ -14,9 +14,10 @@ import { saveJson, appendJsonl, computeChecksum } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { loadConfig } from '../config.js';
 import {
-  safeSaveTaskFile,
   safeAppendLog,
 } from '../../store/data-safety-central.js';
+import { createTaskSafe, updateTask } from '../../store/task-store.js';
+import { setMetaValue } from '../../store/sqlite-data-accessor.js';
 
 /** Options for creating a task. */
 export interface AddTaskOptions {
@@ -566,31 +567,34 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     return { task, dryRun: true };
   }
 
-  // Position shuffling if explicit position was given
-  if (options.position !== undefined) {
-    for (const t of data.tasks) {
-      const isInScope = parentId
-        ? t.parentId === parentId
-        : (!t.parentId || t.parentId === null);
-      if (isInScope && t.position !== undefined && t.position !== null && t.position >= options.position) {
-        t.position = t.position + 1;
-        t.positionVersion = (t.positionVersion ?? 0) + 1;
-      }
-    }
-  }
-
-  // Add task to array
-  data.tasks.push(task);
-
-  // Update checksum and timestamp
-  const checksum = computeChecksum(data.tasks);
-  data._meta.checksum = checksum;
-  data.lastUpdated = now;
-
   // Save atomically with safety
   if (accessor) {
-    // Use centralized safety - handles verification, sequence validation, and checkpoint
-    await safeSaveTaskFile(accessor, data, cwd);
+    // Incremental path: insert only the new task + targeted position updates.
+    // This avoids re-saving all ~832 tasks and the FK failures from orphaned deps.
+
+    // Position shuffling via targeted SQL updates
+    if (options.position !== undefined) {
+      for (const t of data.tasks) {
+        const isInScope = parentId
+          ? t.parentId === parentId
+          : (!t.parentId || t.parentId === null);
+        if (isInScope && t.position !== undefined && t.position !== null && t.position >= options.position) {
+          await updateTask(t.id, {
+            position: t.position + 1,
+            positionVersion: (t.positionVersion ?? 0) + 1,
+          }, cwd);
+        }
+      }
+    }
+
+    // Insert only the new task (with collision detection + write verification)
+    await createTaskSafe(task, cwd);
+
+    // Update project metadata if a new phase was created
+    if (options.addPhase && phase && data.project?.phases?.[phase]) {
+      await setMetaValue(cwd, 'project_meta', data.project);
+    }
+
     await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
@@ -602,7 +606,26 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       after: { title: options.title, status, priority },
     }, cwd);
   } else {
-    // Legacy JSON path - still needs safety but at lower level
+    // Legacy JSON path
+
+    // Position shuffling if explicit position was given
+    if (options.position !== undefined) {
+      for (const t of data.tasks) {
+        const isInScope = parentId
+          ? t.parentId === parentId
+          : (!t.parentId || t.parentId === null);
+        if (isInScope && t.position !== undefined && t.position !== null && t.position >= options.position) {
+          t.position = t.position + 1;
+          t.positionVersion = (t.positionVersion ?? 0) + 1;
+        }
+      }
+    }
+
+    data.tasks.push(task);
+    const checksum = computeChecksum(data.tasks);
+    data._meta.checksum = checksum;
+    data.lastUpdated = now;
+
     await saveJson(todoPath, data, { backupDir });
     await logOperation(logPath, 'task_created', taskId, {
       title: options.title,
