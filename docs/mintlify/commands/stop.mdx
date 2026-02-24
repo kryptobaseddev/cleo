@@ -1,0 +1,76 @@
+---
+title: "cleo stop"
+description: "Stop working on current task - end time tracking and record work session"
+icon: "stop"
+---
+
+# cleo stop
+
+Stop working on current task - end time tracking and record work session.
+
+{% hint style="info" %}**Agent Relevance**: High - Essential for task work tracking{% endhint %}
+
+## Synopsis
+
+```bash
+cleo stop [OPTIONS]
+```
+
+## Description
+
+The `stop` command ends the current work session on the active task. This records the elapsed time and clears the current task status.
+
+When you stop work:
+- Records elapsed time in the task's work log
+- Clears the "current" task
+- Updates task metrics
+- Optional note can be added to document what was accomplished
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--note "TEXT"` | Add a completion note |
+| `--complete` | Also mark task as completed |
+| `--json` | Output in JSON format |
+| `--human` | Output in human-readable format |
+
+## Examples
+
+{% tabs %}
+
+```bash Stop current task
+cleo stop
+```
+
+```bash Stop with note
+cleo stop --note "Completed authentication module"
+```
+
+```bash Stop and complete
+cleo stop --complete --note "Feature implemented and tested"
+```
+
+```bash JSON output
+cleo stop --json
+```
+
+{% endtabs %}
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| 0 | Success | - |
+| 4 | No current task to stop | Yes |
+
+## Related Commands
+
+- [`cleo start`](start) - Start working on a task
+- [`cleo current`](current) - Show current task
+- [`cleo complete`](complete) - Mark task as completed
+
+## See Also
+
+- [Task Work Tracking](/guides/sessions)
+- [Session Management](/concepts/sessions)
