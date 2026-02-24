@@ -1,0 +1,328 @@
+---
+title: "Changelog"
+description: "CLEO release history and product updates"
+icon: "clock-rotate-left"
+rss: true
+---
+
+# Changelog
+
+Stay up to date with the latest CLEO improvements, features, and fixes.
+
+<Info>
+Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https://github.com/kryptobaseddev/cleo/releases).
+</Info>
+
+<Tip>
+This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
+</Tip>
+
+<Update label="February 2026" description="v0.98.4" tags={["CLI"]}>
+## v0.98.4 Release
+
+
+**Other Changes**
+- Set up parallel release infrastructure (T2055)
+- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)
+- V2-VAL: Changeset and release system review (T4505)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.98.4)
+</Update>
+
+<Update label="February 2026" description="v0.98.3" tags={["Fix", "Feature", "CLI"]}>
+## v0.98.3 Release
+
+
+**Tests**
+- Test: Protocol CLI Wrapper - release.sh (T3030)
+- Test: Release protocol - version bump workflow (T3044)
+
+**Other Changes**
+- Enhance ct release changelog with changeset aggregation (T2159)
+- Release: Version bump (T3055)
+- Create GitHub Releases for v0.98.0 and v0.98.1 (T4489)
+- Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18) (T4492)
+- Add label validation/auto-creation before gh issue create (GH #17) (T4493)
+- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)
+- Fix severity and area enum mismatches between CLI and templates (T4495)
+- Refactor build_template_body() to use parsed template sections instead of hardcoded headers (T4496)
+- Add tests for cleo issue template parsing and label validation (T4497)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.98.3)
+</Update>
+
+<Update label="February 2026" description="v0.98.2" tags={["Feature"]}>
+## v0.98.2 Release
+
+
+**Other Changes**
+- feat(release): add --force re-ship support (T4490)
+
+
+
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.98.2)
+</Update>
+
+<Update label="February 2026" description="v0.98.1" tags={["Fix"]}>
+## v0.98.1 Release
+
+
+**Bug Fixes**
+- Fix release ship to stage and commit version-bumped files (GH #31) (T4482)
+- Auto-detect version bump targets when no versionBump config exists (GH #32) (T4484)
+- Fix misleading epic completeness check in release ship (GH #34) (T4486)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.98.1)
+</Update>
+
+<Update label="February 2026" description="v0.98.0" tags={["Documentation", "CLI"]}>
+## v0.98.0 Release
+
+
+**Features**
+- V2 full TypeScript architecture spec with LAFS-native design (T4454, T2021)
+- Manifest hierarchy schema extension with 5 new fields (T4353)
+- P3 golden parity test infrastructure - golden, degradation, safety tests (T4370, T4374, T4375)
+- LAFS Protocol conformance gap analysis (T4459)
+
+**Documentation**
+- CLEO-V2-ARCHITECTURE-SPEC.md — dual-track CLI + MCP convergence plan
+- CLEO-MIGRATION-DOCTRINE.md v2.0 — both tracks parallel, LAFS foundational
+- MANIFEST-HIERARCHY-SCHEMA-SPEC.md — tree-aware query patterns
+- LAFS conformance gap analysis — remediation roadmap
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.98.0)
+</Update>
+
+<Update label="February 2026" description="v0.97.0" tags={["CLI"]}>
+## v0.97.0 Release
+
+
+**Other Changes**
+- EPIC: CLEO Nexus Command Center WebUI (T4284)
+- Set up web server package structure (Fastify + TypeScript) (T4285)
+- Implement WebSocket real-time update system (T4289)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.97.0)
+</Update>
+
+<Update label="February 2026" description="v0.96.0" tags={["Research"]}>
+## v0.96.0 Release
+
+
+**Other Changes**
+- Research: Version Bump Tooling Evaluation (T2200)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.96.0)
+</Update>
+
+<Update label="February 2026" description="v0.95.4" tags={["Fix"]}>
+## v0.95.4 Release
+
+
+**Bug Fixes**
+- Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh (T4440)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.95.4)
+</Update>
+
+<Update label="February 2026" description="v0.95.3" tags={["Fix"]}>
+## v0.95.3 Release
+
+
+**Bug Fixes**
+- Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression (T4439)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.95.3)
+</Update>
+
+<Update label="February 2026" description="v0.95.2" tags={["Fix"]}>
+## v0.95.2 Release
+
+
+**Bug Fixes**
+- Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression (T4439)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.95.2)
+</Update>
+
+<Update label="February 2026" description="v0.95.1" tags={["Fix"]}>
+## v0.95.1 Release
+
+
+**Bug Fixes**
+- Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression (T4439)
+- Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh (T4440)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.95.1)
+</Update>
+
+<Update label="February 2026" description="v0.95.0" tags={["Feature", "Documentation", "CLI"]}>
+## v0.95.0 Release
+
+
+**Documentation**
+- Update protocols/release.md and add tests for release guardrails (T4436)
+
+**Other Changes**
+- Extract discover_release_tasks() pure function from populate_release_tasks() (T4432)
+- Create lib/release/release-guards.sh with epic-completeness and double-listing checks (T4433)
+- Add --preview flag and enhance --dry-run in release ship command (T4434)
+- Enhance release show with task details and discovery preview (T4435)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.95.0)
+</Update>
+
+<Update label="February 2026" description="v0.94.3" tags={["Fix", "Feature", "Documentation"]}>
+## v0.94.3 Release
+
+
+**Documentation**
+- Update protocols/release.md and add tests for release guardrails (T4436)
+
+**Other Changes**
+- Fix MCP issues handler missing dryRun passthrough (T4430)
+- Extract discover_release_tasks() pure function from populate_release_tasks() (T4432)
+- Create lib/release/release-guards.sh with epic-completeness and double-listing checks (T4433)
+- Add --preview flag and enhance --dry-run in release ship command (T4434)
+- Enhance release show with task details and discovery preview (T4435)
+- Add beginner-friendly MCP usage guide (T4438)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.94.3)
+</Update>
+
+<Update label="February 2026" description="v0.94.2" tags={["Fix"]}>
+## v0.94.2 Release
+
+
+**Other Changes**
+- Fix MCP issues handler missing dryRun passthrough (T4430)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.94.2)
+</Update>
+
+<Update label="February 2026" description="v0.94.1" tags={["Fix"]}>
+## v0.94.1 Release
+
+
+**Other Changes**
+- Fix v0.94.0 CI test failures for issues domain (T4429)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.94.1)
+</Update>
+
+<Update label="February 2026" description="v0.94.0" tags={["Fix", "Feature", "CLI"]}>
+## v0.94.0 Release
+
+
+**Bug Fixes**
+- Fix release ship wiping planned release task links (T4386)
+
+**Other Changes**
+- Implement cleo issue CLI command (T4409)
+- Add issues domain to MCP server (T4410)
+- Update AGENT-INJECTION.md with issue command (T4411)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.94.0)
+</Update>
+
+<Update label="February 2026" description="v0.93.4" tags={["Fix"]}>
+## v0.93.4 Release
+
+
+**Bug Fixes**
+- Fix release ship wiping planned release task links (T4386)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.93.4)
+</Update>
+
+<Update label="February 2026" description="v0.93.3" tags={["Fix", "Sessions", "Context"]}>
+## v0.93.3 Release
+
+
+**Fixes**
+- Unify context-state path resolution through shared helpers in `lib/core/paths.sh` to prevent nested `.cleo/.cleo` drift.
+- Auto-heal legacy path artifacts by migrating nested and flat per-session context files into canonical `.cleo/context-states/`.
+- Harden `cleo session doctor` with structured findings, actionable remediation hints, and `--repair` auto-heal reporting.
+
+**Documentation**
+- Update context safeguard and architecture specs to document canonical context-state locations and repair workflow.
+
+
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.93.3)
+</Update>
+
+<Update label="February 2026" description="v0.93.2" tags={["Documentation"]}>
+## v0.93.2 Release
+
+
+**Documentation**
+- Canonical TypeScript migration doctrine (docs/specs/CLEO-MIGRATION-DOCTRINE.md)
+- Track B readiness report and RCSD pipeline initialization
+
+**Task Management**
+- P3 golden parity tests decomposed into 6 subtasks (T4370-T4376)
+- P4 rollout hardening decomposed into 5 subtasks (T4377-T4381)
+- Task hygiene: T4341, T4342, T4369 completed; T4332/T2021 reconciled
+- Track B (T4352) RCSD initialized, 9 tasks validated, ready for execution
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.93.2)
+</Update>
+
+<Update label="February 2026" description="v0.93.1" tags={["Documentation"]}>
+## v0.93.1 Release
+
+
+**Chores**
+- Close Track A epic T4344 (all 7 children complete)
+- Close Phase 0 Foundation epic T3109 (2/2 children complete)
+- Remove leftover .backup and documentation artifacts from lib/ root
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.93.1)
+</Update>
+
+## Earlier Releases
+
+For the complete release history, see:
+- [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md) - Full detailed changelog
+- [GitHub Releases](https://github.com/kryptobaseddev/cleo/releases) - Release artifacts and notes

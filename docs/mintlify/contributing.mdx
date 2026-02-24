@@ -1,0 +1,370 @@
+---
+title: "Contributing"
+description: "Guidelines for contributing to CLEO development"
+icon: "handshake"
+---
+
+# Contributing to CLEO
+
+Thank you for your interest in contributing to CLEO! This guide will help you get started with development, testing, and submitting changes.
+
+<Info>
+CLEO welcomes contributors of all experience levels. Whether you're fixing a typo, improving documentation, or adding new features, your contributions are valued.
+</Info>
+
+## Quick Start for Contributors
+
+<Steps>
+  <Step title="Fork & Clone">
+    ```bash
+    git clone https://github.com/YOUR-USERNAME/cleo.git
+    cd cleo
+    git remote add upstream https://github.com/kryptobaseddev/cleo.git
+    ```
+  </Step>
+  <Step title="Install for Development">
+    ```bash
+    ./install.sh
+    cleo version  # Verify installation
+    ```
+  </Step>
+  <Step title="Run Tests">
+    ```bash
+    ./tests/run-all-tests.sh
+    ```
+  </Step>
+  <Step title="Create a Branch">
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
+  </Step>
+</Steps>
+
+## Prerequisites
+
+Before contributing, ensure you have:
+
+<CardGroup cols={2}>
+  <Card title="Bash 4.0+" icon="terminal">
+    Check with `bash --version`
+  </Card>
+  <Card title="jq 1.5+" icon="brackets-curly">
+    Check with `jq --version`
+  </Card>
+  <Card title="Git" icon="code-branch">
+    For version control
+  </Card>
+  <Card title="Unix Environment" icon="linux">
+    Linux, macOS, or WSL2
+  </Card>
+</CardGroup>
+
+## Project Structure
+
+```
+cleo/
+├── scripts/           # CLI command entrypoints
+├── lib/               # Shared library functions
+│   ├── validation.sh  # Schema and semantic validation
+│   ├── logging.sh     # Audit trail logging
+│   ├── file-ops.sh    # Atomic file operations
+│   └── ...
+├── schemas/           # JSON Schema definitions
+├── templates/         # Template files for new projects
+├── tests/             # BATS test suite
+│   ├── unit/          # Unit tests
+│   ├── integration/   # Integration tests
+│   ├── golden/        # Output format tests
+│   └── fixtures/      # Test data
+├── docs/              # User documentation (Mintlify)
+├── skills/            # Agent Skills definitions
+└── claudedocs/        # Internal research/specs
+```
+
+## Testing Requirements
+
+<Warning>
+All code changes require tests. Pull requests without adequate test coverage will not be merged.
+</Warning>
+
+### Running Tests
+
+<Tabs>
+  <Tab title="All Tests">
+    ```bash
+    ./tests/run-all-tests.sh
+    ```
+  </Tab>
+  <Tab title="Unit Tests">
+    ```bash
+    bats tests/unit/*.bats
+    ```
+  </Tab>
+  <Tab title="Integration Tests">
+    ```bash
+    bats tests/integration/*.bats
+    ```
+  </Tab>
+  <Tab title="Specific Test">
+    ```bash
+    bats tests/unit/validation.bats
+    ```
+  </Tab>
+</Tabs>
+
+### Writing Tests
+
+CLEO uses [BATS](https://github.com/bats-core/bats-core) (Bash Automated Testing System). Test files go in `tests/unit/` or `tests/integration/`.
+
+```bash
+#!/usr/bin/env bats
+# tests/unit/my-feature.bats
+
+load '../test-helper'
+
+setup() {
+    setup_test_env
+}
+
+teardown() {
+    cleanup_test_env
+}
+
+@test "my feature should do expected thing" {
+    run cleo my-command --flag
+    assert_success
+    assert_output --partial "expected output"
+}
+
+@test "my feature handles error case" {
+    run cleo my-command --invalid
+    assert_failure
+    assert_output --partial "error message"
+}
+```
+
+## Code Style Guidelines
+
+### Shell Scripts
+
+<AccordionGroup>
+  <Accordion title="Shebang & Strict Mode" icon="hashtag">
+    ```bash
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ```
+  </Accordion>
+
+  <Accordion title="Naming Conventions" icon="text">
+    - Functions: `snake_case` (e.g., `validate_task_id`)
+    - Variables: `snake_case` (e.g., `task_count`)
+    - Constants: `UPPER_SNAKE_CASE` (e.g., `SCRIPT_DIR`)
+  </Accordion>
+
+  <Accordion title="Quoting & Conditionals" icon="quote-right">
+    ```bash
+    # Always quote variable expansions
+    echo "$variable"
+    command "$arg"
+
+    # Use [[ ]] for conditionals
+    if [[ -f "$file" ]]; then
+        process_file "$file"
+    fi
+
+    # Use $() for command substitution
+    result=$(some_command)
+    ```
+  </Accordion>
+
+  <Accordion title="Function Definitions" icon="code">
+    ```bash
+    # Document function purpose
+    # Arguments: $1 = task_id, $2 = optional_flag
+    # Returns: 0 on success, 1 on failure
+    my_function() {
+        local task_id="$1"
+        local flag="${2:-default}"
+
+        # Implementation
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### JSON Files
+
+```json
+{
+  "camelCase": "for all keys",
+  "arrays": [
+    "consistent 2-space indentation"
+  ],
+  "nested": {
+    "objects": "also use 2-space indent"
+  }
+}
+```
+
+<Note>
+JSON files must pass JSON Schema validation. No trailing commas allowed.
+</Note>
+
+## Commit Guidelines
+
+### Commit Message Format
+
+```
+<type>: <short summary>
+
+<optional detailed description>
+
+<optional footer>
+```
+
+### Commit Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `feat` | New feature | `feat: Add export command for CSV format` |
+| `fix` | Bug fix | `fix: Handle empty task list gracefully` |
+| `docs` | Documentation | `docs: Update session workflow guide` |
+| `test` | Test changes | `test: Add validation edge case tests` |
+| `refactor` | Code refactoring | `refactor: Extract common validation logic` |
+| `chore` | Maintenance | `chore: Update dependencies` |
+
+### Branch Naming
+
+- `feature/description` - New features
+- `fix/description` - Bug fixes
+- `docs/description` - Documentation
+- `test/description` - Test additions
+- `refactor/description` - Code refactoring
+
+## Pull Request Process
+
+<Steps>
+  <Step title="Ensure Tests Pass">
+    ```bash
+    ./tests/run-all-tests.sh
+    bash -n scripts/*.sh lib/*.sh  # Syntax check
+    ```
+  </Step>
+  <Step title="Update Documentation">
+    If your change affects user-facing behavior, update relevant docs
+  </Step>
+  <Step title="Push Your Branch">
+    ```bash
+    git push origin feature/your-feature-name
+    ```
+  </Step>
+  <Step title="Create Pull Request">
+    Open a PR on GitHub with:
+    - Clear description of changes
+    - Link to related issues (if any)
+    - Test evidence
+  </Step>
+  <Step title="Address Review Feedback">
+    Respond to reviewer comments and make requested changes
+  </Step>
+</Steps>
+
+### PR Checklist
+
+Before submitting, verify:
+
+- [ ] All tests pass (`./tests/run-all-tests.sh`)
+- [ ] Code follows style guidelines
+- [ ] Documentation updated (if applicable)
+- [ ] Commit messages are clear and follow conventions
+- [ ] No merge conflicts with `main`
+- [ ] New features have tests
+
+## Architecture Guidelines
+
+### Core Principles
+
+<CardGroup cols={2}>
+  <Card title="Anti-Hallucination First" icon="shield">
+    All data modifications must be validated. Never trust input blindly.
+  </Card>
+  <Card title="Atomic Operations" icon="lock">
+    Use temp file → validate → backup → rename pattern for all writes.
+  </Card>
+  <Card title="Single Source of Truth" icon="database">
+    `todo.json` is authoritative. Never store derived data.
+  </Card>
+  <Card title="Immutable History" icon="clock-rotate-left">
+    Log entries are append-only. Never modify historical records.
+  </Card>
+</CardGroup>
+
+### Adding New Commands
+
+1. Create script in `scripts/` following naming convention
+2. Add `--help` support with usage information
+3. Use library functions from `lib/`
+4. Add to CLI wrapper routing in main `cleo` script
+5. Write unit and integration tests
+6. Update command documentation
+
+### Modifying Schemas
+
+Schema changes require careful consideration:
+
+1. Update schema file in `schemas/`
+2. Increment schema version appropriately
+3. Add migration function if breaking change
+4. Test with existing data files
+5. Update schema documentation
+
+## Reporting Issues
+
+### Bug Reports
+
+Include:
+
+1. **Description**: Clear explanation of the bug
+2. **Steps to Reproduce**: Minimal steps to trigger the issue
+3. **Expected vs Actual**: What should happen vs what does happen
+4. **Environment**: OS, Bash version, jq version, CLEO version
+5. **Logs**: Relevant error messages or output
+
+### Feature Requests
+
+Include:
+
+1. **Problem**: What problem does this solve?
+2. **Solution**: Your proposed approach
+3. **Alternatives**: Other approaches you considered
+4. **Use Case**: Real-world scenario where this helps
+
+## Getting Help
+
+<CardGroup cols={3}>
+  <Card title="Documentation" icon="book" href="/getting-started/introduction">
+    Check the docs first
+  </Card>
+  <Card title="Issues" icon="circle-question" href="https://github.com/kryptobaseddev/cleo/issues">
+    Search existing issues
+  </Card>
+  <Card title="Discussions" icon="comments" href="https://github.com/kryptobaseddev/cleo/discussions">
+    Ask the community
+  </Card>
+</CardGroup>
+
+## Recognition
+
+Contributors are recognized in:
+
+- `CHANGELOG.md` for their specific contributions
+- Project README for significant contributions
+- Release notes when features ship
+
+<Note>
+All contributions, no matter how small, are valuable. Documentation fixes, typo corrections, and test improvements are just as appreciated as new features.
+</Note>
+
+---
+
+Thank you for contributing to CLEO!

@@ -1,0 +1,92 @@
+---
+title: "cleo issue"
+description: "Create and manage issues (bugs, features, help requests)"
+icon: "bug"
+---
+
+# cleo issue
+
+Create and manage issues for bugs, feature requests, or help needed.
+
+{% hint style="info" %}**Agent Relevance**: High - Agents use this to report problems or request help{% endhint %}
+
+## Synopsis
+
+```bash
+cleo issue <type> "TITLE" [OPTIONS]
+```
+
+## Description
+
+The `issue` command creates structured issue entries that can be tracked and managed. Issues are different from regular tasks - they represent problems, requests, or blockers that need attention.
+
+## Issue Types
+
+| Type | Description |
+|------|-------------|
+| `bug` | Report a defect or problem |
+| `feature` | Request a new feature |
+| `help` | Request assistance or clarification |
+| `docs` | Report documentation issues |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--description "TEXT"` | Detailed description |
+| `--priority PRIORITY` | Priority: `critical`, `high`, `medium`, `low` |
+| `--labels LABELS` | Comma-separated labels |
+| `--assign ID` | Assign to task or epic |
+| `--json` | Output in JSON format |
+
+## Examples
+
+{% tabs %}
+
+```bash Report a bug
+cleo issue bug "Authentication fails with 500 error" --priority critical
+```
+
+```bash Request feature
+cleo issue feature "Add webhook support" --description "Need webhooks for CI integration"
+```
+
+```bash Ask for help
+cleo issue help "How to configure multi-session?"
+```
+
+```bash Assign to epic
+cleo issue bug "Memory leak" --assign E1234
+```
+
+{% endtabs %}
+
+## Output
+
+```json
+{
+  "id": "I567",
+  "type": "bug",
+  "title": "Authentication fails with 500 error",
+  "priority": "critical",
+  "createdAt": "2026-02-21T10:30:00Z"
+}
+```
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| 0 | Success | - |
+| 2 | Invalid type | Yes |
+| 6 | Validation error | Yes |
+
+## Related Commands
+
+- [`cleo add`](add) - Create regular tasks
+- [`cleo find`](find) - Find existing issues
+- [`cleo complete`](complete) - Close/resolve an issue
+
+## See Also
+
+- [Issue Management](/guides/issue-tracking)

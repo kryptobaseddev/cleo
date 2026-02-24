@@ -1,0 +1,147 @@
+---
+title: "cleo detect-drift"
+description: "Detect documentation drift against TypeScript source of truth"
+icon: "search"
+---
+
+# cleo detect-drift
+
+Detect documentation drift against TypeScript source of truth.
+
+{% hint style="info" %}**Agent Relevance**: Critical - Use this to validate documentation before releases{% endhint %}
+
+## Synopsis
+
+```bash
+cleo detect-drift [OPTIONS]
+```
+
+## Description
+
+The `detect-drift` command compares documentation against the actual TypeScript implementation to identify:
+
+- Missing command documentation
+- Outdated Bash-era references
+- Gateway/spec mismatches
+- Missing agent injection templates
+- Canonical document gaps
+
+This is essential for maintaining documentation quality and ensuring the docs reflect the actual code.
+
+## Checks Performed
+
+| Check | Description |
+|-------|-------------|
+| Gateway-to-spec | MCP operations match CLEO-OPERATIONS-REFERENCE.md |
+| CLI-to-core | All CLI commands have implementations |
+| Domain handlers | MCP domain handlers exist |
+| Capability matrix | Operation capability matrix exists |
+| Schema | Database schema definitions present |
+| Canonical identity | Vision and Portable Brain spec complete |
+| Agent injection | CLEO-INJECTION.md template exists |
+| Exit codes | Exit code definitions present |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format (default for agents) |
+| `--human` | Output in human-readable format |
+
+## Examples
+
+{% tabs %}
+
+```bash Run drift detection
+cleo detect-drift
+```
+
+```bash JSON output for automation
+cleo detect-drift --json
+```
+
+```bash Human readable
+cleo detect-drift --human
+```
+
+{% endtabs %}
+
+## Output
+
+### JSON Output (Default)
+```json
+{
+  "summary": {
+    "totalChecks": 8,
+    "passed": 6,
+    "warnings": 1,
+    "errors": 1,
+    "exitCode": 2
+  },
+  "checks": [
+    {
+      "name": "Canonical identity",
+      "status": "pass",
+      "message": "All canonical pillars documented",
+      "issues": []
+    }
+  ],
+  "recommendations": [
+    "Address all ERROR-level issues before proceeding"
+  ]
+}
+```
+
+## Exit Codes
+
+| Code | Meaning | Action Required |
+|------|---------|----------------|
+| 0 | No drift | None |
+| 1 | Warnings | Review recommendations |
+| 2 | Errors | Fix critical issues |
+
+## Integrating into Projects
+
+To use `detect-drift` in other projects:
+
+1. **Configuration**: Create a `.drift-config.json` in your project root:
+```json
+{
+  "checks": {
+    "gatewayToSpec": {
+      "specPath": "docs/api-spec.md",
+      "gatewayPaths": ["src/api/gateway.ts"]
+    },
+    "canonicalIdentity": {
+      "visionPath": "docs/vision.md",
+      "pillars": ["Pillar 1", "Pillar 2"]
+    }
+  }
+}
+```
+
+2. **CI Integration**: Add to your CI pipeline:
+```yaml
+- name: Check Documentation
+  run: cleo detect-drift --json
+```
+
+3. **Pre-commit Hook**: Prevent commits with drift:
+```bash
+#!/bin/bash
+if ! cleo detect-drift --json | jq -e '.summary.exitCode == 0'; then
+  echo "Documentation drift detected!"
+  exit 1
+fi
+```
+
+## Related Commands
+
+- [`cleo validate`](validate) - Validate data integrity
+- [`cleo doctor`](doctor) - Run full diagnostics
+- [`cleo docs`](docs) - Open documentation
+
+## See Also
+
+- [Documentation Maintenance](/guides/DOCUMENTATION-MAINTENANCE)
+- [CLEO Operations Reference](/specs/CLEO-OPERATIONS-REFERENCE)

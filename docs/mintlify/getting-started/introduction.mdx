@@ -1,0 +1,166 @@
+---
+title: "Introduction to CLEO"
+description: "CLEO is a task management system designed for AI coding agents and solo developers with anti-hallucination validation"
+icon: "book-open"
+---
+
+# Introduction to CLEO
+
+CLEO (Command Line Entity Orchestrator) is a **task management system designed specifically for AI coding agents** and solo developers. It provides enterprise-grade reliability with a focus on preventing AI-generated errors from corrupting your workflow data.
+
+<CardGroup cols={2}>
+  <Card title="Anti-Hallucination" icon="shield-check">
+    Every operation is validated before execution with multi-layer checks
+  </Card>
+  <Card title="Context Persistence" icon="database">
+    State maintained across sessions with immutable audit trails
+  </Card>
+  <Card title="Structured Output" icon="code">
+    JSON by default for agent consumption, human-readable when needed
+  </Card>
+  <Card title="Atomic Operations" icon="lock">
+    All writes use temp file → validate → backup → rename pattern
+  </Card>
+</CardGroup>
+
+## Why CLEO?
+
+Traditional task management tools weren't designed for AI-assisted development workflows. CLEO addresses three critical challenges:
+
+<AccordionGroup>
+  <Accordion title="AI Hallucination Prevention" icon="brain">
+    AI agents can generate syntactically valid but semantically incorrect data. CLEO's multi-layer validation ensures:
+    - Schema validation at every write
+    - Cross-file integrity checks
+    - Semantic validation (no future timestamps, valid status transitions)
+    - Duplicate detection
+  </Accordion>
+
+  <Accordion title="Session Continuity" icon="clock">
+    Development work is rarely linear. CLEO provides:
+    - Complete audit trails in `todo-log.jsonl`
+    - Automatic backups before every modification
+    - Session management with start/end protocols
+    - Focus tracking for single-task discipline
+  </Accordion>
+
+  <Accordion title="Agent-First Design" icon="robot">
+    Built for LLM agents from the ground up:
+    - JSON output by default (detects TTY vs piped)
+    - Exit codes for programmatic handling
+    - Structured error messages with fix suggestions
+    - Command discovery via `cleo commands`
+  </Accordion>
+</AccordionGroup>
+
+## Core Concepts
+
+### Tasks and Hierarchy
+
+CLEO organizes work into a three-level hierarchy:
+
+```
+Epic (large scope) → Task (unit of work) → Subtask (atomic piece)
+```
+
+<Tabs>
+  <Tab title="Creating Tasks">
+    ```bash
+    # Simple task
+    cleo add "Fix login bug"
+
+    # Task with hierarchy
+    cleo add "Auth System" --type epic --size large
+    cleo add "JWT Middleware" --parent T001 --type task
+    cleo add "Token Validation" --parent T002 --type subtask
+    ```
+  </Tab>
+  <Tab title="Managing Tasks">
+    ```bash
+    # View tasks
+    cleo list
+    cleo list --tree          # Hierarchical view
+
+    # Complete task
+    cleo complete T003
+
+    # Update with notes
+    cleo update T001 --notes "Implemented base auth"
+    ```
+  </Tab>
+</Tabs>
+
+### Sessions and Focus
+
+CLEO enforces **single-task discipline** through focus management:
+
+```bash
+# Start your day
+cleo session start
+cleo focus set T001          # One active task at a time
+
+# Work on task...
+cleo focus note "Making progress on auth"
+
+# End your day
+cleo archive                 # Clean up completed tasks
+cleo session end
+```
+
+<Note>
+Sessions persist across Claude conversations. When you start a new terminal session, resume with `cleo session resume`.
+</Note>
+
+### Data Files
+
+CLEO maintains four core data files in your project's `.cleo/` directory:
+
+| File | Purpose |
+|------|---------|
+| `todo.json` | Active tasks (source of truth) |
+| `todo-archive.json` | Completed/archived tasks |
+| `todo-log.jsonl` | Immutable audit trail |
+| `config.json` | Project configuration |
+
+## Quick Example
+
+```bash
+# Initialize CLEO in your project
+cd /path/to/your/project
+cleo init
+
+# Add your first task
+cleo add "Implement user authentication" \
+  --priority high \
+  --labels backend,security \
+  --description "Add JWT-based auth with refresh tokens"
+
+# Set focus and start working
+cleo focus set T001
+
+# Track progress
+cleo update T001 --notes "Completed JWT signing implementation"
+
+# Complete when done
+cleo complete T001
+
+# View project status
+cleo dash
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/getting-started/quickstart">
+    Get up and running in 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/getting-started/installation">
+    Detailed installation instructions
+  </Card>
+  <Card title="Project Management Guide" icon="map" href="/guides/project-management">
+    Learn epic/task/subtask organization
+  </Card>
+  <Card title="Command Reference" icon="terminal" href="/commands/commands">
+    Complete CLI documentation
+  </Card>
+</CardGroup>

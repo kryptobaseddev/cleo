@@ -1,0 +1,745 @@
+---
+title: "CLEO Subagent Protocol"
+description: "Universal executor protocol for Tier 1 subagents in CLEO's 2-tier architecture"
+icon: "robot"
+---
+
+## Overview
+
+CLEO implements a **2-tier universal subagent architecture** for multi-agent coordination:
+
+```
+Tier 0: ORCHESTRATOR (ct-orchestrator)
+    │
+    ├── Coordinates complex workflows
+    ├── Spawns subagents via Task tool
+    ├── Pre-resolves ALL tokens before spawn
+    └── Reads only manifest summaries (not full content)
+    │
+    ▼
+Tier 1: CLEO-SUBAGENT (universal executor)
+    │
+    ├── Receives fully-resolved prompts
+    ├── Loads skill via protocol injection
+    ├── Executes delegated work
+    └── Outputs: file + manifest entry + summary
+```
+
+**Core Principle**: One universal subagent type (`cleo-subagent`) with context-specific protocols - NOT skill-specific agents.
+
+---
+
+## Protocol Constraints (RFC 2119)
+
+The subagent protocol defines mandatory and recommended rules following RFC 2119 keywords (MUST, MUST NOT, SHOULD, MAY).
+
+<CardGroup cols={2}>
+  <Card title="BASE-001" icon="file-lines">
+    **MUST** append ONE line to MANIFEST.jsonl
+
+    *Required* - Single-line JSON entry enables O(1) lookup
+  </Card>
+
+  <Card title="BASE-002" icon="ban">
+    **MUST NOT** return content in response
+
+    *Required* - Preserves orchestrator context window
+  </Card>
+
+  <Card title="BASE-003" icon="check">
+    **MUST** complete task via `cleo complete`
+
+    *Required* - Updates task status and audit trail
+  </Card>
+
+  <Card title="BASE-004" icon="layer-group">
+    **MUST** write output file before manifest
+
+    *Required* - Ensures manifest references valid file
+  </Card>
+
+  <Card title="BASE-005" icon="crosshairs">
+    **MUST** set focus before starting work
+
+    *Required* - Signals active task for tracking
+  </Card>
+
+  <Card title="BASE-006" icon="shield-halved">
+    **MUST NOT** fabricate information
+
+    *Required* - Anti-hallucination requirement
+  </Card>
+
+  <Card title="BASE-007" icon="link">
+    **SHOULD** link research to task
+
+    *Recommended* - Enables bidirectional discovery
+  </Card>
+</CardGroup>
+
+### Rationale
+
+| Constraint | Purpose |
+|------------|---------|
+| **BASE-001** | Manifest enables O(1) lookup of key findings without reading full files |
+| **BASE-002** | Full content would bloat orchestrator context window (10K token budget) |
+| **BASE-003** | Task completion updates status, logs to audit trail, triggers hooks |
+| **BASE-004** | Prevents manifest pointing to missing/incomplete file |
+| **BASE-005** | Focus tracking enables session state and context alerts |
+| **BASE-006** | Partial/blocked status preferred over fabricated content |
+| **BASE-007** | Research links create bidirectional graph for future agents |
+
+---
+
+## Lifecycle Phases
+
+The subagent follows a strict 5-phase lifecycle:
+
+<Steps>
+  <Step title="SPAWN">
+    Orchestrator invokes Task tool with:
+    - Fully-resolved prompt (no `@` references or `{{TOKENS}}`)
+    - `subagent_type: "cleo-subagent"`
+    - Pre-validated task existence
+  </Step>
+
+  <Step title="INJECT">
+    Subagent receives:
+    - **Base protocol** (lifecycle, constraints, output format)
+    - **Conditional protocol** (skill-specific requirements)
+    - **Task context** (ID, epic, acceptance criteria)
+  </Step>
+
+  <Step title="EXECUTE">
+    Follow skill-specific instructions:
+    - Read task: `cleo show {{TASK_ID}}`
+    - Set focus: `cleo focus set {{TASK_ID}}`
+    - Perform work (research, implementation, specification, etc.)
+  </Step>
+
+  <Step title="OUTPUT">
+    Write deliverables:
+    1. Output file: `{{OUTPUT_DIR}}/{{TASK_ID}}-<slug>.<ext>`
+    2. Manifest entry: Single-line JSON to `{{MANIFEST_PATH}}`
+    3. Complete task: `cleo complete {{TASK_ID}}`
+    4. Link research (optional): `cleo research link {{TASK_ID}} <id>`
+  </Step>
+
+  <Step title="RETURN">
+    Return **ONLY** completion message:
+    - `"Research complete. See MANIFEST.jsonl for summary."`
+    - `"Implementation complete. See MANIFEST.jsonl for summary."`
+    - `"Specification complete. See MANIFEST.jsonl for summary."`
+  </Step>
+</Steps>
+
+### Execution Sequence
+
+```bash
+# 1. Read task
+cleo show {{TASK_ID}}
+
+# 2. Set focus (marks task active)
+cleo focus set {{TASK_ID}}
+
+# 3. Do work (skill-specific)
+# ... execute protocol requirements ...
+
+# 4. Write output file
+cat > {{OUTPUT_DIR}}/{{TASK_ID}}-example.md << 'EOF'
+# Title
+Content...
+EOF
+
+# 5. Append manifest entry (single line, no pretty-printing)
+echo '{"id":"{{TASK_ID}}-example","file":"{{TASK_ID}}-example.md",...}' >> {{MANIFEST_PATH}}
+
+# 6. Complete task
+cleo complete {{TASK_ID}}
+
+# 7. Link research (optional)
+cleo research link {{TASK_ID}} {{RESEARCH_ID}}
+
+# 8. Return summary ONLY
+echo "Research complete. See MANIFEST.jsonl for summary."
+```
+
+---
+
+## Token System
+
+### Pre-Resolution Requirement
+
+<Warning>
+**CRITICAL**: Orchestrator MUST resolve ALL tokens before spawn. Subagents CANNOT resolve `@` references or `{{TOKEN}}` patterns.
+</Warning>
+
+Subagents receive fully-resolved prompts with all tokens substituted.
+
+### Standard Tokens
+
+| Token | Description | Example |
+|-------|-------------|---------|
+| `{{TASK_ID}}` | Current task identifier | `T2402` |
+| `{{EPIC_ID}}` | Parent epic identifier | `T2392` |
+| `{{DATE}}` | Current date (ISO format) | `2026-01-26` |
+| `{{TOPIC_SLUG}}` | URL-safe topic name | `authentication-research` |
+| `{{OUTPUT_DIR}}` | Output directory path | `claudedocs/agent-outputs` |
+| `{{MANIFEST_PATH}}` | Manifest file path | `claudedocs/agent-outputs/MANIFEST.jsonl` |
+
+### Task Context Tokens
+
+| Token | Source Field | Example |
+|-------|--------------|---------|
+| `{{TASK_TITLE}}` | `task.title` | "Implement user authentication" |
+| `{{TASK_DESCRIPTION}}` | `task.description` | "Add JWT-based auth system..." |
+| `{{TOPICS_JSON}}` | `task.labels` | `["auth", "security"]` |
+| `{{DEPENDS_LIST}}` | `task.depends` | "T2398, T2401" |
+| `{{ACCEPTANCE_CRITERIA}}` | Parsed from description | "- [ ] Login endpoint\n- [ ] Token refresh" |
+
+### Command Tokens (CLEO Defaults)
+
+| Token | CLEO Default | Purpose |
+|-------|--------------|---------|
+| `{{TASK_SHOW_CMD}}` | `cleo show` | Read task details |
+| `{{TASK_FOCUS_CMD}}` | `cleo focus set` | Set active task |
+| `{{TASK_COMPLETE_CMD}}` | `cleo complete` | Mark task complete |
+| `{{TASK_LINK_CMD}}` | `cleo research link` | Link research to task |
+
+### Token Types
+
+| Type | Syntax | Resolution | Example |
+|------|--------|------------|---------|
+| File reference | `@file.md` | Read and inline | `@docs/guide.md` |
+| Glob pattern | `@dir/*.md` | Glob, read, concat | `@protocols/*.md` |
+| Placeholder | `{{VAR}}` | Substitute value | `{{TASK_ID}}` |
+| Environment | `${ENV}` | Environment variable | `${HOME}` |
+| Command | `` !`cmd` `` | Execute and inline | `` !`date +%Y-%m-%d` `` |
+
+---
+
+## Output Requirements
+
+### File Naming Convention
+
+```
+{{OUTPUT_DIR}}/{{TASK_ID}}-<slug>.<ext>
+```
+
+**Examples**:
+- `claudedocs/agent-outputs/T2402-cleo-subagent-base.md`
+- `docs/specs/T2398-protocol-spec.md`
+- `docs/designs/T2400-skill-loading.md`
+
+### Output File Structure
+
+```markdown
+# <Title>
+
+**Task**: {{TASK_ID}}
+**Epic**: {{EPIC_ID}}
+**Date**: {{DATE}}
+**Status**: complete | partial | blocked
+
+---
+
+## Summary
+
+<executive summary in 2-3 sentences>
+
+## Content
+
+<main deliverable content>
+
+## References
+
+- Related tasks: {{EPIC_ID}}, ...
+- Source documents: ...
+```
+
+### Manifest Entry Format
+
+<Warning>
+Append **exactly ONE line** to `{{MANIFEST_PATH}}` - no pretty-printing!
+</Warning>
+
+```json
+{"id":"{{TASK_ID}}-<slug>","file":"<relative-path>","title":"<title>","date":"{{DATE}}","status":"complete","agent_type":"<type>","topics":[...],"key_findings":[...],"actionable":true,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
+```
+
+#### Required Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `id` | string | Unique entry ID (`T####-slug` format) | `"T2402-protocol"` |
+| `file` | string | Relative path from manifest directory | `"T2402-protocol.md"` |
+| `title` | string | Human-readable title | `"CLEO Subagent Protocol"` |
+| `date` | string | ISO date (YYYY-MM-DD) | `"2026-01-26"` |
+| `status` | enum | `complete`, `partial`, `blocked` | `"complete"` |
+| `agent_type` | string | Agent category | `"research"`, `"implementation"`, `"specification"` |
+
+#### Optional Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `topics` | array | `[]` | Categorization tags |
+| `key_findings` | array | `[]` | 3-7 one-sentence findings |
+| `actionable` | boolean | `true` | Whether findings require action |
+| `needs_followup` | array | `[]` | Task IDs requiring attention |
+| `linked_tasks` | array | `[]` | Related task IDs |
+
+#### Key Findings Guidelines
+
+<Note>
+Key findings should be:
+- **3-7 items maximum** (keep manifest compact)
+- **One sentence each** (no paragraphs)
+- **Action-oriented** (what was learned/decided/built)
+- **No implementation details** (those go in output file)
+</Note>
+
+### Return Messages
+
+| Agent Type | Status | Message |
+|------------|--------|---------|
+| Research | Complete | `Research complete. See MANIFEST.jsonl for summary.` |
+| Research | Partial | `Research partial. See MANIFEST.jsonl for details.` |
+| Research | Blocked | `Research blocked. See MANIFEST.jsonl for blocker details.` |
+| Implementation | Complete | `Implementation complete. See MANIFEST.jsonl for summary.` |
+| Specification | Complete | `Specification complete. See MANIFEST.jsonl for summary.` |
+| Design | Complete | `Design complete. See MANIFEST.jsonl for summary.` |
+| Analysis | Complete | `Analysis complete. See MANIFEST.jsonl for summary.` |
+
+---
+
+## Error Handling
+
+### Status Classification
+
+<Tabs>
+  <Tab title="Complete">
+    **Condition**: All objectives achieved
+
+    **Manifest**:
+    ```json
+    {"status": "complete", ...}
+    ```
+
+    **Actions**:
+    - Write output file with full content
+    - Append manifest entry
+    - Complete task via `cleo complete`
+    - Return success message
+  </Tab>
+
+  <Tab title="Partial">
+    **Condition**: Some objectives achieved, some blocked
+
+    **Manifest**:
+    ```json
+    {"status": "partial", "needs_followup": ["T2405", "error-recovery-patterns"], ...}
+    ```
+
+    **Actions**:
+    - Write partial output to file
+    - Document what was completed vs. remaining
+    - Populate `needs_followup` array with specific items
+    - Complete task (partial work is still progress)
+    - Return partial message
+  </Tab>
+
+  <Tab title="Blocked">
+    **Condition**: Cannot proceed due to blocker
+
+    **Manifest**:
+    ```json
+    {"status": "blocked", "needs_followup": ["Missing API docs", "Permission denied"], ...}
+    ```
+
+    **Actions**:
+    - Write blocker analysis to file
+    - Document blocker details in `needs_followup`
+    - **Do NOT** complete task (leave for orchestrator)
+    - Return blocked message
+  </Tab>
+</Tabs>
+
+### Partial Completion Protocol
+
+When unable to complete all objectives:
+
+<Steps>
+  <Step title="Write Partial Output">
+    Document what WAS completed in output file
+  </Step>
+
+  <Step title="Set Partial Status">
+    Set `"status": "partial"` in manifest entry
+  </Step>
+
+  <Step title="Populate Followup">
+    Add specific remaining items to `needs_followup` array
+  </Step>
+
+  <Step title="No Fabrication">
+    **MUST NOT** fabricate content to appear complete
+  </Step>
+
+  <Step title="Complete Task">
+    Still run `cleo complete` - partial work is progress
+  </Step>
+</Steps>
+
+**Example Partial Manifest**:
+```json
+{"id":"T2402-partial","status":"partial","needs_followup":["error-recovery-patterns","skill-injection-testing"],"key_findings":["Base protocol documented","Lifecycle phases defined","Output format incomplete"]}
+```
+
+### Retryable Errors
+
+Exit codes **7, 20, 21, 22, 60-63** are retryable with exponential backoff:
+
+```bash
+for attempt in 1 2 3; do
+    if cleo complete {{TASK_ID}}; then
+        break
+    fi
+    sleep $((2 ** attempt))
+done
+```
+
+### Blocker Categories
+
+| Category | Example | Action |
+|----------|---------|--------|
+| Missing context | Required file not provided | Request from orchestrator |
+| Permission denied | Tool not allowed | Escalate |
+| Resource unavailable | External service down | Retry with backoff |
+| Ambiguous requirements | Conflicting instructions | Clarify before proceeding |
+
+---
+
+## Skill Loading Mechanism
+
+### Key Principle
+
+<Info>
+**Skills are context injections, NOT agents.** The orchestrator selects and injects skill content - subagents cannot load skills themselves.
+</Info>
+
+### Protocol Stack Architecture
+
+Every spawn combines two layers:
+
+```
+┌─────────────────────────────────────────┐
+│ CONDITIONAL PROTOCOL (task-specific)    │
+│ - research.md, implementation.md, etc.  │
+├─────────────────────────────────────────┤
+│ BASE PROTOCOL (always loaded)           │
+│ - Lifecycle, output format, constraints │
+└─────────────────────────────────────────┘
+```
+
+### Base Protocol
+
+Loaded for **ALL** subagents:
+- Lifecycle phases (SPAWN → INJECT → EXECUTE → OUTPUT → RETURN)
+- Output requirements (file + manifest)
+- RFC 2119 constraints (BASE-001 through BASE-007)
+- Error handling patterns
+
+**Source**: `skills/_shared/subagent-protocol-base.md`
+
+### Conditional Protocols (7 Types)
+
+<CardGroup cols={2}>
+  <Card title="Research" icon="magnifying-glass">
+    **Keywords**: research, investigate, explore
+
+    Information gathering and analysis
+  </Card>
+
+  <Card title="Consensus" icon="users">
+    **Keywords**: vote, validate, decide
+
+    Multi-agent decision making
+  </Card>
+
+  <Card title="Specification" icon="file-contract">
+    **Keywords**: spec, rfc, design
+
+    Document creation with RFC 2119
+  </Card>
+
+  <Card title="Decomposition" icon="sitemap">
+    **Keywords**: epic, plan, decompose
+
+    Task breakdown and planning
+  </Card>
+
+  <Card title="Implementation" icon="code">
+    **Keywords**: implement, build, create
+
+    Code execution and testing
+  </Card>
+
+  <Card title="Contribution" icon="code-merge">
+    **Keywords**: PR, merge, shared
+
+    Work attribution and commits
+  </Card>
+
+  <Card title="Release" icon="rocket">
+    **Keywords**: release, version, publish
+
+    Version management and deployment
+  </Card>
+</CardGroup>
+
+### Dispatch Pipeline
+
+The orchestrator selects protocols using `lib/skill-dispatch.sh`:
+
+```bash
+# 1. Analyze task and select protocol
+protocol=$(skill_auto_dispatch "T1234")
+
+# 2. Prepare spawn context (resolves ALL tokens)
+spawn_json=$(skill_prepare_spawn "$protocol" "T1234")
+
+# 3. Verify tokens fully resolved
+jq '.tokenResolution.fullyResolved' <<< "$spawn_json"  # Must be true
+
+# 4. Spawn cleo-subagent with Task tool
+#    subagent_type: "cleo-subagent"
+#    prompt: $(jq -r '.prompt' <<< "$spawn_json")
+```
+
+### Dispatch Priority
+
+1. **Label-based**: Task labels match skill tags
+2. **Type-based**: Task type maps to protocol
+3. **Keyword-based**: Title/description matches dispatch triggers
+4. **Fallback**: `ct-task-executor` (default)
+
+### Loading Strategies
+
+| Strategy | Content Loaded | Token Budget | Use Case |
+|----------|----------------|--------------|----------|
+| **Minimal** | Frontmatter + first 50 lines | ~500 tokens | Simple tasks, tight context |
+| **Standard** | Full SKILL.md | ~2-5K tokens | Most tasks (default) |
+| **Comprehensive** | SKILL.md + references/ | ~5-15K tokens | Complex multi-step tasks |
+
+---
+
+## Anti-Patterns
+
+### Subagent Anti-Patterns
+
+<AccordionGroup>
+  <Accordion title="Returning Content in Response">
+    **Problem**: Bloats orchestrator context window (10K budget)
+
+    **Solution**: Return ONLY summary message, content in file
+
+    **Bad**:
+    ```
+    Here's the research I found:
+
+    [5000 tokens of content]
+    ```
+
+    **Good**:
+    ```
+    Research complete. See MANIFEST.jsonl for summary.
+    ```
+  </Accordion>
+
+  <Accordion title="Pretty-Printed JSON in Manifest">
+    **Problem**: Multiple lines break manifest parsing
+
+    **Solution**: Single-line JSON with no formatting
+
+    **Bad**:
+    ```json
+    {
+      "id": "T2402-example",
+      "status": "complete"
+    }
+    ```
+
+    **Good**:
+    ```json
+    {"id":"T2402-example","status":"complete"}
+    ```
+  </Accordion>
+
+  <Accordion title="Loading Skills via @ References">
+    **Problem**: Subagents cannot resolve `@` patterns
+
+    **Solution**: Skills injected by orchestrator (fully resolved)
+
+    **Bad**:
+    ```markdown
+    @skills/ct-research/SKILL.md
+    ```
+
+    **Good**:
+    Orchestrator pre-resolves and inlines skill content
+  </Accordion>
+
+  <Accordion title="Skipping Focus">
+    **Problem**: Violates BASE-005, breaks session tracking
+
+    **Solution**: Always `cleo focus set` before work
+
+    **Bad**:
+    ```bash
+    cleo show T2402
+    # ... do work ...
+    cleo complete T2402
+    ```
+
+    **Good**:
+    ```bash
+    cleo show T2402
+    cleo focus set T2402  # ← Required
+    # ... do work ...
+    cleo complete T2402
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Orchestrator Anti-Patterns
+
+| Pattern | Problem | Solution |
+|---------|---------|----------|
+| Reading full files | Context bloat | Read manifest summaries only |
+| Implementing code | Role violation | Delegate to cleo-subagent |
+| Parallel spawns | Race conditions | Sequential per dependency wave |
+| Unresolved tokens | Subagent failure | Verify `tokenResolution.fullyResolved` |
+
+---
+
+## Completion Checklist
+
+Before returning, verify all requirements:
+
+<Steps>
+  <Step title="Focus Set">
+    Task focus was set via `cleo focus set {{TASK_ID}}`
+
+    Verifies BASE-005 compliance
+  </Step>
+
+  <Step title="Output File Written">
+    Output file written to `{{OUTPUT_DIR}}/{{TASK_ID}}-<slug>.<ext>`
+
+    Verifies BASE-004 compliance
+  </Step>
+
+  <Step title="Manifest Entry Appended">
+    Single-line JSON entry appended to `{{MANIFEST_PATH}}`
+
+    Verifies BASE-001 compliance
+  </Step>
+
+  <Step title="Task Completed">
+    Task marked complete via `cleo complete {{TASK_ID}}`
+
+    Verifies BASE-003 compliance
+  </Step>
+
+  <Step title="Summary Only">
+    Return message is ONLY the summary (no content)
+
+    Verifies BASE-002 compliance
+  </Step>
+</Steps>
+
+---
+
+## Quick Reference
+
+### Subagent Lifecycle Commands
+
+```bash
+# Read task details
+cleo show {{TASK_ID}}
+
+# Set active task focus
+cleo focus set {{TASK_ID}}
+
+# Add progress notes (optional)
+cleo focus note "Working on X"
+
+# Complete task
+cleo complete {{TASK_ID}}
+
+# Link research to task (optional)
+cleo research link {{TASK_ID}} <research-id>
+```
+
+### Orchestrator Commands
+
+```bash
+# Initialize orchestrator session
+cleo orchestrator start --epic T001
+
+# Analyze dependency waves
+cleo orchestrator analyze T001
+
+# Get parallel-safe tasks
+cleo orchestrator ready --epic T001
+
+# Get next task to spawn
+cleo orchestrator next --epic T001
+
+# Generate spawn prompt
+cleo orchestrator spawn T002
+```
+
+### Return Message Templates
+
+| Type | Template |
+|------|----------|
+| Research | `Research complete. See MANIFEST.jsonl for summary.` |
+| Implementation | `Implementation complete. See MANIFEST.jsonl for summary.` |
+| Specification | `Specification complete. See MANIFEST.jsonl for summary.` |
+| Design | `Design complete. See MANIFEST.jsonl for summary.` |
+| Analysis | `Analysis complete. See MANIFEST.jsonl for summary.` |
+
+---
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Project Lifecycle" icon="diagram-project" href="/developer/specifications/PROJECT-LIFECYCLE-SPEC">
+    RCSD-IVTR pipeline specification
+  </Card>
+
+  <Card title="Protocol Stack" icon="layer-group" href="/developer/specifications/PROTOCOL-STACK-SPEC">
+    Base + conditional protocol architecture
+  </Card>
+
+  <Card title="RCSD Pipeline" icon="gears" href="/developer/specifications/RCSD-PIPELINE">
+    Research → Consensus → Spec → Decompose
+  </Card>
+
+  <Card title="Orchestrator Skill" icon="sitemap" href="/skills/ct-orchestrator">
+    Tier 0 orchestrator protocol
+  </Card>
+</CardGroup>
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2026-01-26 | Initial protocol specification |
+
+**Status**: ACTIVE
+
+**RFC 2119 Compliance**: This specification uses RFC 2119 keywords (MUST, MUST NOT, SHOULD, MAY) to define requirements.

@@ -1,0 +1,921 @@
+---
+title: "Contribution Protocol Usage Guide"
+description: "Structured multi-agent decision-making with automated conflict detection and consensus computation for parallel research sessions"
+---
+
+# Contribution Protocol Usage Guide
+
+**Version**: 1.0.0
+**Status**: Active
+**Epic**: T2308 - Contribution Protocol System v2
+**Last Updated**: 2026-01-26
+
+---
+
+## Overview
+
+The Contribution Protocol enables structured multi-agent decision-making with automated conflict detection and consensus computation. It provides a JSON-first format for documenting decisions, tracking evidence, and resolving disagreements across parallel research sessions.
+
+### When to Use
+
+| Scenario | Use Contribution Protocol? | Rationale |
+|----------|---------------------------|-----------|
+| Multi-agent research (2+ sessions) | **Yes** | Structured conflict detection |
+| Consensus-building on architecture | **Yes** | Weighted voting, evidence tracking |
+| RCSD pipeline integration | **Yes** | JSON format enables automation |
+| Single-agent research | No | Simpler research manifest sufficient |
+| Quick decision with no alternatives | No | Protocol overhead not justified |
+
+### Key Benefits
+
+- **Machine-Parseable**: JSON format enables automated processing
+- **Weighted Consensus**: Confidence scores enable proportional voting
+- **Traceability**: Evidence references create audit trails
+- **Conflict Detection**: Automated identification of disagreements
+
+---
+
+## Quick Start
+
+### Step 1: Instantiate Protocol for Epic
+
+```bash
+# Create contribution task under epic
+ct add "Session B: Architecture Analysis" \
+  --parent T2204 \
+  --labels consensus-source,research \
+  --phase core
+
+# Note the task ID (e.g., T2215)
+```
+
+### Step 2: Create Contribution Structure
+
+```bash
+# Initialize contribution directories
+mkdir -p .cleo/contributions
+mkdir -p claudedocs/agent-outputs
+
+# Generate contribution ID
+source lib/contribution-protocol.sh
+CONTRIB_ID=$(contribution_generate_id)
+echo "Contribution ID: $CONTRIB_ID"
+```
+
+### Step 3: Submit JSON Contribution
+
+Create `.cleo/contributions/T2215.json`:
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_a1b2c3d4",
+    "createdAt": "2026-01-26T14:00:00Z",
+    "agentId": "opus-1"
+  },
+  "sessionId": "session_20260126_140000_abc123",
+  "epicId": "T2204",
+  "taskId": "T2215",
+  "markerLabel": "consensus-source",
+  "decisions": [
+    {
+      "questionId": "ARCH-001",
+      "question": "Single file or split file architecture?",
+      "answer": "Single JSON file with internal sections",
+      "confidence": 0.85,
+      "rationale": "Simplifies atomic updates and validation",
+      "evidence": [
+        {
+          "file": "lib/file-ops.sh",
+          "section": "atomic_write function",
+          "type": "code"
+        }
+      ]
+    }
+  ],
+  "conflicts": [],
+  "researchOutputs": [],
+  "status": "complete"
+}
+```
+
+### Step 4: Detect Conflicts
+
+```bash
+# Query contributions for an epic
+jq -s '[.[] | select(.epicId == "T2204")]' .cleo/contributions/*.json
+
+# Find conflicting answers on same question
+jq -s '
+  group_by(.decisions[].questionId) |
+  map(select(length > 1))
+' .cleo/contributions/*.json
+```
+
+### Step 5: Aggregate Consensus
+
+```bash
+# Calculate weighted support for each answer
+jq -s '
+  [.[].decisions[]] |
+  group_by(.questionId) |
+  map({
+    questionId: .[0].questionId,
+    answers: (group_by(.answer) | map({
+      answer: .[0].answer,
+      support: ([.[].confidence] | add),
+      count: length
+    }))
+  })
+' .cleo/contributions/*.json
+```
+
+---
+
+## Step-by-Step Workflow
+
+### Phase 1: Epic Setup with Contribution Tracking
+
+```bash
+# 1. Create epic for research consolidation
+ct add "RCSD Integration Research" \
+  --type epic \
+  --phase core \
+  --labels rcsd,research-consolidation
+
+# 2. Define key decision questions
+QUESTIONS='[
+  {"id": "RCSD-001", "question": "Codebase Map Architecture?"},
+  {"id": "RCSD-002", "question": "Include file content hashes?"},
+  {"id": "RCSD-003", "question": "Incremental update strategy?"}
+]'
+
+# 3. Instantiate protocol document
+source lib/contribution-protocol.sh
+contribution_protocol_instantiate "T2204" "Session A" "$QUESTIONS" > claudedocs/rcsd-protocol.md
+```
+
+### Phase 2: Session Contribution Workflow
+
+Each research session follows this pattern:
+
+```bash
+# 1. Start session with scope
+ct session start --scope epic:T2204 --auto-focus --name "Session B Research"
+
+# 2. Create contribution task
+ct add "Session B: Architecture Analysis" \
+  --parent T2204 \
+  --labels consensus-source \
+  --description "Analyze architecture options with evidence"
+
+# 3. Perform research and document findings
+# ... research work ...
+
+# 4. Create contribution JSON
+cat > .cleo/contributions/T2215.json << 'EOF'
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_b2c3d4e5",
+    "createdAt": "2026-01-26T15:00:00Z",
+    "agentId": "opus-1",
+    "consensusReady": true
+  },
+  "sessionId": "session_20260126_150000_abc123",
+  "epicId": "T2204",
+  "taskId": "T2215",
+  "markerLabel": "consensus-source",
+  "decisions": [...],
+  "conflicts": [...],
+  "status": "complete"
+}
+EOF
+
+# 5. Append to manifest
+echo '{"id":"contrib_b2c3d4e5",...}' >> .cleo/contributions/CONTRIBUTIONS.jsonl
+
+# 6. Complete task
+ct complete T2215
+```
+
+### Phase 3: Conflict Detection Process
+
+```bash
+# 1. Load all contributions for epic
+CONTRIBUTIONS=$(jq -s '.' .cleo/contributions/T220*.json)
+
+# 2. Group decisions by questionId
+GROUPED=$(echo "$CONTRIBUTIONS" | jq '
+  [.[].decisions[]] |
+  group_by(.questionId)
+')
+
+# 3. Identify conflicts (different answers for same question)
+CONFLICTS=$(echo "$GROUPED" | jq '
+  map(select(
+    ([.[].answer] | unique | length) > 1
+  )) |
+  map({
+    questionId: .[0].questionId,
+    positions: map({
+      answer: .answer,
+      confidence: .confidence,
+      agentId: ._meta.agentId
+    })
+  })
+')
+
+echo "$CONFLICTS" | jq '.'
+```
+
+### Phase 4: Consensus Aggregation
+
+```bash
+# Weighted consensus calculation
+jq -s '
+  [.[].decisions[]] |
+  group_by(.questionId) |
+  map({
+    questionId: .[0].questionId,
+    question: .[0].question,
+    consensus: (
+      group_by(.answer) |
+      map({
+        answer: .[0].answer,
+        totalConfidence: ([.[].confidence] | add),
+        count: length
+      }) |
+      sort_by(-.totalConfidence) |
+      .[0]
+    ),
+    totalContributions: length
+  })
+' .cleo/contributions/*.json
+```
+
+---
+
+## JSON Format Reference
+
+> **Authoritative Specification**: [CONTRIBUTION-FORMAT-SPEC.md](../specs/CONTRIBUTION-FORMAT-SPEC.md)
+
+### Contribution Object Structure
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_{8 hex chars}",
+    "protocolVersion": "1.0.0",
+    "createdAt": "ISO-8601 timestamp",
+    "completedAt": "ISO-8601 timestamp | null",
+    "agentId": "opus-1",
+    "checksum": "16 hex chars | null",
+    "consensusReady": true
+  },
+  "sessionId": "session_YYYYMMDD_HHMMSS_6hex",
+  "epicId": "TNNNN",
+  "taskId": "TNNNN",
+  "markerLabel": "consensus-source",
+  "decisions": [...],
+  "conflicts": [...],
+  "researchOutputs": [...],
+  "status": "draft|complete|validated|merged"
+}
+```
+
+### Decision Object Format
+
+```json
+{
+  "questionId": "RCSD-001",
+  "question": "The decision question being answered",
+  "answer": "Concrete, actionable decision",
+  "confidence": 0.85,
+  "rationale": "Reasoning for this decision",
+  "evidence": [
+    {
+      "file": "lib/file-ops.sh",
+      "section": "atomic_write function",
+      "quote": "temp file -> validate -> backup -> rename",
+      "line": 142,
+      "type": "code"
+    }
+  ],
+  "uncertaintyNote": "Note about remaining uncertainty (required if confidence < 0.7)",
+  "alternatives": [
+    {
+      "option": "Alternative considered",
+      "reason": "Why not chosen"
+    }
+  ]
+}
+```
+
+### Confidence Score Semantics
+
+| Range | Level | Meaning | Requirements |
+|-------|-------|---------|--------------|
+| 0.90-1.00 | Very High | Near-certain | MUST have 2+ independent evidence sources |
+| 0.70-0.89 | High | Confident | MUST have at least 1 evidence source |
+| 0.50-0.69 | Medium | Balanced uncertainty | SHOULD include `uncertaintyNote` |
+| 0.30-0.49 | Low | Significant uncertainty | MUST include `uncertaintyNote` |
+| 0.00-0.29 | Tentative | Speculative | MUST include `uncertaintyNote` |
+
+### Evidence Object Format
+
+```json
+{
+  "file": "path/to/file.ext",
+  "section": "Section or function name",
+  "quote": "Exact quote from source (max 500 chars)",
+  "line": 142,
+  "url": "https://example.com/doc#section",
+  "type": "code|documentation|research|external"
+}
+```
+
+**Note**: At least one of `file` or `url` MUST be present.
+
+### Conflict Object Format
+
+```json
+{
+  "questionId": "RCSD-001",
+  "conflictId": "conflict_a1b2c3d4",
+  "severity": "critical|high|medium|low",
+  "conflictType": "contradiction|partial-overlap|scope-difference|priority-difference|evidence-conflict",
+  "thisSession": {
+    "position": "This session's position",
+    "confidence": 0.85,
+    "evidence": [...]
+  },
+  "otherSession": {
+    "sessionId": "session_...",
+    "sessionLabel": "Session A",
+    "contributionId": "contrib_...",
+    "position": "Other session's position",
+    "confidence": 0.75,
+    "evidence": [...]
+  },
+  "rationale": "Why positions differ",
+  "resolution": {
+    "status": "pending|proposed|accepted|rejected",
+    "proposedBy": "opus-1",
+    "proposal": "Proposed resolution",
+    "resolutionType": "merge|choose-a|choose-b|new|defer|escalate"
+  },
+  "requiresConsensus": true,
+  "escalatedToHITL": false
+}
+```
+
+---
+
+## Library Functions
+
+### Existing Functions (lib/contribution-protocol.sh)
+
+#### `contribution_protocol_instantiate()`
+
+Instantiate protocol from template with provided values.
+
+```bash
+source lib/contribution-protocol.sh
+
+# Basic usage
+protocol=$(contribution_protocol_instantiate "T2204" "Session A" "$decisions_json")
+
+# With options
+options='{"epicTitle": "RCSD Integration", "markerLabel": "rcsd-contrib"}'
+protocol=$(contribution_protocol_instantiate "T2204" "Session A" "$decisions_json" "$baseline_json" "$options")
+```
+
+**Parameters**:
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `$1` | string | Yes | Epic ID (e.g., "T2204") |
+| `$2` | string | Yes | Baseline session identifier |
+| `$3` | JSON | Yes | Decision questions array |
+| `$4` | JSON | No | Baseline decisions array |
+| `$5` | JSON | No | Options object |
+
+**Options Fields**:
+- `epicTitle`: Epic title for display
+- `markerLabel`: Label for task discovery
+- `outputDir`: Research output directory
+- `phase`: Project phase
+- `version`: Protocol version
+
+#### `contribution_validate_task()`
+
+Validate task against contribution protocol requirements.
+
+```bash
+source lib/contribution-protocol.sh
+
+# Validate with expected epic and label
+result=$(contribution_validate_task "T2215" "T2204" "consensus-source")
+
+# Check result
+valid=$(echo "$result" | jq -r '.valid')
+if [[ "$valid" == "true" ]]; then
+  echo "Task is valid"
+else
+  echo "Validation errors:"
+  echo "$result" | jq -r '.errors[]'
+fi
+```
+
+**Returns JSON**:
+```json
+{
+  "valid": true,
+  "taskId": "T2215",
+  "errors": [],
+  "warnings": [],
+  "checkedAt": "2026-01-26T15:00:00Z"
+}
+```
+
+#### `contribution_get_injection()`
+
+Get compact injection block for subagent prompts.
+
+```bash
+source lib/contribution-protocol.sh
+
+# Get injection for subagent
+injection=$(contribution_get_injection "T2204" "claudedocs/protocol.md")
+
+# With options
+options='{"markerLabel": "rcsd-contrib", "taskId": "T2215"}'
+injection=$(contribution_get_injection "T2204" "" "$options")
+```
+
+#### `contribution_generate_id()`
+
+Generate unique contribution ID.
+
+```bash
+source lib/contribution-protocol.sh
+
+id=$(contribution_generate_id)
+echo "$id"  # contrib_a1b2c3d4
+```
+
+#### `contribution_create_manifest_entry()`
+
+Create a contribution manifest entry JSON object.
+
+```bash
+source lib/contribution-protocol.sh
+
+entry=$(contribution_create_manifest_entry \
+  "session_20260126_150000_abc123" \
+  "T2204" \
+  "T2215" \
+  "opus-1"
+)
+echo "$entry" | jq '.'
+```
+
+### Planned Functions (T2314, T2315)
+
+#### `contribution_submit()` (T2314)
+
+Submit a complete contribution to the manifest.
+
+```bash
+# Planned API
+contribution_submit \
+  --session "$CLEO_SESSION" \
+  --epic "T2204" \
+  --task "T2215" \
+  --file ".cleo/contributions/T2215.json"
+```
+
+**Behavior**:
+1. Validate contribution against schema
+2. Compute checksum
+3. Append to CONTRIBUTIONS.jsonl manifest
+4. Update task notes with contribution reference
+
+#### `contribution_detect_conflicts()` (T2314)
+
+Detect conflicts between contributions for an epic.
+
+```bash
+# Planned API
+conflicts=$(contribution_detect_conflicts --epic "T2204")
+echo "$conflicts" | jq '.conflictCount'
+```
+
+**Behavior**:
+1. Load all contributions for epic
+2. Group decisions by questionId
+3. Compare answers for semantic conflicts
+4. Return conflict objects with severity ratings
+
+#### `contribution_compute_consensus()` (T2315)
+
+Compute weighted consensus across contributions.
+
+```bash
+# Planned API
+consensus=$(contribution_compute_consensus --epic "T2204")
+echo "$consensus" | jq '.decisions[].verdict'
+```
+
+**Behavior**:
+1. Aggregate all decisions by questionId
+2. Calculate weighted support per answer
+3. Determine verdict (PROVEN/LIKELY/CONTESTED/MINORITY)
+4. Return consensus summary with confidence scores
+
+---
+
+## Skill Usage (Future)
+
+The contribution protocol will be accessible via skill commands:
+
+### `/contribution start`
+
+Initialize contribution tracking for an epic.
+
+```
+/contribution start --epic T2204 --label rcsd-contrib
+```
+
+### `/contribution submit`
+
+Submit contribution from current session.
+
+```
+/contribution submit --task T2215
+```
+
+### `/contribution conflicts`
+
+Show conflicts requiring resolution.
+
+```
+/contribution conflicts --epic T2204
+/contribution conflicts --severity high
+```
+
+### `/contribution status`
+
+Show contribution progress and consensus status.
+
+```
+/contribution status --epic T2204
+```
+
+---
+
+## Examples
+
+### Example 1: RCSD Research Contribution
+
+A research session analyzing codebase map architecture options:
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_f1e2d3c4",
+    "createdAt": "2026-01-26T14:00:00Z",
+    "agentId": "opus-1",
+    "consensusReady": true
+  },
+  "sessionId": "session_20260126_140000_abc123",
+  "epicId": "T2204",
+  "taskId": "T2210",
+  "markerLabel": "rcsd-consensus-contrib",
+  "researchOutputs": [
+    {
+      "filePath": "claudedocs/agent-outputs/2026-01-26_codebase-map-analysis.md",
+      "researchId": "research_a1b2c3d4",
+      "type": "analysis",
+      "title": "Codebase Map Architecture Analysis",
+      "summary": "Comparative analysis of single-file vs split-file architectures"
+    }
+  ],
+  "decisions": [
+    {
+      "questionId": "RCSD-001",
+      "question": "Codebase Map Architecture: Single JSON file or split files?",
+      "answer": "Single .cleo/codebase/codebase-map.json with internal sections",
+      "confidence": 0.85,
+      "rationale": "Single file simplifies atomic updates. CLEO's existing atomic_write pattern handles this well. Split files add merge complexity without proportional benefit.",
+      "evidence": [
+        {
+          "file": "lib/file-ops.sh",
+          "section": "atomic_write function",
+          "line": 142,
+          "quote": "temp file -> validate -> backup -> rename",
+          "type": "code"
+        },
+        {
+          "file": "developer/specifications/FILE-LOCKING",
+          "section": "Part 4: Atomic Operations",
+          "type": "documentation"
+        }
+      ],
+      "alternatives": [
+        {
+          "option": "Split into codebase-map-{type}.json per component",
+          "reason": "Adds merge complexity and race conditions"
+        }
+      ]
+    },
+    {
+      "questionId": "RCSD-002",
+      "question": "Should codebase map include file content hashes?",
+      "answer": "Yes, SHA-256 truncated to 16 hex characters",
+      "confidence": 0.70,
+      "rationale": "Content hashes enable efficient staleness detection without re-parsing.",
+      "evidence": [
+        {
+          "file": "schemas/contribution.schema.json",
+          "section": "_meta.checksum pattern",
+          "type": "code"
+        }
+      ],
+      "uncertaintyNote": "Performance impact at scale (>50K files) not validated"
+    }
+  ],
+  "conflicts": [],
+  "status": "complete"
+}
+```
+
+### Example 2: Feature Planning Contribution
+
+A planning session for a new feature:
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_a2b3c4d5",
+    "createdAt": "2026-01-26T16:00:00Z",
+    "agentId": "sonnet-1",
+    "consensusReady": true
+  },
+  "sessionId": "session_20260126_160000_def456",
+  "epicId": "T2300",
+  "taskId": "T2305",
+  "markerLabel": "feature-planning-contrib",
+  "researchOutputs": [],
+  "decisions": [
+    {
+      "questionId": "FEAT-001",
+      "question": "Should the export command support multiple formats?",
+      "answer": "Yes, support JSON, CSV, and YAML formats with --format flag",
+      "confidence": 0.90,
+      "rationale": "Multiple formats serve different use cases: JSON for API integration, CSV for spreadsheets, YAML for human editing.",
+      "evidence": [
+        {
+          "url": "https://github.com/issues/123",
+          "section": "User request for CSV export",
+          "type": "external"
+        },
+        {
+          "file": "scripts/export.sh",
+          "section": "existing JSON export",
+          "type": "code"
+        }
+      ]
+    },
+    {
+      "questionId": "FEAT-002",
+      "question": "Default export format?",
+      "answer": "JSON (matches existing LLM-agent-first design)",
+      "confidence": 0.95,
+      "rationale": "JSON aligns with CLEO's JSON-first philosophy and enables direct jq processing.",
+      "evidence": [
+        {
+          "file": "developer/specifications/LLM-AGENT-FIRST",
+          "section": "JSON Output Standards",
+          "type": "documentation"
+        }
+      ]
+    }
+  ],
+  "conflicts": [],
+  "status": "complete"
+}
+```
+
+### Example 3: Architecture Decision with Conflict
+
+A contribution that identifies a conflict with a baseline session:
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_c3d4e5f6",
+    "createdAt": "2026-01-26T17:00:00Z",
+    "agentId": "opus-2",
+    "consensusReady": true
+  },
+  "sessionId": "session_20260126_170000_ghi789",
+  "epicId": "T2400",
+  "taskId": "T2410",
+  "markerLabel": "arch-decision-contrib",
+  "baselineReference": {
+    "sessionId": "session_20260126_100000_abc123",
+    "sessionLabel": "Session A",
+    "taskId": "T2405",
+    "contributionId": "contrib_a1b2c3d4"
+  },
+  "researchOutputs": [],
+  "decisions": [
+    {
+      "questionId": "ARCH-001",
+      "question": "Database choice for metadata storage?",
+      "answer": "SQLite with JSON1 extension",
+      "confidence": 0.75,
+      "rationale": "SQLite provides ACID guarantees and query capability without external dependencies. JSON1 extension enables JSON field queries.",
+      "evidence": [
+        {
+          "url": "https://sqlite.org/json1.html",
+          "section": "JSON Functions",
+          "type": "external"
+        }
+      ],
+      "uncertaintyNote": "May be over-engineering for small projects"
+    }
+  ],
+  "conflicts": [
+    {
+      "questionId": "ARCH-001",
+      "conflictId": "conflict_d4e5f6g7",
+      "severity": "high",
+      "conflictType": "contradiction",
+      "thisSession": {
+        "position": "SQLite with JSON1 extension",
+        "confidence": 0.75,
+        "evidence": [
+          {
+            "url": "https://sqlite.org/json1.html",
+            "section": "JSON Functions",
+            "type": "external"
+          }
+        ]
+      },
+      "otherSession": {
+        "sessionId": "session_20260126_100000_abc123",
+        "sessionLabel": "Session A",
+        "contributionId": "contrib_a1b2c3d4",
+        "position": "Plain JSON files with jq queries",
+        "confidence": 0.80,
+        "evidence": [
+          {
+            "file": "lib/file-ops.sh",
+            "section": "atomic_write pattern",
+            "type": "code"
+          }
+        ]
+      },
+      "rationale": "Session A prioritizes simplicity and existing patterns. This session prioritizes query capability and ACID guarantees. Trade-off between complexity and capability.",
+      "resolution": {
+        "status": "proposed",
+        "proposedBy": "opus-2",
+        "proposal": "Use JSON files for v1.0, add SQLite option as configurable backend in v2.0",
+        "resolutionType": "merge"
+      },
+      "requiresConsensus": true,
+      "escalatedToHITL": false
+    }
+  ],
+  "status": "complete"
+}
+```
+
+---
+
+## Troubleshooting
+
+### Common Validation Errors
+
+| Error Code | Message | Fix |
+|------------|---------|-----|
+| `CONTRIB-001` | Task must be child of epic | Use `ct reparent T2215 --to T2204` |
+| `CONTRIB-002` | Task must have marker label | Use `ct update T2215 --labels consensus-source` |
+| `CONTRIB-003` | Description must include Research Outputs section | Update task description |
+| `CONTRIB-005` | All key questions must have decisions | Add missing decisions to contribution |
+| `CONTRIB-007` | Decisions must include rationale and evidence | Complete decision objects |
+
+### Validation Command
+
+```bash
+source lib/contribution-protocol.sh
+result=$(contribution_validate_task "T2215" "T2204" "consensus-source")
+echo "$result" | jq '.'
+```
+
+### Conflict Resolution Patterns
+
+#### Pattern 1: Merge Positions
+
+When both positions have merit, create a combined answer:
+
+```json
+{
+  "resolution": {
+    "status": "proposed",
+    "resolutionType": "merge",
+    "proposal": "Combine approach A's simplicity with approach B's extensibility"
+  }
+}
+```
+
+#### Pattern 2: Choose Based on Confidence
+
+When one position has significantly higher confidence:
+
+```json
+{
+  "resolution": {
+    "status": "proposed",
+    "resolutionType": "choose-a",
+    "proposal": "Accept higher-confidence position (0.90 vs 0.60)"
+  }
+}
+```
+
+#### Pattern 3: Defer Decision
+
+When more information is needed:
+
+```json
+{
+  "resolution": {
+    "status": "proposed",
+    "resolutionType": "defer",
+    "proposal": "Defer until performance testing complete"
+  }
+}
+```
+
+#### Pattern 4: Escalate to HITL
+
+When automated resolution is not possible:
+
+```json
+{
+  "resolution": {
+    "status": "proposed",
+    "resolutionType": "escalate",
+    "proposal": "Requires human decision on business priorities"
+  },
+  "escalatedToHITL": true
+}
+```
+
+### Low Confidence Handling
+
+When confidence is below 0.70, MUST include `uncertaintyNote`:
+
+```json
+{
+  "questionId": "ARCH-003",
+  "answer": "Use event-driven architecture",
+  "confidence": 0.55,
+  "rationale": "Limited exploration time, based on general patterns",
+  "uncertaintyNote": "This is speculative. No implementation analysis performed. Confidence is medium due to time constraints. SHOULD validate with prototype before final decision."
+}
+```
+
+### Checksum Validation
+
+Verify contribution integrity:
+
+```bash
+# Compute checksum (excluding _meta.checksum field)
+jq 'del(._meta.checksum)' .cleo/contributions/T2215.json | sha256sum | cut -c1-16
+
+# Compare with stored checksum
+jq -r '._meta.checksum' .cleo/contributions/T2215.json
+```
+
+---
+
+## Related Documentation
+
+| Document | Relationship |
+|----------|--------------|
+| [CONTRIBUTION-FORMAT-SPEC.md](../specs/CONTRIBUTION-FORMAT-SPEC.md) | **Authoritative** for JSON format |
+| [contribution.schema.json](../../schemas/contribution.schema.json) | **Authoritative** for JSON Schema validation |
+| [CONSENSUS-FRAMEWORK-SPEC.md](../specs/CONSENSUS-FRAMEWORK-SPEC.md) | Consensus voting thresholds |
+| [ORCHESTRATOR-PROTOCOL.md](ORCHESTRATOR-PROTOCOL.md) | Multi-agent coordination patterns |
+
+---
+
+*End of Guide*

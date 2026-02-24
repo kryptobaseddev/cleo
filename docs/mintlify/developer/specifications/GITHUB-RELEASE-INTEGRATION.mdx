@@ -1,0 +1,970 @@
+---
+title: "GitHub Release Integration"
+description: "GitHub release automation and integration specification"
+icon: "github"
+---
+
+# GitHub Release Integration Specification
+
+**Version**: 1.0.0
+**Status**: AUTHORITATIVE
+**Created**: 2026-01-28
+**Related**: RELEASE-MANAGEMENT-SPEC.md, CHANGELOG-GENERATION-SPEC.md
+
+---
+
+## RFC 2119 Conformance
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+"SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+"OPTIONAL" in this document are to be interpreted as described in
+BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in all
+capitals, as shown here.
+
+[RFC 2119]: https://www.rfc-editor.org/rfc/rfc2119
+[RFC 8174]: https://www.rfc-editor.org/rfc/rfc8174.html
+
+---
+
+## Preamble
+
+### Purpose
+
+This specification defines the **GitHub Release Integration Protocol** for CLEO, enabling automatic GitHub Release creation with CHANGELOG.md content extraction via `body_path` parameter in GitHub Actions workflow.
+
+### Authority
+
+This specification is **AUTHORITATIVE** for:
+
+- CHANGELOG.md section extraction algorithm
+- GitHub Actions workflow integration (`release.yml`)
+- `body_path` parameter usage with `softprops/action-gh-release@v2`
+- Fallback strategies for missing/empty changelog sections
+- Hybrid approach (CHANGELOG.md + auto-generated PR list)
+
+This specification **DEFERS TO**:
+
+- [CHANGELOG-GENERATION-SPEC.md](CHANGELOG-GENERATION-SPEC.md) for task→changelog transformation
+- [RELEASE-MANAGEMENT-SPEC.md](RELEASE-MANAGEMENT-SPEC.md) for release lifecycle
+- [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) for JSON output standards
+
+### Consensus Foundation
+
+This specification implements consensus decision from Wave 1 (T2608):
+
+**Decision**: Use `body_path` with CHANGELOG.md extraction (98% confidence)
+
+**Rationale**:
+- Single source of truth (CHANGELOG.md is authoritative)
+- Markdown preservation (all GFM features preserved)
+- Task-based content (aligns with CLEO's task-first philosophy)
+- Hybrid enhancement possible (combine with auto-generated PR list)
+
+### Problem Statement
+
+CLEO needs GitHub Release integration that:
+
+1. **Uses CHANGELOG.md** as single source of truth for release notes
+2. **Extracts version section** dynamically from CHANGELOG.md
+3. **Preserves markdown** formatting (code blocks, task IDs, links)
+4. **Fails gracefully** if extraction fails
+5. **Supports hybrid** approach (CHANGELOG + GitHub PR list)
+
+---
+
+## Part 1: Architecture Overview
+
+### 1.1 Integration Flow
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│              GITHUB RELEASE INTEGRATION FLOW                      │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  TRIGGER: git tag pushed                                         │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  Event: push.tags (v[0-9]+.[0-9]+.[0-9]+)                  │  │
+│  │  Workflow: .github/workflows/release.yml                    │  │
+│  └─────────────────────┬──────────────────────────────────────┘  │
+│                        │                                          │
+│                        ▼                                          │
+│  EXTRACTION                                                      │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  extract_changelog_section()                                │  │
+│  │  - Parse CHANGELOG.md                                       │  │
+│  │  - Find version section (## [vX.Y.Z])                       │  │
+│  │  - Extract content until next section                       │  │
+│  │  - Write to temp file (release-notes.txt)                   │  │
+│  └─────────────────────┬──────────────────────────────────────┘  │
+│                        │                                          │
+│                        ▼                                          │
+│  VALIDATION                                                      │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  Check: file exists, non-empty, valid markdown             │  │
+│  │  On failure: Use fallback strategy                          │  │
+│  └─────────────────────┬──────────────────────────────────────┘  │
+│                        │                                          │
+│                        ▼                                          │
+│  GITHUB RELEASE                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  softprops/action-gh-release@v2                             │  │
+│  │  - body_path: release-notes.txt                             │  │
+│  │  - generate_release_notes: true (optional)                  │  │
+│  │  - append_body: true (hybrid mode)                          │  │
+│  │  - files: tarball, install.sh, SHA256SUMS                   │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 1.2 Key Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Workflow** | `.github/workflows/release.yml` | GitHub Actions orchestration |
+| **Extraction Function** | `lib/changelog.sh:extract_changelog_section()` | Parse CHANGELOG.md |
+| **Temp File** | `release-notes.txt` | Extracted section (workflow artifact) |
+| **GitHub Action** | `softprops/action-gh-release@v2` | Create GitHub Release |
+
+---
+
+## Part 2: CHANGELOG.md Section Extraction
+
+### 2.1 Extraction Algorithm
+
+**Function signature**:
+```bash
+extract_changelog_section(version, changelog_file, output_file)
+```
+
+**Implementation** (add to `lib/changelog.sh`):
+
+```bash
+#!/usr/bin/env bash
+
+# extract_changelog_section - Extract version section from CHANGELOG.md
+#
+# Args:
+#   $1 - version (e.g., "v0.75.0" or "0.75.0")
+#   $2 - (optional) changelog file path (default: CHANGELOG.md)
+#   $3 - (optional) output file path (default: stdout)
+#
+# Returns:
+#   0 - Success (section extracted)
+#   1 - Version section not found in changelog
+#   2 - Section is empty (whitespace only)
+#
+# Example:
+#   extract_changelog_section "v0.75.0" "CHANGELOG.md" "release-notes.txt"
+extract_changelog_section() {
+    local version="$1"
+    local changelog="${2:-CHANGELOG.md}"
+    local output="${3:--}"
+
+    # Normalize version (remove 'v' prefix if present)
+    local version_normalized="${version#v}"
+
+    # Extract section using awk
+    local section_content
+    section_content=$(awk -v ver="$version_normalized" '
+        # Match version header (with or without "v" prefix)
+        /^## \[(v)?'"$version_normalized"'\]/ {
+            found=1
+            next
+        }
+
+        # Stop at next version section
+        found && /^## \[/ {
+            exit
+        }
+
+        # Print lines while in target section
+        found {
+            print
+        }
+    ' "$changelog")
+
+    # Check if section was found
+    if [[ -z "$section_content" ]]; then
+        echo "ERROR: Changelog section for version $version not found" >&2
+        return 1
+    fi
+
+    # Check if section is not empty (after trimming whitespace)
+    if [[ "$section_content" =~ ^[[:space:]]*$ ]]; then
+        echo "ERROR: Changelog section for $version is empty" >&2
+        return 2
+    fi
+
+    # Write to output
+    if [[ "$output" == "-" ]]; then
+        echo "$section_content"
+    else
+        echo "$section_content" > "$output"
+    fi
+
+    return 0
+}
+```
+
+### 2.2 Extraction Rules
+
+**MUST match** version headers:
+- With `v` prefix: `## [v0.75.0]`
+- Without `v` prefix: `## [0.75.0]`
+- Case-sensitive exact match
+
+**MUST extract** content:
+- Start: Line AFTER version header
+- End: Line BEFORE next `## [` header OR EOF
+- Include: All markdown formatting, whitespace
+
+**MUST NOT include**:
+- Version header itself
+- Next section's header
+- Content from other sections
+
+### 2.3 Edge Cases
+
+#### Case 1: Version Not Found
+
+**Input**:
+```markdown
+## [v0.74.0] - 2026-01-20
+...
+
+## [v0.75.0] - 2026-01-28
+...
+```
+
+**Request**: Extract `v0.76.0` (doesn't exist)
+
+**Behavior**:
+- Return exit code 1
+- Error message: "Changelog section for version v0.76.0 not found"
+- Do NOT create GitHub Release
+
+---
+
+#### Case 2: Empty Section
+
+**Input**:
+```markdown
+## [v0.75.0] - 2026-01-28
+
+## [v0.74.0] - 2026-01-20
+...
+```
+
+**Behavior**:
+- Return exit code 2
+- Error message: "Changelog section for v0.75.0 is empty"
+- Use fallback strategy
+
+---
+
+#### Case 3: Last Section in File
+
+**Input**:
+```markdown
+## [v0.74.0] - 2026-01-20
+...
+
+## [v0.75.0] - 2026-01-28
+
+### Features
+- New feature (T2058)
+```
+(EOF)
+
+**Behavior**:
+- Extract until EOF
+- Include all content after header
+
+---
+
+#### Case 4: Special Characters in Content
+
+**Input**:
+```markdown
+## [v0.75.0] - 2026-01-28
+
+### Features
+- Add `$variable` support (T2058)
+- Fix \`code\` blocks (T2059)
+```
+
+**Behavior**:
+- Preserve all special characters
+- No shell expansion
+- No escape sequence processing
+- Output identical to input (byte-for-byte)
+
+---
+
+## Part 3: GitHub Actions Workflow Integration
+
+### 3.1 Workflow Updates
+
+**File**: `.github/workflows/release.yml`
+
+**Add extraction step** (before "Create GitHub Release"):
+
+```yaml
+- name: Extract changelog section
+  id: changelog
+  run: |
+    VERSION="${{ steps.version.outputs.version }}"
+
+    # Source changelog extraction function
+    source lib/changelog.sh
+
+    # Extract section to temp file
+    if extract_changelog_section "v$VERSION" "CHANGELOG.md" "release-notes.txt"; then
+      echo "✓ Extracted changelog for v$VERSION"
+      echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
+      echo "exists=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "⚠ Failed to extract changelog for v$VERSION"
+      echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      # Create fallback content
+      cat > release-notes.txt << EOF
+Release v$VERSION
+
+See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+EOF
+      echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
+    fi
+```
+
+### 3.2 Updated Release Step
+
+**Replace**:
+```yaml
+- name: Create GitHub Release
+  uses: softprops/action-gh-release@v2
+  with:
+    generate_release_notes: true
+    files: |
+      cleo-${{ steps.version.outputs.version }}.tar.gz
+      install.sh
+      SHA256SUMS
+    fail_on_unmatched_files: true
+```
+
+**With**:
+```yaml
+- name: Create GitHub Release
+  uses: softprops/action-gh-release@v2
+  with:
+    body_path: ${{ steps.changelog.outputs.path }}
+    generate_release_notes: true
+    append_body: true
+    files: |
+      cleo-${{ steps.version.outputs.version }}.tar.gz
+      install.sh
+      SHA256SUMS
+    fail_on_unmatched_files: true
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+**Key changes**:
+1. **Added**: `body_path` parameter (extracted CHANGELOG.md section)
+2. **Kept**: `generate_release_notes: true` (GitHub PR list)
+3. **Added**: `append_body: true` (hybrid mode - CHANGELOG + PR list)
+
+### 3.3 Parameters Explained
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| `body_path` | `release-notes.txt` | Primary content (CHANGELOG.md section) |
+| `generate_release_notes` | `true` | Secondary content (GitHub PR list) |
+| `append_body` | `true` | Combine both sources |
+| `files` | Tarball, installer, checksums | Release artifacts |
+| `fail_on_unmatched_files` | `true` | Error if files missing |
+
+---
+
+## Part 4: Fallback Strategies
+
+### 4.1 Fallback Hierarchy
+
+**Strategy 1: CHANGELOG.md extraction** (PRIMARY)
+- Use `body_path` with extracted section
+- Highest quality (task-based categorization)
+
+**Strategy 2: Fallback content** (SECONDARY)
+- Simple message with link to CHANGELOG.md
+- Used when extraction fails
+
+**Strategy 3: GitHub auto-generation** (TERTIARY)
+- `generate_release_notes: true` (always enabled)
+- Provides PR list regardless
+
+### 4.2 Fallback Implementation
+
+```yaml
+- name: Extract changelog section
+  id: changelog
+  run: |
+    VERSION="${{ steps.version.outputs.version }}"
+    source lib/changelog.sh
+
+    if extract_changelog_section "v$VERSION" "CHANGELOG.md" "release-notes.txt"; then
+      echo "✓ Extracted changelog successfully"
+      echo "exists=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "⚠ Extraction failed - using fallback"
+      echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      # FALLBACK: Simple content with link
+      cat > release-notes.txt << EOF
+Release v$VERSION
+
+See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for full release notes.
+EOF
+    fi
+
+    echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
+```
+
+**Result**: GitHub Release always has SOME content (never empty)
+
+### 4.3 Error Handling
+
+**On extraction failure**:
+- Log warning (not error - don't fail CI)
+- Use fallback content
+- Continue with release creation
+- GitHub Release still created
+
+**When to fail CI**:
+- ONLY if release creation itself fails
+- NOT if changelog extraction fails
+
+---
+
+## Part 5: Hybrid Approach
+
+### 5.1 Rationale
+
+**Combine two sources**:
+1. **CHANGELOG.md** (task-based categorization)
+2. **GitHub PR list** (contributor credits, PR links)
+
+**Result**: Best of both worlds
+
+### 5.2 Output Format
+
+**GitHub Release body**:
+
+```markdown
+## [v0.75.0] - 2026-01-28
+
+### Features
+- Add metadata fields to schema (T2058)
+- Update validation rules (T2059)
+
+### Bug Fixes
+- Fix context alert handling (T2548)
+
+---
+
+## What's Changed
+* Add metadata fields by @user in #45
+* Update validation rules by @user in #46
+* Fix context alert by @user in #47
+
+**Full Changelog**: https://github.com/user/repo/compare/v0.74.2...v0.75.0
+```
+
+**Sections**:
+1. **CHANGELOG.md content** (above `---` separator)
+2. **GitHub PR list** (below `---` separator)
+
+### 5.3 Implementation
+
+**Enable via parameters**:
+
+```yaml
+body_path: release-notes.txt        # CHANGELOG.md section
+generate_release_notes: true        # GitHub PR list
+append_body: true                   # Combine both
+```
+
+**Separator**: GitHub automatically adds `---` between body and generated notes
+
+---
+
+## Part 6: Markdown Preservation
+
+### 6.1 Supported Markdown Features
+
+**Verified via T2604 research**:
+
+| Feature | Example | Preserved |
+|---------|---------|-----------|
+| Headers | `### Features` | ✅ Yes |
+| Lists | `- Item` | ✅ Yes |
+| Bold/Italic | `**bold**`, `*italic*` | ✅ Yes |
+| Inline code | `` `code` `` | ✅ Yes |
+| Code blocks | ` ```bash ` | ✅ Yes |
+| Links | `[text](url)` | ✅ Yes |
+| Task IDs | `(T2058)` | ✅ Yes |
+| Special chars | `$variable` | ✅ Yes |
+
+**All GFM features** supported by `body_path` parameter
+
+### 6.2 No Transformation Required
+
+**Input** (CHANGELOG.md):
+```markdown
+### Features
+- Add `$variable` support (T2058)
+  ```bash
+  echo "$var"
+  ```
+```
+
+**Output** (GitHub Release body):
+```markdown
+### Features
+- Add `$variable` support (T2058)
+  ```bash
+  echo "$var"
+  ```
+```
+
+**Behavior**: Byte-for-byte identical (no processing)
+
+---
+
+## Part 7: Testing Strategy
+
+### 7.1 Unit Tests
+
+**Add to**: `tests/unit/changelog.bats`
+
+```bats
+@test "extract_changelog_section: standard version" {
+  # Setup
+  cat > test-changelog.md << 'EOF'
+## [0.75.0] - 2026-01-28
+
+### Features
+- New feature (T2058)
+
+## [0.74.0] - 2026-01-20
+...
+EOF
+
+  # Execute
+  run extract_changelog_section "v0.75.0" "test-changelog.md"
+
+  # Assert
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "### Features" ]]
+  [[ "$output" =~ "(T2058)" ]]
+  [[ ! "$output" =~ "## [0.74.0]" ]]
+}
+
+@test "extract_changelog_section: version not found" {
+  cat > test-changelog.md << 'EOF'
+## [0.74.0] - 2026-01-20
+...
+EOF
+
+  run extract_changelog_section "v0.75.0" "test-changelog.md"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "not found" ]]
+}
+
+@test "extract_changelog_section: empty section" {
+  cat > test-changelog.md << 'EOF'
+## [0.75.0] - 2026-01-28
+
+## [0.74.0] - 2026-01-20
+...
+EOF
+
+  run extract_changelog_section "v0.75.0" "test-changelog.md"
+
+  [ "$status" -eq 2 ]
+  [[ "$output" =~ "empty" ]]
+}
+
+@test "extract_changelog_section: special characters preserved" {
+  cat > test-changelog.md << 'EOF'
+## [0.75.0] - 2026-01-28
+
+- Add `$variable` support
+- Fix \`code\` blocks
+EOF
+
+  run extract_changelog_section "v0.75.0" "test-changelog.md" "-"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ '\$variable' ]]
+  [[ "$output" =~ '\\`code\\`' ]]
+}
+```
+
+### 7.2 Integration Tests
+
+**Add to**: `tests/integration/github-release.bats`
+
+```bats
+@test "GitHub Actions workflow: extraction step" {
+  # Simulate workflow environment
+  export VERSION="0.75.0"
+
+  # Run extraction step
+  source lib/changelog.sh
+  run extract_changelog_section "v$VERSION" "CHANGELOG.md" "release-notes.txt"
+
+  # Verify
+  [ "$status" -eq 0 ]
+  [ -f "release-notes.txt" ]
+  [ -s "release-notes.txt" ]  # Non-empty
+}
+
+@test "GitHub Actions workflow: fallback content" {
+  # Test with non-existent version
+  export VERSION="99.99.99"
+
+  # Run extraction (should fail gracefully)
+  source lib/changelog.sh
+  if ! extract_changelog_section "v$VERSION" "CHANGELOG.md" "release-notes.txt"; then
+    # Create fallback
+    echo "Release v$VERSION" > release-notes.txt
+  fi
+
+  # Verify fallback exists
+  [ -f "release-notes.txt" ]
+  [ -s "release-notes.txt" ]
+}
+```
+
+### 7.3 Manual Testing
+
+**Test with real CHANGELOG.md**:
+
+```bash
+# Test extraction
+source lib/changelog.sh
+extract_changelog_section "v0.74.4" "CHANGELOG.md" "test-output.txt"
+
+# Verify output
+cat test-output.txt
+
+# Check markdown rendering (GitHub preview)
+gh release create v0.75.0-test --notes-file test-output.txt --draft
+```
+
+---
+
+## Part 8: Performance Considerations
+
+### 8.1 Complexity Analysis
+
+| Operation | Complexity | Benchmark (100 versions) |
+|-----------|------------|--------------------------|
+| File read | O(n) lines | <10ms |
+| Regex match | O(n) lines | <5ms |
+| Write output | O(m) lines | <5ms |
+| **Total** | **O(n)** | **<20ms** |
+
+**Acceptable**: <100ms for 1000-version changelog (unlikely scenario)
+
+### 8.2 Optimization Opportunities
+
+**Current**: Read entire CHANGELOG.md
+
+**Future optimization** (if needed):
+- Stop reading after target section found
+- Use binary search for version (if sorted)
+- Cache parsed changelog
+
+**Note**: Unnecessary for current use (20-line awk script is fast enough)
+
+---
+
+## Part 9: Security Considerations
+
+### 9.1 Shell Injection Prevention
+
+**MUST use** proper quoting:
+
+```bash
+# GOOD: Properly quoted
+extract_changelog_section "$version" "$changelog" "$output"
+
+# BAD: Unquoted (shell injection risk)
+extract_changelog_section $version $changelog $output
+```
+
+### 9.2 File Permissions
+
+**MUST ensure** temp file permissions:
+
+```bash
+# Create temp file with restricted permissions
+umask 077
+touch release-notes.txt
+```
+
+**Rationale**: Prevent info disclosure in shared CI environments
+
+### 9.3 Content Sanitization
+
+**MUST NOT sanitize** markdown content:
+- No HTML stripping
+- No script tag removal
+- No special character escaping
+
+**Rationale**: GitHub sanitizes content server-side (trusted platform)
+
+---
+
+## Part 10: Implementation Checklist
+
+### 10.1 Code Changes
+
+- [ ] Add `extract_changelog_section()` to `lib/changelog.sh`
+- [ ] Add unit tests to `tests/unit/changelog.bats`
+- [ ] Add integration tests to `tests/integration/github-release.bats`
+- [ ] Update `.github/workflows/release.yml`:
+  - [ ] Add extraction step
+  - [ ] Update release step with `body_path`
+  - [ ] Enable `append_body: true`
+  - [ ] Add fallback content
+
+### 10.2 Documentation Updates
+
+- [ ] Update README.md with GitHub Release integration
+- [ ] Update CHANGELOG.md format documentation
+- [ ] Add workflow troubleshooting guide
+- [ ] Document fallback strategies
+
+### 10.3 Testing Requirements
+
+- [ ] Unit tests for extraction function (4+ test cases)
+- [ ] Integration tests for workflow (2+ scenarios)
+- [ ] Manual test with real CHANGELOG.md
+- [ ] Manual test with draft GitHub Release
+
+---
+
+## Part 11: Examples
+
+### 11.1 Full Workflow Example
+
+**1. Generate changelog**:
+```bash
+cleo release ship v0.75.0 --create-tag --push
+# Generates CHANGELOG.md entry automatically
+```
+
+**2. GitHub Actions extracts section**:
+```yaml
+- name: Extract changelog section
+  run: |
+    source lib/changelog.sh
+    extract_changelog_section "v0.75.0" "CHANGELOG.md" "release-notes.txt"
+```
+
+**3. GitHub Release created**:
+- **Body**: CHANGELOG.md section + GitHub PR list
+- **Files**: Tarball, installer, checksums
+- **Tag**: v0.75.0
+
+### 11.2 Extraction Examples
+
+**Extract to stdout**:
+```bash
+extract_changelog_section "v0.75.0" "CHANGELOG.md"
+```
+
+**Extract to file**:
+```bash
+extract_changelog_section "v0.75.0" "CHANGELOG.md" "release-notes.txt"
+```
+
+**Handle errors**:
+```bash
+if ! extract_changelog_section "v0.75.0" "CHANGELOG.md" "release-notes.txt"; then
+  echo "Extraction failed - using fallback"
+  echo "Release v0.75.0" > release-notes.txt
+fi
+```
+
+---
+
+## Appendix A: Complete Workflow
+
+**File**: `.github/workflows/release.yml` (updated)
+
+```yaml
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building release for version: $VERSION"
+
+      - name: Validate required files exist
+        run: |
+          for path in scripts lib schemas templates skills installer completions docs VERSION LICENSE README.md install.sh; do
+            if [[ ! -e "$path" ]]; then
+              echo "ERROR: Required path missing: $path"
+              exit 1
+            fi
+          done
+          echo "All required files present"
+
+      - name: Build runtime tarball
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARBALL="cleo-${VERSION}.tar.gz"
+
+          mkdir -p "staging/cleo-${VERSION}"
+          cp -r scripts lib schemas templates skills installer completions docs VERSION LICENSE README.md "staging/cleo-${VERSION}/"
+          find "staging/cleo-${VERSION}" -name "*.sh" -exec chmod +x {} \;
+
+          tar -czvf "$TARBALL" -C staging "cleo-${VERSION}"
+          echo "Created: $TARBALL"
+          ls -lh "$TARBALL"
+
+      - name: Prepare standalone installer
+        run: |
+          chmod +x install.sh
+          echo "Standalone installer ready: $(wc -l < install.sh) lines"
+
+      - name: Generate checksums
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARBALL="cleo-${VERSION}.tar.gz"
+          sha256sum "$TARBALL" install.sh > SHA256SUMS
+          echo "Checksums:"
+          cat SHA256SUMS
+
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          source lib/changelog.sh
+
+          if extract_changelog_section "v$VERSION" "CHANGELOG.md" "release-notes.txt"; then
+            echo "✓ Extracted changelog for v$VERSION"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠ Failed to extract changelog - using fallback"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            cat > release-notes.txt << EOF
+Release v$VERSION
+
+See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+EOF
+          fi
+
+          echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ steps.changelog.outputs.path }}
+          generate_release_notes: true
+          append_body: true
+          files: |
+            cleo-${{ steps.version.outputs.version }}.tar.gz
+            install.sh
+            SHA256SUMS
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+---
+
+## Appendix B: Extraction Function Reference
+
+**Full implementation** (add to `lib/changelog.sh`):
+
+```bash
+#!/usr/bin/env bash
+
+extract_changelog_section() {
+    local version="$1"
+    local changelog="${2:-CHANGELOG.md}"
+    local output="${3:--}"
+
+    local version_normalized="${version#v}"
+
+    local section_content
+    section_content=$(awk -v ver="$version_normalized" '
+        /^## \[(v)?'"$version_normalized"'\]/ { found=1; next }
+        found && /^## \[/ { exit }
+        found { print }
+    ' "$changelog")
+
+    if [[ -z "$section_content" ]]; then
+        echo "ERROR: Changelog section for version $version not found" >&2
+        return 1
+    fi
+
+    if [[ "$section_content" =~ ^[[:space:]]*$ ]]; then
+        echo "ERROR: Changelog section for $version is empty" >&2
+        return 2
+    fi
+
+    if [[ "$output" == "-" ]]; then
+        echo "$section_content"
+    else
+        echo "$section_content" > "$output"
+    fi
+
+    return 0
+}
+```
+
+**Exit codes**:
+- `0` - Success (section extracted)
+- `1` - Version not found
+- `2` - Section empty
+
+---
+
+## Appendix C: References
+
+- **Epic**: T2602 (CLEO Changesets)
+- **Research**: T2604 (GitHub Actions deep dive - primary evidence)
+- **Consensus**: T2608 (GitHub Release body strategy - 98% confidence)
+- **Specs**: CHANGELOG-GENERATION-SPEC.md, RELEASE-MANAGEMENT-SPEC.md
+- **Implementation**: `lib/changelog.sh`, `.github/workflows/release.yml`
+- **Action**: [softprops/action-gh-release@v2](https://github.com/softprops/action-gh-release)
+
+---
+
+**END OF SPECIFICATION**

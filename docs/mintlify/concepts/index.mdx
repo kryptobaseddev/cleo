@@ -1,0 +1,45 @@
+---
+title: "Concepts"
+description: "Core concepts and architecture of CLEO"
+icon: "lightbulb"
+---
+
+# Concepts
+
+Understand the principles and architecture behind CLEO.
+
+<CardGroup cols={2}>
+  <Card title="Vision" icon="eye" href="/concepts/vision">
+    CLEO's mission and philosophy
+  </Card>
+  <Card title="Task Hierarchy" icon="sitemap" href="/concepts/task-hierarchy">
+    Epic → Task → Subtask structure
+  </Card>
+  <Card title="Sessions" icon="clock" href="/concepts/sessions">
+    Multi-session architecture
+  </Card>
+  <Card title="Phases" icon="flag" href="/concepts/phases">
+    Project phase management
+  </Card>
+</CardGroup>
+
+## Architecture
+
+<CardGroup cols={2}>
+  <Card title="Data Flows" icon="arrows-rotate" href="/concepts/data-flows">
+    How data moves through CLEO
+  </Card>
+  <Card title="Anti-Hallucination" icon="shield" href="/concepts/anti-hallucination">
+    Validation and integrity checks
+  </Card>
+</CardGroup>
+
+## Key Principles
+
+| Principle | Description |
+|-----------|-------------|
+| **JSON First** | All output is structured JSON when piped |
+| **Atomic Operations** | All writes use temp→validate→backup→rename |
+| **Anti-Hallucination** | Schema validation on every operation |
+| **Context Persistence** | State survives across conversations |
+| **No Time Estimates** | Focus on scope, not duration |

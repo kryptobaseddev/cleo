@@ -1,0 +1,219 @@
+---
+title: "Protocol Injection Flow"
+description: "How protocols are loaded, combined, and injected into subagent prompts"
+---
+
+# Protocol Injection Flow
+
+**Version**: 1.0.0 | **Status**: ACTIVE
+
+This document describes how protocols are loaded, combined, and injected into subagent prompts.
+
+## Overview
+
+```
+Task Request
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 1. Skill Selection                  │
+│    skill_auto_dispatch(task_id)     │
+│    → Returns: ct-research-agent     │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 2. Template Loading                 │
+│    Load skills/ct-{skill}/SKILL.md  │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 3. Base Protocol Loading            │
+│    Load _shared/subagent-protocol-  │
+│    base.md (OUT-001 to OUT-004)     │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 4. Conditional Protocol Loading     │
+│    Load applicable protocols based  │
+│    on task context                  │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 5. Token Resolution                 │
+│    ti_set_full_context()            │
+│    Replace all {{TOKENS}}           │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 6. Prompt Assembly                  │
+│    Combine: skill + base + cond.    │
+│    + resolved tokens                │
+└─────────────────────────────────────┘
+    │
+    ▼
+Combined Prompt → cleo-subagent
+```
+
+## Step 1: Skill Selection
+
+The dispatch algorithm selects the appropriate skill:
+
+```bash
+skill_auto_dispatch("T1234")
+# Checks: category → type → keywords → labels → default
+# Returns: skill name (e.g., "ct-research-agent")
+```
+
+See [SKILL-DISPATCH-ALGORITHM.md](./SKILL-DISPATCH-ALGORITHM.md) for details.
+
+## Step 2: Template Loading
+
+Load the skill's SKILL.md template:
+
+```bash
+# Path: skills/ct-{skill}/SKILL.md
+template=$(cat "skills/ct-research-agent/SKILL.md")
+```
+
+The template contains:
+- Skill purpose and capabilities
+- Methodology instructions
+- Token placeholders (e.g., `{{TASK_ID}}`)
+
+## Step 3: Base Protocol Loading
+
+Always loaded for every subagent:
+
+```bash
+# Path: skills/_shared/subagent-protocol-base.md
+base_protocol=$(cat "skills/_shared/subagent-protocol-base.md")
+```
+
+**Base Protocol Rules (OUT-001 to OUT-004):**
+
+| Rule | Requirement |
+|------|-------------|
+| OUT-001 | MUST write output to `claudedocs/agent-outputs/` |
+| OUT-002 | MUST append ONE line to `MANIFEST.jsonl` |
+| OUT-003 | MUST return summary message only |
+| OUT-004 | MUST NOT return content in response |
+
+## Step 4: Conditional Protocol Loading
+
+Loaded based on task context:
+
+| Protocol | Trigger Condition |
+|----------|-------------------|
+| **Task Lifecycle** | Always (task system integration) |
+| **Research Linking** | Task has research dependencies |
+| **Verification Gates** | Task requires verification |
+| **Phase Awareness** | Project has phase tracking |
+| **Dependency Context** | Task has dependencies |
+| **Error Handling** | Always (fallback behavior) |
+| **Session Integration** | Session is active |
+
+```bash
+# Example: Load verification gates if task needs verification
+if task_requires_verification "$task_id"; then
+    conditional+=$(cat "skills/_shared/verification-gates.md")
+fi
+```
+
+## Step 5: Token Resolution
+
+Replace all `{{TOKEN}}` placeholders with values:
+
+```bash
+ti_set_full_context "$task_id"
+```
+
+**Token Categories:**
+
+| Category | Tokens | Source |
+|----------|--------|--------|
+| **Task** | `{{TASK_ID}}`, `{{TASK_TITLE}}`, `{{TASK_DESCRIPTION}}` | Task data |
+| **Context** | `{{EPIC_ID}}`, `{{SESSION_ID}}`, `{{DATE}}` | Session/environment |
+| **Output** | `{{OUTPUT_FILE}}`, `{{TOPIC_SLUG}}` | Generated |
+| **Manifest** | `{{MANIFEST_SUMMARIES}}`, `{{PRIOR_RESEARCH}}` | MANIFEST.jsonl |
+
+**Resolution Process:**
+
+```bash
+# 1. Load token definitions
+_ti_load_tokens_from_json()
+
+# 2. Set task-specific values
+TI_TASK_ID="T1234"
+TI_TASK_TITLE="Research authentication"
+TI_DATE="2026-01-27"
+
+# 3. Pattern substitution (bash parameter expansion)
+output="${template//\{\{TASK_ID\}\}/$TI_TASK_ID}"
+```
+
+## Step 6: Prompt Assembly
+
+Combine all components:
+
+```bash
+final_prompt="$skill_template
+
+$base_protocol
+
+$conditional_protocols
+
+## Task Context
+- Task ID: $TI_TASK_ID
+- Session: $TI_SESSION_ID
+- Date: $TI_DATE
+"
+```
+
+## Output Structure
+
+The assembled prompt is returned as JSON:
+
+```json
+{
+  "success": true,
+  "result": {
+    "taskId": "T1234",
+    "template": "ct-research-agent",
+    "topicSlug": "research-authentication",
+    "outputFile": "2026-01-27_research-authentication.md",
+    "spawnTimestamp": "2026-01-27T12:00:00Z",
+    "instruction": "Use Task tool to spawn subagent with the following prompt:",
+    "prompt": "... combined prompt content ..."
+  }
+}
+```
+
+## Error Handling
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| Empty prompt | Token injection failed | Check required tokens set |
+| Missing template | Skill not found | Verify skill exists in manifest |
+| Validation error | Invalid token patterns | Check token format |
+
+## Debugging
+
+```bash
+# Enable verbose token injection
+export TI_DEBUG=1
+cleo orchestrator spawn T1234
+
+# Check token values
+ti_list_tokens
+```
+
+## Related
+
+- [Skill Dispatch Algorithm](./SKILL-DISPATCH-ALGORITHM.md)
+- [Manifest Schema](./MANIFEST-SCHEMA.md)
+- [Skill Development Guide](./skill-development.md)

@@ -1,0 +1,481 @@
+---
+title: "RCSD-IVTR Protocol Stack"
+description: "Complete guide to CLEO's 9-protocol system for structured agent workflows"
+version: "1.0.0"
+status: "authoritative"
+lastUpdated: "2026-01-28"
+tasks: ["T2602", "T2678", "T2679"]
+---
+
+# RCSD-IVTR Protocol Stack
+
+CLEO implements a **9-protocol system** that structures all agent work through predictable, validated stages. This ensures quality, traceability, and reproducibility across autonomous agent workflows.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           RCSD-IVTR PIPELINE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  RCSD (Setup Phase)                                                         │
+│  ┌─────────┐   ┌───────────┐   ┌───────────────┐   ┌──────────────┐        │
+│  │Research │──►│ Consensus │──►│ Specification │──►│Decomposition │        │
+│  │  (R)    │   │    (C)    │   │      (S)      │   │     (D)      │        │
+│  └─────────┘   └───────────┘   └───────────────┘   └──────┬───────┘        │
+│                                                           │                 │
+│  ─────────────────────────────────────────────────────────┼─────────────── │
+│                                                           │                 │
+│  IVTR (Execution Phase)                                   ▼                 │
+│  ┌────────────────┐   ┌────────────┐   ┌─────────┐   ┌─────────┐           │
+│  │ Implementation │──►│ Validation │──►│ Testing │──►│ Release │           │
+│  │      (I)       │   │    (V)     │   │   (T)   │   │   (R)   │           │
+│  └────────────────┘   └────────────┘   └─────────┘   └─────────┘           │
+│                                                                             │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│                                                                             │
+│  Cross-Cutting: Contribution Protocol (X)                                   │
+│  └── Applies across ALL stages for attribution and multi-agent tracking    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## The 9 Protocols
+
+### RCSD Phase (Setup)
+
+The RCSD phase establishes **what** to build before any code is written.
+
+| Stage | Protocol | Purpose | Key Output |
+|-------|----------|---------|------------|
+| **R** | `research.md` | Information gathering | Findings, recommendations |
+| **C** | `consensus.md` | Decision validation | Votes, confidence scores |
+| **S** | `specification.md` | Formal requirements | RFC 2119 spec documents |
+| **D** | `decomposition.md` | Work breakdown | Atomic tasks with dependencies |
+
+### IVTR Phase (Execution)
+
+The IVTR phase **builds, validates, and ships** the decomposed work.
+
+| Stage | Protocol | Purpose | Key Output |
+|-------|----------|---------|------------|
+| **I** | `implementation.md` | Code creation | Working code with tests |
+| **V** | `validation.md` | Correctness checking | Validation report |
+| **T** | `testing.md` | Formal test suites | BATS tests, coverage |
+| **R** | `release.md` | Version and ship | Tagged release, changelog |
+
+### Cross-Cutting
+
+| Protocol | Purpose | Applies To |
+|----------|---------|------------|
+| **X** | `contribution.md` | Attribution tracking | All stages |
+
+---
+
+## Protocol Details
+
+### 1. Research Protocol (R)
+
+**File**: `protocols/research.md`
+**Trigger Keywords**: research, investigate, explore, analyze, study
+
+**Purpose**: Gather information before making decisions. Prevents premature implementation.
+
+**Key Requirements**:
+- RSCH-001: MUST NOT modify code during research
+- RSCH-002: MUST output findings to MANIFEST.jsonl
+- RSCH-003: MUST cite sources for claims
+
+**Exit Code**: `60` (EXIT_PROTOCOL_RESEARCH)
+
+**Example Task**: "Research OAuth patterns for authentication system"
+
+---
+
+### 2. Consensus Protocol (C)
+
+**File**: `protocols/consensus.md`
+**Trigger Keywords**: vote, validate, consensus, decide, agree
+
+**Purpose**: Validate recommendations and make evidence-based decisions.
+
+**Key Requirements**:
+- CONS-001: MUST include confidence score (0.0-1.0)
+- CONS-002: MUST document voting rationale
+- CONS-003: Threshold: 3/5 agents OR 50%+ confidence
+
+**Exit Code**: `61` (EXIT_PROTOCOL_CONSENSUS)
+
+**Example Task**: "Vote on authentication strategy (JWT vs sessions)"
+
+---
+
+### 3. Specification Protocol (S)
+
+**File**: `protocols/specification.md`
+**Trigger Keywords**: spec, rfc, protocol, contract, define
+
+**Purpose**: Create formal, testable requirements using RFC 2119 language.
+
+**Key Requirements**:
+- SPEC-001: MUST use RFC 2119 keywords (MUST, SHOULD, MAY)
+- SPEC-002: MUST include version number
+- SPEC-003: MUST be testable/verifiable
+
+**Exit Code**: `62` (EXIT_PROTOCOL_SPECIFICATION)
+
+**Example Task**: "Write AUTH-SYSTEM-SPEC.md with security requirements"
+
+---
+
+### 4. Decomposition Protocol (D)
+
+**File**: `protocols/decomposition.md`
+**Trigger Keywords**: epic, plan, decompose, architect, design
+
+**Purpose**: Break complex work into atomic, parallelizable tasks.
+
+**Key Requirements**:
+- DCMP-001: Max depth 3 (epic → task → subtask)
+- DCMP-002: Max 7 siblings per parent
+- DCMP-003: Each task ≤3 files (ORC-006)
+- DCMP-004: Clear dependencies between tasks
+
+**Exit Code**: `63` (EXIT_PROTOCOL_DECOMPOSITION)
+
+**Example Task**: "Decompose authentication epic into implementation tasks"
+
+---
+
+### 5. Implementation Protocol (I)
+
+**File**: `protocols/implementation.md`
+**Trigger Keywords**: implement, build, create, develop, code, fix
+
+**Purpose**: Write code that meets specifications.
+
+**Key Requirements**:
+- IMPL-001: MUST include tests for new functionality
+- IMPL-002: MUST follow project code style
+- IMPL-003: MUST include provenance tags (@task T####)
+- IMPL-004: MUST pass existing tests
+
+**Exit Code**: `64` (EXIT_PROTOCOL_IMPLEMENTATION)
+
+**Example Task**: "Implement JWT authentication middleware"
+
+---
+
+### 6. Validation Protocol (V)
+
+**File**: `protocols/validation.md`
+**Trigger Keywords**: validate, verify, check, audit, review
+
+**Purpose**: Verify implementation matches specification before formal testing.
+
+**Key Requirements**:
+- VALID-001: MUST verify implementation matches spec
+- VALID-002: MUST run existing test suite
+- VALID-003: MUST check protocol compliance
+- VALID-007: MUST block progression if critical failures
+
+**Exit Code**: `68` (EXIT_VALIDATION_INCOMPLETE)
+
+**Example Task**: "Validate auth implementation against AUTH-SYSTEM-SPEC.md"
+
+---
+
+### 7. Testing Protocol (T)
+
+**File**: `protocols/testing.md`
+**Trigger Keywords**: test, write tests, coverage, bats
+
+**Purpose**: Create formal test suites for comprehensive coverage.
+
+**Key Requirements**:
+- TEST-001: MUST use BATS framework for Bash
+- TEST-002: MUST place unit tests in `tests/unit/`
+- TEST-003: MUST place integration tests in `tests/integration/`
+- TEST-004: MUST achieve 100% pass rate before release
+
+**Exit Code**: `69` (EXIT_TESTS_SKIPPED)
+
+**Example Task**: "Write BATS tests for authentication module"
+
+---
+
+### 8. Release Protocol (R)
+
+**File**: `protocols/release.md`
+**Trigger Keywords**: release, version, publish, deploy, ship
+
+**Purpose**: Version, document, and ship validated work.
+
+**Key Requirements**:
+- REL-001: MUST follow semantic versioning
+- REL-002: MUST update CHANGELOG.md
+- REL-003: MUST create git tag
+- REL-004: MUST pass all validation gates
+
+**Exit Code**: `66` (EXIT_PROTOCOL_RELEASE)
+
+**Example Task**: "Release v0.76.0 with authentication feature"
+
+---
+
+### 9. Contribution Protocol (X) - Cross-Cutting
+
+**File**: `protocols/contribution.md`
+**Trigger**: Any multi-agent work or shared resource modification
+
+**Purpose**: Track attribution and coordinate multi-agent contributions.
+
+**Key Requirements**:
+- CONT-001: MUST follow commit message conventions
+- CONT-002: MUST include provenance tags
+- CONT-003: MUST pass validation gates before merge
+- CONT-006: MUST write contribution record to manifest
+
+**Exit Code**: `65` (EXIT_PROTOCOL_CONTRIBUTION)
+
+**Applies To**: All other protocols when multiple agents collaborate.
+
+---
+
+## Lifecycle Gate Enforcement
+
+CLEO enforces protocol progression through **lifecycle gates**.
+
+### Gate Behavior
+
+```
+research ──┬──► consensus ──┬──► specification ──┬──► decomposition
+           │                │                    │
+           │ GATE           │ GATE               │ GATE
+           │                │                    │
+           └────────────────┴────────────────────┴──► implementation ──► release
+```
+
+Each arrow represents a **lifecycle gate**. Spawning a task for a later stage requires prior stages to be completed.
+
+### Enforcement Modes
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `strict` | Blocks spawn with exit 75 | Production (default) |
+| `advisory` | Warns but proceeds | Development |
+| `off` | Skips all checks | Emergency bypass |
+
+### Configuration
+
+```json
+// .cleo/config.json
+{
+  "lifecycleEnforcement": {
+    "mode": "strict"
+  }
+}
+```
+
+### Exit Code 75: E_LIFECYCLE_GATE_FAILED
+
+When a spawn is blocked:
+
+```json
+{
+  "error": {
+    "code": "E_LIFECYCLE_GATE_FAILED",
+    "message": "SPAWN BLOCKED: Lifecycle prerequisites not met",
+    "missingPrerequisites": ["research", "consensus"],
+    "fix": "Complete research and consensus stages first"
+  }
+}
+```
+
+---
+
+## Protocol Validation
+
+### Validation Functions
+
+Each protocol has a validation function in `lib/protocol-validation.sh`:
+
+| Function | Protocol | Exit Code |
+|----------|----------|-----------|
+| `validate_research_protocol()` | Research | 60 |
+| `validate_consensus_protocol()` | Consensus | 61 |
+| `validate_specification_protocol()` | Specification | 62 |
+| `validate_decomposition_protocol()` | Decomposition | 63 |
+| `validate_implementation_protocol()` | Implementation | 64 |
+| `validate_contribution_protocol()` | Contribution | 65 |
+| `validate_release_protocol()` | Release | 66 |
+
+### Usage
+
+```bash
+source lib/protocol-validation.sh
+
+# Validate a specific protocol
+validate_implementation_protocol "$TASK_ID" "$MANIFEST_ENTRY" "true"
+
+# Generic validation
+validate_protocol "research" "$TASK_ID" "$DATA"
+```
+
+### Current Enforcement Rate
+
+As of v0.76.0:
+- **51% of MUST requirements** are code-enforced
+- **81 BATS tests** validate protocol compliance
+- **Exit codes 60-67** identify specific violations
+
+---
+
+## Orchestrator Integration
+
+The orchestrator (`ct-orchestrator`) coordinates protocol execution:
+
+### Spawn Flow
+
+```
+1. Receive task
+2. Detect protocol type (skill_auto_dispatch)
+3. Check lifecycle gate (Step 6.75)
+4. Validate protocol compliance (Step 6.5)
+5. Inject protocol into subagent prompt
+6. Spawn cleo-subagent
+7. Monitor MANIFEST.jsonl for completion
+8. Spawn next wave
+```
+
+### Protocol Detection
+
+```bash
+source lib/skill-dispatch.sh
+
+# Auto-detect protocol from task metadata
+protocol=$(skill_auto_dispatch "$TASK_ID")
+# Returns: research, consensus, specification, etc.
+
+# Prepare spawn context
+context=$(skill_prepare_spawn "$protocol" "$TASK_ID")
+```
+
+---
+
+## MANIFEST.jsonl Integration
+
+All protocols write to the manifest with `agent_type`:
+
+```json
+{
+  "id": "T2680-protocol-audit",
+  "file": "T2680-protocol-audit.md",
+  "title": "Research: Protocol RFC 2119 Audit",
+  "date": "2026-01-28",
+  "status": "complete",
+  "agent_type": "research",
+  "topics": ["protocol", "audit"],
+  "key_findings": ["Found 49 MUST requirements", "22% currently enforced"],
+  "linked_tasks": ["T2679", "T2680"]
+}
+```
+
+Valid `agent_type` values:
+- `research`
+- `consensus`
+- `specification`
+- `decomposition`
+- `implementation`
+- `validation`
+- `testing`
+- `release`
+
+---
+
+## Complete Example: Feature Development
+
+### 1. Research (R)
+```bash
+cleo add "Research: OAuth 2.0 patterns for auth" --labels "research,auth"
+# Agent follows research.md protocol
+# Output: Findings on OAuth patterns, library comparison
+```
+
+### 2. Consensus (C)
+```bash
+cleo add "Consensus: Vote on auth library" --labels "consensus,auth"
+# Agent follows consensus.md protocol
+# Output: Decision (Passport.js, 0.92 confidence)
+```
+
+### 3. Specification (S)
+```bash
+cleo add "Spec: Write AUTH-SYSTEM-SPEC.md" --labels "specification,auth"
+# Agent follows specification.md protocol
+# Output: RFC 2119 spec with AUTH-001 through AUTH-020
+```
+
+### 4. Decomposition (D)
+```bash
+cleo add "Decompose: Auth epic into tasks" --labels "decomposition,auth" --type epic
+# Agent follows decomposition.md protocol
+# Output: 8 atomic tasks with dependencies
+```
+
+### 5. Implementation (I)
+```bash
+cleo add "Implement: JWT middleware" --labels "implementation,auth"
+# Agent follows implementation.md protocol
+# Output: Working code with provenance tags
+```
+
+### 6. Validation (V)
+```bash
+cleo add "Validate: Auth implementation" --labels "validation,auth"
+# Agent follows validation.md protocol
+# Output: Validation report (PASS/FAIL)
+```
+
+### 7. Testing (T)
+```bash
+cleo add "Test: Auth module BATS tests" --labels "testing,auth"
+# Agent follows testing.md protocol
+# Output: tests/unit/auth.bats (20 tests)
+```
+
+### 8. Release (R)
+```bash
+cleo release ship v1.0.0
+# Agent follows release.md protocol
+# Output: Tagged release, CHANGELOG.md updated
+```
+
+---
+
+## References
+
+### Protocol Files
+- `protocols/research.md`
+- `protocols/consensus.md`
+- `protocols/specification.md`
+- `protocols/decomposition.md`
+- `protocols/implementation.md`
+- `protocols/validation.md`
+- `protocols/testing.md`
+- `protocols/release.md`
+- `protocols/contribution.md`
+
+### Implementation Files
+- `lib/protocol-validation.sh` - Validation functions
+- `lib/lifecycle.sh` - Lifecycle gate enforcement
+- `lib/orchestrator-spawn.sh` - Orchestrator integration
+- `lib/skill-dispatch.sh` - Protocol detection
+
+### Specifications
+- `docs/specs/PROTOCOL-ENFORCEMENT-SPEC.md`
+- `docs/developer/specifications/LIFECYCLE-ENFORCEMENT.mdx`
+
+### Tests
+- `tests/unit/protocol-validation.bats` (45 tests)
+- `tests/unit/lifecycle-enforcement.bats` (38 tests)

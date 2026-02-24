@@ -1,0 +1,86 @@
+---
+title: "cleo setup-agents"
+description: "Setup/update global agent configuration files"
+icon: "robot"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo setup-agents
+
+Setup/update global agent configuration files with CLEO task management instructions.
+
+<Info>**Agent Relevance**: High - Essential for agent configuration</Info>
+
+## Synopsis
+
+```bash
+cleo setup-agents [OPTIONS]
+```
+
+## Description
+
+The `setup-agents` command auto-discovers installed agent CLIs and configures their documentation files with CLEO task management instructions.
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Show what would be configured without making changes |
+| `--force` | Force update even if versions match |
+| `--update` | Update all existing configs to current version |
+| `--migrate-from-legacy` | Convert old append-style configs to marker-based |
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `102` | No changes needed (all current) |
+| `1` | Error occurred |
+
+## Examples
+
+<CodeGroup>
+
+```bash Setup All Installed Agents
+cleo setup-agents
+```
+
+```bash Preview Changes
+cleo setup-agents --dry-run
+```
+
+```bash Force Update All Configs
+cleo setup-agents --update
+```
+
+```bash Migrate Legacy Configs
+cleo setup-agents --migrate-from-legacy
+```
+
+</CodeGroup>
+
+## Supported Agents
+
+The command auto-detects and configures:
+
+- Claude Code
+- Cursor
+- Gemini CLI
+- Other compatible agents
+
+## Configuration
+
+Agent configs are updated with:
+
+- CLEO task management instructions
+- Command reference
+- Best practices
+- Version tracking
+
+## See Also
+
+- [setup-claude-aliases](/commands/setup-claude-aliases) - Install Claude Code aliases
+- [init](/commands/init) - Initialize CLEO in a project
+- [config](/commands/config) - Configuration management

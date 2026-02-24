@@ -1,0 +1,175 @@
+---
+title: "Dev Workflow"
+description: "Atomic commits, conventional messages, and release processes"
+icon: "code-branch"
+---
+
+# Dev Workflow
+
+The Dev Workflow skill provides context injection for development workflow tasks, including atomic commits with task traceability, conventional commit messages, and systematic release processes.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| **Skill ID** | ct-dev-workflow |
+| **Tier** | 2 (Execution) |
+| **Protocol** | contribution |
+| **Tags** | workflow, git, release |
+
+## Core Principle
+
+> **CRITICAL**: NO code changes or commits without a tracked task.
+
+Every commit MUST be traceable to a CLEO task. This ensures:
+- Work is planned and tracked
+- Changes are reviewable and reversible
+- Progress is measurable
+- Context is preserved
+
+## Immutable Constraints
+
+| ID | Rule | Enforcement |
+|----|------|-------------|
+| WF-001 | Task required | NO commits without CLEO task reference |
+| WF-002 | Branch discipline | NO commits to main/master |
+| WF-003 | Atomic commits | ONE logical change per commit |
+| WF-004 | Conventional format | `<type>(<scope>): <description>` |
+| WF-005 | Tests before push | Relevant tests MUST pass |
+
+## Commit Message Format
+
+```
+<type>(<scope>): <description>
+
+<body explaining why>
+
+Task: T123
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+### Types
+
+| Type | Description | Version Bump |
+|------|-------------|--------------|
+| `feat` | New feature | MINOR |
+| `fix` | Bug fix | PATCH |
+| `docs` | Documentation | None |
+| `refactor` | Code restructure | PATCH |
+| `test` | Test additions | None |
+| `chore` | Maintenance | None |
+| `perf` | Performance | PATCH |
+| `security` | Security fix | PATCH |
+
+## Gate System
+
+### G0: Pre-Flight Check
+
+```bash
+# 1. Verify task context
+cleo focus show
+
+# 2. Check branch
+git branch --show-current
+# MUST NOT be main/master
+
+# 3. Check uncommitted work
+git status --porcelain
+```
+
+### G1: Classify Change
+
+Determine type based on change nature.
+
+### G2: Testing (Smart Scope)
+
+| Change Type | Test Scope | Command |
+|-------------|------------|---------|
+| `feat` | Related module tests | `bats tests/unit/feature.bats` |
+| `fix` | Regression + affected | `bats tests/unit/affected.bats` |
+| `docs` | None | Skip |
+| `refactor` | Affected modules | `bats tests/unit/module*.bats` |
+| `test` | New tests only | `bats tests/unit/new.bats` |
+| `chore` | Syntax check | `bash -n scripts/*.sh` |
+
+### G3: Commit
+
+```bash
+git add scripts/specific-file.sh
+git commit -m "$(cat <<'EOF'
+fix(auth): prevent token expiry race condition
+
+Task: T1456
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+### G4: Push (Triggers CI)
+
+```bash
+git push origin HEAD
+```
+
+### G5: Version Bump (Release Only)
+
+```bash
+./dev/bump-version.sh patch
+./dev/validate-version.sh
+./install.sh --force
+```
+
+### G6: Tag & Release
+
+```bash
+git tag -a v${VERSION} -m "${TYPE}: ${SUMMARY}"
+git push origin v${VERSION}
+git push origin HEAD
+```
+
+## Complete Workflow Example
+
+```bash
+# 1. Verify task
+cleo focus show
+# Output: T1456 - Fix token validation
+
+# 2. Make changes
+# ... edit files ...
+
+# 3. Run relevant test
+bats tests/unit/auth.bats
+
+# 4. Stage specific files
+git add lib/auth.sh scripts/login.sh
+
+# 5. Commit with task
+git commit -m "$(cat <<'EOF'
+fix(auth): prevent token expiry race condition
+
+Task: T1456
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+
+# 6. Push
+git push origin HEAD
+
+# 7. Mark task complete
+cleo complete T1456
+```
+
+## Anti-Patterns
+
+| Pattern | Problem | Solution |
+|---------|---------|----------|
+| No task reference | Untracked work | Create/find task first |
+| Committing to main | Bypass review | Use feature branches |
+| Running full tests always | Slow iteration | Use smart test scope |
+| Giant commits | Hard to review/revert | Atomic commits |
+
+## Related Skills
+
+- [Task Executor](/skills/task-executor) - Implementation work
+- [Validator](/skills/validator) - Pre-commit validation
+- [Test Writer](/skills/test-writer-bats) - Create tests

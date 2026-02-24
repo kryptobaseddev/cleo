@@ -1,0 +1,91 @@
+---
+title: Developer Documentation
+description: Architecture, protocols, and contribution guidelines for CLEO developers
+icon: code
+---
+
+# Developer Documentation
+
+Welcome to the CLEO developer documentation. This section contains technical architecture, internal protocols, and contribution guidelines for those building on or contributing to CLEO.
+
+## Quick Navigation
+
+<CardGroup cols={3}>
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    System architecture, data flows, and design patterns
+  </Card>
+  <Card title="Protocols & Specs" icon="file-contract" href="/specs/SKILL-TAXONOMY-SPEC">
+    Technical specifications and protocol definitions
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/contributing">
+    How to contribute code, documentation, and skills
+  </Card>
+</CardGroup>
+
+## For Contributors
+
+### Getting Started
+- [Contributing Guide](/contributing) - Code style, testing, and PR workflow
+- [Skill Development](/guides/skill-development) - Creating custom CLEO skills
+- [Dispatch Debugging](/troubleshooting/DISPATCH-DEBUG) - Troubleshooting skill dispatch
+
+### Architecture Deep Dives
+- [System Architecture](/concepts/architecture) - Overall system design
+- [Data Flows](/concepts/data-flows) - How data moves through CLEO
+- [Backup System](/concepts/backup-system) - Two-tier backup architecture
+- [Anti-Hallucination](/concepts/anti-hallucination) - Validation and safety mechanisms
+
+### Protocol Specifications
+- [Skill Taxonomy](/specs/SKILL-TAXONOMY-SPEC) - Canonical skill categorization
+- [Protocol Stack](/specs/PROTOCOL-STACK-SPEC) - Multi-tier protocol architecture
+- [Skill Dispatch Algorithm](/guides/SKILL-DISPATCH-ALGORITHM) - How skills are selected and loaded
+- [Protocol Injection Flow](/guides/PROTOCOL-INJECTION-FLOW) - Runtime protocol loading mechanism
+
+## Developer vs Consumer Docs
+
+This **Developer** tab contains technical content for contributors and those building on CLEO:
+- Internal architecture and implementation details
+- Protocol specifications and algorithm descriptions
+- Code contribution guidelines and testing requirements
+
+For **user-facing documentation**, see:
+- [Getting Started](/getting-started/index) - Installation and quickstart
+- [Guides](/guides/index) - Workflow tutorials and best practices
+- [Commands](/commands/index) - CLI command reference
+- [Skills](/skills/index) - Using CLEO skills
+
+## Key Concepts for Developers
+
+### Two-Tier Architecture
+CLEO uses a **two-tier subagent system**:
+- **Tier 0**: Orchestrator coordinates workflows and resolves tokens
+- **Tier 1**: Universal subagent executes with skill-specific protocols
+
+### Schema-Driven Validation
+All data operations use JSON Schema validation with atomic write patterns:
+1. Write to temporary file
+2. Validate against schema
+3. Create backup
+4. Atomic rename
+
+### Protocol Stack
+CLEO implements 7 canonical protocols across 3 lifecycle phases:
+- **RCSD Pipeline**: Research → Consensus → Specification → Decomposition
+- **Execution**: Implementation → Contribution → Release
+
+See [Protocol Stack Spec](/specs/PROTOCOL-STACK-SPEC) for details.
+
+## Contributing
+
+We welcome contributions! Key areas:
+- **Core CLI**: Bash scripts and libraries
+- **Skills**: New agent skills for specialized workflows
+- **Documentation**: User guides and technical specs
+- **Testing**: BATS test coverage
+
+See [Contributing Guide](/contributing) for detailed instructions.
+
+## Support
+
+- [GitHub Issues](https://github.com/kryptobaseddev/cleo/issues) - Bug reports and feature requests
+- [Discussions](https://github.com/kryptobaseddev/cleo/discussions) - Questions and community support

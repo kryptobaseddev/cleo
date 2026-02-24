@@ -1,0 +1,366 @@
+---
+title: "Dependency Graph Architecture"
+description: "CLEO's dependency graph system including caching layer, semantic relationship discovery, and performance characteristics"
+---
+
+# Dependency Graph Architecture
+
+This guide explains CLEO's dependency graph system, including the caching layer, semantic relationship discovery, and performance characteristics.
+
+## Overview
+
+CLEO's dependency system has two layers:
+
+| Layer | Purpose | Field | Blocking |
+|-------|---------|-------|----------|
+| **Dependencies** | Task ordering constraints | `depends` | Yes |
+| **Relationships** | Semantic connections | `relates` | No |
+
+```
+Dependencies (blocking):     Relationships (semantic):
+T001 ──depends──► T003       T001 ──relates-to──► T042
+     │                            │
+     └──► T005 must wait          └──► informational only
+```
+
+## Graph Cache System
+
+### Architecture
+
+The graph cache provides O(1) lookups for dependency queries through pre-computed adjacency lists.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    .cleo/.deps-cache/                       │
+├─────────────────────────────────────────────────────────────┤
+│  forward.json     { "T005": ["T003"], "T003": ["T001"] }   │
+│  reverse.json     { "T001": ["T003"], "T003": ["T005"] }   │
+│  checksum         sha256 of todo.json                       │
+│  metadata.json    version, timestamps, edge counts          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Performance Characteristics
+
+| Metric | Without Cache | With Cache | Improvement |
+|--------|---------------|------------|-------------|
+| Single lookup | O(n) | O(1) | n-fold |
+| Full traversal | O(n^2) | O(n) | n-fold |
+| 789 tasks deps | ~18s | <200ms | 90x |
+| Memory overhead | None | ~50KB typical | Constant |
+
+### Cache Lifecycle
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  todo.json   │ ──► │  Checksum    │ ──► │  Compare     │
+│  modified    │     │  computed    │     │  with cache  │
+└──────────────┘     └──────────────┘     └──────┬───────┘
+                                                 │
+                     ┌───────────────────────────┴────────┐
+                     │                                    │
+                     ▼                                    ▼
+              ┌──────────────┐                    ┌──────────────┐
+              │  Cache valid │                    │  Rebuild     │
+              │  Use memory  │                    │  Single-pass │
+              └──────────────┘                    └──────────────┘
+```
+
+### Invalidation Strategy
+
+The cache uses **checksum-based staleness detection**:
+
+1. Every `todo.json` write updates `._meta.checksum`
+2. On cache access, compare `todo.json` checksum with cached checksum
+3. If different, rebuild cache (single-pass jq construction)
+4. Cache persists across CLI invocations
+
+**Why checksums over timestamps?**
+- Atomic writes may have same timestamp as previous state
+- Checksums detect actual content changes
+- Works correctly with backup/restore operations
+
+### Single-Pass Construction
+
+The cache is built in a single jq pass over `todo.json`:
+
+```bash
+# Pseudocode for cache construction
+jq '
+  reduce .tasks[] as $task ({forward: {}, reverse: {}};
+    # Forward: task -> what it depends on
+    if $task.depends then
+      .forward[$task.id] = $task.depends
+    end |
+    # Reverse: task -> what depends on it
+    reduce $task.depends[]? as $dep (.;
+      .reverse[$dep] += [$task.id]
+    )
+  )
+' todo.json
+```
+
+This is O(n) instead of O(n^2) for separate iterations.
+
+## Library Reference
+
+### graph-cache.sh
+
+Core dependency graph caching.
+
+```bash
+source lib/graph-cache.sh
+
+# Ensure cache is valid (auto-rebuilds if stale)
+ensure_graph_cache
+
+# O(1) lookups
+get_forward_deps "T005"     # → "T003"
+get_reverse_deps "T003"     # → "T005,T008"
+
+# Counts
+get_forward_dep_count "T005"  # → 1
+get_reverse_dep_count "T003"  # → 2
+
+# Full graphs as JSON
+get_forward_graph_json
+get_reverse_graph_json
+
+# Force rebuild
+invalidate_graph_cache
+
+# Statistics
+graph_cache_stats
+```
+
+### graph-rag.sh
+
+Semantic relationship discovery using RAG-like analysis.
+
+```bash
+source lib/graph-rag.sh
+
+# Discover related tasks
+discover_related_tasks "T001" "auto"      # All methods
+discover_related_tasks "T001" "labels"    # Label-based only
+discover_related_tasks "T001" "description"  # Text similarity
+discover_related_tasks "T001" "files"     # Shared files
+
+# Get suggestions above threshold
+suggest_relates "T001" 0.6
+
+# Add relationship
+add_relates_entry "T001" "T042" "relates-to" "Same feature area"
+```
+
+## Relationship Types
+
+### depends (Blocking)
+
+```json
+{
+  "id": "T005",
+  "depends": ["T003", "T004"]
+}
+```
+
+- **Semantics**: T005 cannot start until T003 and T004 are done
+- **Status Effect**: T005 becomes `blocked` if dependencies pending
+- **Validation**: Circular dependencies are rejected
+
+### relates (Non-Blocking)
+
+```json
+{
+  "id": "T001",
+  "relates": [
+    {"taskId": "T042", "type": "relates-to", "reason": "Auth feature"},
+    {"taskId": "T089", "type": "spawned-from", "reason": "Found during T001"}
+  ]
+}
+```
+
+- **Semantics**: Informational connection, no status effect
+- **Types**: `relates-to`, `spawned-from`, `deferred-to`, `supersedes`, `duplicates`
+- **Discovery**: Automatic via labels, descriptions, files
+
+## Discovery Algorithms
+
+### Label-Based Discovery
+
+Finds tasks with overlapping labels using Jaccard similarity:
+
+```
+Jaccard(A, B) = |A ∩ B| / |A ∪ B|
+
+T001.labels = ["auth", "security", "backend"]
+T042.labels = ["auth", "oauth", "security"]
+
+Intersection: ["auth", "security"]
+Union: ["auth", "security", "backend", "oauth"]
+Similarity: 2/4 = 0.5
+```
+
+### Description Similarity
+
+Tokenizes descriptions, removes stopwords, computes Jaccard:
+
+```
+T001.description = "Implement user authentication with JWT tokens"
+T042.description = "Add OAuth authentication for user login"
+
+Tokens after stopwords: 
+  T001: ["implement", "user", "authentication", "jwt", "tokens"]
+  T042: ["add", "oauth", "authentication", "user", "login"]
+
+Common: ["user", "authentication"]
+Similarity: 2/8 = 0.25
+```
+
+### File-Based Discovery
+
+Compares `files` arrays for path overlap:
+
+```
+T001.files = ["src/auth/jwt.ts", "src/auth/middleware.ts"]
+T042.files = ["src/auth/oauth.ts", "src/auth/middleware.ts"]
+
+Common: ["src/auth/middleware.ts"]
+Similarity: 1/3 = 0.33
+```
+
+### Combined Scoring
+
+Auto mode combines all methods with weighted average:
+
+| Method | Weight |
+|--------|--------|
+| Labels | 40% |
+| Description | 35% |
+| Files | 25% |
+
+## Usage Patterns
+
+### Dependency Analysis Workflow
+
+```bash
+# 1. View current dependencies
+cleo deps T001
+
+# 2. Check what's blocking progress
+cleo blockers
+
+# 3. See full dependency tree
+cleo deps tree
+
+# 4. Find parallelizable work
+cleo orchestrator analyze T001
+```
+
+### Relationship Discovery Workflow
+
+```bash
+# 1. Get suggestions for a task
+cleo relates suggest T001 --threshold 0.6
+
+# 2. Review suggestions
+# (Output shows taskId, type, reason, score)
+
+# 3. Add confirmed relationships
+cleo relates add T001 T042 relates-to --reason "Auth feature work"
+
+# 4. View relationships
+cleo relates list T001
+```
+
+### Cache Management
+
+```bash
+# Check cache status
+cleo deps --format json | jq '._meta.cacheStatus'
+
+# Force rebuild after manual edits
+cleo deps --rebuild-cache
+
+# View cache statistics
+source lib/graph-cache.sh && graph_cache_stats
+```
+
+## Configuration
+
+### Cache Location
+
+Default: `.cleo/.deps-cache/`
+
+Can be customized via environment:
+```bash
+export CLEO_DEPS_CACHE_DIR="/custom/path"
+```
+
+### Relationship Discovery Thresholds
+
+Configure in `config.json`:
+
+```json
+{
+  "relates": {
+    "suggestThreshold": 0.5,
+    "autoDetectInNotes": true,
+    "maxSuggestionsPerTask": 10
+  }
+}
+```
+
+## Troubleshooting
+
+### Cache Not Updating
+
+**Symptoms**: Dependencies seem stale after modifications.
+
+**Solutions**:
+1. Force rebuild: `cleo deps --rebuild-cache`
+2. Check checksum: `jq '._meta.checksum' .cleo/todo.json`
+3. Verify cache files exist: `ls -la .cleo/.deps-cache/`
+
+### Slow First Query
+
+**Cause**: Cache being built on first access.
+
+**Expected behavior**: First query after modification takes ~1-2s for large projects (cache building). Subsequent queries are <200ms.
+
+### Circular Dependencies
+
+**Error**: `Circular dependency detected: T001 → T003 → T005 → T001`
+
+**Solution**:
+```bash
+# Identify the cycle
+cleo validate
+
+# Remove one dependency to break cycle
+cleo update T005 --depends ""
+```
+
+### Low Similarity Scores
+
+**Cause**: Tasks have few shared attributes.
+
+**Solutions**:
+1. Add descriptive labels to tasks
+2. Write detailed descriptions
+3. Populate `files` arrays
+4. Lower threshold: `--threshold 0.4`
+
+## Performance Tips
+
+1. **Let cache warm up**: First access after modifications builds cache
+2. **Batch queries**: Multiple lookups in same session reuse memory cache
+3. **Use specific methods**: `--method labels` is faster than `auto`
+4. **Avoid unnecessary rebuilds**: Don't use `--rebuild-cache` unless needed
+
+## See Also
+
+- [deps command](../commands/deps.md) - CLI reference
+- [relates command](../commands/relates.md) - Relationship management
+- [blockers command](../commands/blockers.md) - Blocked task analysis
+- [orchestrator command](../commands/orchestrator.md) - Multi-agent coordination

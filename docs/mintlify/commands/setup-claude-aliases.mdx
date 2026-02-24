@@ -1,0 +1,105 @@
+---
+title: "cleo setup-claude-aliases"
+description: "Install optimized Claude Code CLI aliases"
+icon: "terminal"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo setup-claude-aliases
+
+Install optimized Claude Code CLI aliases.
+
+<Info>**Agent Relevance**: Medium - Developer convenience tool</Info>
+
+## Synopsis
+
+```bash
+cleo setup-claude-aliases [OPTIONS]
+```
+
+## Description
+
+The `setup-claude-aliases` command installs optimized Claude Code CLI aliases for various shells with pre-configured environment variables.
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview changes without modifying files |
+| `--force` | Force reinstall even if current |
+| `--shell SHELL` | Target specific shell (bash\|zsh\|powershell\|cmd) |
+| `--remove` | Remove installed aliases |
+| `--cmd-autorun` | Configure Windows CMD.exe to auto-load aliases (registry) |
+| `--no-cmd-autorun` | Skip CMD AutoRun registry setup (default) |
+| `-f, --format FMT` | Output format: text (default) or json |
+| `--json` | Shorthand for --format json |
+| `-q, --quiet` | Suppress non-essential output |
+| `-h, --help` | Show help message |
+
+## Aliases Installed
+
+| Alias | Description |
+|-------|-------------|
+| `cc` | Interactive with optimized environment |
+| `ccy` | Interactive + skip permissions |
+| `ccr` | Resume previous session |
+| `ccry` | Resume + skip permissions |
+| `cc-headless` | Headless mode with controlled tools |
+| `cc-headfull` | Headless + skip permissions |
+| `cc-headfull-stream` | Headless + streaming JSON output |
+
+## Environment Variables
+
+The following environment variables are set:
+
+| Variable | Value |
+|----------|-------|
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `true` |
+| `ENABLE_BACKGROUND_TASKS` | `true` |
+| `FORCE_AUTO_BACKGROUND_TASKS` | `true` |
+| `CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL` | `true` |
+
+## Examples
+
+<CodeGroup>
+
+```bash Install for All Detected Shells
+cleo setup-claude-aliases
+```
+
+```bash Install for Specific Shell
+cleo setup-claude-aliases --shell zsh
+```
+
+```bash Remove All Aliases
+cleo setup-claude-aliases --remove
+```
+
+```bash Preview Changes
+cleo setup-claude-aliases --dry-run
+```
+
+</CodeGroup>
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `2` | Invalid input |
+| `5` | Dependency error (claude CLI not found) |
+| `23` | Collision detected (use --force to override) |
+| `102` | No changes needed |
+
+## Collision Handling
+
+The command detects existing aliases that may conflict:
+
+- **Legacy Claude aliases** (function-based): Safe to override with --force
+- **Non-Claude aliases** (e.g., cc for C compiler): Review before using --force
+
+## See Also
+
+- [setup-agents](/commands/setup-agents) - Setup agent configurations
+- [self-update](/commands/self-update) - Update CLEO itself

@@ -1,0 +1,245 @@
+---
+title: "Token Tracking Architecture"
+description: "Hybrid token tracking with session-level actual data and spawn-level estimation for task attribution"
+icon: "coins"
+---
+
+# Token Tracking Architecture Specification
+
+**Task**: T2897
+**Epic**: T2163
+**Date**: 2026-02-01
+**Status**: COMPLETE
+**Schema Version**: 1.0.0
+
+---
+
+## Summary
+
+This specification defines a hybrid token tracking architecture with two tracking layers: session-level for total consumption (actual Claude Code data) and spawn-level for task attribution (estimated tokens). The system integrates with Claude Code's OpenTelemetry metrics when available, falling back to estimation when not.
+
+## 1. Architecture Overview
+
+### 1.1 Two-Tier Tracking System
+
+The architecture implements **two independent tracking layers**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ TIER 1: Session Lifecycle Tracking                         │
+│ Purpose: TOTAL token consumption per session                │
+│ Source: Claude Code context state (actual data)             │
+│ Output: .cleo/metrics/SESSIONS.jsonl                        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ TIER 2: Spawn Boundary Attribution                         │
+│ Purpose: Per-task token attribution                         │
+│ Source: Estimated from prompt/output size                   │
+│ Output: .cleo/metrics/TOKEN_USAGE.jsonl                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 1.2 Why NOT File-Ops Level
+
+File operations tracking was **explicitly rejected** because:
+
+- **Too noisy**: Every `atomic_write()` call generates metrics
+- **Wrong granularity**: File writes don't correlate to task work
+- **Performance impact**: Would slow down all write operations
+- **No value signal**: Cannot attribute tokens to specific tasks
+
+---
+
+## 2. Session-Level Tracking (Tier 1)
+
+### 2.1 Data Source
+
+Claude Code exposes context state via `.claude/context-state.json`:
+
+```json
+{
+  "conversationId": "abc123",
+  "tokenUsage": {
+    "input": 45230,
+    "output": 12450,
+    "cacheRead": 8000,
+    "cacheCreation": 2000
+  }
+}
+```
+
+### 2.2 Session Lifecycle Hooks
+
+```bash
+# On session start
+session_start_hook() {
+    local initial_tokens=$(get_context_tokens)
+    record_session_start "$SESSION_ID" "$initial_tokens"
+}
+
+# On session end
+session_end_hook() {
+    local final_tokens=$(get_context_tokens)
+    local delta=$(calculate_delta "$initial_tokens" "$final_tokens")
+    record_session_end "$SESSION_ID" "$final_tokens" "$delta"
+}
+```
+
+### 2.3 Output Format (SESSIONS.jsonl)
+
+```json
+{
+  "timestamp": "2026-02-01T10:30:00Z",
+  "session_id": "session_20260201_103000_abc123",
+  "event": "end",
+  "tokens": {
+    "input": 45230,
+    "output": 12450,
+    "total": 57680,
+    "delta": 23450
+  },
+  "duration_minutes": 45,
+  "tasks_completed": 3
+}
+```
+
+---
+
+## 3. Spawn-Level Attribution (Tier 2)
+
+### 3.1 Purpose
+
+Attribute token usage to specific tasks by estimating prompt and output sizes at spawn boundaries.
+
+### 3.2 Tracking Points
+
+| Event | Tokens Tracked | Estimation Method |
+|-------|----------------|-------------------|
+| `spawn_start` | Prompt tokens | `wc -c / 4` |
+| `spawn_end` | Output tokens | Manifest entry size |
+| `manifest_read` | Summary tokens | Entry JSON size |
+| `skill_inject` | Skill tokens | Skill file size |
+
+### 3.3 Output Format (TOKEN_USAGE.jsonl)
+
+```json
+{
+  "timestamp": "2026-02-01T10:35:00Z",
+  "event_type": "spawn_start",
+  "task_id": "T1234",
+  "session_id": "session_20260201_103000_abc123",
+  "estimated_tokens": 3500,
+  "context": {
+    "protocol": "research",
+    "skill": "ct-research-agent"
+  }
+}
+```
+
+---
+
+## 4. Integration Points
+
+### 4.1 OpenTelemetry (When Available)
+
+```bash
+if otel_available; then
+    # Use actual Claude Code metrics
+    tokens=$(get_otel_token_usage)
+else
+    # Fall back to estimation
+    tokens=$(estimate_tokens "$content")
+fi
+```
+
+### 4.2 Manifest System
+
+```bash
+# Track manifest reads (savings measurement)
+track_manifest_read() {
+    local entry_id="$1"
+    local tokens=$(estimate_tokens "$entry_content")
+    local full_file_estimate=$(estimate_full_file "$entry_id")
+
+    log_token_event "manifest_read" "$tokens" \
+        --task "$entry_id" \
+        --saved "$((full_file_estimate - tokens))"
+}
+```
+
+---
+
+## 5. Metrics Dashboard
+
+### 5.1 Available Commands
+
+```bash
+# View session token usage
+cleo metrics tokens --period 7d
+
+# View per-task attribution
+cleo metrics tokens --by-task
+
+# Compare manifest vs full file
+cleo metrics savings
+```
+
+### 5.2 Dashboard Output
+
+```
+=== Token Usage (Last 7 Days) ===
+
+Sessions: 12
+Total tokens: 234,500
+  Input:  156,000 (66%)
+  Output:  78,500 (34%)
+
+By Task Attribution:
+  T1234 (research): ~12,500 tokens
+  T1235 (impl):     ~8,200 tokens
+  T1236 (impl):     ~15,300 tokens
+
+Manifest Savings:
+  Manifest reads:  2,450 tokens
+  Full file equiv: 24,500 tokens
+  SAVED:          22,050 tokens (90%)
+```
+
+---
+
+## 6. Configuration
+
+### 6.1 Enable Tracking
+
+```json
+// .cleo/config.json
+{
+  "metrics": {
+    "tokenTracking": {
+      "enabled": true,
+      "sessionLevel": true,
+      "spawnLevel": true,
+      "otelIntegration": true
+    }
+  }
+}
+```
+
+### 6.2 Environment Variables
+
+```bash
+# Enable Claude Code telemetry
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+
+# CLEO metrics location
+export CLEO_METRICS_DIR=".cleo/metrics"
+```
+
+---
+
+## References
+
+- [METRICS-VALIDATION](/developer/specifications/METRICS-VALIDATION): Complete metrics system
+- [METRICS-VALUE-PROOF](/developer/specifications/METRICS-VALUE-PROOF): Value demonstration

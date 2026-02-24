@@ -1,0 +1,26 @@
+# Mintlify ignore file - exclude from publishing
+# See: https://www.mintlify.com/docs/settings/global#mintignore
+
+# Internal directories not for public docs
+archive/
+bugs/
+design/
+development/
+integration/
+lib/
+migration/
+research/
+specs/
+
+# Internal files
+CLEO-DOCUMENTATION-SOP.md
+CLEO-SKILLS-INVENTORY.md
+DOCUMENTATION-AUDIT-REPORT.md
+DOCUMENTATION-MAINTENANCE.md
+LAYER-MAP.md
+
+# Legacy files (to be migrated)
+*.md
+
+# Git files
+.gitkeep

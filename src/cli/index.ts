@@ -31,7 +31,6 @@ import { registerMcpInstallCommand } from './commands/mcp-install.js';
 
 // Wave 1: Ported scripts (T4551)
 import { registerCheckpointCommand } from './commands/checkpoint.js';
-import { registerClaudeMigrateCommand } from './commands/claude-migrate.js';
 import { registerCommandsCommand } from './commands/commands.js';
 import { registerDocsCommand } from './commands/docs.js';
 import { registerExportTasksCommand } from './commands/export-tasks.js';
@@ -96,6 +95,10 @@ import { checkStorageMigration } from '../core/migration/preflight.js';
 // T4665: Output format resolution (LAFS middleware)
 import { resolveFormat } from './middleware/output-format.js';
 import { setFormatContext } from './format-context.js';
+
+// Centralized pino logger
+import { initLogger } from '../core/logger.js';
+import { loadConfig as loadCoreConfig } from '../core/config.js';
 
 // Startup guard: fail fast if Node.js version is below minimum
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../core/platform.js';
@@ -189,7 +192,6 @@ registerMcpInstallCommand(program);
 
 // T4551: Wave 1 - Ported scripts
 registerCheckpointCommand(program);
-registerClaudeMigrateCommand(program);
 registerCommandsCommand(program);
 registerDocsCommand(program);
 registerExportTasksCommand(program);
@@ -250,6 +252,20 @@ registerVerifyCommand(program);
 // T4705: Documentation drift detection
 registerDetectDriftCommand(program);
 
+// Initialize centralized pino logger before any command runs.
+// Best-effort: if config loading fails, commands still work (logger falls back to stderr).
+let loggerInitialized = false;
+program.hook('preAction', async () => {
+  if (loggerInitialized) return;
+  loggerInitialized = true;
+  try {
+    const config = await loadCoreConfig();
+    initLogger(join(process.cwd(), '.cleo'), config.logging);
+  } catch {
+    // Logger init is best-effort — fallback stderr logger will be used
+  }
+});
+
 // T4665: Resolve output format from --json/--human/--quiet flags before any command.
 // Uses LAFS resolveOutputFormat() with TTY auto-detection fallback.
 // Sets the format context singleton so cliOutput() can dispatch accordingly.
@@ -265,8 +281,8 @@ program.hook('preAction', (thisCommand) => {
 
 // Pre-flight migration check: warn if JSON data needs SQLite migration (@task T4699)
 // Runs before any command, emits to stderr so JSON output on stdout is not affected.
-// Skipped for commands that don't need data (version, init, migrate-storage itself).
-const SKIP_PREFLIGHT = new Set(['version', 'init', 'migrate-storage', 'self-update', 'upgrade', 'help']);
+// Skipped for commands that don't need data (version, init, upgrade itself).
+const SKIP_PREFLIGHT = new Set(['version', 'init', 'self-update', 'upgrade', 'help']);
 program.hook('preAction', (thisCommand) => {
   const cmdName = thisCommand.args?.[0] ?? thisCommand.name();
   if (SKIP_PREFLIGHT.has(cmdName)) return;

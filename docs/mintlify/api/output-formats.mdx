@@ -1,0 +1,313 @@
+---
+title: "Output Formats"
+description: "JSON, CSV, text, and other output format options for CLEO commands"
+icon: "file-export"
+---
+
+# Output Formats
+
+CLEO commands support multiple output formats for different use cases. This reference covers format options and usage patterns.
+
+## Format Auto-Detection
+
+CLEO automatically detects the appropriate output format:
+
+| Context | Default Format |
+|---------|---------------|
+| Interactive terminal (TTY) | Text (human-readable) |
+| Piped output (non-TTY) | JSON |
+| Explicit `--format` flag | Specified format |
+
+```bash
+# Terminal: text output
+cleo list
+
+# Piped: JSON output
+cleo list | jq '.tasks[]'
+
+# Explicit format
+cleo list --format json
+cleo list --format text
+```
+
+## Available Formats
+
+<Tabs>
+  <Tab title="JSON">
+    **Flag**: `--format json` or `--json`
+
+    **Use**: LLM agents, scripting, data processing
+
+    ```bash
+    cleo list --json
+    ```
+
+    ```json
+    {
+      "_meta": {
+        "command": "list",
+        "timestamp": "2025-01-19T12:00:00Z"
+      },
+      "summary": {
+        "total": 15,
+        "pending": 10,
+        "active": 1
+      },
+      "tasks": [
+        {
+          "id": "T001",
+          "title": "Implement auth",
+          "status": "active"
+        }
+      ]
+    }
+    ```
+  </Tab>
+
+  <Tab title="Text">
+    **Flag**: `--format text` or `--human`
+
+    **Use**: Human reading, terminal display
+
+    ```bash
+    cleo list --human
+    ```
+
+    ```
+    Tasks (15 total)
+    ================
+
+    [T001] Implement auth (active) - high
+           Phase: core | Labels: backend, security
+
+    [T002] Fix login bug (pending) - critical
+           Phase: core | Labels: bug
+    ```
+  </Tab>
+
+  <Tab title="Compact">
+    **Flag**: `--compact`
+
+    **Use**: Quick overview, limited space
+
+    ```bash
+    cleo list --compact
+    ```
+
+    ```
+    T001  active   high  Implement auth
+    T002  pending  crit  Fix login bug
+    T003  blocked  med   Add tests
+    ```
+  </Tab>
+
+  <Tab title="CSV/TSV">
+    **Flag**: `--format csv` or `--format tsv`
+
+    **Use**: Spreadsheets, data export
+
+    ```bash
+    cleo export --format csv > tasks.csv
+    ```
+
+    ```csv
+    id,title,status,priority,labels
+    T001,Implement auth,active,high,"backend,security"
+    T002,Fix login bug,pending,critical,"bug"
+    ```
+  </Tab>
+
+  <Tab title="Markdown">
+    **Flag**: `--format markdown`
+
+    **Use**: Documentation, reports
+
+    ```bash
+    cleo list --format markdown
+    ```
+
+    ```markdown
+    ## Tasks
+
+    - [ ] **T001**: Implement auth (high)
+    - [ ] **T002**: Fix login bug (critical)
+    - [x] **T003**: Set up CI (done)
+    ```
+  </Tab>
+</Tabs>
+
+## JSON Envelope Structure
+
+All JSON output follows a consistent envelope:
+
+```json
+{
+  "_meta": {
+    "command": "command-name",
+    "timestamp": "ISO-8601",
+    "version": "0.54.0"
+  },
+  "summary": {
+    // Command-specific summary
+  },
+  "data": {
+    // Main payload (or "tasks", "task", etc.)
+  },
+  "error": {
+    // Present only on error
+    "code": "E_NOT_FOUND",
+    "message": "Task T999 not found",
+    "fix": "cleo list --status pending"
+  }
+}
+```
+
+## Color Control
+
+### Disable Colors
+
+```bash
+# Standard NO_COLOR environment variable
+NO_COLOR=1 cleo list
+
+# Also works
+CLEO_NO_COLOR=1 cleo list
+```
+
+### Force Colors
+
+```bash
+# Force colors even in piped output
+FORCE_COLOR=1 cleo list | less -R
+```
+
+## Command-Specific Formats
+
+<AccordionGroup>
+  <Accordion title="list command" icon="list">
+    | Format | Description |
+    |--------|-------------|
+    | `text` | Full task details with colors |
+    | `json` | Complete task objects |
+    | `compact` | One-line per task |
+    | `markdown` | Checklist format |
+    | `table` | ASCII table |
+  </Accordion>
+
+  <Accordion title="analyze command" icon="chart-line">
+    **Default**: JSON (designed for LLM agents)
+
+    | Format | Description |
+    |--------|-------------|
+    | `json` | Structured analysis with scores |
+    | `human` | Text summary with recommendations |
+  </Accordion>
+
+  <Accordion title="export command" icon="file-export">
+    | Format | Description |
+    |--------|-------------|
+    | `csv` | Comma-separated values |
+    | `tsv` | Tab-separated values |
+    | `json` | Full JSON export |
+    | `jsonl` | JSON Lines (one per line) |
+  </Accordion>
+
+  <Accordion title="dash command" icon="gauge">
+    | Format | Description |
+    |--------|-------------|
+    | `text` | ASCII dashboard |
+    | `json` | Structured metrics |
+    | `compact` | Single-line summary |
+  </Accordion>
+</AccordionGroup>
+
+## Progressive Disclosure Error Output
+
+<Note>
+  **New in v0.74.2**: Error responses use smart progressive disclosure - enough context for agent decision-making without verbose debugging data.
+</Note>
+
+Error responses are optimized for LLM agent **decision quality**, not just token count. Large arrays are replaced with smart summaries containing decision-relevant fields.
+
+### Three-Level Progressive Disclosure
+
+| Level | Content | Size | Use Case |
+|-------|---------|------|----------|
+| **Smart Summary** (default) | Decision-relevant fields only | ~5K chars | Agent decision-making |
+| **Verbose** | Full objects with all fields | ~15K chars | Debugging |
+
+### Default Behavior: Smart Summaries
+
+Sessions include fields needed to **choose the right session**:
+
+```json
+{
+  "context": {
+    "activeSessions": 9,
+    "sessions": [
+      {
+        "id": "session_abc123",
+        "name": "Auth-Epic-Work",      // ← Intent visible
+        "scope": "epic:T001",           // ← Scope visible
+        "focus": "T005"                 // ← Current task visible
+      }
+    ],
+    "epics": [
+      {
+        "id": "T001",
+        "title": "EPIC: Authentication System...",  // ← Truncated
+        "status": "pending",
+        "pending": 10                   // ← Workload visible
+      }
+    ],
+    "_hint": "CLEO_VERBOSE=1 for full context"
+  }
+}
+```
+
+### What Agents Can Do With Smart Summaries
+
+- **Find session by name**: Match "Auth-Epic-Work" to their task
+- **Find session by scope**: Resume `epic:T001` session
+- **Compare epic workload**: Pick epic with most pending tasks
+- **See current focus**: Understand what's in progress
+
+### Verbose Mode (Debugging)
+
+```bash
+CLEO_VERBOSE=1 cleo session start --name "debug"
+```
+
+Adds: `stats`, `startMetrics`, `focusHistory`, `lastActivity`, `suspendedAt`, full epic metadata.
+
+<Warning>
+  Verbose mode is for debugging only. It includes 3x more data that agents don't need for decision-making.
+</Warning>
+
+## LLM Agent Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use JSON for Parsing" icon="code">
+    Always use `--json` when processing output programmatically
+  </Card>
+  <Card title="Prefer Native Filters" icon="filter">
+    Use `--status`, `--label`, `--phase` instead of `| jq 'select(...)'`
+  </Card>
+  <Card title="Check success Field" icon="check">
+    Always verify `"success": true` in JSON responses
+  </Card>
+  <Card title="Use find for Discovery" icon="magnifying-glass">
+    `cleo find` returns minimal output (99% less than list)
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Exit Codes" icon="hashtag" href="/api/exit-codes">
+    CLI exit code reference
+  </Card>
+  <Card title="Configuration" icon="gear" href="/api/configuration">
+    Configure CLEO behavior
+  </Card>
+</CardGroup>

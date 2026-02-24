@@ -1,0 +1,205 @@
+---
+title: "Nexus Specification"
+description: "Global intelligence system for cross-project task discovery, dependency graphs, and autonomous agent coordination"
+icon: "brain"
+---
+
+# CLEO Nexus Specification
+
+**Version**: 1.0.0
+**Status**: DRAFT
+**Created**: 2026-02-01
+**Epic**: T2231
+
+## 1. Introduction
+
+### 1.1 Purpose
+
+CLEO Nexus provides a global intelligence system for autonomous AI agents to discover relationships and dependencies spanning multiple CLEO projects. It functions as a "super brain" enabling cross-project reasoning, unified task graphs, and intelligent work coordination.
+
+**Design Goals:**
+- Enable cross-project task references with `project:task_id` syntax
+- Provide O(1) dependency lookups across all registered projects
+- Support autonomous agent discovery without human guidance
+- Maintain backward compatibility with single-project workflows
+- Follow PageIndex-inspired hierarchical RAG patterns
+
+**Non-Goals:**
+- Real-time synchronization between projects (operates on-demand)
+- Cloud storage or remote coordination
+- Replacing per-project graph caches
+- Team collaboration features (solo developer focus)
+
+### 1.2 Scope
+
+This specification defines:
+1. Global registry schema and API functions
+2. Cross-project graph traversal protocol
+3. Permission enforcement model (read/write/execute)
+4. Query language syntax (`project:task_id`)
+5. Neural network conceptual abstraction
+6. Testing requirements and validation gates
+
+### 1.3 Definitions
+
+| Term | Definition |
+|------|------------|
+| **Project** | A directory containing `.cleo/todo.json` and registered in global registry |
+| **Project Hash** | 12-character hexadecimal identifier derived from project path |
+| **Task Reference** | Fully qualified task identifier in format `project:task_id` or `task_id` (current project) |
+| **Global Graph** | Unified dependency graph spanning all registered projects |
+| **Permission** | Access control level: `read` (view), `write` (modify), `execute` (complete) |
+
+---
+
+## 2. Architecture
+
+### 2.1 Layer Diagram
+
+CLEO Nexus operates as a four-layer architecture:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Query Layer: nexus query "project:task_id"              │
+│   - Syntax parsing (resolve_task_reference)             │
+│   - Permission checks (get_project_permission)          │
+│   - Result formatting (JSON/human-readable)             │
+├─────────────────────────────────────────────────────────┤
+│ Graph Layer: Cross-project relationship discovery        │
+│   - discover_related_tasks_global()                     │
+│   - search_global()                                      │
+│   - build_global_graph()                                │
+├─────────────────────────────────────────────────────────┤
+│ Registry Layer: Global project index + permissions       │
+│   - ~/.cleo/projects-registry.json (existing)           │
+│   - ~/.cleo/nexus/relationships.json (new)              │
+│   - Permission enforcement (read/write/execute)         │
+├─────────────────────────────────────────────────────────┤
+│ Local Layer: Existing per-project graph-rag.sh          │
+│   - .cleo/todo.json (task storage)                      │
+│   - .cleo/.cache/graph.{forward,reverse}.json          │
+│   - Per-project discovery and hierarchy                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Global Registry
+
+### 3.1 Registry Schema
+
+Location: `~/.cleo/nexus/registry.json`
+
+```json
+{
+  "$schema": "https://cleo.dev/schemas/nexus-registry.schema.json",
+  "version": "1.0.0",
+  "projects": {
+    "abc123def456": {
+      "name": "my-project",
+      "path": "/home/user/projects/my-project",
+      "aliases": ["mp", "main"],
+      "permission": "execute",
+      "registeredAt": "2026-01-15T10:30:00Z",
+      "lastAccessed": "2026-01-28T08:45:00Z",
+      "taskCount": 142,
+      "checksum": "sha256:..."
+    }
+  }
+}
+```
+
+### 3.2 Permission Model
+
+| Level | Capabilities | Use Case |
+|-------|-------------|----------|
+| `read` | Query tasks, view dependencies | Reference projects |
+| `write` | Modify tasks, add dependencies | Active development |
+| `execute` | Complete tasks, run workflows | Full ownership |
+
+---
+
+## 4. Query Language
+
+### 4.1 Syntax
+
+```
+<project>:<task_id>
+```
+
+**Examples:**
+- `my-project:T1234` - Explicit project reference
+- `.:T1234` - Current project shorthand
+- `*:T1234` - Search all projects
+- `T1234` - Current project (implicit)
+
+### 4.2 Resolution Algorithm
+
+```bash
+resolve_task_reference() {
+    local ref="$1"
+
+    if [[ "$ref" == *:* ]]; then
+        local project="${ref%%:*}"
+        local task_id="${ref##*:}"
+
+        if [[ "$project" == "." ]]; then
+            project=$(get_current_project)
+        elif [[ "$project" == "*" ]]; then
+            return $(search_all_projects "$task_id")
+        fi
+
+        local path=$(get_project_path "$project")
+        return "$path:$task_id"
+    else
+        return "$(get_current_project):$ref"
+    fi
+}
+```
+
+---
+
+## 5. Cross-Project Discovery
+
+### 5.1 Neural Network Abstraction
+
+Nexus implements a "neural" discovery model where:
+- **Neurons** = Tasks (active processing nodes)
+- **Synapses** = Dependencies (weighted connections)
+- **Activation** = Task status changes propagating through graph
+
+### 5.2 Discovery Algorithm
+
+```bash
+discover_related_tasks_global() {
+    local task_ref="$1"
+    local max_depth="${2:-3}"
+
+    # Build combined graph from all accessible projects
+    local global_graph=$(build_global_graph)
+
+    # Apply hierarchy boost (siblings +0.15, cousins +0.08)
+    # Apply context decay (0.5 per level)
+    # Return ranked related tasks
+}
+```
+
+---
+
+## 6. Exit Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| 70 | EXIT_NEXUS_NOT_INITIALIZED | Nexus registry not found |
+| 71 | EXIT_NEXUS_PROJECT_NOT_FOUND | Project not in registry |
+| 72 | EXIT_NEXUS_PERMISSION_DENIED | Insufficient permissions |
+| 73 | EXIT_NEXUS_TASK_NOT_FOUND | Task not found in project |
+
+---
+
+## 7. References
+
+- **T2954**: Nexus Global Intelligence Requirements Research
+- **T2955**: Nexus Architecture Consensus
+- [PROJECT-LIFECYCLE](/developer/specifications/PROJECT-LIFECYCLE): RCSD pipeline integration
+- [CLEO-STRATEGIC-ROADMAP](/developer/specifications/CLEO-STRATEGIC-ROADMAP): Phase 1 validation gates

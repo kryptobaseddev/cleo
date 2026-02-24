@@ -1,0 +1,9 @@
+# Images directory for Mintlify assets
+# Required files (create before deployment):
+# - logo-light.png (light mode logo)
+# - logo-dark.png (dark mode logo)
+# - favicon.png (browser favicon)
+#
+# Recommended sizes:
+# - Logo: 200x50px (PNG with transparency)
+# - Favicon: 32x32px or 64x64px (PNG)

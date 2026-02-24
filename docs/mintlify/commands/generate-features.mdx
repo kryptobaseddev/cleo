@@ -1,0 +1,86 @@
+---
+title: "cleo generate-features"
+description: "Generate FEATURES.md from FEATURES.json"
+icon: "list-check"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo generate-features
+
+Generate FEATURES.md from FEATURES.json.
+
+<Info>**Agent Relevance**: Low - Documentation generation tool</Info>
+
+## Synopsis
+
+```bash
+cleo generate-features
+```
+
+## Description
+
+The `generate-features` command reads `docs/FEATURES.json` and generates a human-readable `docs/FEATURES.md` markdown file with a table of contents, feature tables, and summary statistics.
+
+## Input File
+
+```
+docs/FEATURES.json
+```
+
+## Output File
+
+```
+docs/FEATURES.md
+```
+
+## Generated Content
+
+The output includes:
+
+- Table of contents with category links
+- Feature tables with status and version
+- Collapsible feature details
+- Summary statistics (total categories, features, complete, commands, libraries)
+
+## Examples
+
+<CodeGroup>
+
+```bash Generate FEATURES.md
+cleo generate-features
+```
+
+</CodeGroup>
+
+## Output Structure
+
+```markdown
+# CLEO Features
+
+**Version**: x.x.x
+**Generated**: ISO timestamp
+
+## Table of Contents
+- [Category Name](#category-id)
+
+## Category Name
+**Status**: stable|beta|alpha
+Description...
+
+| Feature | Command | Status | Version |
+|---------|---------|--------|---------|
+| Name | `command` | status | version |
+```
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `1` | Error (FEATURES.json not found) | No |
+
+## See Also
+
+- [docs](/commands/docs) - Documentation synchronization
+- [commands](/commands/commands) - Full command reference

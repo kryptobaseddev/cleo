@@ -1,0 +1,53 @@
+---
+title: "Getting Started"
+description: "Start using CLEO for task management with AI coding agents"
+icon: "rocket"
+---
+
+# Getting Started with CLEO
+
+CLEO is a task management system designed for solo developers and their AI coding agents. It provides structured task tracking with anti-hallucination validation and LLM-first output.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="bolt" href="/getting-started/quickstart">
+    Get up and running in 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/getting-started/installation">
+    Detailed installation guide
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts/vision">
+    Understand CLEO's philosophy
+  </Card>
+  <Card title="First Task" icon="plus" href="/commands/add">
+    Create your first task
+  </Card>
+</CardGroup>
+
+## Why CLEO?
+
+<AccordionGroup>
+  <Accordion title="Anti-Hallucination Validation">
+    Every operation is validated against JSON Schema before execution. Tasks must have unique IDs, valid statuses, and proper timestamps.
+  </Accordion>
+  <Accordion title="Context Persistence">
+    State persists across Claude conversations. Resume where you left off with `cleo session resume`.
+  </Accordion>
+  <Accordion title="LLM-First Output">
+    JSON by default when piped. Structured error responses with copy-paste fix commands.
+  </Accordion>
+  <Accordion title="Multi-Agent Support">
+    Multiple AI agents can work concurrently with session isolation and scope boundaries.
+  </Accordion>
+</AccordionGroup>
+
+## Quick Install
+
+```bash
+git clone https://github.com/kryptobaseddev/cleo.git /tmp/cleo
+cd /tmp/cleo && ./install.sh
+cleo init  # In your project directory
+```
+
+<Check>
+Verify with `cleo version` and `cleo validate`
+</Check>

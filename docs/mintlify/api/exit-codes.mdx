@@ -1,0 +1,255 @@
+---
+title: "Exit Codes"
+description: "CLEO CLI exit code reference for scripting and error handling"
+icon: "hashtag"
+---
+
+# Exit Codes
+
+CLEO uses structured exit codes for programmatic error handling. This reference documents all exit codes and their meanings.
+
+## Quick Reference
+
+<Tabs>
+  <Tab title="Success">
+    | Code | Meaning |
+    |------|---------|
+    | `0` | Success |
+  </Tab>
+  <Tab title="Errors (1-22)">
+    | Code | Error Code | Meaning |
+    |------|------------|---------|
+    | `1` | `E_GENERAL` | General error |
+    | `2` | `E_USAGE` | Invalid usage/arguments |
+    | `3` | `E_FILE_READ` | File read error |
+    | `4` | `E_NOT_FOUND` | Task/resource not found |
+    | `5` | `E_SCHEMA` | Schema validation failed |
+    | `6` | `E_VALIDATION` | Business validation failed |
+    | `7` | `E_CONCURRENT` | Concurrent modification |
+    | `8` | `E_DEPENDENCY` | Dependency error |
+    | `9` | `E_DUPLICATE` | Duplicate entry |
+    | `10` | `E_PARENT_NOT_FOUND` | Parent task not found |
+    | `11` | `E_DEPTH_EXCEEDED` | Hierarchy depth exceeded |
+    | `12` | `E_SIBLING_LIMIT` | Sibling limit exceeded |
+    | `16` | `E_HAS_CHILDREN` | Task has children |
+    | `17` | `E_COMPLETED` | Task already completed |
+    | `20` | `E_NETWORK` | Network error |
+    | `21` | `E_TIMEOUT` | Operation timeout |
+    | `22` | `E_LOCKED` | Resource locked |
+  </Tab>
+  <Tab title="Special (100+)">
+    | Code | Meaning |
+    |------|---------|
+    | `100` | No data (empty result) |
+    | `101` | Already exists |
+    | `102` | No change needed |
+  </Tab>
+  <Tab title="Context (50+)">
+    | Code | Status | Usage |
+    |------|--------|-------|
+    | `50` | Warning | 70-84% |
+    | `51` | Caution | 85-89% |
+    | `52` | Critical | 90-94% |
+    | `53` | Emergency | 95%+ |
+    | `54` | Stale | No data |
+  </Tab>
+</Tabs>
+
+## Error Categories
+
+### User Errors (2-6)
+
+<AccordionGroup>
+  <Accordion title="E_USAGE (2)" icon="keyboard">
+    **Cause**: Invalid command usage or arguments
+
+    **Example**:
+    ```bash
+    cleo add   # Missing required title
+    # Exit: 2
+    ```
+
+    **Fix**: Check command syntax with `cleo <command> --help`
+  </Accordion>
+
+  <Accordion title="E_NOT_FOUND (4)" icon="search">
+    **Cause**: Requested task or resource doesn't exist
+
+    **Example**:
+    ```bash
+    cleo show T999   # Task doesn't exist
+    # Exit: 4
+    ```
+
+    **Fix**: Verify task exists with `cleo exists T999` or `cleo list`
+  </Accordion>
+
+  <Accordion title="E_VALIDATION (6)" icon="shield-xmark">
+    **Cause**: Business validation failed
+
+    **Common causes**:
+    - Field too long
+    - Invalid status transition
+    - Shell variable not escaped in notes
+
+    **Fix**: Check `error.fix` in JSON response for specific guidance
+  </Accordion>
+</AccordionGroup>
+
+### Hierarchy Errors (10-12)
+
+<AccordionGroup>
+  <Accordion title="E_PARENT_NOT_FOUND (10)" icon="sitemap">
+    **Cause**: Specified parent task doesn't exist
+
+    **Example**:
+    ```bash
+    cleo add "Subtask" --parent T999
+    # Exit: 10
+    ```
+
+    **Fix**: Verify parent exists with `cleo exists T999`
+  </Accordion>
+
+  <Accordion title="E_DEPTH_EXCEEDED (11)" icon="layer-group">
+    **Cause**: Hierarchy exceeds maximum depth (3 levels)
+
+    **Example**:
+    ```bash
+    # T001 (epic) → T002 (task) → T003 (subtask) → T004 (too deep!)
+    cleo add "Too deep" --parent T003
+    # Exit: 11
+    ```
+
+    **Fix**: Restructure hierarchy or use a different parent
+  </Accordion>
+
+  <Accordion title="E_SIBLING_LIMIT (12)" icon="users">
+    **Cause**: Too many children under same parent
+
+    **Fix**: Move task to different parent or increase `hierarchy.maxSiblings`
+  </Accordion>
+</AccordionGroup>
+
+### Operation Errors (16-17)
+
+<AccordionGroup>
+  <Accordion title="E_HAS_CHILDREN (16)" icon="folder-tree">
+    **Cause**: Trying to delete task with children
+
+    **Example**:
+    ```bash
+    cleo delete T001 --reason "cleanup"
+    # Exit: 16 (T001 has children)
+    ```
+
+    **Fix**: Use `--children cascade` or `--children orphan`
+  </Accordion>
+
+  <Accordion title="E_COMPLETED (17)" icon="check-double">
+    **Cause**: Task already completed, cannot delete
+
+    **Fix**: Use `cleo archive` instead or `cleo reopen` first
+  </Accordion>
+</AccordionGroup>
+
+### Recoverable Errors (7, 20-22)
+
+These errors may succeed on retry:
+
+| Code | Error | Retry Strategy |
+|------|-------|----------------|
+| `7` | `E_CONCURRENT` | Exponential backoff (100ms, 200ms, 400ms) |
+| `20` | `E_NETWORK` | Network retry with backoff |
+| `21` | `E_TIMEOUT` | Increase timeout, retry |
+| `22` | `E_LOCKED` | Wait for lock release, retry |
+
+### Special Codes (100+)
+
+<Info>
+Codes 100+ are **not errors** - they indicate special conditions.
+</Info>
+
+| Code | Meaning | Example |
+|------|---------|---------|
+| `100` | No data | `cleo list --status done` returns empty |
+| `101` | Already exists | `cleo add "Title"` when duplicate |
+| `102` | No change | `cleo update T001 --priority high` when already high |
+
+## JSON Error Response
+
+When an error occurs, JSON output includes:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_PARENT_NOT_FOUND",
+    "exit": 10,
+    "message": "Parent task T999 not found",
+    "fix": "cleo exists T999 --verbose",
+    "alternatives": [
+      {"action": "List available parents", "command": "cleo list --type epic"},
+      {"action": "Create parent first", "command": "cleo add \"Parent\" --type epic"}
+    ],
+    "context": {
+      "requestedParent": "T999"
+    }
+  }
+}
+```
+
+### Response Fields
+
+| Field | Description |
+|-------|-------------|
+| `error.code` | Machine-readable error code |
+| `error.exit` | Exit code number |
+| `error.message` | Human-readable message |
+| `error.fix` | Copy-paste command to resolve |
+| `error.alternatives` | Array of alternative actions |
+| `error.context` | Additional error context |
+
+## Scripting Patterns
+
+<CodeGroup>
+```bash Basic Error Handling
+cleo add "Task title"
+if [ $? -ne 0 ]; then
+  echo "Failed to create task"
+  exit 1
+fi
+```
+
+```bash JSON Error Parsing
+result=$(cleo add "Task" 2>&1)
+if ! echo "$result" | jq -e '.success' > /dev/null; then
+  fix_cmd=$(echo "$result" | jq -r '.error.fix // empty')
+  if [ -n "$fix_cmd" ]; then
+    echo "Try: $fix_cmd"
+  fi
+fi
+```
+
+```bash Retry Pattern
+max_retries=3
+for i in $(seq 1 $max_retries); do
+  cleo update T001 --notes "Update"
+  code=$?
+  if [ $code -eq 0 ]; then break; fi
+  if [ $code -ne 7 ] && [ $code -ne 22 ]; then exit $code; fi
+  sleep $(( i * 100 / 1000 ))  # Exponential backoff
+done
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Output Formats" icon="file-export" href="/api/output-formats">
+    JSON, CSV, and text output options
+  </Card>
+  <Card title="Configuration" icon="gear" href="/api/configuration">
+    Configure CLEO behavior
+  </Card>
+</CardGroup>

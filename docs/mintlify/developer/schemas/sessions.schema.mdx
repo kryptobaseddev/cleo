@@ -1,0 +1,227 @@
+---
+title: "Sessions Schema"
+description: "Schema definition for multi-session management in CLEO"
+---
+
+## Overview
+
+The Sessions Registry schema defines the structure for managing multiple concurrent work sessions within CLEO. It enables parallel work on different task groups (epics, task groups, phase-filtered views) while maintaining isolated focus state and scope boundaries for each session.
+
+## Schema Definition
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo.dev/schemas/v1/sessions.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Sessions Registry Schema",
+  "description": "Multi-session management for concurrent LLM agents...",
+  "type": "object",
+  "required": ["version", "project", "sessions", "_meta"],
+  "additionalProperties": false
+}
+```
+
+## Properties
+
+### Root Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `version` | string | Yes | Legacy schema version (deprecated, use `_meta.schemaVersion`) |
+| `project` | string | Yes | Project identifier. Must match `todo.json` project.name |
+| `_meta` | object | Yes | Registry metadata for integrity and configuration |
+| `config` | object | No | Session registry runtime configuration |
+| `sessions` | array | Yes | Active and suspended sessions |
+| `sessionHistory` | array | No | Ended sessions preserved for resume capability |
+
+### _meta Object
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `schemaVersion` | string | Yes | Schema version (semver). Canonical source for version |
+| `checksum` | string | Yes | SHA-256 truncated hash of sessions array (16 hex chars) |
+| `lastModified` | string | Yes | ISO 8601 timestamp of last modification |
+| `totalSessionsCreated` | integer | No | Running count of all sessions ever created |
+| `lastSessionId` | string/null | No | Most recently created/modified session ID |
+
+### config Object
+
+| Property | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `maxConcurrentSessions` | integer | No | 5 | Maximum active sessions allowed (1-10) |
+| `maxActiveTasksPerScope` | integer | No | 1 | Maximum active tasks within a single session scope (1-3) |
+| `scopeValidation` | string | No | "strict" | strict/warn/none - validation level for scope overlap |
+| `allowNestedScopes` | boolean | No | true | Allow session scopes that are subsets of other scopes |
+| `allowScopeOverlap` | boolean | No | false | Allow sessions with partially overlapping scopes |
+
+### Session Object
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | string | Yes | Unique session ID (format: `session_YYYYMMDD_HHMMSS_6hex`) |
+| `status` | string | Yes | active, suspended, ended, or archived |
+| `endedAt` | string/null | No | When session was ended (null if active/suspended) |
+| `agentId` | string/null | No | Optional agent identifier (e.g., 'opus-1') |
+| `name` | string/null | No | Optional human-readable session name (max 100 chars) |
+| `scope` | object | Yes | Session scope definition |
+| `focus` | object | Yes | Session-local focus state |
+| `startedAt` | string | Yes | ISO 8601 timestamp when session was created |
+| `lastActivity` | string | Yes | Most recent activity timestamp |
+| `suspendedAt` | string/null | No | When session was suspended |
+| `archivedAt` | string/null | No | When session was archived |
+| `resumeCount` | integer | No | Number of times session has been resumed |
+| `stats` | object | No | Session activity statistics |
+
+### Session Scope Object
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | string | Yes | task, taskGroup, subtree, epicPhase, epic, or custom |
+| `rootTaskId` | string | Yes | Anchor task ID (must exist in todo.json) |
+| `phaseFilter` | string/null | No | Optional phase filter (lowercase with hyphens) |
+| `labelFilter` | array/null | No | Labels required for tasks to be in scope |
+| `includeDescendants` | boolean | No | Include all descendants (true) or direct children only (false) |
+| `maxDepth` | integer/null | No | Depth limit from rootTaskId (1-10, null = unlimited) |
+| `explicitTaskIds` | array/null | No | For custom type: explicit list of task IDs |
+| `excludeTaskIds` | array/null | No | Task IDs explicitly excluded from scope |
+| `computedTaskIds` | array/null | No | Cached list of task IDs in scope (read-only) |
+| `computedAt` | string/null | No | When computedTaskIds was last calculated |
+
+### Session Focus Object
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `currentTask` | string/null | No | Task ID being worked on (must be within scope) |
+| `currentPhase` | string/null | No | Phase of currently focused task (cached) |
+| `previousTask` | string/null | No | Previously focused task for quick switching |
+| `sessionNote` | string/null | No | Context and progress notes (max 2000 chars) |
+| `nextAction` | string/null | No | Specific next step when resuming (max 500 chars) |
+| `blockedReason` | string/null | No | Why session is blocked (max 500 chars) |
+| `focusHistory` | array/null | No | Recent focus changes (max 20 items) |
+
+### Session Stats Object
+
+| Property | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `tasksCompleted` | integer | No | 0 | Tasks marked done during this session |
+| `tasksCreated` | integer | No | 0 | Tasks created during this session |
+| `tasksUpdated` | integer | No | 0 | Tasks modified during this session |
+| `focusChanges` | integer | No | 0 | Number of focus switches during session |
+| `totalActiveMinutes` | integer | No | 0 | Cumulative active time (excluding suspended) |
+| `suspendCount` | integer | No | 0 | Number of times session was suspended |
+
+### Session History Entry Object
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | string | Yes | Session ID |
+| `name` | string/null | No | Session name |
+| `agentId` | string/null | No | Agent identifier |
+| `scope` | object | Yes | Session scope |
+| `startedAt` | string | Yes | Session start timestamp |
+| `endedAt` | string | Yes | Session end timestamp |
+| `endReason` | string | No | completed, timeout, user_ended, error, or superseded |
+| `endNote` | string/null | No | Final session note (max 2000 chars) |
+| `lastFocusedTask` | string/null | No | Last focused task when session ended |
+| `stats` | object | No | Session statistics |
+| `resumable` | boolean | No | Whether session can be resumed |
+| `resumedAs` | string/null | No | New session ID if this was resumed |
+
+## Examples
+
+### Valid Sessions Registry
+
+```json
+{
+  "version": "1.0.0",
+  "project": "my-project",
+  "_meta": {
+    "schemaVersion": "1.0.0",
+    "checksum": "a1b2c3d4e5f67890",
+    "lastModified": "2026-01-27T20:00:00Z",
+    "totalSessionsCreated": 3,
+    "lastSessionId": "session_20260127_221258_c83952"
+  },
+  "config": {
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict",
+    "allowNestedScopes": true,
+    "allowScopeOverlap": false
+  },
+  "sessions": [
+    {
+      "id": "session_20260127_221258_c83952",
+      "status": "active",
+      "name": "Auth Implementation",
+      "agentId": "claude-code-1",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1001",
+        "includeDescendants": true
+      },
+      "focus": {
+        "currentTask": "T2597",
+        "currentPhase": "implementation",
+        "previousTask": null,
+        "sessionNote": "Working on schema documentation",
+        "nextAction": "Complete remaining schema docs",
+        "blockedReason": null,
+        "focusHistory": [
+          {
+            "taskId": "T2597",
+            "timestamp": "2026-01-27T22:15:00Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-01-27T22:12:58Z",
+      "lastActivity": "2026-01-27T22:30:00Z",
+      "endedAt": null,
+      "suspendedAt": null,
+      "archivedAt": null,
+      "resumeCount": 0,
+      "stats": {
+        "tasksCompleted": 0,
+        "tasksCreated": 0,
+        "tasksUpdated": 1,
+        "focusChanges": 1,
+        "totalActiveMinutes": 17,
+        "suspendCount": 0
+      }
+    }
+  ],
+  "sessionHistory": []
+}
+```
+
+## Usage
+
+The sessions schema is used in the following CLEO components:
+
+- **`.claude/sessions.json`**: Stores the active sessions registry
+- **`cleo session` commands**: All session management operations validate against this schema
+- **Multi-agent coordination**: Enables parallel work by different agents on non-overlapping scopes
+- **Session persistence**: Allows resuming work across Claude Code sessions
+
+### Scope Types
+
+The `scope.type` field determines how tasks are included:
+
+- **`task`**: Single task only
+- **`taskGroup`**: Parent task and its direct children
+- **`subtree`**: Parent task and all descendants
+- **`epicPhase`**: Epic tasks filtered by a specific phase
+- **`epic`**: Full epic tree with all descendants
+- **`custom`**: Explicit list of task IDs
+
+### Status Transitions
+
+Sessions follow this status lifecycle:
+
+1. **`active`** → `suspended`: Pause work temporarily
+2. **`active`** → `ended`: Complete or stop work
+3. **`suspended`** → `active`: Resume work
+4. **`suspended`** → `ended`: End without resuming
+5. **`ended`** → `archived`: Move to read-only history

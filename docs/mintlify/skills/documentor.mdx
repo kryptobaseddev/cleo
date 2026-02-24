@@ -1,0 +1,136 @@
+---
+title: "Documentor"
+description: "Orchestrate documentation workflows with lookup, write, and review"
+icon: "book"
+---
+
+# Documentor
+
+The Documentor skill provides context injection for documentation tasks, orchestrating specialized skills for lookup, writing, and review.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| **Skill ID** | ct-documentor |
+| **Tier** | 3 (Support) |
+| **Protocol** | implementation |
+| **Tags** | documentation, orchestration |
+
+## Skill Coordination
+
+| Skill | Purpose | Invoke When |
+|-------|---------|-------------|
+| `ct-docs-lookup` | Query existing docs, find references | Discovery phase |
+| `ct-docs-write` | Create/edit docs with CLEO style | Writing content |
+| `ct-docs-review` | Check compliance with style guide | Quality validation |
+
+## Core Principle
+
+> **MAINTAIN, DON'T DUPLICATE**
+
+Before creating ANY new file:
+1. Search for existing documentation on the topic
+2. Identify the canonical location for this information
+3. UPDATE the existing file instead of creating a new one
+4. Only create new files when NO suitable location exists
+
+## Workflow Phases
+
+### Phase 1: Discovery (MANDATORY)
+
+Before writing anything, discover what exists:
+
+```bash
+# List documentation structure
+Glob: pattern="docs/**/*.md"
+
+# Search for existing content
+Grep: pattern="{TOPIC_KEYWORDS}" path="docs/"
+
+# Check for related files
+Grep: pattern="{RELATED_TERMS}" path="docs/" output_mode="files_with_matches"
+```
+
+### Phase 2: Assess
+
+| Question | Action |
+|----------|--------|
+| Does a doc file for this topic exist? | UPDATE that file |
+| Is the info scattered across files? | CONSOLIDATE |
+| Is there a related doc that should include this? | ADD section |
+| Is this truly new with no home? | CREATE minimal new file |
+
+### Phase 3: Write/Update
+
+**For EXISTING files:**
+1. Read the current content
+2. Identify the correct section
+3. Add/update content IN PLACE
+4. Preserve existing structure
+5. Update any version numbers or dates
+
+**For CONSOLIDATION:**
+1. Identify all files with related content
+2. Choose the canonical location
+3. Move content to canonical file
+4. Add deprecation notices to old locations
+
+**For NEW files (last resort):**
+1. Confirm no existing location is suitable
+2. Follow project's doc structure conventions
+3. Keep minimal - single topic focus
+
+### Phase 4: Review
+
+Checklist:
+- [ ] No formal language ("utilize", "offerings")
+- [ ] "People/companies" not "users"
+- [ ] No excessive exclamation points
+- [ ] Important information leads
+- [ ] No verbose text without value
+- [ ] Headings state the point
+- [ ] Descriptive link text (never "here")
+- [ ] No "easy" or "simple"
+- [ ] Code examples work
+
+## Anti-Duplication Checklist
+
+Before completing, verify:
+
+- [ ] Searched for existing docs on this topic
+- [ ] Did NOT create duplicate content
+- [ ] Updated existing file if one existed
+- [ ] Added deprecation notice if consolidating
+- [ ] Cross-references are updated
+- [ ] No orphaned documentation created
+
+## Output Format
+
+```markdown
+# Documentation Update: {TITLE}
+
+**Date**: {DATE} | **Agent**: ct-documentor | **Status**: complete
+
+---
+
+## Summary
+
+{What was updated and why}
+
+## Changes Made
+
+### File: {path/to/file.md}
+- {Change 1}
+- {Change 2}
+
+## Files NOT Created (Avoided Duplication)
+
+- {Considered creating X but updated Y instead}
+```
+
+## Related Skills
+
+- [Docs Lookup](/skills/docs-lookup) - Find existing documentation
+- [Docs Write](/skills/docs-write) - Write documentation content
+- [Docs Review](/skills/docs-review) - Review documentation quality
