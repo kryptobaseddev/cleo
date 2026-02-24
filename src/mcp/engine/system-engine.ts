@@ -408,9 +408,139 @@ export async function systemArchiveStats(
 // ===== Log =====
 
 /**
- * Query todo-log.jsonl with optional filters.
+ * Query audit log with optional filters.
+ * Reads from SQLite audit_log table (primary) with JSONL fallback.
+ *
+ * @task T4837
  */
-export function systemLog(
+export async function systemLog(
+  projectRoot: string,
+  filters?: {
+    operation?: string;
+    taskId?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<EngineResult<LogQueryData>> {
+  try {
+    // Try SQLite audit_log table first
+    const entries = await queryAuditLogSqlite(projectRoot, filters);
+    if (entries !== null) {
+      return { success: true, data: entries };
+    }
+
+    // Fallback: JSONL file (for JSON-engine installs or pre-migration state)
+    return queryAuditLogJsonl(projectRoot, filters);
+  } catch (err: unknown) {
+    return { success: false, error: { code: 'E_LOG_ERROR', message: (err as Error).message } };
+  }
+}
+
+/**
+ * Query audit_log from SQLite. Returns null if SQLite is unavailable.
+ * @task T4837
+ */
+async function queryAuditLogSqlite(
+  projectRoot: string,
+  filters?: {
+    operation?: string;
+    taskId?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<LogQueryData | null> {
+  try {
+    const { join } = await import('node:path');
+    const { existsSync } = await import('node:fs');
+    const dbPath = join(projectRoot, '.cleo', 'tasks.db');
+    if (!existsSync(dbPath)) return null;
+
+    const { getDb } = await import('../../store/sqlite.js');
+    const { auditLog } = await import('../../store/schema.js');
+    const { sql } = await import('drizzle-orm');
+
+    const db = await getDb(projectRoot);
+
+    // Check if audit_log table exists and has data
+    try {
+      // Build dynamic WHERE conditions
+      const conditions: ReturnType<typeof sql>[] = [];
+      if (filters?.operation) {
+        conditions.push(sql`${auditLog.action} = ${filters.operation}`);
+      }
+      if (filters?.taskId) {
+        conditions.push(sql`${auditLog.taskId} = ${filters.taskId}`);
+      }
+      if (filters?.since) {
+        conditions.push(sql`${auditLog.timestamp} >= ${filters.since}`);
+      }
+      if (filters?.until) {
+        conditions.push(sql`${auditLog.timestamp} <= ${filters.until}`);
+      }
+
+      const whereClause = conditions.length > 0
+        ? sql.join(conditions, sql` AND `)
+        : sql`1=1`;
+
+      // Count total matching entries
+      const countResult = await db.all<{ cnt: number }>(
+        sql`SELECT count(*) as cnt FROM ${auditLog} WHERE ${whereClause}`,
+      );
+      const total = countResult[0]?.cnt ?? 0;
+
+      if (total === 0) return null; // Fall through to JSONL
+
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit ?? 20;
+
+      // Fetch paginated results
+      const rows = await db.all<{
+        id: string;
+        timestamp: string;
+        action: string;
+        task_id: string;
+        actor: string;
+        details_json: string | null;
+        before_json: string | null;
+        after_json: string | null;
+      }>(
+        sql`SELECT * FROM ${auditLog}
+            WHERE ${whereClause}
+            ORDER BY ${auditLog.timestamp} DESC
+            LIMIT ${limit} OFFSET ${offset}`,
+      );
+
+      const entries = rows.map(row => ({
+        operation: row.action,
+        taskId: row.task_id,
+        timestamp: row.timestamp,
+        actor: row.actor,
+        details: row.details_json ? JSON.parse(row.details_json) : {},
+        before: row.before_json ? JSON.parse(row.before_json) : undefined,
+        after: row.after_json ? JSON.parse(row.after_json) : undefined,
+      }));
+
+      return {
+        entries,
+        pagination: { total, offset, limit, hasMore: offset + limit < total },
+      };
+    } catch {
+      // audit_log table may not exist yet — fall through to JSONL
+      return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Query audit log from JSONL file (fallback path).
+ */
+function queryAuditLogJsonl(
   projectRoot: string,
   filters?: {
     operation?: string;
@@ -421,41 +551,37 @@ export function systemLog(
     offset?: number;
   },
 ): EngineResult<LogQueryData> {
-  try {
-    const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
-    const raw = readLogFileEntries(logPath) as Array<{ operation: string; timestamp: string; taskId?: string; [key: string]: unknown }>;
-    let entries = raw;
+  const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
+  const raw = readLogFileEntries(logPath) as Array<{ operation: string; timestamp: string; taskId?: string; [key: string]: unknown }>;
+  let entries = raw;
 
-    if (filters?.operation) {
-      entries = entries.filter(e => e.operation === filters.operation);
-    }
-    if (filters?.taskId) {
-      entries = entries.filter(e => e.taskId === filters.taskId);
-    }
-    if (filters?.since) {
-      entries = entries.filter(e => e.timestamp >= filters.since!);
-    }
-    if (filters?.until) {
-      entries = entries.filter(e => e.timestamp <= filters.until!);
-    }
-
-    entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-    const total = entries.length;
-    const offset = filters?.offset ?? 0;
-    const limit = filters?.limit ?? 20;
-    const paginated = entries.slice(offset, offset + limit);
-
-    return {
-      success: true,
-      data: {
-        entries: paginated,
-        pagination: { total, offset, limit, hasMore: offset + limit < total },
-      },
-    };
-  } catch (err: unknown) {
-    return { success: false, error: { code: 'E_LOG_ERROR', message: (err as Error).message } };
+  if (filters?.operation) {
+    entries = entries.filter(e => e.operation === filters.operation);
   }
+  if (filters?.taskId) {
+    entries = entries.filter(e => e.taskId === filters.taskId);
+  }
+  if (filters?.since) {
+    entries = entries.filter(e => e.timestamp >= filters.since!);
+  }
+  if (filters?.until) {
+    entries = entries.filter(e => e.timestamp <= filters.until!);
+  }
+
+  entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  const total = entries.length;
+  const offset = filters?.offset ?? 0;
+  const limit = filters?.limit ?? 20;
+  const paginated = entries.slice(offset, offset + limit);
+
+  return {
+    success: true,
+    data: {
+      entries: paginated,
+      pagination: { total, offset, limit, hasMore: offset + limit < total },
+    },
+  };
 }
 
 // ===== Context =====

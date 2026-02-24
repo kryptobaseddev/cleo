@@ -1,23 +1,29 @@
 /**
- * SQLite store via drizzle-orm + sql.js (WASM).
+ * SQLite store via drizzle-orm/sqlite-proxy + node:sqlite (DatabaseSync).
  *
- * Zero native bindings, cross-platform. Database stored at .cleo/tasks.db.
- * Lazy initialization: WASM only loaded when first database operation occurs.
- * Journal mode (not WAL) since sql.js is in-memory WASM with explicit save.
+ * Zero native npm dependencies, 100% cross-platform (Windows/Linux/macOS).
+ * File-backed SQLite with WAL mode for multi-process concurrent access.
+ * Database stored at .cleo/tasks.db.
+ *
+ * Architecture: node:sqlite provides the synchronous file-backed SQLite engine,
+ * wrapped via sqlite-proxy to give drizzle-orm an async interface. All writes
+ * go directly to disk through SQLite's native WAL mechanism -- no saveToFile()
+ * pattern needed.
  *
  * @epic T4454
- * @task W1-T1
+ * @task T4817 - node:sqlite engine migration (ADR-006, ADR-010)
  * @task T4810 - Data loss prevention guards
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/sql-js';
-import type { SQLJsDatabase } from 'drizzle-orm/sql-js';
-import initSqlJs, { type Database as SqlJsNativeDb } from 'sql.js';
+import { drizzle } from 'drizzle-orm/sqlite-proxy';
+import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import * as schema from './schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
+import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
 
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
@@ -26,8 +32,8 @@ const DB_FILENAME = 'tasks.db';
 const SCHEMA_VERSION = '2.0.0';
 
 /** Singleton state for lazy initialization. */
-let _db: SQLJsDatabase<typeof schema> | null = null;
-let _nativeDb: SqlJsNativeDb | null = null;
+let _db: SqliteRemoteDatabase<typeof schema> | null = null;
+let _nativeDb: DatabaseSync | null = null;
 let _dbPath: string | null = null;
 /** Track whether the DB was loaded from an existing file or created fresh. */
 let _isNewDb = false;
@@ -42,9 +48,9 @@ export function getDbPath(cwd?: string): string {
 /**
  * Initialize the SQLite database (lazy, singleton).
  * Creates the database file and tables if they don't exist.
- * Returns the drizzle ORM instance.
+ * Returns the drizzle ORM instance (async via sqlite-proxy).
  */
-export async function getDb(cwd?: string): Promise<SQLJsDatabase<typeof schema>> {
+export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof schema>> {
   const requestedPath = getDbPath(cwd);
 
   // If singleton exists but points to different path, reset it
@@ -57,43 +63,38 @@ export async function getDb(cwd?: string): Promise<SQLJsDatabase<typeof schema>>
   const dbPath = requestedPath;
   _dbPath = dbPath;
 
-  // Initialize sql.js WASM
-  const SQL = await initSqlJs();
+  // Ensure directory exists
+  mkdirSync(dirname(dbPath), { recursive: true });
 
-  // Load existing database or create new
-  let nativeDb: SqlJsNativeDb;
-  if (existsSync(dbPath)) {
-    const buffer = readFileSync(dbPath);
-    nativeDb = new SQL.Database(buffer);
-    _isNewDb = false;
-  } else {
-    mkdirSync(dirname(dbPath), { recursive: true });
-    nativeDb = new SQL.Database();
-    _isNewDb = true;
-  }
-
+  // Open file-backed SQLite via node:sqlite with WAL mode
+  _isNewDb = !existsSync(dbPath);
+  const nativeDb = openNativeDatabase(dbPath);
   _nativeDb = nativeDb;
 
-  // Create drizzle ORM wrapper
-  const db = drizzle(nativeDb, { schema });
+  // Create drizzle ORM wrapper via sqlite-proxy
+  const callback = createDrizzleCallback(nativeDb);
+  const batchCb = createBatchCallback(nativeDb);
+  const db = drizzle(callback, batchCb, { schema });
   _db = db;
 
-  // Ensure tables exist (only saves to disk for new databases)
-  await createTablesIfNeeded(nativeDb);
+  // Ensure tables exist
+  createTablesIfNeeded(nativeDb);
 
   return db;
 }
 
 /**
  * Create all tables if they don't exist.
- * Uses raw SQL since drizzle-kit migrations aren't needed for initial setup.
+ * Uses raw SQL via node:sqlite DatabaseSync.exec() since drizzle-kit
+ * migrations aren't needed for initial setup.
  *
- * @task T4810 - Only writes schema version and saves to disk for NEW databases.
- * Existing databases retain their schema version and are not overwritten
- * with an empty DB on init.
+ * With node:sqlite, writes go directly to disk via WAL -- no saveToFile() needed.
+ *
+ * @task T4810 - Only writes schema version for NEW databases.
+ * Existing databases retain their schema version.
  */
-async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
-  nativeDb.run(`
+export function createTablesIfNeeded(nativeDb: DatabaseSync): void {
+  nativeDb.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -131,7 +132,7 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
     );
   `);
 
-  nativeDb.run(`
+  nativeDb.exec(`
     CREATE TABLE IF NOT EXISTS task_dependencies (
       task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
       depends_on TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -139,7 +140,7 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
     );
   `);
 
-  nativeDb.run(`
+  nativeDb.exec(`
     CREATE TABLE IF NOT EXISTS task_relations (
       task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
       related_to TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -149,7 +150,7 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
     );
   `);
 
-  nativeDb.run(`
+  nativeDb.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -167,7 +168,7 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
     );
   `);
 
-  nativeDb.run(`
+  nativeDb.exec(`
     CREATE TABLE IF NOT EXISTS task_work_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -177,7 +178,7 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
     );
   `);
 
-  nativeDb.run(`
+  nativeDb.exec(`
     CREATE TABLE IF NOT EXISTS schema_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -185,70 +186,37 @@ async function createTablesIfNeeded(nativeDb: SqlJsNativeDb): Promise<void> {
   `);
 
   // Create indexes (IF NOT EXISTS)
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON task_dependencies(depends_on);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_work_history_session ON task_work_history(session_id);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON task_dependencies(depends_on);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);');
+  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_work_history_session ON task_work_history(session_id);');
 
-  // Only set schema version and save for NEW databases.
-  // Existing databases already have their version and data — don't overwrite.
+  // Only set schema version for NEW databases.
+  // Existing databases already have their version and data.
   if (_isNewDb) {
-    nativeDb.run(
+    nativeDb.exec(
       `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
     );
-    saveToFile();
   }
 }
 
-/**
- * Save the in-memory database to disk.
- * Must be called after any write operation since sql.js is in-memory.
- *
- * @task T4810 - Guard against overwriting a populated DB with an empty one.
- * If the on-disk file has data but the in-memory DB has zero tasks,
- * refuse to save and log a warning to stderr.
- */
-export function saveToFile(): void {
-  if (!_nativeDb || !_dbPath) return;
-
-  // Data loss guard: don't overwrite a non-empty DB file with an empty in-memory DB
-  if (existsSync(_dbPath)) {
-    try {
-      const existingSize = statSync(_dbPath).size;
-      // Only check if existing file is substantial (> 100KB = likely has real data)
-      if (existingSize > 100_000) {
-        const result = _nativeDb.exec('SELECT COUNT(*) FROM tasks');
-        const taskCount = (result[0]?.values?.[0]?.[0] ?? 0) as number;
-        if (taskCount === 0) {
-          console.error(
-            `[CLEO SQLite] BLOCKED: Refusing to overwrite ${_dbPath} (${existingSize} bytes) with empty database (0 tasks). ` +
-            `This is a safety guard against data loss. If intentional, delete the file first.`,
-          );
-          return;
-        }
-      }
-    } catch {
-      // If the guard check itself fails, proceed with save — don't block normal operations
-    }
-  }
-
-  const data = _nativeDb.export();
-  const buffer = Buffer.from(data);
-  mkdirSync(dirname(_dbPath), { recursive: true });
-  writeFileSync(_dbPath, buffer);
-}
 
 /**
  * Close the database connection and release resources.
  */
 export function closeDb(): void {
   if (_nativeDb) {
-    saveToFile();
-    _nativeDb.close();
+    try {
+      if (_nativeDb.isOpen) {
+        _nativeDb.close();
+      }
+    } catch {
+      // Ignore close errors
+    }
     _nativeDb = null;
   }
   _db = null;
@@ -263,7 +231,9 @@ export function closeDb(): void {
 export function resetDbState(): void {
   if (_nativeDb) {
     try {
-      _nativeDb.close();
+      if (_nativeDb.isOpen) {
+        _nativeDb.close();
+      }
     } catch {
       // Ignore close errors
     }
@@ -279,11 +249,10 @@ export function resetDbState(): void {
  */
 export async function getSchemaVersion(cwd?: string): Promise<string | null> {
   const db = await getDb(cwd);
-  const result = db
+  const result = await db
     .select()
     .from(schema.schemaMeta)
-    .where(eq(schema.schemaMeta.key, 'schemaVersion'))
-    .all();
+    .where(eq(schema.schemaMeta.key, 'schemaVersion'));
 
   return result[0]?.value ?? null;
 }
@@ -296,7 +265,16 @@ export function dbExists(cwd?: string): boolean {
 }
 
 /**
+ * Get the underlying node:sqlite DatabaseSync instance.
+ * Useful for direct PRAGMA calls or raw SQL operations.
+ * Returns null if the database hasn't been initialized.
+ */
+export function getNativeDb(): DatabaseSync | null {
+  return _nativeDb;
+}
+
+/**
  * Re-export schema for external use.
  */
 export { schema };
-export type { SQLJsDatabase };
+export type { SqliteRemoteDatabase };

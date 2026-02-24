@@ -1,5 +1,5 @@
 /**
- * Drizzle ORM schema for CLEO tasks.db (SQLite via sql.js WASM).
+ * Drizzle ORM schema for CLEO tasks.db (SQLite via node:sqlite + sqlite-proxy).
  *
  * Tables: tasks, task_dependencies, task_relations, sessions, task_work_history
  * Archive uses the same tasks table with status = 'archived' + archive metadata.
@@ -225,6 +225,30 @@ export const schemaMeta = sqliteTable('schema_meta', {
   value: text('value').notNull(),
 });
 
+// === AUDIT LOG ===
+
+/**
+ * Task change audit log — stores every add/update/complete/delete/archive operation.
+ * Migrated from tasks-log.jsonl to SQLite per ADR-006/ADR-012.
+ * No FK on taskId — log entries must survive task deletion.
+ *
+ * @task T4837
+ */
+export const auditLog = sqliteTable('audit_log', {
+  id: text('id').primaryKey(),
+  timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
+  action: text('action').notNull(),
+  taskId: text('task_id').notNull(),
+  actor: text('actor').notNull().default('system'),
+  detailsJson: text('details_json').default('{}'),
+  beforeJson: text('before_json'),
+  afterJson: text('after_json'),
+}, (table) => [
+  index('idx_audit_log_task_id').on(table.taskId),
+  index('idx_audit_log_action').on(table.action),
+  index('idx_audit_log_timestamp').on(table.timestamp),
+]);
+
 // === TYPE EXPORTS ===
 
 export type TaskRow = typeof tasks.$inferSelect;
@@ -244,3 +268,5 @@ export type LifecycleEvidenceRow = typeof lifecycleEvidence.$inferSelect;
 export type NewLifecycleEvidenceRow = typeof lifecycleEvidence.$inferInsert;
 export type LifecycleTransitionRow = typeof lifecycleTransitions.$inferSelect;
 export type NewLifecycleTransitionRow = typeof lifecycleTransitions.$inferInsert;
+export type AuditLogRow = typeof auditLog.$inferSelect;
+export type NewAuditLogRow = typeof auditLog.$inferInsert;
