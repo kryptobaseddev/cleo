@@ -24,6 +24,7 @@ export type {
   LAFSTransport,
   ConformanceReport,
   FlagInput,
+  MVILevel,
 } from '@cleocode/lafs-protocol';
 
 // ---------------------------------------------------------------------------

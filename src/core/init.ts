@@ -10,7 +10,7 @@
  *   3. Schema file installation (.cleo/schemas/)
  *   4. Sequence counter (.cleo/.sequence.json)
  *   5. Project info (.cleo/project-info.json)
- *   6. CAAMP injection into agent instruction files
+ *   6. CAAMP injection into agent instruction files (AGENTS.md hub pattern)
  *   7. MCP server installation to detected providers
  *   8. Agent definition installation (cleo-subagent)
  *   9. Core skill installation via CAAMP
@@ -189,6 +189,7 @@ const CLEO_GITIGNORE_FALLBACK = `# CLEO Project Data - Selective Git Tracking
 backups/
 metrics/
 audit-log-*.json
+# Legacy audit log pattern, superseded by pino (logs/cleo.log)
 .context-state.json
 .context-state-session_*.json
 context-states/
@@ -478,10 +479,15 @@ async function initProjectInfo(
 }
 
 /**
- * Inject CLEO-INJECTION.md template into agent instruction files via CAAMP.
+ * Inject CLEO content into agent instruction files via CAAMP.
  *
- * Injects the template reference `@.cleo/templates/AGENT-INJECTION.md`
- * into CLAUDE.md, AGENTS.md, GEMINI.md etc. using CAAMP's inject/injectAll.
+ * Uses AGENTS.md as the hub file: injects `@AGENTS.md` into CLAUDE.md,
+ * GEMINI.md etc. via CAAMP's injectAll(), then injects CLEO protocol
+ * content into AGENTS.md itself via inject().
+ *
+ * Target architecture:
+ *   CLAUDE.md/GEMINI.md -> @AGENTS.md (via injectAll)
+ *   AGENTS.md -> @~/.cleo/templates/CLEO-INJECTION.md + @.cleo/project-context.json
  *
  * @task T4682
  */
@@ -491,10 +497,7 @@ async function initInjection(
   warnings: string[],
 ): Promise<void> {
   try {
-    const {
-      getInstalledProviders,
-      injectAll,
-    } = await import('@cleocode/caamp');
+    const { getInstalledProviders, inject, injectAll, buildInjectionContent } = await import('@cleocode/caamp');
 
     const providers = getInstalledProviders();
     if (providers.length === 0) {
@@ -502,10 +505,8 @@ async function initInjection(
       return;
     }
 
-    // The injection content references the local template which references
-    // the global CLEO-INJECTION.md
-    const injectionContent = '@.cleo/templates/AGENT-INJECTION.md';
-
+    // Step 1: Inject @AGENTS.md into all provider instruction files (CLAUDE.md, GEMINI.md, etc.)
+    const injectionContent = buildInjectionContent({ references: ['@AGENTS.md'] });
     const results = await injectAll(providers, projectRoot, 'project', injectionContent);
 
     const injected: string[] = [];
@@ -517,55 +518,33 @@ async function initInjection(
     if (injected.length > 0) {
       created.push(`injection: ${injected.join(', ')}`);
     }
+
+    // Step 2: Inject CLEO protocol content into AGENTS.md itself
+    const agentsMdPath = join(projectRoot, 'AGENTS.md');
+    const agentsMdLines = ['@~/.cleo/templates/CLEO-INJECTION.md'];
+
+    // Include project-context.json reference if it exists
+    const projectContextPath = join(projectRoot, '.cleo', 'project-context.json');
+    if (existsSync(projectContextPath)) {
+      agentsMdLines.push('@.cleo/project-context.json');
+    }
+
+    const agentsAction = await inject(agentsMdPath, agentsMdLines.join('\n'));
+    created.push(`AGENTS.md CLEO content (${agentsAction})`);
+
+    // Step 3: Install CLEO-INJECTION.md to global templates dir
+    const content = getInjectionTemplateContent();
+    if (content) {
+      const globalTemplatesDir = join(getCleoHome(), 'templates');
+      await mkdir(globalTemplatesDir, { recursive: true });
+      const globalPath = join(globalTemplatesDir, 'CLEO-INJECTION.md');
+      if (!existsSync(globalPath)) {
+        await writeFile(globalPath, content);
+      }
+    }
   } catch (err) {
     warnings.push(`CAAMP injection: ${err instanceof Error ? err.message : String(err)}`);
   }
-}
-
-/**
- * Install the AGENT-INJECTION.md template to .cleo/templates/.
- * This is the project-local copy that references the global CLEO-INJECTION.md.
- * @task T4682
- */
-async function initInjectionTemplate(
-  cleoDir: string,
-  force: boolean,
-  created: string[],
-  skipped: string[],
-  _warnings: string[],
-): Promise<void> {
-  const templatesDir = join(cleoDir, 'templates');
-  await mkdir(templatesDir, { recursive: true });
-
-  const targetPath = join(templatesDir, 'AGENT-INJECTION.md');
-
-  if (await fileExists(targetPath) && !force) {
-    skipped.push('templates/AGENT-INJECTION.md');
-    return;
-  }
-
-  // The AGENT-INJECTION.md template references the global CLEO-INJECTION.md
-  const content = getInjectionTemplateContent();
-  if (content) {
-    // Install CLEO-INJECTION.md to the global templates dir as well
-    const globalTemplatesDir = join(getCleoHome(), 'templates');
-    await mkdir(globalTemplatesDir, { recursive: true });
-    const globalPath = join(globalTemplatesDir, 'CLEO-INJECTION.md');
-    if (!existsSync(globalPath) || force) {
-      await writeFile(globalPath, content);
-    }
-  }
-
-  // Create the project-local AGENT-INJECTION.md that references global
-  const agentInjectionContent = [
-    '<!-- Unified into CLEO-INJECTION.md (v2.0.0). This file retained for backward compatibility. -->',
-    '<!-- Agents receive the appropriate MVI tier from CLEO-INJECTION.md -->',
-    '@~/.cleo/templates/CLEO-INJECTION.md',
-    '',
-  ].join('\n');
-
-  await writeFile(targetPath, agentInjectionContent);
-  created.push('templates/AGENT-INJECTION.md');
 }
 
 /**
@@ -673,24 +652,27 @@ async function initCoreSkills(
   warnings: string[],
 ): Promise<void> {
   try {
-    const {
-      getInstalledProviders,
-      installSkill,
-    } = await import('@cleocode/caamp');
+    const { getInstalledProviders, installSkill, registerSkillLibraryFromPath } = await import('@cleocode/caamp');
 
     const providers = getInstalledProviders();
     if (providers.length === 0) {
       return;
     }
 
-    // Find ct-skills package
+    // Find ct-skills package: bundled first, then node_modules fallback
     let ctSkillsRoot: string | null = null;
     try {
-      // resolve from package root
       const packageRoot = getPackageRoot();
-      const ctSkillsPath = join(packageRoot, 'node_modules', '@cleocode', 'ct-skills');
-      if (existsSync(join(ctSkillsPath, 'skills.json'))) {
-        ctSkillsRoot = ctSkillsPath;
+      // Check bundled package first (packages/ct-skills/)
+      const bundledPath = join(packageRoot, 'packages', 'ct-skills');
+      if (existsSync(join(bundledPath, 'skills.json'))) {
+        ctSkillsRoot = bundledPath;
+      } else {
+        // Fallback to node_modules
+        const ctSkillsPath = join(packageRoot, 'node_modules', '@cleocode', 'ct-skills');
+        if (existsSync(join(ctSkillsPath, 'skills.json'))) {
+          ctSkillsRoot = ctSkillsPath;
+        }
       }
     } catch {
       // not found
@@ -699,6 +681,13 @@ async function initCoreSkills(
     if (!ctSkillsRoot) {
       warnings.push('ct-skills package not found, skipping core skill installation');
       return;
+    }
+
+    // Register bundled skill library with CAAMP
+    try {
+      registerSkillLibraryFromPath(ctSkillsRoot);
+    } catch {
+      warnings.push('Failed to register skill library with CAAMP');
     }
 
     // Read the skills catalog to find core skills
@@ -797,10 +786,7 @@ export async function updateDocs(): Promise<InitResult> {
   const created: string[] = [];
   const warnings: string[] = [];
 
-  // Re-install the injection template
-  await initInjectionTemplate(cleoDir, true, created, [], warnings);
-
-  // Re-inject into all provider instruction files
+  // Re-inject into all provider instruction files (and AGENTS.md hub)
   await initInjection(projRoot, created, warnings);
 
   return {
@@ -863,10 +849,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // T4684: Project info (.cleo/project-info.json)
   await initProjectInfo(cleoDir, projRoot, force, created, skipped);
 
-  // T4682: Injection template (.cleo/templates/AGENT-INJECTION.md)
-  await initInjectionTemplate(cleoDir, force, created, skipped, warnings);
-
-  // T4682: Inject into agent instruction files via CAAMP
+  // T4682: Inject into agent instruction files via CAAMP (AGENTS.md hub pattern)
   await initInjection(projRoot, created, warnings);
 
   // T4685: Agent definition (cleo-subagent)
