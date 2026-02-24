@@ -1,0 +1,74 @@
+---
+title: "cleo start"
+description: "Start working on a task - begin time tracking and set as current focus"
+icon: "play"
+---
+
+# cleo start
+
+Start working on a task - begin time tracking and set as current focus.
+
+{% hint style="info" %}**Agent Relevance**: High - Essential for task work tracking{% endhint %}
+
+## Synopsis
+
+```bash
+cleo start <task-id> [OPTIONS]
+```
+
+## Description
+
+The `start` command marks a task as in-progress and begins tracking work time on it. This is the recommended way to begin work on a task, replacing the older `focus` command for task work management.
+
+When you start a task:
+- Task status changes to `in-progress` (if not already)
+- Task becomes the "current" task for time tracking
+- Previous current task (if any) is automatically stopped
+- Work session tracking begins
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--note "TEXT"` | Add a note when starting the task |
+| `--session-id ID` | Associate with specific session |
+| `--json` | Output in JSON format |
+| `--human` | Output in human-readable format |
+
+## Examples
+
+{% tabs %}
+
+```bash Start a task
+cleo start T1234
+```
+
+```bash Start with a note
+cleo start T1234 --note "Beginning implementation phase"
+```
+
+```bash JSON output
+cleo start T1234 --json
+```
+
+{% endtabs %}
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| 0 | Success | - |
+| 4 | Task not found | Yes |
+| 17 | Task already completed | No |
+| 18 | Cascade failed | No |
+
+## Related Commands
+
+- [`cleo stop`](stop) - Stop working on current task
+- [`cleo current`](current) - Show current task
+- [`cleo focus`](focus) - Legacy focus command (deprecated)
+
+## See Also
+
+- [Task Work Tracking](/guides/sessions)
+- [Session Management](/concepts/sessions)

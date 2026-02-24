@@ -1,0 +1,780 @@
+---
+title: "Lifecycle Enforcement Specification"
+description: "RFC 2119 specification for RCSD pipeline lifecycle gate enforcement"
+version: "1.0.0"
+status: "active"
+task: "T2715"
+epic: "T2678"
+date: "2026-01-28"
+---
+
+# Lifecycle Enforcement Specification
+
+**Version**: 1.0.0
+**Status**: Active
+**Task**: T2715
+**Epic**: T2678 (Protocol Enforcement & RCSD-IVTR Alignment Audit)
+**Date**: 2026-01-28
+
+## Authority
+
+This specification is **AUTHORITATIVE** for lifecycle gate enforcement in the CLEO task management system.
+
+**This specification governs:**
+- Gate check algorithm for RCSD pipeline stage transitions
+- Enforcement modes (strict, advisory, off)
+- State query patterns against RCSD manifest schema
+- Exit codes and error handling for lifecycle violations
+
+**This specification DEFERS TO:**
+- `RCSD-PIPELINE-SPEC.md` - Stage definitions and pipeline flow
+- `schemas/rcsd-manifest.schema.json` - State schema structure
+
+**Implementation Location:**
+- `lib/lifecycle.sh` - Gate check functions
+- `lib/orchestrator-spawn.sh` - Integration point (Step 6.5)
+
+---
+
+## 1. Overview
+
+### 1.1 Purpose
+
+Lifecycle gate enforcement prevents invalid transitions in the RCSD (Research → Consensus → Specification → Decomposition) pipeline. It ensures subagents are spawned only after prerequisite stages are completed.
+
+### 1.2 Scope
+
+This specification covers:
+1. Gate check algorithm
+2. Enforcement modes
+3. RCSD state schema integration
+4. Exit codes and error handling
+5. Integration with orchestrator-spawn.sh
+
+### 1.3 Definitions
+
+| Term | Definition |
+|------|------------|
+| **Gate** | A validation checkpoint that blocks progression until prerequisite stages are completed |
+| **RCSD Stage** | One of: initialized, research, consensus, spec, decompose |
+| **Lifecycle State** | Current position in the RCSD pipeline |
+| **Enforcement Mode** | Configuration controlling how gate failures are handled |
+
+---
+
+## 2. Gate Check Algorithm
+
+### 2.1 State Query (GATE-001)
+
+The gate check algorithm **MUST** query `.cleo/rcsd/{epicId}/_manifest.json` for stage status.
+
+**Query Pattern:**
+```bash
+# Get stage state
+stage_state=$(jq -r '.status.{stage}.state' .cleo/rcsd/T001_epic-name/_manifest.json)
+
+# Valid states: pending, in_progress, completed, skipped, failed
+```
+
+**Requirements:**
+- GATE-001.1: **MUST** read from `.cleo/rcsd/{epicId}/_manifest.json`
+- GATE-001.2: **MUST** query `.status.{stage}.state` field
+- GATE-001.3: **MUST** handle missing manifest file gracefully
+- GATE-001.4: **MUST** handle missing stage gracefully
+
+### 2.2 Prerequisite Verification (GATE-002)
+
+The gate check **MUST** verify prerequisite stages are completed before allowing target stage.
+
+**Dependency Chain:**
+```
+initialized → research → consensus → spec → decompose → complete
+```
+
+**Requirements:**
+- GATE-002.1: **MUST** check all prerequisite stages are `completed`
+- GATE-002.2: **MUST** allow `skipped` stages if explicitly permitted
+- GATE-002.3: **MUST NOT** allow forward jumps (e.g., initialized → spec)
+- GATE-002.4: **MUST NOT** allow backward transitions (e.g., spec → consensus)
+
+**Algorithm:**
+```bash
+check_lifecycle_gate() {
+    local epic_id="$1"
+    local target_stage="$2"
+    local enforcement_mode="$3"
+
+    # Step 1: Get manifest path
+    local manifest_path=".cleo/rcsd/${epic_id}/_manifest.json"
+
+    # Step 2: Verify manifest exists
+    if [[ ! -f "$manifest_path" ]]; then
+        return "$EXIT_LIFECYCLE_GATE_FAILED"
+    fi
+
+    # Step 3: Get prerequisites for target stage
+    local prerequisites
+    case "$target_stage" in
+        initialized) prerequisites="" ;;
+        research) prerequisites="initialized" ;;
+        consensus) prerequisites="initialized research" ;;
+        spec) prerequisites="initialized research consensus" ;;
+        decompose) prerequisites="initialized research consensus spec" ;;
+        complete) prerequisites="initialized research consensus spec decompose" ;;
+    esac
+
+    # Step 4: Verify each prerequisite is completed
+    for prereq in $prerequisites; do
+        local state
+        state=$(jq -r ".status.${prereq}.state" "$manifest_path")
+
+        if [[ "$state" != "completed" && "$state" != "skipped" ]]; then
+            # Gate check failed
+            return "$EXIT_LIFECYCLE_GATE_FAILED"
+        fi
+    done
+
+    # All prerequisites met
+    return 0
+}
+```
+
+### 2.3 Configurable Enforcement (GATE-003)
+
+The gate check **MUST** support configurable enforcement mode.
+
+**Requirements:**
+- GATE-003.1: **MUST** read enforcement mode from `.cleo/config.json`
+- GATE-003.2: **MUST** default to `strict` if not configured
+- GATE-003.3: **MUST** support environment variable override (`LIFECYCLE_ENFORCEMENT_MODE`)
+- GATE-003.4: **MUST** validate mode is one of: `strict`, `advisory`, `off`
+
+**Configuration Schema:**
+```json
+{
+  "lifecycle": {
+    "enforcement": {
+      "mode": "strict",
+      "skipStages": []
+    }
+  }
+}
+```
+
+### 2.4 Exit Code Handling (GATE-004)
+
+The gate check **MUST** return appropriate exit code based on result.
+
+**Requirements:**
+- GATE-004.1: **MUST** return `0` (EXIT_SUCCESS) if gate passed
+- GATE-004.2: **MUST** return `75` (EXIT_LIFECYCLE_GATE_FAILED) if gate failed in strict mode
+- GATE-004.3: **MUST** return `0` with warning message if gate failed in advisory mode
+- GATE-004.4: **MUST** return `0` if enforcement mode is `off`
+
+---
+
+## 3. Enforcement Modes
+
+### 3.1 Strict Mode (MODE-001)
+
+**MODE-001**: `strict` mode **MUST** block spawn if prerequisites are not met.
+
+**Behavior:**
+- **MUST** perform gate check before spawn
+- **MUST** return `EXIT_LIFECYCLE_GATE_FAILED` (75) on gate failure
+- **MUST** provide actionable fix in error JSON
+- **MUST** log gate check result to compliance metrics
+- **MUST** prevent subagent spawn
+
+**Default**: This is the default enforcement mode.
+
+**Example Error:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_LIFECYCLE_GATE_FAILED",
+    "message": "SPAWN BLOCKED: research stage not completed",
+    "fix": "cleo rcsd complete T001 research",
+    "context": {
+      "epicId": "T001",
+      "targetStage": "consensus",
+      "missingStages": ["research"],
+      "currentStage": "initialized"
+    }
+  }
+}
+```
+
+### 3.2 Advisory Mode (MODE-002)
+
+**MODE-002**: `advisory` mode **MUST** warn but **SHOULD** allow spawn.
+
+**Behavior:**
+- **MUST** perform gate check before spawn
+- **MUST** log warning message if gate fails
+- **SHOULD** allow spawn to proceed
+- **MUST** record advisory violation in compliance metrics
+- **MAY** display warning to user
+
+**Use Case**: Development and testing environments where strict enforcement would be disruptive.
+
+**Example Warning:**
+```
+[WARN] Lifecycle gate check failed (advisory mode): research stage not completed
+[WARN] Proceeding with spawn - ensure prerequisites are met manually
+```
+
+### 3.3 Off Mode (MODE-003)
+
+**MODE-003**: `off` mode **MUST NOT** perform gate checks.
+
+**Behavior:**
+- **MUST NOT** perform gate check before spawn
+- **MUST NOT** log gate check results
+- **MUST** allow all spawns regardless of stage state
+
+**Use Case**: Legacy compatibility, emergency overrides, or non-RCSD workflows.
+
+### 3.4 Configuration (MODE-004)
+
+**MODE-004**: Mode **MUST** be configurable via `.cleo/config.json`.
+
+**Requirements:**
+- MODE-004.1: **MUST** read from `.cleo/config.json`
+- MODE-004.2: **MUST** support environment variable override
+- MODE-004.3: **MUST** validate mode value
+- MODE-004.4: **MUST** default to `strict` if invalid or missing
+
+**Configuration Precedence:**
+1. Environment variable: `LIFECYCLE_ENFORCEMENT_MODE`
+2. Config file: `.cleo/config.json` → `lifecycle.enforcement.mode`
+3. Default: `strict`
+
+**Example Configuration:**
+```json
+{
+  "lifecycle": {
+    "enforcement": {
+      "mode": "strict",
+      "skipStages": ["consensus"]
+    }
+  }
+}
+```
+
+---
+
+## 4. Integration Points
+
+### 4.1 Orchestrator Spawn Integration (INTG-001)
+
+**INTG-001**: **MUST** integrate into `orchestrator-spawn.sh` between Step 6.5 and Step 7.
+
+**Integration Location:**
+```bash
+# orchestrator-spawn.sh
+
+# Step 6: PRE-SPAWN COMPLIANCE VERIFICATION
+# ... token validation ...
+
+# Step 6.5: PROTOCOL VALIDATION
+# ... protocol validation ...
+
+# Step 6.75: LIFECYCLE GATE ENFORCEMENT (NEW)
+_osp_debug "Lifecycle gate check: verifying stage prerequisites"
+local enforcement_mode
+enforcement_mode=$(get_lifecycle_enforcement_mode)
+
+if [[ "$enforcement_mode" != "off" ]]; then
+    local epic_id
+    epic_id=$(echo "$task_json" | jq -r '.task.parentId // ""')
+
+    if [[ -n "$epic_id" ]]; then
+        if ! check_lifecycle_gate "$epic_id" "$protocol_type" "$enforcement_mode"; then
+            local gate_rc=$?
+
+            if [[ "$enforcement_mode" == "strict" ]]; then
+                _osp_error "SPAWN BLOCKED: Lifecycle gate check failed"
+                jq -n \
+                    --arg task_id "$task_id" \
+                    --arg epic_id "$epic_id" \
+                    --arg protocol "$protocol_type" \
+                    '{
+                        "_meta": {
+                            "command": "orchestrator",
+                            "operation": "spawn_for_task"
+                        },
+                        "success": false,
+                        "error": {
+                            "code": "E_LIFECYCLE_GATE_FAILED",
+                            "message": "SPAWN BLOCKED: Prerequisite stages not completed for " + $protocol + " protocol",
+                            "fix": "cleo rcsd status " + $epic_id,
+                            "context": {
+                                "taskId": $task_id,
+                                "epicId": $epic_id,
+                                "targetStage": $protocol
+                            }
+                        }
+                    }'
+                return "$EXIT_LIFECYCLE_GATE_FAILED"
+            else
+                _osp_warn "Lifecycle gate check failed (advisory mode) - proceeding"
+            fi
+        fi
+    fi
+fi
+
+# Step 7: Inject and return complete prompt
+# ... continue spawn ...
+```
+
+**Requirements:**
+- INTG-001.1: **MUST** execute after protocol validation (Step 6.5)
+- INTG-001.2: **MUST** execute before skill injection (Step 7)
+- INTG-001.3: **MUST** block spawn in strict mode on failure
+- INTG-001.4: **MUST** log warning in advisory mode on failure
+
+### 4.2 Library Dependency (INTG-002)
+
+**INTG-002**: **MUST** source `lib/lifecycle.sh` for gate functions.
+
+**Requirements:**
+- INTG-002.1: **MUST** source lib/lifecycle.sh in orchestrator-spawn.sh
+- INTG-002.2: **MUST** handle missing library gracefully
+- INTG-002.3: **MUST** verify function availability before calling
+
+**Source Pattern:**
+```bash
+# orchestrator-spawn.sh
+
+# Source lifecycle gate functions
+if [[ -f "${_OSP_LIB_DIR}/lifecycle.sh" ]]; then
+    source "${_OSP_LIB_DIR}/lifecycle.sh"
+else
+    _osp_warn "lifecycle.sh not found - gate enforcement disabled"
+fi
+```
+
+### 4.3 Compliance Metrics (INTG-003)
+
+**INTG-003**: **MUST** log gate check results to compliance metrics.
+
+**Requirements:**
+- INTG-003.1: **MUST** log gate check attempt
+- INTG-003.2: **MUST** log gate check result (pass/fail)
+- INTG-003.3: **MUST** log enforcement mode
+- INTG-003.4: **MUST** include epic_id and target_stage
+
+**Metrics Schema:**
+```json
+{
+  "timestamp": "2026-01-28T16:00:00Z",
+  "source_id": "T2715",
+  "source_type": "orchestrator",
+  "compliance": {
+    "lifecycle_gate_check": {
+      "epic_id": "T2678",
+      "target_stage": "specification",
+      "enforcement_mode": "strict",
+      "result": "pass",
+      "prerequisites_met": ["initialized", "research", "consensus"]
+    }
+  }
+}
+```
+
+---
+
+## 5. Error Handling
+
+### 5.1 Gate Failure Exit Code (ERR-001)
+
+**ERR-001**: **MUST** use `EXIT_LIFECYCLE_GATE_FAILED` (75) for strict mode failures.
+
+**Requirements:**
+- ERR-001.1: **MUST** return exit code 75 on gate failure in strict mode
+- ERR-001.2: **MUST** include error code in JSON output
+- ERR-001.3: **MUST** map to error code name "LIFECYCLE_GATE_FAILED"
+
+**Reference**: `lib/exit-codes.sh` lines 328-331
+
+### 5.2 Actionable Fix (ERR-002)
+
+**ERR-002**: **MUST** provide actionable fix in error JSON.
+
+**Requirements:**
+- ERR-002.1: **MUST** include `fix` field with command to resolve
+- ERR-002.2: **MUST** include `alternatives` array with alternative solutions
+- ERR-002.3: **MUST** include `context` object with diagnostic information
+
+**Error JSON Template:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_LIFECYCLE_GATE_FAILED",
+    "message": "SPAWN BLOCKED: {stage} stage not completed",
+    "fix": "cleo rcsd complete {epic_id} {missing_stage}",
+    "alternatives": [
+      {
+        "action": "Check RCSD status",
+        "command": "cleo rcsd status {epic_id}"
+      },
+      {
+        "action": "Skip stage if permitted",
+        "command": "cleo rcsd skip {epic_id} {missing_stage}"
+      },
+      {
+        "action": "Use advisory mode",
+        "command": "LIFECYCLE_ENFORCEMENT_MODE=advisory cleo orchestrator spawn {task_id}"
+      }
+    ],
+    "context": {
+      "epicId": "{epic_id}",
+      "targetStage": "{target_stage}",
+      "missingStages": ["{stage1}", "{stage2}"],
+      "currentStage": "{current_stage}",
+      "enforcementMode": "strict"
+    }
+  }
+}
+```
+
+### 5.3 Diagnostic Context (ERR-003)
+
+**ERR-003**: **MUST** include context showing which stage is missing.
+
+**Requirements:**
+- ERR-003.1: **MUST** include `epicId` in context
+- ERR-003.2: **MUST** include `targetStage` in context
+- ERR-003.3: **MUST** include `missingStages` array in context
+- ERR-003.4: **MUST** include `currentStage` in context
+- ERR-003.5: **MUST** include `enforcementMode` in context
+
+**Context Object Schema:**
+```typescript
+interface LifecycleGateContext {
+  epicId: string;              // Epic task ID (e.g., "T2678")
+  targetStage: string;          // Target RCSD stage (e.g., "specification")
+  missingStages: string[];      // Prerequisite stages not completed
+  currentStage: string;         // Current pipeline stage
+  enforcementMode: string;      // "strict" | "advisory" | "off"
+  manifestPath?: string;        // Path to _manifest.json
+}
+```
+
+---
+
+## 6. State Query Patterns
+
+### 6.1 Stage Completion Check
+
+**Query Pattern:**
+```bash
+# Check if stage is completed
+is_stage_completed() {
+    local epic_id="$1"
+    local stage="$2"
+    local manifest_path=".cleo/rcsd/${epic_id}/_manifest.json"
+
+    if [[ ! -f "$manifest_path" ]]; then
+        return 1
+    fi
+
+    local state
+    state=$(jq -r ".status.${stage}.state" "$manifest_path")
+
+    [[ "$state" == "completed" ]]
+}
+```
+
+### 6.2 All Prerequisites Check
+
+**Query Pattern:**
+```bash
+# Check all prerequisites for target stage
+check_prerequisites() {
+    local epic_id="$1"
+    local target_stage="$2"
+
+    local prerequisites
+    case "$target_stage" in
+        initialized) return 0 ;;  # No prerequisites
+        research) prerequisites="initialized" ;;
+        consensus) prerequisites="initialized research" ;;
+        spec) prerequisites="initialized research consensus" ;;
+        decompose) prerequisites="initialized research consensus spec" ;;
+        complete) prerequisites="initialized research consensus spec decompose" ;;
+    esac
+
+    for prereq in $prerequisites; do
+        if ! is_stage_completed "$epic_id" "$prereq"; then
+            echo "$prereq"
+            return 1
+        fi
+    done
+
+    return 0
+}
+```
+
+### 6.3 Current Pipeline Stage Query
+
+**Query Pattern:**
+```bash
+# Get current pipeline stage
+get_current_stage() {
+    local epic_id="$1"
+    local manifest_path=".cleo/rcsd/${epic_id}/_manifest.json"
+
+    if [[ ! -f "$manifest_path" ]]; then
+        echo "not_initialized"
+        return 1
+    fi
+
+    jq -r '.pipelineStage' "$manifest_path"
+}
+```
+
+### 6.4 Stage State Query
+
+**Query Pattern:**
+```bash
+# Get stage state (pending, in_progress, completed, skipped, failed)
+get_stage_state() {
+    local epic_id="$1"
+    local stage="$2"
+    local manifest_path=".cleo/rcsd/${epic_id}/_manifest.json"
+
+    if [[ ! -f "$manifest_path" ]]; then
+        echo "not_initialized"
+        return 1
+    fi
+
+    jq -r ".status.${stage}.state // \"pending\"" "$manifest_path"
+}
+```
+
+---
+
+## 7. RCSD State Schema Integration
+
+### 7.1 Schema Reference
+
+**Schema Location**: `schemas/rcsd-manifest.schema.json` v1.0.0
+
+**Relevant Fields:**
+```json
+{
+  "pipelineStage": "initialized | research | consensus | spec | decompose | complete",
+  "status": {
+    "initialized": {
+      "state": "pending | in_progress | completed | skipped | failed",
+      "startedAt": "ISO 8601",
+      "completedAt": "ISO 8601"
+    },
+    "research": { "state": "...", "startedAt": "...", "completedAt": "..." },
+    "consensus": { "state": "...", "startedAt": "...", "completedAt": "..." },
+    "spec": { "state": "...", "startedAt": "...", "completedAt": "..." },
+    "decompose": { "state": "...", "startedAt": "...", "completedAt": "..." }
+  }
+}
+```
+
+### 7.2 State Transitions
+
+**Valid States:**
+- `pending` - Stage not yet started
+- `in_progress` - Stage currently active
+- `completed` - Stage successfully finished
+- `skipped` - Stage intentionally skipped
+- `failed` - Stage failed, requires retry or skip
+
+**Transition Rules:**
+- `pending` → `in_progress` - Start stage
+- `in_progress` → `completed` - Complete successfully
+- `in_progress` → `failed` - Failure detected
+- `pending` → `skipped` - Skip stage
+- `failed` → `in_progress` - Retry after failure
+
+### 7.3 Skipped Stage Handling
+
+**Requirements:**
+- **MUST** treat `skipped` same as `completed` for prerequisites
+- **MUST** log skip reason if available
+- **SHOULD** validate skip is permitted for stage
+- **MAY** enforce skip permission based on stage criticality
+
+---
+
+## 8. Implementation Checklist
+
+### 8.1 Phase 1: Core Functions (T2716)
+
+- [ ] Implement `check_lifecycle_gate()` in lib/lifecycle.sh
+- [ ] Implement `is_stage_completed()` helper
+- [ ] Implement `check_prerequisites()` helper
+- [ ] Implement `get_current_stage()` helper
+- [ ] Implement `get_stage_state()` helper
+- [ ] Add unit tests for gate check functions
+
+### 8.2 Phase 2: Configuration (T2718)
+
+- [ ] Add `LIFECYCLE_ENFORCEMENT_MODE` config to schemas/config.schema.json
+- [ ] Implement `get_lifecycle_enforcement_mode()` in lib/lifecycle.sh
+- [ ] Add config validation
+- [ ] Add environment variable override support
+- [ ] Add unit tests for configuration
+
+### 8.3 Phase 3: Integration (T2720)
+
+- [ ] Integrate gate check into orchestrator-spawn.sh (Step 6.75)
+- [ ] Add compliance metrics logging
+- [ ] Add error JSON formatting
+- [ ] Add integration tests
+- [ ] Update orchestrator documentation
+
+### 8.4 Phase 4: Validation (T2722)
+
+- [ ] Test strict mode blocks spawn
+- [ ] Test advisory mode warns but allows
+- [ ] Test off mode skips checks
+- [ ] Test error messages are actionable
+- [ ] Test compliance metrics are logged
+
+---
+
+## 9. Exit Code Reference
+
+| Code | Name | Usage |
+|------|------|-------|
+| 0 | EXIT_SUCCESS | Gate check passed |
+| 75 | EXIT_LIFECYCLE_GATE_FAILED | Gate check failed (strict mode) |
+| 78 | EXIT_LIFECYCLE_TRANSITION_INVALID | Invalid stage transition attempted |
+
+**Reference**: `lib/exit-codes.sh` lines 325-348
+
+---
+
+## 10. Compliance
+
+This specification follows:
+- RFC 2119 keyword usage (MUST, SHOULD, MAY)
+- Semantic versioning (v1.0.0)
+- CLEO specification protocol requirements
+
+**Keywords Used:**
+- MUST: 56 occurrences (strict requirements)
+- SHOULD: 4 occurrences (recommendations)
+- MAY: 3 occurrences (optional features)
+
+---
+
+## 11. References
+
+- **RCSD Pipeline Spec**: `docs/developer/specifications/RCSD-PIPELINE.mdx`
+- **RCSD Manifest Schema**: `schemas/rcsd-manifest.schema.json`
+- **Exit Codes**: `lib/exit-codes.sh`
+- **Lifecycle Library**: `lib/lifecycle.sh`
+- **Orchestrator Spawn**: `lib/orchestrator-spawn.sh`
+- **Protocol Enforcement Spec**: `docs/developer/specifications/PROTOCOL-ENFORCEMENT.mdx`
+
+---
+
+## Appendix A: Example Scenarios
+
+### Scenario 1: Successful Gate Check
+
+**Situation**: Epic T2678 has completed research and consensus stages. Attempting to spawn specification stage.
+
+**State**:
+```json
+{
+  "pipelineStage": "consensus",
+  "status": {
+    "initialized": { "state": "completed" },
+    "research": { "state": "completed" },
+    "consensus": { "state": "completed" },
+    "spec": { "state": "pending" },
+    "decompose": { "state": "pending" }
+  }
+}
+```
+
+**Result**: Gate check passes, spawn proceeds.
+
+### Scenario 2: Gate Check Failure (Strict Mode)
+
+**Situation**: Epic T2678 has only initialized. Attempting to spawn consensus stage without research.
+
+**State**:
+```json
+{
+  "pipelineStage": "initialized",
+  "status": {
+    "initialized": { "state": "completed" },
+    "research": { "state": "pending" },
+    "consensus": { "state": "pending" },
+    "spec": { "state": "pending" },
+    "decompose": { "state": "pending" }
+  }
+}
+```
+
+**Result**: Gate check fails, returns EXIT_LIFECYCLE_GATE_FAILED (75).
+
+**Error JSON**:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_LIFECYCLE_GATE_FAILED",
+    "message": "SPAWN BLOCKED: research stage not completed",
+    "fix": "cleo rcsd complete T2678 research",
+    "context": {
+      "epicId": "T2678",
+      "targetStage": "consensus",
+      "missingStages": ["research"],
+      "currentStage": "initialized",
+      "enforcementMode": "strict"
+    }
+  }
+}
+```
+
+### Scenario 3: Advisory Mode
+
+**Situation**: Same as Scenario 2, but enforcement mode is `advisory`.
+
+**Result**: Gate check logs warning, spawn proceeds.
+
+**Warning Message**:
+```
+[WARN] Lifecycle gate check failed (advisory mode): research stage not completed
+[WARN] Proceeding with spawn - ensure prerequisites are met manually
+```
+
+### Scenario 4: Skipped Stage
+
+**Situation**: Epic T2678 has completed research and explicitly skipped consensus. Attempting to spawn specification.
+
+**State**:
+```json
+{
+  "pipelineStage": "research",
+  "status": {
+    "initialized": { "state": "completed" },
+    "research": { "state": "completed" },
+    "consensus": { "state": "skipped" },
+    "spec": { "state": "pending" },
+    "decompose": { "state": "pending" }
+  }
+}
+```
+
+**Result**: Gate check passes (skipped treated as completed), spawn proceeds.
+
+---
+
+**END OF SPECIFICATION**

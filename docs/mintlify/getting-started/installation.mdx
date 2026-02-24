@@ -1,0 +1,301 @@
+---
+title: "Installation"
+description: "Complete installation guide for CLEO task management system"
+icon: "download"
+---
+
+# Installation Guide
+
+This guide covers installation for both end users and contributors.
+
+## System Requirements
+
+<CardGroup cols={3}>
+  <Card title="Operating System" icon="desktop">
+    Linux, macOS, or WSL2 on Windows
+  </Card>
+  <Card title="Bash" icon="terminal">
+    Version 4.0+ (installer auto-detects Homebrew Bash on macOS)
+  </Card>
+  <Card title="Disk Space" icon="hard-drive">
+    ~10 MB for installation
+  </Card>
+</CardGroup>
+
+## For End Users
+
+### Option 1: One-liner (Easiest)
+
+```bash
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+```
+
+Reinstalling over existing installation? Use `--force`:
+
+```bash
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash -s -- --force
+```
+
+### Option 2: Download and Run
+
+1. Download [install.sh](https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh)
+2. Open Terminal and run:
+
+```bash
+# macOS/Linux: Run with bash (no chmod needed)
+bash ~/Downloads/install.sh
+```
+
+<Info>
+The installer automatically detects missing dependencies (jq, flock) and offers to install them using your system's package manager (apt, dnf, brew, pacman, apk).
+</Info>
+
+### Option 3: From Source (for Contributors)
+
+```bash
+git clone https://github.com/kryptobaseddev/cleo.git && cd cleo && ./installer/install.sh --dev
+```
+
+## For Contributors
+
+### One-liner Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/installer/install.sh | bash
+```
+
+### From Source
+
+```bash
+# Clone repository
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo
+
+# Install for development (creates symlinks to repo)
+./installer/install.sh --dev
+
+# Or install as release (copies files)
+./installer/install.sh --release
+```
+
+<Note>
+**Dev mode** creates symlinks in `~/.local/bin/` pointing to your local repository. Changes to the repo are immediately reflected without reinstalling.
+
+**Release mode** copies files to `~/.cleo/`, creating an independent installation.
+</Note>
+
+## Installation Directory Structure
+
+```
+~/.cleo/
+├── schemas/          # JSON Schema definitions
+├── templates/        # Template files
+├── scripts/          # Executable scripts
+├── lib/              # Shared libraries
+├── docs/             # Documentation
+└── completions/      # Shell completions
+```
+
+## Project Initialization
+
+After global installation, initialize CLEO in each project:
+
+```bash
+cd /path/to/your/project
+cleo init
+```
+
+This creates:
+
+| File | Purpose |
+|------|---------|
+| `.cleo/todo.json` | Active tasks |
+| `.cleo/todo-archive.json` | Completed tasks |
+| `.cleo/config.json` | Project configuration |
+| `.cleo/todo-log.jsonl` | Audit trail |
+
+<Info>
+`cleo init` automatically injects task management instructions into `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` using `{/* CLEO:START */}` and `{/* CLEO:END */}` markers.
+</Info>
+
+## Prerequisites (Auto-Installed)
+
+The installer will offer to install these if missing:
+
+<AccordionGroup>
+  <Accordion title="jq (JSON processor)" icon="code">
+    Required for JSON manipulation.
+
+    ```bash
+    jq --version
+    # Should output: jq-1.5 or higher
+    ```
+
+    Manual install if needed:
+    <Tabs>
+      <Tab title="Ubuntu/Debian">
+        ```bash
+        sudo apt-get install jq
+        ```
+      </Tab>
+      <Tab title="macOS">
+        ```bash
+        brew install jq
+        ```
+      </Tab>
+      <Tab title="Fedora">
+        ```bash
+        sudo dnf install jq
+        ```
+      </Tab>
+    </Tabs>
+  </Accordion>
+
+  <Accordion title="flock (file locking)" icon="lock">
+    Required for atomic file operations.
+
+    - **Linux**: Pre-installed (part of util-linux)
+    - **macOS**: `brew install flock` or `brew install util-linux`
+  </Accordion>
+
+  <Accordion title="Bash 4.0+" icon="terminal">
+    macOS ships with Bash 3.x. The installer auto-detects Homebrew Bash at:
+    - `/opt/homebrew/bin/bash` (Apple Silicon)
+    - `/usr/local/bin/bash` (Intel)
+
+    Install newer Bash:
+    ```bash
+    brew install bash
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Shell Completions
+
+Enable tab completion for faster command entry:
+
+<Tabs>
+  <Tab title="Bash">
+    Add to `~/.bashrc`:
+    ```bash
+    source ~/.cleo/completions/bash-completion.sh
+    ```
+  </Tab>
+  <Tab title="Zsh">
+    Add to `~/.zshrc`:
+    ```bash
+    fpath=(~/.cleo/completions $fpath)
+    autoload -Uz compinit && compinit
+    ```
+  </Tab>
+</Tabs>
+
+## Migration from claude-todo
+
+If you have existing claude-todo installations:
+
+<CodeGroup>
+```bash Check Status
+cleo claude-migrate --check
+```
+
+```bash Migrate Global
+cleo claude-migrate --global
+# Moves ~/.claude-todo/ → ~/.cleo/
+```
+
+```bash Migrate Project
+cleo claude-migrate --project
+# Moves .claude/ → .cleo/ (preserves all data)
+```
+
+```bash Migrate Everything
+cleo claude-migrate --all
+# Runs both --global and --project
+```
+</CodeGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Command Not Found" icon="circle-exclamation">
+    ```bash
+    # Check symlink
+    ls -l ~/.local/bin/cleo
+
+    # Verify PATH includes ~/.local/bin
+    echo $PATH | grep ".local/bin"
+
+    # Add to PATH if missing (in ~/.bashrc or ~/.zshrc)
+    export PATH="$HOME/.local/bin:$PATH"
+
+    # Reload shell
+    source ~/.bashrc
+    ```
+  </Accordion>
+
+  <Accordion title="macOS Bash Version Error" icon="apple">
+    If you see errors about Bash version:
+
+    ```bash
+    # Install Homebrew Bash
+    brew install bash
+
+    # The installer will auto-detect it, or run explicitly:
+    /opt/homebrew/bin/bash ~/Downloads/install.sh
+    ```
+  </Accordion>
+
+  <Accordion title="Validation Errors" icon="triangle-exclamation">
+    ```bash
+    # Check file integrity
+    cleo validate
+
+    # Attempt automatic fix
+    cleo validate --fix
+
+    # Restore from backup if needed
+    cleo restore
+    ```
+  </Accordion>
+
+  <Accordion title="Permission Denied" icon="lock">
+    ```bash
+    # Fix script permissions
+    chmod +x ~/.cleo/scripts/*.sh
+
+    # Verify home directory is writable
+    touch ~/.cleo/test && rm ~/.cleo/test
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Uninstallation
+
+To remove CLEO completely:
+
+```bash
+# Remove global installation
+rm -rf ~/.cleo
+
+# Remove symlinks
+rm ~/.local/bin/cleo ~/.local/bin/ct
+
+# Remove project data (per project)
+rm -rf .cleo/
+```
+
+<Warning>
+This permanently deletes all task data. Create backups first with `cleo backup`.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/getting-started/quickstart">
+    Create your first task
+  </Card>
+  <Card title="Configuration" icon="gear" href="/api/configuration">
+    Customize CLEO for your workflow
+  </Card>
+</CardGroup>

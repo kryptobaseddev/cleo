@@ -1,0 +1,200 @@
+---
+title: "Protocol Documentation Generation"
+description: "How to generate Mintlify documentation from source protocol files"
+icon: "rotate"
+---
+
+## Overview
+
+CLEO maintains a **single source of truth** architecture for protocol definitions. The source files live in `/protocols/*.md` and are transformed into Mintlify-compatible documentation.
+
+```
+protocols/*.md (SOURCE OF TRUTH)
+    │
+    ├── dev/generate-protocol-docs.sh
+    │
+    ▼
+docs/developer/protocols/*.mdx (GENERATED)
+```
+
+<Warning>
+**Do not edit files in `docs/developer/protocols/` directly.** They are auto-generated and will be overwritten. Edit the source files in `/protocols/` instead.
+</Warning>
+
+---
+
+## Source Files
+
+The 9 RCSD-IVTR protocol definitions live in `/protocols/`:
+
+| Protocol | Source File | Stage |
+|----------|-------------|-------|
+| Research | `protocols/research.md` | RCSD-R |
+| Consensus | `protocols/consensus.md` | RCSD-C |
+| Specification | `protocols/specification.md` | RCSD-S |
+| Decomposition | `protocols/decomposition.md` | RCSD-D |
+| Implementation | `protocols/implementation.md` | IVTR-I |
+| Validation | `protocols/validation.md` | IVTR-V |
+| Testing | `protocols/testing.md` | IVTR-T |
+| Contribution | `protocols/contribution.md` | Cross-cutting |
+| Release | `protocols/release.md` | IVTR-R |
+
+---
+
+## Generation Script
+
+### Usage
+
+```bash
+# Generate all protocol docs
+./dev/generate-protocol-docs.sh
+
+# Preview changes without writing
+./dev/generate-protocol-docs.sh --dry-run
+
+# Regenerate a single protocol
+./dev/generate-protocol-docs.sh --single research
+
+# Force overwrite (even if manually edited)
+./dev/generate-protocol-docs.sh --force
+
+# Verbose output for debugging
+./dev/generate-protocol-docs.sh --verbose
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Preview changes without writing files |
+| `--force` | Overwrite existing files (including any manual edits) |
+| `--single <name>` | Generate only one protocol (e.g., `--single research`) |
+| `--verbose` | Show detailed processing output |
+| `--help` | Display usage information |
+
+---
+
+## Transformation Process
+
+The script performs these transformations:
+
+### 1. Frontmatter Addition
+
+Each protocol gets Mintlify-compatible YAML frontmatter:
+
+```yaml
+---
+title: "Research Protocol"
+description: "Information gathering and analysis protocol for RCSD pipeline"
+icon: "telescope"
+---
+```
+
+### 2. Auto-Generation Warning
+
+A comment is added to indicate the file is generated:
+
+```mdx
+{/* AUTO-GENERATED from protocols/research.md - DO NOT EDIT DIRECTLY */}
+{/* Source of truth: /protocols/research.md */}
+{/* Last generated: 2026-01-29 */}
+```
+
+### 3. Content Preservation
+
+The original markdown content is preserved exactly as written.
+
+---
+
+## Workflow
+
+### Editing Protocols
+
+1. Edit the source file in `/protocols/`
+2. Run the generation script
+3. Commit both source and generated files
+
+```bash
+# Edit source
+vim protocols/research.md
+
+# Regenerate
+./dev/generate-protocol-docs.sh --single research
+
+# Commit both
+git add protocols/research.md docs/developer/protocols/research.mdx
+git commit -m "docs: Update research protocol"
+```
+
+### Adding New Protocols
+
+1. Create the source file in `/protocols/`
+2. Add metadata to the generation script
+3. Run generation
+4. Add to `docs.json` navigation
+
+---
+
+## Protocol Metadata
+
+The script maintains metadata for each protocol:
+
+```bash
+# In dev/generate-protocol-docs.sh
+
+declare -A PROTOCOL_TITLES=(
+    ["research"]="Research Protocol"
+    ["consensus"]="Consensus Protocol"
+    # ...
+)
+
+declare -A PROTOCOL_DESCRIPTIONS=(
+    ["research"]="Information gathering and analysis protocol for RCSD pipeline"
+    # ...
+)
+
+declare -A PROTOCOL_ICONS=(
+    ["research"]="telescope"
+    ["consensus"]="users"
+    # ...
+)
+```
+
+To add a new protocol, update all three associative arrays.
+
+---
+
+## Troubleshooting
+
+### Generated file not updating
+
+```bash
+# Force regeneration
+./dev/generate-protocol-docs.sh --force --single <protocol>
+```
+
+### Missing protocol in navigation
+
+Add the entry to `docs/docs.json` under the "Protocol Definitions" group:
+
+```json
+{
+  "group": "Protocol Definitions",
+  "pages": [
+    "developer/protocols/research",
+    "developer/protocols/your-new-protocol"
+  ]
+}
+```
+
+### Syntax errors in generated file
+
+Check the source file in `/protocols/` for markdown syntax issues.
+
+---
+
+## Related Documentation
+
+- [RCSD-IVTR Protocol Stack](/developer/specifications/RCSD-IVTR-PROTOCOL-STACK) - Protocol architecture overview
+- [Protocol Stack](/developer/specifications/PROTOCOL-STACK) - How protocols compose
+- [Project Lifecycle](/developer/specifications/PROJECT-LIFECYCLE) - Full lifecycle specification

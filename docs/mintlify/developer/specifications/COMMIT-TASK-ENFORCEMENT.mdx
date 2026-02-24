@@ -1,0 +1,202 @@
+---
+title: "Commit Task Enforcement"
+description: "Commit-msg hook implementation for enforcing task ID inclusion with session scope integration"
+icon: "code-commit"
+---
+
+# Commit Task ID Enforcement Specification
+
+**Version**: 1.0.0
+**Status**: ACTIVE
+**Created**: 2026-01-28
+**Author**: Protocol Specification Agent (T2689)
+
+---
+
+## RFC 2119 Conformance
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+
+---
+
+## Part 1: Preamble
+
+### 1.1 Purpose
+
+This specification defines the **commit-msg hook** implementation for enforcing task ID inclusion in commit messages, implementing provenance requirements IMPL-003 and CONT-002 from implementation and contribution protocols.
+
+### 1.2 Evidence Base
+
+- **T2686**: Consensus decision (commit-msg hook with session scope, confidence 0.88)
+- **T2684**: Wave 0 audit (provenance tagging 0% enforcement)
+- **Git log analysis**: 100% voluntary adoption of `(T####)` pattern
+
+---
+
+## Part 2: Commit-msg Hook Requirements (CMSG-*)
+
+### 2.1 Core Hook Behavior
+
+| ID | Requirement | Rationale |
+|----|-------------|-----------|
+| CMSG-001 | Hook MUST validate task ID presence | Enforces IMPL-003, CONT-002 |
+| CMSG-002 | Hook MUST accept `(T####)` pattern | Preserves existing convention |
+| CMSG-003 | Hook MUST verify task ID exists via `cleo exists` | Prevents invalid references |
+| CMSG-005 | Hook MUST be bypassable via `git commit --no-verify` | Emergency escape hatch |
+| CMSG-007 | Hook MUST provide auto-suggestion from focus context | Developer UX |
+
+### 2.2 Hook Lifecycle
+
+```
+1. Developer writes commit message
+   ↓
+2. Git invokes .git/hooks/commit-msg
+   ↓
+3. Hook reads commit message from file
+   ↓
+4. Pattern extraction: grep -oE '\(T[0-9]+\)'
+   ↓
+5. Task ID validation: cleo exists T####
+   ├─ PASS → Check session scope → exit 0
+   └─ FAIL → Suggest task ID → exit 1
+```
+
+---
+
+## Part 3: Pattern Validation (PATTERN-*)
+
+### 3.1 Task ID Format
+
+| ID | Requirement | Example |
+|----|-------------|---------|
+| PATTERN-001 | Hook MUST recognize `(T####)` format | `(T2688)` |
+| PATTERN-002 | Hook SHOULD accept task ID anywhere in message | Prefix, suffix, middle |
+| PATTERN-004 | Hook MUST NOT accept lowercase `(t####)` | Enforce consistency |
+| PATTERN-005 | Hook MUST NOT accept without parentheses | Distinguish from noise |
+
+### 3.2 Pattern Extraction
+
+**Regex**: `\(T[0-9]+\)`
+
+```bash
+TASK_IDS=$(grep -oE '\(T[0-9]+\)' "$MSG_FILE" | grep -oE 'T[0-9]+')
+```
+
+---
+
+## Part 4: Session Scope Integration (SCOPE-*)
+
+### 4.1 Session Context
+
+| ID | Requirement |
+|----|-------------|
+| SCOPE-001 | Hook SHOULD validate task ID belongs to session scope (Phase 2) |
+| SCOPE-002 | Hook MUST read `CLEO_SESSION` environment variable |
+| SCOPE-004 | Hook SHOULD use `cleo focus show` for current focused task |
+| SCOPE-006 | Hook MUST NOT fail if no session is active |
+
+### 4.2 Auto-suggestion Logic
+
+**Priority**:
+1. Current focused task (`cleo focus show`)
+2. Session scope tasks (if only one task)
+3. Branch name task ID (`feature/T####-*`)
+4. No suggestion (generic error)
+
+---
+
+## Part 5: Bypass Policy (BYPASS-*)
+
+### 5.1 Bypass Conditions
+
+| ID | Requirement | Use Case |
+|----|-------------|----------|
+| BYPASS-001 | Hook MUST allow bypass via `--no-verify` | Emergency escape |
+| BYPASS-002 | Hook MUST log all bypasses | Audit trail |
+| BYPASS-004 | Hook SHOULD auto-bypass merge/revert commits | Reduced friction |
+
+### 5.2 Bypass Log Format
+
+```json
+{
+  "timestamp": "2026-01-28T08:45:00Z",
+  "commit": "abc123def456",
+  "user": "keaton",
+  "message": "emergency fix",
+  "justification": "emergency",
+  "hook": "commit-msg"
+}
+```
+
+---
+
+## Part 6: Installation
+
+### 6.1 Via `cleo init`
+
+```bash
+# Copy hook template
+cp .cleo/templates/git-hooks/commit-msg .git/hooks/commit-msg
+chmod +x .git/hooks/commit-msg
+```
+
+### 6.2 Configuration
+
+```json
+// .cleo/config.json
+{
+  "hooks": {
+    "commitMsg": {
+      "enabled": true,
+      "sessionScopeValidation": false,
+      "autoSuggestion": true,
+      "bypassLogging": true
+    }
+  }
+}
+```
+
+---
+
+## Part 7: Example Hook
+
+```bash
+#!/usr/bin/env bash
+# .git/hooks/commit-msg
+
+MSG_FILE="$1"
+COMMIT_MSG=$(cat "$MSG_FILE")
+
+# Extract task ID
+TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\(T[0-9]+\)' | head -1 | grep -oE 'T[0-9]+')
+
+if [[ -z "$TASK_ID" ]]; then
+    FOCUSED_TASK=$(cleo focus show --format json 2>/dev/null | jq -r '.task.id // empty')
+
+    if [[ -n "$FOCUSED_TASK" ]]; then
+        echo "ERROR: No task ID in commit message"
+        echo "Current focus: $FOCUSED_TASK"
+        echo "Suggested format: $COMMIT_MSG ($FOCUSED_TASK)"
+    else
+        echo "WARNING: No task ID and no active focus"
+    fi
+    exit 1
+fi
+
+# Validate task exists
+if ! cleo exists "$TASK_ID" >/dev/null 2>&1; then
+    echo "ERROR: Task $TASK_ID not found"
+    exit 1
+fi
+
+echo "✓ Commit linked to $TASK_ID"
+exit 0
+```
+
+---
+
+## References
+
+- [PROTOCOL-ENFORCEMENT](/developer/specifications/PROTOCOL-ENFORCEMENT): Overall enforcement architecture
+- [PROJECT-LIFECYCLE](/developer/specifications/PROJECT-LIFECYCLE): RCSD pipeline
+- [MULTI-SESSION](/developer/specifications/MULTI-SESSION): Session scope context

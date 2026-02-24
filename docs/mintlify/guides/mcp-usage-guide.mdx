@@ -1,0 +1,341 @@
+---
+title: "Using CLEO with AI Agents"
+description: "Talk to your AI agent in plain English to manage tasks, debug issues, plan features, and file bugs — plus a structured reference for agent developers"
+icon: "robot"
+---
+
+# Using CLEO with AI Agents
+
+CLEO connects to your AI agent through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Once set up, you talk to your agent in plain English and it uses CLEO's tools behind the scenes.
+
+This guide has two parts:
+
+1. **[For Humans](#for-humans)** — How to talk to your agent to get things done
+2. **[For Agents](#for-agents)** — Structured MCP reference for agent developers and custom integrations
+
+## Setup
+
+```bash
+cleo init                # Initialize CLEO in your project
+cleo mcp-install         # Auto-configure for your AI tool
+```
+
+Supports Claude Code, Cursor, Windsurf, VS Code, Gemini CLI, and [8 more tools](https://github.com/kryptobaseddev/cleo).
+
+---
+
+# For Humans
+
+You just talk normally. Your agent figures out which CLEO operations to call. Here are the workflows.
+
+## Adding a Feature
+
+Tell your agent what you want to build. It will create a tracked task, start a session, and manage the lifecycle as you work.
+
+<Accordion title="Example conversation">
+
+**You:** I need to add a dark mode toggle to the settings page. It should persist the user's preference in localStorage. Track this as a task and start working on it.
+
+**What the agent does:**
+1. Creates a task with your description
+2. Starts a work session focused on that task
+3. Implements the feature
+4. Logs progress notes as it goes
+5. Marks the task done when finished
+6. Ends the session
+
+**You (later):** What's the status of the dark mode work?
+
+**What the agent does:** Checks the task status and session history, tells you where things stand.
+
+</Accordion>
+
+**Other ways to say it:**
+
+- "Create a task for adding email notifications, then start working on it"
+- "I want to refactor the auth module. Set up a task and session so we can track it."
+- "Add a high-priority task for fixing the checkout flow, but don't start yet — just create it"
+- "Show me what I was working on last session"
+
+<Tip>
+If you want the agent to just plan without implementing, say so: "Create a task for this but don't start coding yet."
+</Tip>
+
+---
+
+## Debugging an Issue
+
+Describe the problem. Your agent will check for existing related tasks, create a tracking task if needed, investigate, and record what it finds.
+
+<Accordion title="Example conversation">
+
+**You:** Users are reporting the login page hangs for 30 seconds then times out. This started after the auth refactor last week. Can you investigate?
+
+**What the agent does:**
+1. Checks the project dashboard for context
+2. Searches existing tasks for anything related
+3. Creates a bug investigation task if nothing exists
+4. Sets focus and digs into the code
+5. Records the root cause and fix when done
+
+**You (mid-investigation):** Any progress on the login timeout?
+
+**What the agent does:** Shows the current task notes and investigation status.
+
+</Accordion>
+
+**Other ways to say it:**
+
+- "There's a bug where the API returns 500 on the /users endpoint. Look into it."
+- "Something broke in the build pipeline. Track this and investigate."
+- "Check if anyone already logged a task about the memory leak, and if not, create one"
+- "What bugs are currently open?"
+
+---
+
+## Planning a Large Feature
+
+When something is too big to build in one go, ask your agent to break it down. It will create a parent task with sub-tasks, set up dependencies, and help you figure out what to tackle first.
+
+<Accordion title="Example conversation">
+
+**You:** I need to build a complete user authentication system — signup, login, password reset, and session management. Break this down into tasks I can work through one at a time.
+
+**What the agent does:**
+1. Creates a top-level parent task for the whole initiative
+2. Breaks it into sub-tasks (research, signup, login, password reset, etc.)
+3. Sets up dependencies (e.g., research must finish before implementation starts)
+4. Shows you the task tree and suggests what to start first
+
+**You:** What should I work on first?
+
+**What the agent does:** Checks which tasks are unblocked and highest priority, suggests the next one.
+
+**You:** The research is done — JWT is the way to go. Mark it complete and move on to signup.
+
+**What the agent does:** Completes the research task with your notes, sets focus to the signup task.
+
+</Accordion>
+
+**Other ways to say it:**
+
+- "Plan out a notification system. I need email, SMS, and push notifications. Create the tasks."
+- "Break down the payment integration into smaller pieces with dependencies"
+- "Show me the task tree for the auth work"
+- "What's blocking progress on the API redesign?"
+- "Which tasks can I work on in parallel right now?"
+
+<Info>
+**Tips for good breakdowns:**
+- Each sub-task should be completable in one focused session
+- Keep it to 5-7 sub-tasks per parent — if you need more, add grouping
+- Tell the agent which tasks depend on others so it can suggest the right order
+</Info>
+
+---
+
+## Filing a GitHub Issue
+
+Ask your agent to file bugs, request features, or ask questions on the CLEO GitHub repo. It will preview the issue first before actually posting it.
+
+<Accordion title="Example conversation">
+
+**You:** File a bug report — the config file doesn't load when I run cleo from a subdirectory. It should walk up the directory tree to find it. This is high severity.
+
+**What the agent does:**
+1. Previews the issue (dry run) so you can review it
+2. Shows you the title, labels, and body that will be posted
+3. Waits for your confirmation
+4. Submits the issue to GitHub and gives you the URL
+
+**You:** That looks good, go ahead and submit it.
+
+**What the agent does:** Creates the real GitHub issue and returns the link.
+
+</Accordion>
+
+**Other ways to say it:**
+
+- "File a feature request — I want task templates for common workflows"
+- "Ask a question on the CLEO repo about how to share tasks between team members"
+- "Report a bug: the session gc command crashes when there are no sessions"
+- "Include system diagnostics in the bug report"
+
+**Severity options for bugs:** low, medium, high, critical
+**Area options:** cli, mcp, docs, tests, other
+
+---
+
+## Everyday Phrases
+
+You don't need to memorize anything. Here are common things you can just say:
+
+| What you want | Just say... |
+|---------------|------------|
+| Project overview | "What's the current state of the project?" |
+| See open tasks | "Show me all open tasks" |
+| Current focus | "What am I focused on right now?" |
+| Next action | "What should I work on next?" |
+| Create work | "Create a task for [description]" |
+| Finish work | "Mark T1234 as done" |
+| Add notes | "Add a note to T1234: found the root cause" |
+| Start session | "Start a work session for the auth feature" |
+| End session | "End the current session" |
+| Plan work | "Break this down into subtasks" |
+| Set ordering | "T202 depends on T201 — set that up" |
+| See structure | "Show me the task tree" |
+| File bug | "File a bug about [problem]" |
+| Request feature | "Request a feature for [idea]" |
+| Get diagnostics | "Run diagnostics and show me the system info" |
+
+<Tip>
+Start each conversation with "Show me the project dashboard" or "What's the status?" to give the agent (and yourself) context on where things stand.
+</Tip>
+
+---
+
+# For Agents
+
+This section is a structured reference for agent developers, custom MCP integrations, and anyone building on top of CLEO's tools programmatically.
+
+## Gateway Architecture
+
+CLEO exposes two MCP tools using a CQRS (Command Query Responsibility Segregation) pattern:
+
+| Tool | Purpose | Side effects |
+|------|---------|--------------|
+| **cleo_query** | Read-only operations | Never modifies state |
+| **cleo_mutate** | Write operations | Validated, logged, atomic |
+
+Both accept the same parameter structure:
+
+```json
+{
+  "domain": "tasks",
+  "operation": "create",
+  "params": {
+    "title": "Add dark mode",
+    "description": "Toggle in settings page with localStorage persistence",
+    "priority": "high"
+  }
+}
+```
+
+## Workflow: Feature Implementation
+
+```
+1. cleo_query   → domain: session,  operation: status
+2. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority }
+3. cleo_mutate  → domain: session,  operation: start     → params: { scope: "task:T####", name, autoFocus: true }
+4. cleo_mutate  → domain: session,  operation: focus.set → params: { taskId: "T####" }
+5.   ... do the work ...
+6. cleo_mutate  → domain: tasks,    operation: update    → params: { taskId, notes: "progress..." }
+7. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "what was done" }
+8. cleo_mutate  → domain: session,  operation: end       → params: { note: "summary" }
+```
+
+## Workflow: Bug Investigation
+
+```
+1. cleo_query   → domain: system,   operation: dash
+2. cleo_query   → domain: tasks,    operation: find      → params: { query: "search terms" }
+3. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority: "high" }
+4. cleo_mutate  → domain: session,  operation: focus.set → params: { taskId: "T####" }
+5.   ... investigate ...
+6. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "root cause and fix" }
+```
+
+## Workflow: Task Decomposition
+
+```
+1. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, type: "epic" }
+2. cleo_mutate  → domain: session,  operation: start     → params: { scope: "epic:T####", autoFocus: true }
+3. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, parent: "T####" }
+   ... repeat for each sub-task ...
+4. cleo_mutate  → domain: tasks,    operation: update    → params: { taskId: "T###", depends: ["T###"] }
+5. cleo_query   → domain: tasks,    operation: tree      → params: { taskId: "T####" }
+6. cleo_query   → domain: tasks,    operation: next
+```
+
+## Workflow: GitHub Issue Filing
+
+```
+1. cleo_mutate  → domain: issues,   operation: create_bug → params: { title, body, severity, dryRun: true }
+2.   ... user confirms preview ...
+3. cleo_mutate  → domain: issues,   operation: create_bug → params: { title, body, severity }
+```
+
+Issue types: `create_bug`, `create_feature`, `create_help`
+
+## Query Operations Reference
+
+| Domain | Operation | Purpose | Key params |
+|--------|-----------|---------|------------|
+| **tasks** | `find` | Fuzzy search tasks | `query` |
+| **tasks** | `get` | Full task details | `taskId` |
+| **tasks** | `list` | List with filters | `status`, `parent`, `type` |
+| **tasks** | `exists` | Check task exists | `taskId` |
+| **tasks** | `tree` | Hierarchical view | `taskId` |
+| **tasks** | `next` | Suggested next task | - |
+| **tasks** | `deps` | Dependency graph | `taskId` |
+| **tasks** | `blockers` | What's blocking | `taskId` |
+| **session** | `status` | Current session | - |
+| **session** | `list` | All sessions | - |
+| **session** | `focus.get` | Current focus | - |
+| **system** | `dash` | Project dashboard | - |
+| **system** | `version` | CLEO version | - |
+| **system** | `doctor` | Health check | - |
+| **issues** | `diagnostics` | System info for bug reports | - |
+
+## Mutate Operations Reference
+
+| Domain | Operation | Purpose | Required params |
+|--------|-----------|---------|-----------------|
+| **tasks** | `create` | New task | `title`, `description` |
+| **tasks** | `update` | Modify task | `taskId` + fields |
+| **tasks** | `complete` | Mark done | `taskId` |
+| **tasks** | `delete` | Remove task | `taskId` |
+| **tasks** | `archive` | Archive done tasks | - |
+| **session** | `start` | Begin session | `scope`, `name` |
+| **session** | `end` | End session | `note` |
+| **session** | `focus.set` | Set active task | `taskId` |
+| **session** | `focus.clear` | Clear focus | - |
+| **issues** | `create_bug` | File bug report | `title`, `body` |
+| **issues** | `create_feature` | Request feature | `title`, `body` |
+| **issues** | `create_help` | Ask question | `title`, `body` |
+
+<Note>
+For the complete list of all 10 domains and 123 operations (63 query + 60 mutate), see the [MCP Server Specification](../specs/MCP-SERVER-SPECIFICATION) or inspect the source of truth: `mcp-server/src/gateways/query.ts` and `mcp-server/src/gateways/mutate.ts`.
+</Note>
+
+## Error Handling
+
+All responses include `success: true|false`. On failure, the `error` object provides:
+
+| Field | Purpose |
+|-------|---------|
+| `code` | Machine-readable error code (e.g., `E_NOT_FOUND`) |
+| `exitCode` | Numeric exit code for scripting |
+| `message` | Human-readable description |
+| `fix` | Copy-paste-ready fix command |
+| `alternatives` | Array of `{ action, command }` recovery options |
+
+Common error codes:
+
+| Code | Exit | Meaning |
+|------|------|---------|
+| `E_NOT_FOUND` | 4 | Task ID doesn't exist |
+| `E_VALIDATION_FAILED` | 6 | Missing/invalid fields |
+| `E_PARENT_NOT_FOUND` | 10 | Parent task doesn't exist |
+| `E_DEPTH_EXCEEDED` | 11 | Max 3 nesting levels |
+| `E_SIBLING_LIMIT` | 12 | Max children per parent |
+| `E_RATE_LIMITED` | 429 | Too many requests |
+
+## Important Constraints
+
+- Task `title` and `description` **must be different** (anti-hallucination check)
+- Only **one task** can be active/focused at a time
+- Task hierarchy max depth: **3 levels** (epic > task > subtask)
+- Max siblings per parent: **20** (max active siblings: **8**)
+- All writes are **atomic** (temp file > validate > backup > rename)
+- Issue filing supports `dryRun: true` to preview before posting

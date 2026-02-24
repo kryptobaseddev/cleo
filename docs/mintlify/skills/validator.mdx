@@ -1,0 +1,150 @@
+---
+title: "Validator"
+description: "Verify compliance with specifications, schemas, and standards"
+icon: "check-double"
+---
+
+# Validator
+
+The Validator skill provides context injection for compliance validation tasks, verifying that systems, documents, or code comply with specified requirements.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| **Skill ID** | ct-validator |
+| **Tier** | 2 (Execution) |
+| **Protocol** | consensus |
+| **Tags** | validation, compliance, audit |
+
+## Capabilities
+
+1. **Schema Validation** - Verify data structures against JSON Schema
+2. **Code Compliance** - Check code against style guides and standards
+3. **Document Validation** - Verify documents meet structural requirements
+4. **Protocol Compliance** - Check implementations against specifications
+
+## When to Use
+
+The dispatch algorithm selects ct-validator for:
+
+- Tasks with keywords: `validate`, `verify`, `audit`, `compliance`
+- Tasks labeled: `validation`
+- Task type: `validation`
+
+## Validation Methodology
+
+### Standard Workflow
+
+1. **Define scope** - What is being validated
+2. **Identify criteria** - What rules apply
+3. **Execute checks** - Run validation against criteria
+4. **Document findings** - Record pass/fail with details
+5. **Report status** - Summarize compliance level
+
+## Status Definitions
+
+| Status | Meaning | Criteria |
+|--------|---------|----------|
+| **PASS** | Fully compliant | All checks pass, 0 critical issues |
+| **PARTIAL** | Mostly compliant | >70% pass, no critical issues |
+| **FAIL** | Non-compliant | <70% pass OR any critical issues |
+
+## Validation Types
+
+### Schema Validation
+
+**Checks**:
+- Required fields present
+- Field types correct
+- Enum values valid
+- Constraints satisfied
+
+### Code Compliance
+
+**Checks**:
+- Style guide conformance
+- Naming conventions
+- Documentation requirements
+- Security patterns
+
+### Document Validation
+
+**Checks**:
+- Required sections present
+- Frontmatter complete
+- Links valid
+- Format consistent
+
+### Protocol Compliance
+
+**Checks**:
+- RFC 2119 keywords used correctly
+- Required behaviors implemented
+- Constraints enforced
+- Error handling present
+
+## Output Format
+
+### Validation Report
+
+```markdown
+# Validation Report: {{VALIDATION_TARGET}}
+
+## Summary
+
+- **Status**: PASS | PARTIAL | FAIL
+- **Compliance**: {X}%
+- **Critical Issues**: {N}
+
+## Checklist Results
+
+| Check | Status | Details |
+|-------|--------|---------|
+| {CHECK_1} | PASS/FAIL | {Details} |
+| {CHECK_2} | PASS/FAIL | {Details} |
+
+## Issues Found
+
+### Critical
+{List or "None"}
+
+### Warnings
+{List or "None"}
+
+### Suggestions
+{List or "None"}
+
+## Remediation
+
+{Required fixes if FAIL/PARTIAL}
+```
+
+### Manifest Entry
+
+```json
+{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{VALIDATION_TARGET}} Validation","date":"{{DATE}}","status":"complete","agent_type":"validation","topics":["validation","compliance"],"key_findings":["Overall: {STATUS} at {X}%","{N} critical issues found"],"actionable":{TRUE_IF_ISSUES},"needs_followup":["{REMEDIATION_TASK_IDS}"],"linked_tasks":["{{TASK_ID}}"]}
+```
+
+## Context Variables
+
+| Token | Description | Example |
+|-------|-------------|---------|
+| `{{VALIDATION_TARGET}}` | What is being validated | `CLEO Schema v2.6.0` |
+| `{{TARGET_FILES_OR_SYSTEMS}}` | Files/paths to check | `schemas/*.json` |
+| `{{VALIDATION_CRITERIA}}` | Checklist of requirements | RFC 2119 items |
+
+## Anti-Patterns
+
+| Pattern | Problem | Solution |
+|---------|---------|----------|
+| Skipping failing checks | Incomplete report | Run all checks |
+| Vague findings | Unclear remediation | Specific issue + fix |
+| Missing severity | Can't prioritize | Always classify |
+| No remediation | Not actionable | Always provide fix |
+
+## Related Skills
+
+- [Spec Writer](/skills/spec-writer) - Creates specifications to validate against
+- [Task Executor](/skills/task-executor) - Implements fixes
+- [Test Writer](/skills/test-writer-bats) - Creates validation tests

@@ -1,0 +1,338 @@
+---
+title: "Installation Modes"
+description: "Understanding and switching between development and release modes in CLEO"
+---
+
+# Installation Modes
+
+> Understanding and switching between development and release modes in CLEO
+
+## Overview
+
+CLEO supports two distinct installation modes optimized for different use cases:
+
+| Mode | Best For | Updates Via | Characteristics |
+|------|----------|-------------|-----------------|
+| **Development** | Contributors, testers | `git pull` | Symlinks to local repository |
+| **Release** | End users, production | `cleo self-update` | Copied files from GitHub releases |
+
+## Development Mode
+
+Development mode creates symbolic links from `~/.cleo` to a local CLEO repository. Changes to the repository are immediately reflected without reinstallation.
+
+### Characteristics
+
+- **Symlinked directories**: `scripts/`, `lib/`, `schemas/`, `templates/`, `docs/`, `completions/`
+- **Immediate updates**: Code changes in the repo are live instantly
+- **Git-based updates**: Use `git pull` to update
+- **Best for**: Contributors, testing new features, debugging
+
+### How to Install in Dev Mode
+
+```bash
+# Clone the repository
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo
+
+# Install with dev mode (auto-detected when .git present)
+./installer/install.sh
+
+# Or explicitly force dev mode
+./installer/install.sh --dev
+```
+
+### Updating in Dev Mode
+
+```bash
+# Standard git workflow
+cd /path/to/cleo-repo
+git pull
+
+# If symlinks need refresh (e.g., repo was moved)
+./installer/install.sh --refresh
+```
+
+### VERSION File in Dev Mode
+
+```
+0.58.0
+mode=dev
+source=/home/user/projects/cleo
+installed=2026-01-20T12:30:00Z
+```
+
+## Release Mode
+
+Release mode downloads and copies files from GitHub releases. The installation is self-contained and independent of any source repository.
+
+### Characteristics
+
+- **Copied files**: All files are copied to `~/.cleo`
+- **Self-contained**: No external dependencies on source repo
+- **Self-update capable**: Use `cleo self-update` to update
+- **Best for**: End users, production environments, CI/CD
+
+### How to Install in Release Mode
+
+```bash
+# Option 1: From cloned repo, force release mode
+./installer/install.sh --release
+
+# Option 2: One-liner from GitHub (when available)
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+
+# Option 3: Download and run installer manually
+wget https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh
+bash install.sh
+```
+
+### Updating in Release Mode
+
+```bash
+# Check for updates
+cleo self-update --check
+
+# Update to latest version
+cleo self-update
+
+# Update to specific version
+cleo self-update --version 0.58.0
+```
+
+### VERSION File in Release Mode
+
+```
+0.58.0
+mode=release
+installed=2026-01-20T12:30:00Z
+```
+
+## Switching Between Modes
+
+### Dev to Release
+
+Switch from development mode to release mode when you want a stable, self-contained installation.
+
+**Via self-update (recommended):**
+```bash
+cleo self-update --to-release
+
+# Non-interactive
+cleo self-update --to-release --force
+```
+
+**Via installer:**
+```bash
+./installer/install.sh --release --force
+```
+
+**What happens:**
+1. Backup created at `~/.cleo/backups/self-update/`
+2. Symlinks removed from `~/.local/bin` and `~/.cleo`
+3. Latest release downloaded from GitHub
+4. Files installed to `~/.cleo`
+5. VERSION file updated with `mode=release`
+
+### Release to Dev
+
+Switch from release mode to development mode when you want to contribute or test changes.
+
+**Via self-update (recommended):**
+```bash
+cleo self-update --to-dev /path/to/cleo-repo
+
+# Non-interactive
+cleo self-update --to-dev /path/to/cleo-repo --force
+```
+
+**Via installer:**
+```bash
+cd /path/to/cleo-repo
+./installer/install.sh --dev --force
+```
+
+**What happens:**
+1. Backup created
+2. Copied release files removed from `~/.cleo`
+3. Repository structure validated
+4. Symlinks created to repository directories
+5. VERSION file updated with `mode=dev` and `source=` path
+
+### Repository Validation
+
+When switching to dev mode, the repository is validated:
+
+| Check | Required |
+|-------|----------|
+| Directory exists | Yes |
+| `VERSION` file present | Yes |
+| `scripts/` directory present | Yes |
+| `lib/` directory present | Yes |
+| `scripts/cleo.sh` exists | Yes |
+
+If validation fails, the switch is aborted with exit code 102.
+
+## Checking Current Mode
+
+### Via self-update --status
+
+```bash
+cleo self-update --status
+```
+
+Output (dev mode):
+```
+CLEO Version Status
+===================
+
+Installed:  0.58.0
+Latest:     0.58.0
+Up to date: Yes
+
+Installation path: /home/user/.cleo
+Mode: Development (use git pull)
+```
+
+Output (release mode):
+```
+CLEO Version Status
+===================
+
+Installed:  0.58.0
+Latest:     0.58.0
+Up to date: Yes
+
+Installation path: /home/user/.cleo
+Mode: Release
+```
+
+### Via VERSION file
+
+```bash
+cat ~/.cleo/VERSION
+```
+
+Output:
+```
+0.58.0
+mode=dev
+source=/home/user/projects/cleo
+installed=2026-01-20T12:30:00Z
+```
+
+### Via installer --status
+
+```bash
+./installer/install.sh --status
+```
+
+## Use Cases
+
+### Contributor Workflow
+
+```bash
+# 1. Clone and install in dev mode
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo
+./installer/install.sh --dev
+
+# 2. Make changes, test immediately
+vim lib/some-function.sh
+cleo some-command  # Changes are live
+
+# 3. Update from upstream
+git pull
+```
+
+### End User Workflow
+
+```bash
+# 1. Install in release mode
+./installer/install.sh --release
+
+# 2. Use CLEO
+cleo init
+cleo add "My first task"
+
+# 3. Check for updates periodically
+cleo self-update --check
+
+# 4. Update when available
+cleo self-update
+```
+
+### Temporary Dev Testing
+
+```bash
+# 1. Currently in release mode, want to test a fix
+cleo self-update --to-dev ~/projects/cleo-fork
+
+# 2. Test the changes
+cleo some-command
+
+# 3. Switch back to stable release
+cleo self-update --to-release
+```
+
+### CI/CD Pipeline
+
+```bash
+# Install specific release version for reproducibility
+./installer/install.sh --release
+cleo self-update --version 0.57.0 --force
+
+# Pin version for CI stability
+```
+
+## Troubleshooting
+
+### "Already in dev mode"
+
+```bash
+$ cleo self-update --to-dev /path/to/repo
+[INFO] Already in dev mode pointing to: /path/to/repo
+```
+
+**Solution:** Already in dev mode with this repository. No action needed. Use `--force` to re-link.
+
+### "Already in release mode"
+
+```bash
+$ cleo self-update --to-release
+[ERROR] Already in release mode.
+```
+
+**Solution:** Already in release mode. Use `--to-dev PATH` to switch to dev mode.
+
+### Invalid Repository Path
+
+```bash
+$ cleo self-update --to-dev /invalid/path
+ERROR: No VERSION file found at /invalid/path
+```
+
+**Solution:** Verify the path points to a valid CLEO repository with all required files.
+
+### Mode Mismatch After Manual Changes
+
+If you manually modified symlinks or files and the mode detection is incorrect:
+
+```bash
+# Force reinstall to fix state
+./installer/install.sh --force --dev    # or --release
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 100 | Dev mode (use git pull for regular updates) |
+| 101 | Mode switch completed successfully |
+| 102 | Invalid repository path |
+
+## See Also
+
+- [self-update Command](../commands/self-update.md) - Full self-update documentation
+- [Installer Architecture](./installer-architecture.md) - Technical details
+- [Installer Migration](./installer-migration.md) - Migrating from legacy installer

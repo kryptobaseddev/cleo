@@ -1,0 +1,215 @@
+---
+title: "Epic Architect Skill Guide"
+description: "Quick start guide for using the ct-epic-architect skill to create epics and decompose projects into manageable tasks"
+---
+
+# Epic Architect Skill Guide
+
+**Version**: 2.1.0
+**Status**: Active
+
+---
+
+## Quick Start
+
+### Invoke the Skill
+
+The ct-epic-architect skill activates when you ask Claude to:
+
+```
+"Create an epic for user authentication"
+"Plan the epic for this feature"
+"Decompose this project into tasks"
+"Break down this work into manageable tasks"
+"Architect the dependency structure"
+```
+
+Or use the slash command directly:
+
+```
+/ct-epic-architect
+```
+
+### What Happens
+
+1. **Skill loads** - SKILL.md body (~490 lines) enters context
+2. **References available** - Commands, patterns, examples accessible on-demand
+3. **Epic created** - Full task hierarchy with dependencies
+4. **Session started** - Scoped to the new epic
+5. **Summary returned** - Minimal response preserves your context
+
+---
+
+## When to Use
+
+### Use ct-epic-architect When
+
+| Situation | Example |
+|-----------|---------|
+| New feature needs breakdown | "Add authentication to the app" |
+| Bug requires structured fix | "Fix the session corruption issue" |
+| Research needs organization | "Investigate real-time collaboration options" |
+| Migration needs phasing | "Migrate to multi-tenant architecture" |
+| Sprint needs planning | "Plan tasks for the next sprint" |
+
+### Don't Use ct-epic-architect When
+
+| Situation | Better Alternative |
+|-----------|-------------------|
+| Single simple task | `cleo add "Task"` directly |
+| Existing epic needs work | Resume session, `cleo focus set` |
+| Understanding codebase | Use `cleo analyze`, research first |
+| Quick fix needed | Just do the fix |
+
+---
+
+## Common Patterns
+
+### Feature Epic
+
+For new functionality:
+
+1. Invoke `/ct-epic-architect`
+2. Describe the feature and constraints
+3. Let it create Wave 0 (foundation) → Wave N (integration)
+
+**Example**: "Create an epic for JWT authentication with protected routes"
+
+### Bug Epic
+
+For structured bug fixes:
+
+1. Invoke `/ct-epic-architect`
+2. Describe the bug and severity
+3. Get Investigation → Fix → Regression Test structure
+
+**Example**: "Create a bug epic for the session data corruption issue. Severity: high."
+
+### Research Epic
+
+For structured investigation:
+
+1. Invoke `/ct-epic-architect`
+2. Describe research questions
+3. Get Scope → Parallel Investigation → Synthesis structure
+
+**Example**: "Create a research epic to compare Drizzle vs Prisma for our stack"
+
+### Migration Epic
+
+For multi-phase changes:
+
+1. Invoke `/ct-epic-architect`
+2. Describe the migration and safety requirements
+3. Get phased structure with rollback checkpoints
+
+**Example**: "Create a migration epic for adding tenant_id to all tables"
+
+---
+
+## Integration with Orchestrator
+
+### Orchestrator Spawns ct-epic-architect
+
+When operating as orchestrator, spawn ct-epic-architect for planning work:
+
+```
+Orchestrator receives complex request
+    → Spawns ct-epic-architect subagent
+    → ct-epic-architect creates tasks in CLEO
+    → Returns manifest summary
+    → Orchestrator continues with execution
+```
+
+### Skill-Aware Execution
+
+See `references/skill-aware-execution.md` for:
+- When subagents should have ct-epic-architect skill
+- Research integration patterns
+- Context protection strategies
+
+---
+
+## Output Files
+
+### Epic Output
+
+ct-epic-architect writes to:
+```
+claudedocs/agent-outputs/YYYY-MM-DD_epic-{slug}.md
+```
+
+### Manifest Entry
+
+Appends to:
+```
+claudedocs/agent-outputs/MANIFEST.jsonl
+```
+
+### What's in the Manifest
+
+```json
+{
+  "id": "epic-auth-2026-01-19",
+  "key_findings": [
+    "Created Epic T1234 with 6 child tasks",
+    "Wave 0: [T1235]",
+    "Wave 1: [T1236, T1237]",
+    "Critical path: T1235 → T1236 → T1238 → T1240"
+  ],
+  "needs_followup": ["T1235"],
+  "linked_tasks": ["T1234", "T1235", "T1236", "T1237", "T1238", "T1239", "T1240"]
+}
+```
+
+---
+
+## Troubleshooting
+
+### Skill Doesn't Activate
+
+**Symptoms**: Claude doesn't use ct-epic-architect patterns
+
+**Solutions**:
+1. Use explicit trigger phrase: "create epic for..."
+2. Use slash command: `/ct-epic-architect`
+3. Check skill is installed: `ls skills/ct-epic-architect/SKILL.md`
+
+### Tasks Created Without Dependencies
+
+**Symptoms**: All tasks show as Wave 0
+
+**Solutions**:
+1. Be explicit about task order in your request
+2. Ask for "dependency analysis"
+3. Check examples for proper patterns
+
+### Too Many Tasks Created
+
+**Symptoms**: 20+ tasks for a small feature
+
+**Solutions**:
+1. Specify scope constraints upfront
+2. Ask for "small/medium epic"
+3. Request task consolidation after review
+
+### Conflicting with Orchestrator
+
+**Symptoms**: Both skills trying to control workflow
+
+**Solutions**:
+1. Orchestrator spawns ct-epic-architect, doesn't run concurrently
+2. ct-epic-architect for planning, orchestrator for execution
+3. Check `references/skill-aware-execution.md` for patterns
+
+---
+
+## Reference Links
+
+- **Skill Source**: `skills/ct-epic-architect/SKILL.md`
+- **Examples**: `skills/ct-epic-architect/references/` (feature, bug, research, migration examples)
+- **Commands Reference**: `skills/ct-epic-architect/references/commands.md`
+- **Patterns**: `skills/ct-epic-architect/references/patterns.md`
+- **Orchestrator Integration**: `skills/ct-epic-architect/references/skill-aware-execution.md`
+- **Tests**: `tests/integration/epic-architect-skill.bats`
+- **Installation**: `./install.sh` (installs all skills via manifest.json)

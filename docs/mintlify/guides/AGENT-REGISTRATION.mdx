@@ -1,0 +1,295 @@
+---
+title: "Agent Registration Guide"
+description: "Guide for registering custom agents with Claude Code and other AI coding assistants using the cleo-subagent agent type"
+---
+
+# Agent Registration Guide
+
+**Version**: 1.0.0
+**Status**: ACTIVE
+**Task**: T2403
+**Epic**: T2392
+
+---
+
+## Overview
+
+This guide documents the pattern for registering custom agents with Claude Code and other AI coding assistants. CLEO implements the `cleo-subagent` agent type for task execution within orchestrated workflows.
+
+---
+
+## Claude Code Registration
+
+### Plugin Structure
+
+```
+project-root/
+├── .claude-plugin/
+│   └── plugin.json        # Plugin manifest
+└── agents/
+    └── cleo-subagent/
+        └── AGENT.md       # Agent definition
+```
+
+### Plugin Manifest
+
+**File**: `.claude-plugin/plugin.json`
+
+```json
+{
+  "name": "cleo",
+  "version": "0.70.1",
+  "description": "CLEO task management with custom agents",
+  "author": {
+    "name": "CLEO"
+  },
+  "agents": "./agents"
+}
+```
+
+**Required Fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Plugin identifier |
+| `version` | string | Semver version |
+| `agents` | string | Path to agents directory |
+
+**Optional Fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | string | Plugin description |
+| `author` | object | Author info (`name`, `url`) |
+| `capabilities` | object | Feature flags |
+| `metadata` | object | Additional metadata |
+
+### Agent Definition
+
+**File**: `agents/<agent-name>/AGENT.md`
+
+```markdown
+---
+name: cleo-subagent
+description: |
+  CLEO task executor with protocol compliance.
+model: sonnet
+allowed_tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+---
+
+# Agent Content
+
+Protocol documentation and instructions here.
+```
+
+**Frontmatter Fields**:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Agent identifier (matches `subagent_type`) |
+| `description` | Yes | Agent purpose |
+| `model` | No | Preferred model (sonnet, opus, haiku) |
+| `allowed_tools` | No | Tool whitelist |
+
+### Task Tool Usage
+
+```javascript
+// Spawn subagent with registered type
+Task({
+  description: "Execute task T2403",
+  subagent_type: "cleo-subagent"  // Resolves to agents/cleo-subagent/AGENT.md
+})
+```
+
+---
+
+## Multi-Provider Registration
+
+### Provider Abstraction Layer
+
+CLEO implements a provider-agnostic registration pattern:
+
+```
+.cleo/
+├── agents/
+│   └── subagent/
+│       ├── base-protocol.md     # Shared protocol
+│       └── providers/
+│           ├── claude.md        # Claude-specific
+│           ├── opencode.md      # OpenCode-specific
+│           └── generic.md       # MCP fallback
+└── config.json
+```
+
+### OpenCode Pattern
+
+**File**: `.opencode/agents.yaml`
+
+```yaml
+agents:
+  cleo-subagent:
+    description: CLEO task executor
+    protocol: .cleo/agents/subagent/base-protocol.md
+    capabilities:
+      - file_read
+      - file_write
+      - shell_exec
+    constraints:
+      max_tokens: 100000
+      timeout: 600
+```
+
+### Generic MCP Pattern
+
+For tools implementing Model Context Protocol:
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "cleo",
+      "args": ["mcp-server"],
+      "env": {},
+      "agents": {
+        "cleo-subagent": {
+          "protocol": "base-protocol",
+          "tools": ["read", "write", "bash"]
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
+## Registration Verification
+
+### Claude Code
+
+```bash
+# Check plugin is loaded
+ls -la .claude-plugin/plugin.json
+
+# Verify agent directory
+ls -la agents/cleo-subagent/AGENT.md
+
+# Test agent spawn (via Task tool)
+# The agent should be available as subagent_type: "cleo-subagent"
+```
+
+### Verification Checklist
+
+- [ ] `.claude-plugin/plugin.json` exists
+- [ ] `agents` path in manifest is valid
+- [ ] Agent directory matches expected name
+- [ ] `AGENT.md` has valid YAML frontmatter
+- [ ] `name` field matches intended `subagent_type`
+
+---
+
+## Configuration Options
+
+### Plugin-Level Config
+
+```json
+{
+  "capabilities": {
+    "task_management": true,
+    "multi_session": true,
+    "orchestration": true
+  },
+  "metadata": {
+    "schema_version": "1.0.0",
+    "min_claude_version": "1.0.0"
+  }
+}
+```
+
+### Agent-Level Config
+
+Agent behavior is controlled via:
+
+1. **Frontmatter**: Model, tools, description
+2. **Protocol content**: Behavioral rules, output formats
+3. **Injected skills**: Runtime-loaded capabilities
+
+---
+
+## Extending Agents
+
+### Adding New Agent Types
+
+1. Create directory: `agents/<new-agent>/`
+2. Create definition: `agents/<new-agent>/AGENT.md`
+3. Add frontmatter with `name` field
+4. Document protocol in markdown body
+5. No manifest update needed (auto-discovered)
+
+### Skill Injection
+
+Agents can receive additional capabilities via skill injection:
+
+```markdown
+## Skill Context
+
+<!-- Orchestrator injects skill content here -->
+```
+
+Skills are loaded at spawn time, not registered statically.
+
+---
+
+## Troubleshooting
+
+### Agent Not Found
+
+**Symptom**: `subagent_type: "cleo-subagent"` returns error
+
+**Checks**:
+1. Verify `.claude-plugin/plugin.json` exists
+2. Verify `agents` path is correct (relative to plugin.json)
+3. Verify agent directory name matches exactly
+4. Verify `AGENT.md` file exists (case-sensitive)
+5. Verify frontmatter `name` matches `subagent_type`
+
+### Plugin Not Loading
+
+**Symptom**: Plugin capabilities not available
+
+**Checks**:
+1. Restart Claude Code session
+2. Check for JSON syntax errors in plugin.json
+3. Verify file permissions (readable)
+
+### Model Override Not Working
+
+**Symptom**: Agent uses default model despite `model:` specification
+
+**Note**: Model specification in frontmatter is a hint. Provider may override based on context or configuration.
+
+---
+
+## Version Compatibility
+
+| CLEO Version | Claude Code | Plugin Schema |
+|--------------|-------------|---------------|
+| 0.70.0+ | 1.0.0+ | 1.0.0 |
+
+---
+
+## References
+
+- [CLEO Subagent Protocol](../../agents/cleo-subagent/AGENT.md)
+- [Orchestrator Protocol](ORCHESTRATOR-PROTOCOL.md)
+- [Multi-Agent Setup](multi-agent-setup.md)
+
+---
+
+*Documentation for T2403 - Agent Registration Implementation*

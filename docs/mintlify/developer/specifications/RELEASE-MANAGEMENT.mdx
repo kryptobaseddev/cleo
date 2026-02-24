@@ -1,0 +1,46 @@
+---
+title: "Release Management"
+description: "Deprecated - see protocols/release.md"
+icon: "file-code"
+---
+
+# Release Management Specification
+
+<Warning>
+**DEPRECATED** (v0.83.1): This specification has been consolidated into `protocols/release.md`,
+which is the single canonical reference for both LLM agents and human developers.
+</Warning>
+
+## Canonical Reference
+
+**Agents**: Use `protocols/release.md` directly. It contains the complete release schema,
+state machine, error codes, CLI commands, workflow, and platform changelog configuration.
+
+**Humans**: See [Release Command Documentation](/commands/release) for usage examples,
+or read `protocols/release.md` for the full technical reference.
+
+## Archived Version
+
+The full v2.0.0 specification is preserved at `archive/specs/deprecated/RELEASE-MANAGEMENT-SPEC.mdx`
+for historical reference.
+
+## What Moved Where
+
+| Content | New Location |
+|---------|-------------|
+| Release JSON schema | `protocols/release.md` → Release Schema |
+| State machine (3 states: planned/active/released) | `protocols/release.md` → State Machine |
+| Error codes 50-59 | `protocols/release.md` → Error Codes |
+| Task discovery pipeline | `protocols/release.md` → Task Discovery |
+| CLI commands (8 real) | `protocols/release.md` → CLI Commands |
+| Platform changelog config | `protocols/release.md` → Platform Changelog Configuration |
+| Validation gates | `protocols/release.md` → Validation Gates |
+| CI/CD integration | `protocols/release.md` → CI/CD Integration |
+
+## Removed Content
+
+- `cleo release verify` - use `cleo release ship --dry-run`
+- `cleo release start` - state transition is automatic during `ship`
+- `cleo release note` - use `cleo release plan --notes` or `cleo release create --notes`
+- `active` state documentation - now correctly documented as transitional state in 3-state model
+- `lib/changelog.sh` deprecation notice - incorrect, lib/changelog.sh is the primary generator

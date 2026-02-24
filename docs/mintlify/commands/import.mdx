@@ -1,0 +1,95 @@
+---
+title: "cleo import"
+description: "Import tasks from external formats (GitHub Issues, CSV, JSON)"
+icon: "file-import"
+---
+
+# cleo import
+
+Import tasks from external formats and sources into CLEO.
+
+{% hint style="info" %}**Agent Relevance**: Medium - Used for migration and integration{% endhint %}
+
+## Synopsis
+
+```bash
+cleo import <source> [OPTIONS]
+```
+
+## Description
+
+The `import` command allows you to bring tasks into CLEO from various external sources. This is useful for:
+
+- Migrating from other task management systems
+- Importing GitHub Issues as tasks
+- Bulk task creation from CSV files
+- Restoring from JSON exports
+
+## Sources
+
+| Source | Description |
+|--------|-------------|
+| `github` | Import from GitHub Issues |
+| `csv` | Import from CSV file |
+| `json` | Import from JSON export |
+| `linear` | Import from Linear issues |
+| `jira` | Import from Jira issues |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--from FILE` | Source file or URL |
+| `--project PROJECT` | Target project |
+| `--labels LABELS` | Default labels to apply |
+| `--dry-run` | Preview without importing |
+| `--json` | Output in JSON format |
+
+## Examples
+
+{% tabs %}
+
+```bash Import from GitHub
+cleo import github --from https://github.com/org/repo/issues
+```
+
+```bash Import from CSV
+cleo import csv --from tasks.csv --labels "imported,urgent"
+```
+
+```bash Import from JSON
+cleo import json --from backup.json
+```
+
+```bash Dry run
+cleo import csv --from tasks.csv --dry-run
+```
+
+{% endtabs %}
+
+## CSV Format
+
+Expected CSV columns:
+```csv
+title,description,priority,status,labels
+title,description,priority,status,labels
+"Task 1","Description",high,todo,"bug,critical"
+```
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| 0 | Success | - |
+| 3 | File not found | Yes |
+| 6 | Invalid format | Yes |
+| 22 | ID collision | No |
+
+## Related Commands
+
+- [`cleo export`](export) - Export tasks to external formats
+- [`cleo import-tasks`](import-tasks) - Import tasks.json files
+
+## See Also
+
+- [Data Migration Guide](/guides/migration)

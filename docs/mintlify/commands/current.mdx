@@ -1,0 +1,85 @@
+---
+title: "cleo current"
+description: "Display the currently active task being worked on"
+icon: "eye"
+---
+
+# cleo current
+
+Display the currently active task being started with `cleo start`.
+
+{% hint style="info" %}**Agent Relevance**: Medium - Useful for context awareness{% endhint %}
+
+## Synopsis
+
+```bash
+cleo current [OPTIONS]
+```
+
+## Description
+
+The `current` command shows information about the task currently being worked on (set via `cleo start`). This includes:
+
+- Task ID and title
+- Status and priority
+- Time elapsed since start
+- Parent task (if any)
+- Labels and phase
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format |
+| `--human` | Output in human-readable format |
+| `--full` | Show full task details |
+
+## Examples
+
+{% tabs %}
+
+```bash Show current task
+cleo current
+```
+
+```bash JSON output
+cleo current --json
+```
+
+```bash Full details
+cleo current --full
+```
+
+{% endtabs %}
+
+## Output
+
+When a task is active:
+```
+Current Task: T1234
+Title: Implement user authentication
+Status: in-progress
+Started: 2026-02-21T10:30:00Z
+Elapsed: 45 minutes
+```
+
+When no task is active:
+```
+No current task. Use 'cleo start <task-id>' to begin work.
+```
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| 0 | Success | - |
+| 100 | No current task | Yes |
+
+## Related Commands
+
+- [`cleo start`](start) - Start working on a task
+- [`cleo stop`](stop) - Stop working on current task
+
+## See Also
+
+- [Task Work Tracking](/guides/sessions)

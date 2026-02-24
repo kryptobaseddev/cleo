@@ -1,0 +1,192 @@
+---
+title: "MCP Server Specification"
+description: "Two-tool CQRS gateway exposing CLEO's 65 CLI commands through Model Context Protocol with 94% token reduction"
+icon: "server"
+---
+
+# CLEO MCP Server Specification
+
+**Version**: 1.0.0
+**Status**: DRAFT
+**Date**: 2026-01-31
+**Authors**: Claude Opus 4.5, CLEO Development Team
+
+---
+
+## 1. Executive Summary
+
+This specification defines the Model Context Protocol (MCP) server interface for CLEO. The server exposes CLEO's 65 CLI commands and 280+ library functions through **two gateway tools** using a CQRS (Command Query Responsibility Segregation) pattern.
+
+### 1.1 Design Goals
+
+1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = 94% reduction
+2. **Full Capability Access**: All 123 operations accessible through domain routing
+3. **Safety by Design**: Read operations cannot mutate state
+4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
+5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
+
+### 1.2 Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            MCP TOOL LAYER (2 Entry Points)                       │
+│                                                                                  │
+│   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
+│   │         cleo_query              │    │         cleo_mutate             │    │
+│   │      (45 Read Operations)       │    │      (53 Write Operations)      │    │
+│   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
+└────────────────────┼──────────────────────────────────────┼──────────────────────┘
+                     │                                      │
+                     ▼                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              DOMAIN ROUTER (8 Domains)                           │
+│    tasks │ session │ orchestrate │ research │ lifecycle │ validate │ release    │
+│                                   + system                                       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           PROTOCOL ENFORCEMENT LAYER                             │
+│  RCSD: Research(60) → Consensus(61) → Specification(62) → Decomposition(63)     │
+│  IVTR: Implementation(64) → Validation(68) → Testing(69/70) → Release(66)       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              CLI LAYER (65 commands)                             │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. Gateway Tool Definitions
+
+### 2.1 `cleo_query` - Read Operations
+
+**Purpose**: All read-only operations for discovery, status, analysis, and validation checks.
+
+**Characteristics**:
+- MUST NOT modify any state
+- Results MAY be cached
+- Safe to retry without side effects
+
+#### Tool Schema
+
+```json
+{
+  "name": "cleo_query",
+  "description": "CLEO read operations: task discovery, status checks, analysis, validation, and compliance metrics.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["domain", "operation"],
+    "properties": {
+      "domain": {
+        "type": "string",
+        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "system"]
+      },
+      "operation": {
+        "type": "string",
+        "description": "Domain-specific read operation"
+      },
+      "params": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}
+```
+
+### 2.2 `cleo_mutate` - Write Operations
+
+**Purpose**: All state-changing operations for task management, session control, and workflow execution.
+
+**Characteristics**:
+- MUST validate before execution
+- Results MUST NOT be cached
+- Idempotent where possible
+
+---
+
+## 3. Domain Operations Matrix
+
+### 3.1 Tasks Domain
+
+| Operation | Type | CLI Mapping | Description |
+|-----------|------|-------------|-------------|
+| `list` | query | `cleo list` | List tasks with filters |
+| `show` | query | `cleo show` | Get task details |
+| `find` | query | `cleo find` | Fuzzy search |
+| `create` | mutate | `cleo add` | Create task |
+| `update` | mutate | `cleo update` | Update task |
+| `complete` | mutate | `cleo complete` | Complete task |
+
+### 3.2 Session Domain
+
+| Operation | Type | CLI Mapping | Description |
+|-----------|------|-------------|-------------|
+| `status` | query | `cleo session status` | Current session |
+| `list` | query | `cleo session list` | All sessions |
+| `start` | mutate | `cleo session start` | Start session |
+| `end` | mutate | `cleo session end` | End session |
+
+### 3.3 Orchestrate Domain
+
+| Operation | Type | CLI Mapping | Description |
+|-----------|------|-------------|-------------|
+| `analyze` | query | `cleo orchestrator analyze` | Dependency waves |
+| `ready` | query | `cleo orchestrator ready` | Parallel-safe tasks |
+| `spawn` | mutate | `cleo orchestrator spawn` | Generate spawn prompt |
+
+---
+
+## 4. Protocol Enforcement
+
+### 4.1 Exit Code Mapping
+
+| Exit Code | Protocol | MCP Error Code |
+|-----------|----------|----------------|
+| 60 | research.md | `PROTOCOL_RESEARCH_VIOLATION` |
+| 61 | consensus.md | `PROTOCOL_CONSENSUS_VIOLATION` |
+| 62 | specification.md | `PROTOCOL_SPECIFICATION_VIOLATION` |
+| 63 | decomposition.md | `PROTOCOL_DECOMPOSITION_VIOLATION` |
+| 64 | implementation.md | `PROTOCOL_IMPLEMENTATION_VIOLATION` |
+| 65 | contribution.md | `PROTOCOL_CONTRIBUTION_VIOLATION` |
+| 66 | release.md | `PROTOCOL_RELEASE_VIOLATION` |
+
+---
+
+## 5. Implementation Requirements
+
+### 5.1 Technology Stack
+
+- **Runtime**: Node.js 20+
+- **MCP SDK**: FastMCP (TypeScript)
+- **Transport**: stdio (primary), StreamableHTTP (optional)
+
+### 5.2 CLI Adapter
+
+```typescript
+async function executeCLI(command: string, args: string[]): Promise<CLIResult> {
+  const process = spawn('cleo', [command, ...args, '--format', 'json']);
+  // Handle stdout, stderr, exit code
+  return { success, data, error, exitCode };
+}
+```
+
+---
+
+## 6. Success Criteria
+
+- Token reduction: >90% (validated via real-world usage)
+- Query response time: <3s for semantic search
+- Error handling: 100% of errors include fix suggestions
+- Adoption: 3+ developers using MCP over CLI within 60 days
+
+---
+
+## 7. References
+
+- [MCP-GATEWAY](/developer/specifications/MCP-GATEWAY): Domain gateway specifications
+- [PROTOCOL-ENFORCEMENT](/developer/specifications/PROTOCOL-ENFORCEMENT): Exit code system
+- [CLEO-STRATEGIC-ROADMAP](/developer/specifications/CLEO-STRATEGIC-ROADMAP): Phase 0 timeline

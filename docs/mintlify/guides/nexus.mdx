@@ -1,0 +1,420 @@
+---
+title: "CLEO Nexus Guide"
+description: "Cross-project intelligence for the global task graph"
+icon: "brain"
+---
+
+# CLEO Nexus
+
+Nexus is CLEO's global intelligence system - a "super brain" that spans all your registered projects, enabling cross-project relationship discovery and unified dependency analysis.
+
+## Quick Start
+
+### Initialize Nexus
+
+```bash
+cleo nexus init
+```
+
+Creates `~/.cleo/nexus/` directory structure with global registry.
+
+### Register Projects
+
+```bash
+# Register with read-only access (default)
+cleo nexus register /path/to/project-a --name my-app
+
+# Register with write access
+cleo nexus register /path/to/project-b --name api --permissions write
+
+# Register with full access
+cleo nexus register /path/to/project-c --name infra --permissions execute
+```
+
+### List Registered Projects
+
+```bash
+# List all projects
+cleo nexus list
+
+# JSON output
+cleo nexus list --json
+```
+
+## Cross-Project Queries
+
+### Query Syntax
+
+Use `project:task_id` format to reference tasks across projects:
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| `my-app:T001` | Task T001 in project "my-app" | Specific project reference |
+| `.:T001` | Task T001 in current project | Explicit current project |
+| `*:T001` | Search T001 in all projects | Wildcard search |
+| `T001` | Implicit current project | Standard single-project syntax |
+
+<Info>
+The `project:task_id` syntax works in any CLEO command that accepts task IDs.
+</Info>
+
+### Discover Related Tasks
+
+Find related tasks across all registered projects:
+
+```bash
+# Find tasks related to my-app:T001
+cleo nexus discover my-app:T001
+
+# Limit results to top 5
+cleo nexus discover my-app:T001 --limit 5
+
+# Use specific discovery method
+cleo nexus discover my-app:T001 --method labels
+
+# Output as JSON
+cleo nexus discover my-app:T001 --json
+```
+
+**Discovery methods:**
+- `labels` - Match by shared labels/topics
+- `description` - Match by description keywords
+- `hierarchy` - Match by tree proximity
+- `auto` - Combine all methods (default)
+
+### Cross-Project Dependencies
+
+Analyze dependencies that span project boundaries:
+
+```bash
+# Show what a task depends on
+cleo nexus deps my-app:T001
+
+# Show what depends on this task (reverse lookup)
+cleo nexus deps my-app:T001 --reverse
+
+# Include transitive dependencies
+cleo nexus deps my-app:T001 --transitive
+```
+
+## Permission Model
+
+Three-tier permissions control cross-project access:
+
+| Level | Numeric | Capabilities |
+|-------|---------|--------------|
+| `read` | 1 | Query tasks, discover relationships |
+| `write` | 2 | read + modify task fields, add relationships |
+| `execute` | 3 | write + create/delete tasks, run commands |
+
+<Warning>
+Permissions are hierarchical: `execute` includes `write` and `read` capabilities.
+</Warning>
+
+### Permission Examples
+
+```bash
+# Update permissions for existing project
+cleo nexus register /path/to/project --name api --permissions write
+
+# Check if operation is allowed (exit codes)
+# 0 = allowed, 72 = E_NEXUS_PERMISSION_DENIED
+cleo nexus query api:T001 --require-write
+```
+
+### Same-Project Exception
+
+Operations within the current project always have full permissions, regardless of how it's registered in Nexus. This preserves backward compatibility with single-project workflows.
+
+## Neural Brain Concepts
+
+Nexus implements neural network semantics designed for AI agents:
+
+| Concept | Implementation | Purpose |
+|---------|----------------|---------|
+| **Neurons** | Tasks (across all projects) | Units of work |
+| **Synapses** | Relationships (`relates` field) | Connections |
+| **Weights** | Similarity scores + boosts | Relevance |
+| **Activation** | Score threshold (0.0-1.0) | Filtering |
+| **Memory** | Persistent global graph | Context |
+
+### For Autonomous Agents
+
+Nexus enables autonomous AI agents to:
+
+1. **Self-navigate** - Query related tasks without human guidance
+2. **Persist memory** - State survives across sessions
+3. **Cross-reference** - Connect work across projects
+4. **Discover context** - Find relevant prior work automatically
+
+<CodeGroup>
+```bash Agent Discovery
+# Agent queries for related work
+cleo nexus discover ".:T001" --method auto --limit 10
+
+# Returns related tasks from all registered projects
+# Agent can follow relationships autonomously
+```
+
+```bash Agent Dependencies
+# Agent checks what blocks current task
+cleo nexus deps ".:T001"
+
+# Discovers cross-project blockers
+# Can plan work order intelligently
+```
+</CodeGroup>
+
+### Discovery Algorithms
+
+<Tabs>
+  <Tab title="Label Matching">
+    Scores tasks by shared labels/topics:
+
+    - 3+ shared labels: 0.9+ score
+    - 2 shared labels: 0.7-0.9 score
+    - 1 shared label: 0.5-0.7 score
+
+    Boosts: parent tasks +0.1, blocking tasks +0.15
+  </Tab>
+
+  <Tab title="Description NLP">
+    Keyword extraction and matching:
+
+    - Filters common words (the, a, is, etc.)
+    - Scores by shared keywords
+    - Weighted by keyword rarity
+
+    Best for semantic similarity
+  </Tab>
+
+  <Tab title="Hierarchy">
+    Tree structure proximity:
+
+    - Same epic: 0.8+ score
+    - Sibling tasks: 0.7+ score
+    - Cousin tasks: 0.5+ score
+
+    Best for project structure
+  </Tab>
+
+  <Tab title="Auto (Default)">
+    Combines all methods:
+
+    - Weighted average of all scores
+    - Deduplicates results
+    - Sorts by combined relevance
+
+    Most comprehensive
+  </Tab>
+</Tabs>
+
+## Syncing Metadata
+
+Keep project metadata up-to-date:
+
+```bash
+# Sync single project
+cleo nexus sync my-app
+
+# Sync all registered projects
+cleo nexus sync
+
+# Force full resync (ignores checksums)
+cleo nexus sync --force
+```
+
+<Info>
+Nexus caches task metadata locally. Run `sync` after significant project changes.
+</Info>
+
+## Unregister Projects
+
+```bash
+# Remove project from registry
+cleo nexus unregister my-app
+
+# Confirm removal
+cleo nexus list
+```
+
+## Troubleshooting
+
+### Exit Codes
+
+| Code | Constant | Meaning | Fix |
+|------|----------|---------|-----|
+| 70 | `E_NEXUS_NOT_INITIALIZED` | Nexus not set up | Run `cleo nexus init` |
+| 71 | `E_NEXUS_PROJECT_NOT_FOUND` | Project not registered | Check `cleo nexus list` |
+| 72 | `E_NEXUS_PERMISSION_DENIED` | Insufficient permissions | Update project permissions |
+| 73 | `E_NEXUS_INVALID_SYNTAX` | Invalid query format | Use `project:task_id` format |
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="Project not found" icon="magnifying-glass">
+    **Error**: `E_NEXUS_PROJECT_NOT_FOUND`
+
+    **Cause**: Project name not in registry
+
+    **Fix**:
+    ```bash
+    # List registered projects
+    cleo nexus list
+
+    # Register if missing
+    cleo nexus register /path/to/project --name correct-name
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied" icon="lock">
+    **Error**: `E_NEXUS_PERMISSION_DENIED`
+
+    **Cause**: Operation requires higher permission level
+
+    **Fix**:
+    ```bash
+    # Update permissions
+    cleo nexus register /path/to/project --name api --permissions write
+    ```
+  </Accordion>
+
+  <Accordion title="Invalid syntax" icon="code">
+    **Error**: `E_NEXUS_INVALID_SYNTAX`
+
+    **Cause**: Query format not recognized
+
+    **Valid formats**:
+    - `project:T001` - Named project
+    - `.:T001` - Current project
+    - `*:T001` - All projects
+    - `T001` - Implicit current
+
+    **Invalid**:
+    - `project T001` (no colon)
+    - `project::T001` (double colon)
+    - `:T001` (empty project)
+  </Accordion>
+
+  <Accordion title="Stale metadata" icon="clock-rotate-left">
+    **Symptom**: Discovery returns outdated results
+
+    **Cause**: Metadata cache out of sync
+
+    **Fix**:
+    ```bash
+    # Force sync all projects
+    cleo nexus sync --force
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Example Workflow
+
+<Steps>
+  <Step title="Initialize Nexus">
+    ```bash
+    cleo nexus init
+    ```
+
+    Creates global registry at `~/.cleo/nexus/registry.json`
+  </Step>
+
+  <Step title="Register Projects">
+    ```bash
+    # Backend API (read-only)
+    cleo nexus register ~/projects/backend --name backend
+
+    # Frontend (write access)
+    cleo nexus register ~/projects/frontend --name frontend --permissions write
+
+    # Infrastructure (full access)
+    cleo nexus register ~/projects/infra --name infra --permissions execute
+    ```
+  </Step>
+
+  <Step title="Discover Relationships">
+    ```bash
+    # Working in backend project
+    cd ~/projects/backend
+
+    # Find related tasks across all projects
+    cleo nexus discover .:T001
+
+    # Discovers frontend:T042 mentions same API endpoint
+    ```
+  </Step>
+
+  <Step title="Check Dependencies">
+    ```bash
+    # See what frontend task depends on
+    cleo nexus deps frontend:T042
+
+    # Shows: depends on backend:T001
+    ```
+  </Step>
+
+  <Step title="Sync Regularly">
+    ```bash
+    # After major changes
+    cleo nexus sync
+
+    # Keeps discovery accurate
+    ```
+  </Step>
+</Steps>
+
+## Advanced Usage
+
+### Integration with CLI Commands
+
+Cross-project syntax works throughout CLEO:
+
+```bash
+# Show task from other project
+cleo show api:T001
+
+# Update task in other project (requires write permission)
+cleo update api:T001 --notes "Updated from frontend"
+
+# Create dependency on other project
+cleo update .:T042 --depends api:T001
+
+# List tasks from other project
+cleo list --project api
+```
+
+### Scripting with Nexus
+
+```bash
+#!/usr/bin/env bash
+
+# Find all blocking tasks across projects
+cleo nexus list --json | jq -r '.projects[].name' | while read -r project; do
+    cleo nexus deps "${project}:*" --json | jq -r '.blockers[]'
+done
+
+# Sync all projects before analysis
+cleo nexus sync
+
+# Run discovery for current task
+current_task=$(cleo focus show --json | jq -r '.taskId')
+cleo nexus discover ".:${current_task}" --limit 10
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sessions Guide" icon="clock" href="/guides/sessions">
+    Learn session management across projects
+  </Card>
+  <Card title="Architecture" icon="cubes" href="/concepts/architecture">
+    Understand CLEO's system design
+  </Card>
+  <Card title="Multi-Agent Setup" icon="users" href="/guides/multi-agent">
+    Configure for multiple AI agents
+  </Card>
+  <Card title="Vision" icon="compass" href="/concepts/vision">
+    See CLEO's design philosophy
+  </Card>
+</CardGroup>
