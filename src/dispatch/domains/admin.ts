@@ -99,7 +99,7 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'log': {
-          const result = systemLog(this.projectRoot, params as {
+          const result = await systemLog(this.projectRoot, params as {
             operation?: string;
             taskId?: string;
             since?: string;
