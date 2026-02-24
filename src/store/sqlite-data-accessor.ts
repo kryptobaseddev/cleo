@@ -17,8 +17,19 @@ import type { TaskFile, Task, ProjectMeta, FocusState as TaskWorkState, FileMeta
 import type { Session } from '../types/session.js';
 import { getDb, closeDb } from './sqlite.js';
 import * as schema from './schema.js';
-import { appendJsonl, computeChecksum } from './json.js';
-import { getLogPath } from '../core/paths.js';
+import { computeChecksum } from './json.js';
+import { rowToTask, taskToRow, archivedTaskToRow, rowToSession } from './converters.js';
+import { upsertTask, upsertSession, updateDependencies, loadDependenciesForTasks } from './db-helpers.js';
+
+/**
+ * Generate a unique audit log entry ID.
+ * @task T4837
+ */
+function generateAuditLogId(): string {
+  const epoch = Math.floor(Date.now() / 1000);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `log-${epoch}-${rand}`;
+}
 
 // ---- Schema meta helpers ----
 
@@ -49,135 +60,6 @@ export async function setMetaValue(cwd: string | undefined, key: string, value: 
       set: { value: json },
     })
     .run();
-}
-
-// ---- Row <-> Domain conversion ----
-
-/** Convert a database TaskRow to a domain Task. */
-function rowToTask(row: schema.TaskRow): Task {
-  return {
-    id: row.id,
-    title: row.title,
-    status: row.status as Task['status'],
-    priority: row.priority as Task['priority'],
-    type: (row.type as Task['type']) ?? undefined,
-    parentId: row.parentId ?? undefined,
-    phase: row.phase ?? undefined,
-    size: (row.size as Task['size']) ?? undefined,
-    position: row.position ?? undefined,
-    positionVersion: row.positionVersion ?? undefined,
-    description: row.description ?? undefined,
-    labels: safeParseJsonArray(row.labelsJson),
-    notes: safeParseJsonArray(row.notesJson),
-    acceptance: safeParseJsonArray(row.acceptanceJson),
-    files: safeParseJsonArray(row.filesJson),
-    depends: undefined, // Populated separately from task_dependencies
-    origin: (row.origin as Task['origin']) ?? undefined,
-    blockedBy: row.blockedBy ?? undefined,
-    epicLifecycle: (row.epicLifecycle as Task['epicLifecycle']) ?? undefined,
-    noAutoComplete: row.noAutoComplete ?? undefined,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt ?? undefined,
-    completedAt: row.completedAt ?? undefined,
-    cancelledAt: row.cancelledAt ?? undefined,
-    cancellationReason: row.cancellationReason ?? undefined,
-    verification: row.verificationJson ? safeParseJson(row.verificationJson) : undefined,
-    provenance:
-      row.createdBy || row.modifiedBy || row.sessionId
-        ? {
-            createdBy: row.createdBy ?? null,
-            modifiedBy: row.modifiedBy ?? null,
-            sessionId: row.sessionId ?? null,
-          }
-        : undefined,
-  };
-}
-
-/** Convert a domain Task to a database row for insert/upsert. */
-function taskToRow(task: Task): schema.NewTaskRow {
-  return {
-    id: task.id,
-    title: task.title,
-    description: task.description ?? null,
-    status: task.status,
-    priority: task.priority,
-    type: task.type ?? null,
-    parentId: task.parentId ?? null,
-    phase: task.phase ?? null,
-    size: task.size ?? null,
-    position: task.position ?? null,
-    positionVersion: task.positionVersion ?? 0,
-    labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
-    notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
-    acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
-    filesJson: task.files ? JSON.stringify(task.files) : '[]',
-    origin: task.origin ?? null,
-    blockedBy: task.blockedBy ?? null,
-    epicLifecycle: task.epicLifecycle ?? null,
-    noAutoComplete: task.noAutoComplete ?? null,
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt ?? null,
-    completedAt: task.completedAt ?? null,
-    cancelledAt: task.cancelledAt ?? null,
-    cancellationReason: task.cancellationReason ?? null,
-    verificationJson: task.verification ? JSON.stringify(task.verification) : null,
-    createdBy: task.provenance?.createdBy ?? null,
-    modifiedBy: task.provenance?.modifiedBy ?? null,
-    sessionId: task.provenance?.sessionId ?? null,
-  };
-}
-
-/** Convert a domain Task to a row suitable for archived tasks. */
-function archivedTaskToRow(task: Task): schema.NewTaskRow {
-  const row = taskToRow(task);
-  // Ensure archived status and metadata
-  row.status = 'archived';
-  if (!(row as Record<string, unknown>)['archivedAt']) {
-    (row as Record<string, unknown>)['archivedAt'] = task.completedAt ?? new Date().toISOString();
-  }
-  return row;
-}
-
-/** Convert a SessionRow to a domain Session. */
-function rowToSession(row: schema.SessionRow): Session {
-  return {
-    id: row.id,
-    name: row.name,
-    status: row.status as Session['status'],
-    scope: safeParseJson(row.scopeJson) ?? { type: 'global' as const },
-    taskWork: {
-      taskId: row.currentTask ?? null,
-      setAt: row.taskStartedAt ?? null,
-    },
-    startedAt: row.startedAt,
-    endedAt: row.endedAt ?? undefined,
-    agent: row.agent ?? undefined,
-    notes: safeParseJsonArray(row.notesJson),
-    tasksCompleted: safeParseJsonArray(row.tasksCompletedJson),
-    tasksCreated: safeParseJsonArray(row.tasksCreatedJson),
-  };
-}
-
-// ---- JSON parse helpers ----
-
-function safeParseJson<T>(str: string | null | undefined): T | undefined {
-  if (!str) return undefined;
-  try {
-    return JSON.parse(str) as T;
-  } catch {
-    return undefined;
-  }
-}
-
-function safeParseJsonArray<T = string>(str: string | null | undefined): T[] | undefined {
-  if (!str) return undefined;
-  try {
-    const arr = JSON.parse(str);
-    if (Array.isArray(arr) && arr.length === 0) return undefined;
-    return arr as T[];
-  } catch {
-    return undefined;
-  }
 }
 
 // ---- Default structures ----
@@ -240,29 +122,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // 2. Load dependencies for all tasks (batch query), filtering orphaned refs
       if (tasks.length > 0) {
-        const taskIds = tasks.map((t) => t.id);
-        const allTaskIds = new Set(taskIds);
-        const allDeps = await db.select().from(schema.taskDependencies).all();
-
-        // Build lookup: taskId -> [dependsOn], filtering out orphaned references
-        const depMap = new Map<string, string[]>();
-        for (const dep of allDeps) {
-          if (allTaskIds.has(dep.taskId) && allTaskIds.has(dep.dependsOn)) {
-            let arr = depMap.get(dep.taskId);
-            if (!arr) {
-              arr = [];
-              depMap.set(dep.taskId, arr);
-            }
-            arr.push(dep.dependsOn);
-          }
-        }
-
-        for (const task of tasks) {
-          const deps = depMap.get(task.id);
-          if (deps && deps.length > 0) {
-            task.depends = deps;
-          }
-        }
+        await loadDependenciesForTasks(db, tasks);
       }
 
       // 3. Load project metadata from schema_meta
@@ -334,57 +194,8 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       // 4. Upsert all tasks from data.tasks
       for (const task of data.tasks) {
         const row = taskToRow(task);
-        await db.insert(schema.tasks)
-          .values(row)
-          .onConflictDoUpdate({
-            target: schema.tasks.id,
-            set: {
-              title: row.title,
-              description: row.description,
-              status: row.status,
-              priority: row.priority,
-              type: row.type,
-              parentId: row.parentId,
-              phase: row.phase,
-              size: row.size,
-              position: row.position,
-              positionVersion: row.positionVersion,
-              labelsJson: row.labelsJson,
-              notesJson: row.notesJson,
-              acceptanceJson: row.acceptanceJson,
-              filesJson: row.filesJson,
-              origin: row.origin,
-              blockedBy: row.blockedBy,
-              epicLifecycle: row.epicLifecycle,
-              noAutoComplete: row.noAutoComplete,
-              createdAt: row.createdAt,
-              updatedAt: row.updatedAt,
-              completedAt: row.completedAt,
-              cancelledAt: row.cancelledAt,
-              cancellationReason: row.cancellationReason,
-              verificationJson: row.verificationJson,
-              createdBy: row.createdBy,
-              modifiedBy: row.modifiedBy,
-              sessionId: row.sessionId,
-            },
-          })
-          .run();
-
-        // Update dependencies: delete old, insert new
-        await db.delete(schema.taskDependencies)
-          .where(eq(schema.taskDependencies.taskId, task.id))
-          .run();
-
-        if (task.depends && task.depends.length > 0) {
-          for (const depId of task.depends) {
-            if (incomingIds.has(depId)) {
-              await db.insert(schema.taskDependencies)
-                .values({ taskId: task.id, dependsOn: depId })
-                .onConflictDoNothing()
-                .run();
-            }
-          }
-        }
+        await upsertTask(db, row);
+        await updateDependencies(db, task.id, task.depends ?? [], incomingIds);
       }
 
       // 5. Store project metadata, focus state, labels, and file meta in schema_meta
@@ -431,36 +242,17 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // Load dependencies for archived tasks, filtering orphaned refs
       if (archivedTasks.length > 0) {
-        const taskIds = archivedTasks.map((t) => t.id);
-        const archivedIdSet = new Set(taskIds);
-        const allDeps = await db.select().from(schema.taskDependencies).all();
-
         // Also load all active task IDs so we can validate cross-references
         const activeRows = await db
           .select({ id: schema.tasks.id })
           .from(schema.tasks)
           .where(ne(schema.tasks.status, 'archived'))
           .all();
-        const allKnownIds = new Set([...archivedIdSet, ...activeRows.map(r => r.id)]);
-
-        const depMap = new Map<string, string[]>();
-        for (const dep of allDeps) {
-          if (archivedIdSet.has(dep.taskId) && allKnownIds.has(dep.dependsOn)) {
-            let arr = depMap.get(dep.taskId);
-            if (!arr) {
-              arr = [];
-              depMap.set(dep.taskId, arr);
-            }
-            arr.push(dep.dependsOn);
-          }
-        }
-
-        for (const task of archivedTasks) {
-          const deps = depMap.get(task.id);
-          if (deps && deps.length > 0) {
-            task.depends = deps;
-          }
-        }
+        const allKnownIds = new Set([
+          ...archivedTasks.map(t => t.id),
+          ...activeRows.map(r => r.id),
+        ]);
+        await loadDependenciesForTasks(db, archivedTasks, allKnownIds);
       }
 
       return {
@@ -474,6 +266,15 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
     async saveArchive(data: ArchiveFile): Promise<void> {
       const db = await getDb(cwd);
 
+      // Pre-compute archive IDs + active task IDs for dependency validation
+      const archiveIds = new Set(data.archivedTasks.map(t => t.id));
+      const activeRows = await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(ne(schema.tasks.status, 'archived'))
+        .all();
+      const validDepIds = new Set([...archiveIds, ...activeRows.map(r => r.id)]);
+
       for (const task of data.archivedTasks) {
         const row = archivedTaskToRow(task);
 
@@ -484,76 +285,14 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           cycleTimeDays?: number;
         };
 
-        await db.insert(schema.tasks)
-          .values({
-            ...row,
-            archivedAt: taskAny.archivedAt ?? row.completedAt ?? new Date().toISOString(),
-            archiveReason: taskAny.archiveReason ?? 'completed',
-            cycleTimeDays: taskAny.cycleTimeDays ?? null,
-          })
-          .onConflictDoUpdate({
-            target: schema.tasks.id,
-            set: {
-              status: 'archived',
-              title: row.title,
-              description: row.description,
-              priority: row.priority,
-              type: row.type,
-              parentId: row.parentId,
-              phase: row.phase,
-              size: row.size,
-              labelsJson: row.labelsJson,
-              notesJson: row.notesJson,
-              acceptanceJson: row.acceptanceJson,
-              filesJson: row.filesJson,
-              origin: row.origin,
-              createdAt: row.createdAt,
-              updatedAt: row.updatedAt,
-              completedAt: row.completedAt,
-              cancelledAt: row.cancelledAt,
-              cancellationReason: row.cancellationReason,
-              verificationJson: row.verificationJson,
-              createdBy: row.createdBy,
-              modifiedBy: row.modifiedBy,
-              sessionId: row.sessionId,
-              archivedAt:
-                taskAny.archivedAt ?? row.completedAt ?? new Date().toISOString(),
-              archiveReason: taskAny.archiveReason ?? 'completed',
-              cycleTimeDays: taskAny.cycleTimeDays ?? null,
-            },
-          })
-          .run();
+        const archiveFields = {
+          archivedAt: taskAny.archivedAt ?? row.completedAt ?? new Date().toISOString(),
+          archiveReason: taskAny.archiveReason ?? 'completed',
+          cycleTimeDays: taskAny.cycleTimeDays ?? null,
+        };
 
-        // Upsert dependencies for archived tasks too
-        await db.delete(schema.taskDependencies)
-          .where(eq(schema.taskDependencies.taskId, task.id))
-          .run();
-
-        if (task.depends && task.depends.length > 0) {
-          // Guard: only insert dep if target task exists in DB or incoming archive
-          const archiveIds = new Set(data.archivedTasks.map(t => t.id));
-          for (const depId of task.depends) {
-            // Check if dep target exists in either archive batch or active tasks table
-            if (archiveIds.has(depId)) {
-              await db.insert(schema.taskDependencies)
-                .values({ taskId: task.id, dependsOn: depId })
-                .onConflictDoNothing()
-                .run();
-            } else {
-              // Check if it exists as an active task in DB
-              const exists = await db.select({ id: schema.tasks.id })
-                .from(schema.tasks)
-                .where(eq(schema.tasks.id, depId))
-                .all();
-              if (exists.length > 0) {
-                await db.insert(schema.taskDependencies)
-                  .values({ taskId: task.id, dependsOn: depId })
-                  .onConflictDoNothing()
-                  .run();
-              }
-            }
-          }
-        }
+        await upsertTask(db, row, archiveFields);
+        await updateDependencies(db, task.id, task.depends ?? [], validDepIds);
       }
     },
 
@@ -591,62 +330,45 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       // Upsert all sessions
       for (const session of data.sessions) {
-        // Default name for sessions created without one (e.g., autoStart)
-        const sessionName = session.name || `session-${session.id}`;
-        await db.insert(schema.sessions)
-          .values({
-            id: session.id,
-            name: sessionName,
-            status: session.status,
-            scopeJson: JSON.stringify(session.scope ?? { type: 'global' }),
-            currentTask: session.taskWork?.taskId ?? null,
-            taskStartedAt: session.taskWork?.setAt ?? null,
-            agent: session.agent ?? null,
-            notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
-            tasksCompletedJson: session.tasksCompleted
-              ? JSON.stringify(session.tasksCompleted)
-              : '[]',
-            tasksCreatedJson: session.tasksCreated
-              ? JSON.stringify(session.tasksCreated)
-              : '[]',
-            startedAt: session.startedAt,
-            endedAt: session.endedAt ?? null,
-          })
-          .onConflictDoUpdate({
-            target: schema.sessions.id,
-            set: {
-              name: sessionName,
-              status: session.status,
-              scopeJson: JSON.stringify(session.scope ?? { type: 'global' }),
-              currentTask: session.taskWork?.taskId ?? null,
-              taskStartedAt: session.taskWork?.setAt ?? null,
-              agent: session.agent ?? null,
-              notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
-              tasksCompletedJson: session.tasksCompleted
-                ? JSON.stringify(session.tasksCompleted)
-                : '[]',
-              tasksCreatedJson: session.tasksCreated
-                ? JSON.stringify(session.tasksCreated)
-                : '[]',
-              startedAt: session.startedAt,
-              endedAt: session.endedAt ?? null,
-            },
-          })
-          .run();
+        await upsertSession(db, session);
       }
     },
 
     // ---- appendLog ----
 
     async appendLog(entry: Record<string, unknown>): Promise<void> {
-      // Logs stay as JSONL files, not in SQLite
-      await appendJsonl(getLogPath(cwd), entry);
+      const db = await getDb(cwd);
+      await db.insert(schema.auditLog).values({
+        id: (entry.id as string) ?? generateAuditLogId(),
+        timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+        action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
+        taskId: (entry.taskId as string) ?? 'unknown',
+        actor: (entry.actor as string) ?? 'system',
+        detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
+        beforeJson: entry.before ? JSON.stringify(entry.before) : null,
+        afterJson: entry.after ? JSON.stringify(entry.after) : null,
+      }).run();
     },
 
     // ---- close ----
 
     async close(): Promise<void> {
       closeDb();
+    },
+
+    // ---- Metadata ----
+
+    async getMetaValue<T>(key: string): Promise<T | null> {
+      return getMetaValue<T>(cwd, key);
+    },
+
+    async setMetaValue(key: string, value: unknown): Promise<void> {
+      return setMetaValue(cwd, key, value);
+    },
+
+    async getSchemaVersion(): Promise<string | null> {
+      const meta = await getMetaValue<{ schemaVersion?: string }>(cwd, 'file_meta');
+      return meta?.schemaVersion ?? null;
     },
 
     // Deprecated aliases

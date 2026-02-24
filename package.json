@@ -51,6 +51,7 @@
   "license": "MIT",
   "files": [
     "dist",
+    "drizzle",
     "schemas",
     "templates",
     "skills",
@@ -66,6 +67,8 @@
     "ajv-formats": "^3.0.1",
     "commander": "^12.1.0",
     "drizzle-orm": "^1.0.0-beta.15",
+    "pino": "^10.3.1",
+    "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
     "write-file-atomic": "^6.0.0",
     "yaml": "^2.8.2"
@@ -80,6 +83,7 @@
     "@types/write-file-atomic": "^4.0.3",
     "drizzle-kit": "^1.0.0-beta.15",
     "esbuild": "^0.24.2",
+    "pino-pretty": "^13.1.3",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
   }

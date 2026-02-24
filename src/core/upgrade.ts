@@ -19,8 +19,7 @@ import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
 import { MigrationLogger } from './migration/logger.js';
-import { forceCheckpointBeforeOperation } from '../store/data-safety.js';
-import { acquireLock, type ReleaseFn } from '../store/lock.js';
+import { forceCheckpointBeforeOperation, acquireLock, type ReleaseFn } from '../store/index.js';
 import {
   createMigrationState,
   updateMigrationPhase,
@@ -450,6 +449,81 @@ export async function runUpgrade(options: {
           });
         }
       }
+    }
+  }
+
+  // ── Step 2c: Audit log JSONL-to-SQLite migration (T4837) ──────────
+  // Migrate existing tasks-log.jsonl entries to the audit_log SQLite table.
+  // Runs after tables are created/migrated. Safe to run repeatedly (idempotent via id PK).
+  if (existsSync(dbPath) && !isDryRun) {
+    try {
+      const { getDb } = await import('../store/sqlite.js');
+      const auditSchema = await import('../store/schema.js');
+      const { count } = await import('drizzle-orm');
+      const db = await getDb(options.cwd);
+
+      // Check if audit_log table exists and is empty
+      const auditCount = await db
+        .select({ count: count() })
+        .from(auditSchema.auditLog)
+        .get();
+
+      if ((auditCount?.count ?? 0) === 0) {
+        // Check for JSONL log files
+        const tasksLogPath = join(cleoDir, 'tasks-log.jsonl');
+        const todoLogPath = join(cleoDir, 'todo-log.jsonl');
+        const logPath = existsSync(tasksLogPath) ? tasksLogPath : existsSync(todoLogPath) ? todoLogPath : null;
+
+        if (logPath) {
+          const logContent = readFileSync(logPath, 'utf-8').trim();
+          if (logContent) {
+            const lines = logContent.split('\n').filter(l => l.trim());
+            let imported = 0;
+
+            for (const line of lines) {
+              try {
+                const entry = JSON.parse(line);
+                const epoch = Math.floor(Date.now() / 1000);
+                const rand = Math.random().toString(36).slice(2, 8);
+
+                await db.insert(auditSchema.auditLog).values({
+                  id: (entry.id as string) ?? `log-${epoch}-${rand}`,
+                  timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+                  action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
+                  taskId: (entry.taskId as string) ?? 'unknown',
+                  actor: (entry.actor as string) ?? 'system',
+                  detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
+                  beforeJson: entry.before ? JSON.stringify(entry.before) : null,
+                  afterJson: entry.after ? JSON.stringify(entry.after) : null,
+                }).onConflictDoNothing().run();
+                imported++;
+              } catch {
+                // Skip malformed entries
+              }
+            }
+
+            if (imported > 0) {
+              actions.push({
+                action: 'audit_log_migration',
+                status: 'applied',
+                details: `Imported ${imported} audit log entries from ${logPath.split('/').pop()} to SQLite`,
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Audit log migration is best-effort
+    }
+  } else if (existsSync(dbPath) && isDryRun) {
+    const tasksLogPath = join(cleoDir, 'tasks-log.jsonl');
+    const todoLogPath = join(cleoDir, 'todo-log.jsonl');
+    if (existsSync(tasksLogPath) || existsSync(todoLogPath)) {
+      actions.push({
+        action: 'audit_log_migration',
+        status: 'preview',
+        details: 'Would import JSONL audit log entries to SQLite audit_log table',
+      });
     }
   }
 
