@@ -21,8 +21,23 @@ import {
   getTemplateForSubcommand,
   generateTemplateConfig,
   validateLabels,
-} from '../lib/engine.js';
-import { catalog } from '@cleocode/caamp';
+} from '../engines/template-parser.js';
+import {
+  catalog,
+  discoverSkill,
+  discoverSkills,
+  getCanonicalSkillsDir,
+  installSkill,
+  removeSkill,
+  getInstalledProviders,
+  getAllProviders,
+  detectAllProviders,
+  getTrackedSkills,
+  checkAllSkillUpdates,
+  checkAllInjections,
+  injectAll,
+  buildInjectionContent,
+} from '@cleocode/caamp';
 
 // ---------------------------------------------------------------------------
 // ToolsHandler
@@ -53,12 +68,12 @@ export class ToolsHandler implements DomainHandler {
 
       // Skill sub-domain
       if (operation.startsWith('skill.')) {
-        return this.querySkill(operation.slice('skill.'.length), params, startTime);
+        return await this.querySkill(operation.slice('skill.'.length), params, startTime);
       }
 
       // Provider sub-domain
       if (operation.startsWith('provider.')) {
-        return this.queryProvider(operation.slice('provider.'.length), params, startTime);
+        return await this.queryProvider(operation.slice('provider.'.length), params, startTime);
       }
 
       return this.errorResponse('query', 'tools', operation, 'E_INVALID_OPERATION',
@@ -82,12 +97,12 @@ export class ToolsHandler implements DomainHandler {
 
       // Skill sub-domain
       if (operation.startsWith('skill.')) {
-        return this.mutateSkill(operation.slice('skill.'.length), params, startTime);
+        return await this.mutateSkill(operation.slice('skill.'.length), params, startTime);
       }
 
       // Provider sub-domain
       if (operation.startsWith('provider.')) {
-        return this.mutateProvider(operation.slice('provider.'.length), params, startTime);
+        return await this.mutateProvider(operation.slice('provider.'.length), params, startTime);
       }
 
       return this.errorResponse('mutate', 'tools', operation, 'E_INVALID_OPERATION',
@@ -206,26 +221,107 @@ export class ToolsHandler implements DomainHandler {
   // Skill queries
   // -----------------------------------------------------------------------
 
-  private querySkill(
+  private async querySkill(
     sub: string,
-    _params: Record<string, unknown> | undefined,
+    params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
     // Catalog sub-sub-domain
     if (sub.startsWith('catalog.')) {
       return this.querySkillCatalog(sub.slice('catalog.'.length), startTime);
     }
 
     switch (sub) {
-      case 'list':
-      case 'show':
-      case 'find':
-      case 'dispatch':
-      case 'verify':
-      case 'dependencies':
-        // TODO: delegate to core skill operations when dispatch migration completes
-        return this.errorResponse('query', 'tools', `skill.${sub}`,
-          'E_NOT_IMPLEMENTED', `Skill query '${sub}' not yet available in dispatch layer`, startTime);
+      case 'list': {
+        const skills = await discoverSkills(getCanonicalSkillsDir());
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.list', startTime),
+          success: true,
+          data: { skills, count: skills.length },
+        };
+      }
+      case 'show': {
+        const name = params?.name as string | undefined;
+        if (!name) {
+          return this.errorResponse('query', 'tools', 'skill.show', 'E_INVALID_INPUT',
+            'Missing required parameter: name', startTime);
+        }
+        const skill = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
+        if (!skill) {
+          return this.errorResponse('query', 'tools', 'skill.show', 'E_SKILL_NOT_FOUND',
+            `Skill not found: ${name}`, startTime);
+        }
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.show', startTime),
+          success: true,
+          data: { skill },
+        };
+      }
+      case 'find': {
+        const query = ((params?.query as string | undefined) ?? '').toLowerCase();
+        const skills = await discoverSkills(getCanonicalSkillsDir());
+        const filtered = query
+          ? skills.filter((s) =>
+              s.name.toLowerCase().includes(query)
+              || s.metadata.description.toLowerCase().includes(query))
+          : skills;
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.find', startTime),
+          success: true,
+          data: { skills: filtered, count: filtered.length, query },
+        };
+      }
+      case 'dispatch': {
+        const name = params?.name as string | undefined;
+        if (!name) {
+          return this.errorResponse('query', 'tools', 'skill.dispatch', 'E_INVALID_INPUT',
+            'Missing required parameter: name', startTime);
+        }
+        const matrix = catalog.getDispatchMatrix();
+        const entry = {
+          byTaskType: Object.entries(matrix.by_task_type).filter(([, skill]) => skill === name).map(([k]) => k),
+          byKeyword: Object.entries(matrix.by_keyword).filter(([, skill]) => skill === name).map(([k]) => k),
+          byProtocol: Object.entries(matrix.by_protocol).filter(([, skill]) => skill === name).map(([k]) => k),
+        };
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.dispatch', startTime),
+          success: true,
+          data: { skill: name, dispatch: entry },
+        };
+      }
+      case 'verify': {
+        const name = params?.name as string | undefined;
+        if (!name) {
+          return this.errorResponse('query', 'tools', 'skill.verify', 'E_INVALID_INPUT',
+            'Missing required parameter: name', startTime);
+        }
+        const installed = await discoverSkill(`${getCanonicalSkillsDir()}/${name}`);
+        const catalogEntry = catalog.getSkill(name);
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.verify', startTime),
+          success: true,
+          data: {
+            skill: name,
+            installed: !!installed,
+            inCatalog: !!catalogEntry,
+            installPath: installed ? `${getCanonicalSkillsDir()}/${name}` : null,
+          },
+        };
+      }
+      case 'dependencies': {
+        const name = params?.name as string | undefined;
+        if (!name) {
+          return this.errorResponse('query', 'tools', 'skill.dependencies', 'E_INVALID_INPUT',
+            'Missing required parameter: name', startTime);
+        }
+        const direct = catalog.getSkillDependencies(name);
+        const tree = catalog.resolveDependencyTree([name]);
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.dependencies', startTime),
+          success: true,
+          data: { skill: name, direct, tree },
+        };
+      }
 
       default:
         return this.errorResponse('query', 'tools', `skill.${sub}`,
@@ -315,21 +411,89 @@ export class ToolsHandler implements DomainHandler {
   // Skill mutations
   // -----------------------------------------------------------------------
 
-  private mutateSkill(
+  private async mutateSkill(
     sub: string,
-    _params: Record<string, unknown> | undefined,
+    params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
+    const providers = getInstalledProviders();
+    const isGlobal = params?.isGlobal !== false;
+
+    if (providers.length === 0) {
+      return this.errorResponse('mutate', 'tools', `skill.${sub}`,
+        'E_PROVIDER_NOT_FOUND', 'No installed providers available', startTime);
+    }
+
     switch (sub) {
       case 'install':
+      case 'enable': {
+        const name = params?.name as string | undefined;
+        if (!name) {
+          return this.errorResponse('mutate', 'tools', `skill.${sub}`, 'E_INVALID_INPUT',
+            'Missing required parameter: name', startTime);
+        }
+        const source = (params?.source as string | undefined) ?? `library:${name}`;
+        const result = await installSkill(source, name, providers, isGlobal, this.projectRoot);
+        return {
+          _meta: dispatchMeta('mutate', 'tools', `skill.${sub}`, startTime),
+          success: result.success,
+          data: { result },
+          error: result.success ? undefined : { code: 'E_INSTALL_FAILED', message: result.errors.join('; ') || 'Skill install failed' },
+        };
+      }
       case 'uninstall':
-      case 'enable':
-      case 'disable':
-      case 'configure':
-      case 'refresh':
-        // TODO: delegate to core skill operations when dispatch migration completes
-        return this.errorResponse('mutate', 'tools', `skill.${sub}`,
-          'E_NOT_IMPLEMENTED', `Skill mutation '${sub}' not yet available in dispatch layer`, startTime);
+      case 'disable': {
+        const name = params?.name as string | undefined;
+        if (!name) {
+          return this.errorResponse('mutate', 'tools', `skill.${sub}`, 'E_INVALID_INPUT',
+            'Missing required parameter: name', startTime);
+        }
+        const result = await removeSkill(name, providers, isGlobal, this.projectRoot);
+        const ok = result.removed.length > 0 && result.errors.length === 0;
+        return {
+          _meta: dispatchMeta('mutate', 'tools', `skill.${sub}`, startTime),
+          success: ok,
+          data: { removed: result.removed, errors: result.errors },
+          error: ok ? undefined : { code: 'E_UNINSTALL_FAILED', message: result.errors.join('; ') || 'Skill uninstall failed' },
+        };
+      }
+      case 'configure': {
+        return {
+          _meta: dispatchMeta('mutate', 'tools', 'skill.configure', startTime),
+          success: true,
+          data: { configured: true, message: 'Configuration is managed by CAAMP providers and lock file' },
+        };
+      }
+      case 'refresh': {
+        const tracked = await getTrackedSkills();
+        const updates = await checkAllSkillUpdates();
+        const updated: string[] = [];
+        const failed: Array<{ name: string; error: string }> = [];
+
+        for (const [name, status] of Object.entries(updates)) {
+          if (!status.hasUpdate) continue;
+          const entry = tracked[name];
+          if (!entry) continue;
+          const source = entry.sourceType === 'library' ? `library:${name}` : entry.source;
+          try {
+            const result = await installSkill(source, name, providers, entry.isGlobal, entry.projectDir);
+            if (result.success) {
+              updated.push(name);
+            } else {
+              failed.push({ name, error: result.errors.join('; ') || 'refresh failed' });
+            }
+          } catch (err) {
+            failed.push({ name, error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+
+        return {
+          _meta: dispatchMeta('mutate', 'tools', 'skill.refresh', startTime),
+          success: failed.length === 0,
+          data: { updated, failed, checked: Object.keys(updates).length },
+          error: failed.length === 0 ? undefined : { code: 'E_REFRESH_FAILED', message: `${failed.length} skill refreshes failed` },
+        };
+      }
 
       default:
         return this.errorResponse('mutate', 'tools', `skill.${sub}`,
@@ -341,18 +505,39 @@ export class ToolsHandler implements DomainHandler {
   // Provider queries
   // -----------------------------------------------------------------------
 
-  private queryProvider(
+  private async queryProvider(
     sub: string,
-    _params: Record<string, unknown> | undefined,
+    params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
     switch (sub) {
-      case 'list':
-      case 'detect':
-      case 'inject.status':
-        // TODO: delegate to CAAMP adapter when dispatch migration completes
-        return this.errorResponse('query', 'tools', `provider.${sub}`,
-          'E_NOT_IMPLEMENTED', `Provider query '${sub}' not yet available in dispatch layer`, startTime);
+      case 'list': {
+        const providers = getAllProviders();
+        return {
+          _meta: dispatchMeta('query', 'tools', 'provider.list', startTime),
+          success: true,
+          data: { providers, count: providers.length },
+        };
+      }
+      case 'detect': {
+        const detected = detectAllProviders();
+        return {
+          _meta: dispatchMeta('query', 'tools', 'provider.detect', startTime),
+          success: true,
+          data: { providers: detected, count: detected.length },
+        };
+      }
+      case 'inject.status': {
+        const providers = getInstalledProviders();
+        const scope = (params?.scope as 'project' | 'global' | undefined) ?? 'project';
+        const content = params?.content as string | undefined;
+        const checks = await checkAllInjections(providers, this.projectRoot, scope, content);
+        return {
+          _meta: dispatchMeta('query', 'tools', 'provider.inject.status', startTime),
+          success: true,
+          data: { checks, count: checks.length },
+        };
+      }
 
       default:
         return this.errorResponse('query', 'tools', `provider.${sub}`,
@@ -364,16 +549,29 @@ export class ToolsHandler implements DomainHandler {
   // Provider mutations
   // -----------------------------------------------------------------------
 
-  private mutateProvider(
+  private async mutateProvider(
     sub: string,
-    _params: Record<string, unknown> | undefined,
+    params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
     switch (sub) {
-      case 'inject':
-        // TODO: delegate to CAAMP adapter when dispatch migration completes
-        return this.errorResponse('mutate', 'tools', `provider.${sub}`,
-          'E_NOT_IMPLEMENTED', `Provider mutation '${sub}' not yet available in dispatch layer`, startTime);
+      case 'inject': {
+        const providers = getInstalledProviders();
+        if (providers.length === 0) {
+          return this.errorResponse('mutate', 'tools', 'provider.inject',
+            'E_PROVIDER_NOT_FOUND', 'No installed providers available', startTime);
+        }
+        const scope = (params?.scope as 'project' | 'global' | undefined) ?? 'project';
+        const references = (params?.references as string[] | undefined) ?? ['@AGENTS.md'];
+        const content = (params?.content as string | undefined) ?? buildInjectionContent({ references });
+        const result = await injectAll(providers, this.projectRoot, scope, content);
+        const actions = Array.from(result.entries()).map(([file, action]) => ({ file, action }));
+        return {
+          _meta: dispatchMeta('mutate', 'tools', 'provider.inject', startTime),
+          success: true,
+          data: { actions, count: actions.length },
+        };
+      }
 
       default:
         return this.errorResponse('mutate', 'tools', `provider.${sub}`,

@@ -19,6 +19,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import {
   getCanonicalSkillsDir,
+  getProjectAgentsDir,
   parseSkillFile as caampParseSkillFile,
   discoverSkill as caampDiscoverSkill,
   discoverSkills as caampDiscoverSkills,
@@ -45,12 +46,11 @@ import { getCleoHome, getProjectRoot } from '../paths.js';
 export function getSkillSearchPaths(cwd?: string): SkillSearchPath[] {
   const projectRoot = getProjectRoot(cwd);
   const cleoHome = getCleoHome();
+  const projectAgentsSkills = join(getProjectAgentsDir(projectRoot), 'skills');
 
   const paths: SkillSearchPath[] = [
-    { scope: 'cleo-home', path: join(cleoHome, 'skills'), priority: 1 },
-    { scope: 'agent-skills', path: getCanonicalSkillsDir(), priority: 2 },
-    { scope: 'app-embedded', path: join(projectRoot, 'skills'), priority: 3 },
-    { scope: 'project-custom', path: join(projectRoot, '.cleo', 'skills'), priority: 5 },
+    { scope: 'agent-skills', path: getCanonicalSkillsDir(), priority: 1 },
+    { scope: 'project-custom', path: projectAgentsSkills, priority: 2 },
   ];
 
   // Include marketplace cache if configured
@@ -60,7 +60,9 @@ export function getSkillSearchPaths(cwd?: string): SkillSearchPath[] {
     paths.push({ scope: 'marketplace', path: mpCacheDir, priority: 4 });
   }
 
-  return paths.sort((a, b) => a.priority - b.priority);
+  return paths
+    .filter((entry) => existsSync(entry.path))
+    .sort((a, b) => a.priority - b.priority);
 }
 
 /**
@@ -68,7 +70,8 @@ export function getSkillSearchPaths(cwd?: string): SkillSearchPath[] {
  * @task T4516
  */
 export function getSkillsDir(cwd?: string): string {
-  return join(getProjectRoot(cwd), 'skills');
+  void cwd;
+  return getCanonicalSkillsDir();
 }
 
 /**

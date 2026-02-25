@@ -1,0 +1,14 @@
+# .gitbook.yaml — GitBook repository configuration
+# Place this file at the root of your repository (or at the root specified below).
+
+# Root directory for documentation (relative to repo root)
+root: ./docs/
+
+# Structure files
+structure:
+  readme: README.md
+  summary: SUMMARY.md
+
+# Redirects for moved/renamed pages (old-path: new-path.md)
+# redirects:
+#   previous/page: current/page.md
