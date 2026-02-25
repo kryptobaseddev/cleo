@@ -176,17 +176,13 @@ export async function getSystemDiagnostics(
     });
   }
 
-  // Schema version check — read from SQLite (per ADR-006)
+  // Schema version check — read via DataAccessor (per ADR-006)
   const cleoDir = join(projectRoot, '.cleo');
   const dbPath = join(cleoDir, 'tasks.db');
   if (existsSync(dbPath)) {
     try {
-      const { getDb } = await import('../../store/sqlite.js');
-      const { schemaMeta } = await import('../../store/schema.js');
-      const { eq } = await import('drizzle-orm');
-      const db = await getDb(projectRoot);
-      const row = db.select().from(schemaMeta).where(eq(schemaMeta.key, 'schemaVersion')).get();
-      const schemaVersion = row?.value;
+      const accessor = await getAccessor(projectRoot);
+      const schemaVersion = await accessor.getSchemaVersion?.();
       if (schemaVersion) {
         diagChecks.push({ name: 'schema_version', status: 'pass', details: `Schema version: ${schemaVersion}` });
       } else {
@@ -393,6 +389,16 @@ export async function coreDoctorReport(
   checks.push(mapCheckResult(checkCleoGitignore(projectRoot)));
   checks.push(mapCheckResult(checkVitalFilesTracked(projectRoot)));
   checks.push(mapCheckResult(checkLegacyAgentOutputs(projectRoot)));
+
+  // 5b. Isolated .cleo/.git checkpoint repo check (T4872)
+  const cleoGitHeadExists = existsSync(join(cleoDir, '.git', 'HEAD'));
+  checks.push({
+    check: 'cleo_git_repo',
+    status: cleoGitHeadExists ? 'ok' : 'warning',
+    message: cleoGitHeadExists
+      ? '.cleo/.git isolated checkpoint repo exists'
+      : '.cleo/.git not found — run: cleo init',
+  });
 
   // 6. Environment - Node.js version validation
   checks.push(mapCheckResult(checkNodeVersion()));
