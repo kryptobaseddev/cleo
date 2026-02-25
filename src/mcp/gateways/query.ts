@@ -119,7 +119,6 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'analyze',    // Dependency analysis
     'context',    // Context usage check
     'waves',      // Wave computation
-    'skill.list', // Available skills
     'bootstrap',  // Brain state bootstrap
     'unblock.opportunities', // Unblocking opportunities analysis
     'critical.path', // Longest dependency chain analysis
@@ -269,7 +268,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
  * Legacy aliases duplicate operations from their canonical counterparts,
  * so the total is higher than unique operations.
  */
-const EXPECTED_QUERY_COUNT = 124;
+const EXPECTED_QUERY_COUNT = 123;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

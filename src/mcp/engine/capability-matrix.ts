@@ -149,7 +149,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'system', operation: 'sync', gateway: 'mutate', mode: 'native' },
   { domain: 'system', operation: 'job.cancel', gateway: 'mutate', mode: 'native' },
   { domain: 'system', operation: 'safestop', gateway: 'mutate', mode: 'native' },
-  { domain: 'system', operation: 'uncancel', gateway: 'mutate', mode: 'native' },
   { domain: 'system', operation: 'inject.generate', gateway: 'mutate', mode: 'native' },
 
   // === Validate Domain ===
