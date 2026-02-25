@@ -4,7 +4,7 @@
  * Handles all task CRUD and non-CRUD operations: show, list, find, exists,
  * tree, blockers, depends, analyze, next, relates, complexity.estimate,
  * current, add, update, complete, delete, archive, restore, reparent,
- * promote, reorder, reopen, relates.add, uncancel, start, stop.
+ * promote, reorder, reopen, relates.add, start, stop.
  *
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
@@ -82,9 +82,16 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'find': {
-          const query = params?.query as string;
-          const limit = params?.limit as number | undefined;
-          const result = await taskFind(this.projectRoot, query ?? '', limit);
+          const result = await taskFind(this.projectRoot, {
+            query: params?.query as string | undefined,
+            id: params?.id as string | undefined,
+            exact: params?.exact as boolean | undefined,
+            status: params?.status as import('../../types/task.js').TaskStatus | undefined,
+            field: params?.field as string | undefined,
+            includeArchive: params?.includeArchive as boolean | undefined,
+            limit: params?.limit as number | undefined,
+            offset: params?.offset as number | undefined,
+          });
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -317,15 +324,6 @@ export class TasksHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
-        case 'uncancel': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
-          }
-          const result = await taskRestore(this.projectRoot, taskId);
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
-        }
-
         case 'start': {
           const taskId = params?.taskId as string;
           if (!taskId) {
@@ -361,7 +359,7 @@ export class TasksHandler implements DomainHandler {
       mutate: [
         'add', 'update', 'complete', 'delete', 'archive', 'restore',
         'reparent', 'promote', 'reorder', 'reopen', 'relates.add',
-        'uncancel', 'start', 'stop',
+        'start', 'stop',
       ],
     };
   }

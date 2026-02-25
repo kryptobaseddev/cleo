@@ -19,9 +19,9 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 110 operations (canonical + legacy)', () => {
+  it('should have exactly 107 operations (canonical + legacy)', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(110);
+    expect(totalCount).toBe(107);
   });
 
   it('should have all 16 domains (8 canonical + 8 legacy)', () => {
@@ -50,20 +50,20 @@ describe('MUTATE_OPERATIONS', () => {
 
   it('should have correct operation counts per domain', () => {
     // Canonical domains
-    expect(MUTATE_OPERATIONS.tasks.length).toBe(14);
+    expect(MUTATE_OPERATIONS.tasks.length).toBe(13);
     expect(MUTATE_OPERATIONS.session.length).toBe(7);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
     expect(MUTATE_OPERATIONS.memory.length).toBe(4);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(12);
-    expect(MUTATE_OPERATIONS.admin.length).toBe(11);
+    expect(MUTATE_OPERATIONS.admin.length).toBe(10);
     expect(MUTATE_OPERATIONS.tools.length).toBe(13);
     // Legacy aliases
     expect(MUTATE_OPERATIONS.research.length).toBe(4);
     expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
     expect(MUTATE_OPERATIONS.validate.length).toBe(2);
     expect(MUTATE_OPERATIONS.release.length).toBe(7);
-    expect(MUTATE_OPERATIONS.system.length).toBe(11);
+    expect(MUTATE_OPERATIONS.system.length).toBe(10);
     expect(MUTATE_OPERATIONS.issues.length).toBe(6);
     expect(MUTATE_OPERATIONS.skills.length).toBe(6);
     expect(MUTATE_OPERATIONS.providers.length).toBe(1);
@@ -499,25 +499,25 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(110);
+    expect(getMutateOperationCount()).toBe(107);
   });
 
   it('should return domain-specific counts', () => {
     // Canonical domains
-    expect(getMutateOperationCount('tasks')).toBe(14);
+    expect(getMutateOperationCount('tasks')).toBe(13);
     expect(getMutateOperationCount('session')).toBe(7);
     expect(getMutateOperationCount('orchestrate')).toBe(5);
     expect(getMutateOperationCount('memory')).toBe(4);
     expect(getMutateOperationCount('check')).toBe(2);
     expect(getMutateOperationCount('pipeline')).toBe(12);
-    expect(getMutateOperationCount('admin')).toBe(11);
+    expect(getMutateOperationCount('admin')).toBe(10);
     expect(getMutateOperationCount('tools')).toBe(13);
     // Legacy aliases
     expect(getMutateOperationCount('research')).toBe(4);
     expect(getMutateOperationCount('lifecycle')).toBe(5);
     expect(getMutateOperationCount('validate')).toBe(2);
     expect(getMutateOperationCount('release')).toBe(7);
-    expect(getMutateOperationCount('system')).toBe(11);
+    expect(getMutateOperationCount('system')).toBe(10);
     expect(getMutateOperationCount('issues')).toBe(6);
     expect(getMutateOperationCount('skills')).toBe(6);
     expect(getMutateOperationCount('providers')).toBe(1);
@@ -573,7 +573,7 @@ describe('getMutateOperations', () => {
     expect(taskOps).toContain('add');
     expect(taskOps).toContain('update');
     expect(taskOps).toContain('complete');
-    expect(taskOps.length).toBe(14);
+    expect(taskOps.length).toBe(13);
   });
 
   it('should return empty array for unknown domain', () => {
