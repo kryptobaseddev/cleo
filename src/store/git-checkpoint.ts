@@ -15,7 +15,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { getCleoDir, getConfigPath } from '../core/paths.js';
 import { readJson } from './json.js';
 
@@ -26,10 +26,13 @@ const execFileAsync = promisify(execFile);
  * @task T4872
  */
 function makeCleoGitEnv(cleoDir: string): NodeJS.ProcessEnv {
+  // resolve() ensures GIT_DIR and GIT_WORK_TREE are absolute even when cleoDir
+  // is a relative path (e.g. '.cleo' returned by getCleoDir() with no cwd arg)
+  const abs = resolve(cleoDir);
   return {
     ...process.env,
-    GIT_DIR: join(cleoDir, '.git'),
-    GIT_WORK_TREE: cleoDir,
+    GIT_DIR: join(abs, '.git'),
+    GIT_WORK_TREE: abs,
   };
 }
 
@@ -40,7 +43,7 @@ function makeCleoGitEnv(cleoDir: string): NodeJS.ProcessEnv {
 async function cleoGitCommand(args: string[], cleoDir: string): Promise<{ stdout: string; success: boolean }> {
   try {
     const result = await execFileAsync('git', args, {
-      cwd: cleoDir,
+      cwd: resolve(cleoDir), // absolute cwd so relative paths in args resolve correctly
       env: makeCleoGitEnv(cleoDir),
       timeout: 10_000,
     });
@@ -137,7 +140,9 @@ export async function loadCheckpointConfig(cwd?: string): Promise<CheckpointConf
  */
 async function isCleoGitRepo(cleoDir: string): Promise<boolean> {
   const result = await cleoGitCommand(['rev-parse', '--is-inside-work-tree'], cleoDir);
-  return result.success && result.stdout === 'true';
+  // On a freshly initialized empty repo, git returns "false" (no commits yet) but
+  // the repo is still valid for staging + committing. Fall back to existsSync check.
+  return result.success && (result.stdout === 'true' || isCleoGitInitialized(cleoDir));
 }
 
 /**
