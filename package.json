@@ -60,7 +60,7 @@
     "server.json"
   ],
   "dependencies": {
-    "@cleocode/caamp": "^1.1.2",
+    "@cleocode/caamp": "^1.1.3",
     "@cleocode/lafs-protocol": "^1.4.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ajv": "^8.18.0",
