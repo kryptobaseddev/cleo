@@ -38,8 +38,12 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { saveJson } from '../store/json.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { getCleoDirAbsolute, getConfigPath, getProjectRoot, getCleoHome } from './paths.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
+
+const execFileAsync = promisify(execFile);
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -288,6 +292,35 @@ async function initCoreFiles(
   } else {
     await writeFile(gitignorePath, getGitignoreContent());
     created.push('.gitignore');
+  }
+}
+
+/**
+ * Initialize the isolated .cleo/.git checkpoint repository.
+ * Idempotent — skips if .cleo/.git already exists.
+ * @task T4872
+ */
+async function initCleoGitRepo(
+  cleoDir: string,
+  created: string[],
+  warnings: string[],
+): Promise<void> {
+  const cleoGitDir = join(cleoDir, '.git');
+  if (existsSync(cleoGitDir)) {
+    return; // already initialized — idempotent
+  }
+  const gitEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_DIR: cleoGitDir,
+    GIT_WORK_TREE: cleoDir,
+  };
+  try {
+    await execFileAsync('git', ['init', '--quiet'], { cwd: cleoDir, env: gitEnv });
+    await execFileAsync('git', ['config', 'user.email', 'cleo@local'], { cwd: cleoDir, env: gitEnv });
+    await execFileAsync('git', ['config', 'user.name', 'CLEO'], { cwd: cleoDir, env: gitEnv });
+    created.push('.cleo/.git (isolated checkpoint repository)');
+  } catch (err) {
+    warnings.push(`Could not initialize .cleo/.git: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -757,6 +790,9 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
 
   // T4681: Core files (config.json, tasks.db, etc.)
   await initCoreFiles(cleoDir, projectName, force, created, skipped);
+
+  // T4872: Isolated .cleo/.git checkpoint repository
+  await initCleoGitRepo(cleoDir, created, warnings);
 
   // T4700: Migrate legacy agent-output directories before proceeding
   try {

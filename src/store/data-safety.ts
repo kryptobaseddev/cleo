@@ -15,6 +15,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from './sqlite.js';
 import * as schema from './schema.js';
 import { gitCheckpoint } from './git-checkpoint.js';
+import { vacuumIntoBackup } from './sqlite-backup.js';
 import {
   checkSequence,
   repairSequence,
@@ -208,6 +209,8 @@ export async function triggerCheckpoint(
     // Checkpoint failures are non-fatal but should be logged
     log.warn({ err }, 'Checkpoint failed (non-fatal)');
   }
+
+  vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal SQLite snapshot
 }
 
 /**
@@ -398,6 +401,8 @@ export async function forceCheckpointBeforeOperation(
     log.error({ err }, 'Failed to create pre-operation checkpoint');
     // Don't throw - checkpoint failures shouldn't block operations
   }
+
+  vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
 }
 
 /**
