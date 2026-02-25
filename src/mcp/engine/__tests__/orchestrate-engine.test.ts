@@ -4,11 +4,14 @@
  * Tests native TypeScript orchestrate operations.
  *
  * @task T4478
+ * @task T4854
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, rmSync } from 'fs';
+import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import {
   orchestrateStatus,
   orchestrateAnalyze,
@@ -21,16 +24,22 @@ import {
   orchestrateStartup,
 } from '../orchestrate-engine.js';
 
-const TEST_ROOT = join(process.cwd(), '.test-orchestrate-engine');
-const CLEO_DIR = join(TEST_ROOT, '.cleo');
+let TEST_ROOT: string;
+let CLEO_DIR: string;
 
-function writeTodoJson(tasks: any[]): void {
-  mkdirSync(CLEO_DIR, { recursive: true });
-  writeFileSync(
-    join(CLEO_DIR, 'tasks.json'),
-    JSON.stringify({ tasks, _meta: { schemaVersion: '2.6.0' } }, null, 2),
-    'utf-8'
-  );
+/**
+ * Seed tasks into SQLite via the task store (ADR-006).
+ */
+async function seedTasks(testRoot: string, tasks: any[]): Promise<void> {
+  const cleoDir = join(testRoot, '.cleo');
+  mkdirSync(cleoDir, { recursive: true });
+  const { getDb } = await import('../../../store/sqlite.js');
+  const { createTask } = await import('../../../store/task-store.js');
+  await getDb(testRoot);
+
+  for (const task of tasks) {
+    await createTask(task as any, testRoot);
+  }
 }
 
 const SAMPLE_TASKS = [
@@ -42,14 +51,18 @@ const SAMPLE_TASKS = [
 ];
 
 describe('Orchestrate Engine', () => {
-  beforeEach(() => {
-    writeTodoJson(SAMPLE_TASKS);
+  beforeEach(async () => {
+    TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-orch-'));
+    CLEO_DIR = join(TEST_ROOT, '.cleo');
+    await seedTasks(TEST_ROOT, SAMPLE_TASKS);
   });
 
-  afterEach(() => {
-    if (existsSync(TEST_ROOT)) {
-      rmSync(TEST_ROOT, { recursive: true, force: true });
-    }
+  afterEach(async () => {
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* ignore */ }
+    await rm(TEST_ROOT, { recursive: true, force: true });
   });
 
   describe('orchestrateStatus', () => {

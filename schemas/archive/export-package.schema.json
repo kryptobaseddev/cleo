@@ -1,0 +1,375 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/export-package.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Export Package Schema",
+  "description": "Schema for cleo task import/export packages. Enables cross-project task transfer with ID remapping and relationship preservation.",
+  "type": "object",
+  "required": ["_meta", "selection", "tasks"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+
+    "_meta": {
+      "type": "object",
+      "description": "Export metadata for validation and provenance tracking",
+      "required": ["format", "version", "exportedAt", "source", "taskCount"],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "cleo-export",
+          "description": "Package format identifier"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Export format version (semver)"
+        },
+        "exportedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of export"
+        },
+        "source": {
+          "type": "object",
+          "description": "Source project metadata",
+          "required": ["project", "cleo_version"],
+          "additionalProperties": false,
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Source project name"
+            },
+            "cleo_version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+",
+              "description": "cleo version used for export"
+            },
+            "nextId": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Next available task ID in source project at export time"
+            },
+            "exportedBy": {
+              "type": "string",
+              "description": "Optional identifier of who/what performed the export"
+            }
+          }
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$",
+          "description": "SHA-256 truncated hash of tasks array for integrity verification"
+        },
+        "taskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks in export"
+        },
+        "exportMode": {
+          "type": "string",
+          "enum": ["single", "subtree", "filter", "interactive", "full"],
+          "description": "Mode used for task selection"
+        }
+      }
+    },
+
+    "selection": {
+      "type": "object",
+      "description": "Selection criteria used for export (for documentation/debugging)",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["single", "subtree", "filter", "interactive", "full"],
+          "description": "Selection mode"
+        },
+        "rootTaskIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
+          "description": "Root task IDs that were explicitly selected"
+        },
+        "includeChildren": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether children were auto-included"
+        },
+        "includeDeps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether dependencies were auto-included"
+        },
+        "filters": {
+          "type": "object",
+          "description": "Filters applied during selection",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "string",
+                "enum": ["pending", "active", "blocked", "done", "cancelled"]
+              }
+            },
+            "phase": {
+              "type": ["string", "null"]
+            },
+            "labels": {
+              "type": ["array", "null"],
+              "items": { "type": "string" }
+            },
+            "priority": {
+              "type": ["string", "null"],
+              "enum": ["critical", "high", "medium", "low", null]
+            },
+            "type": {
+              "type": ["string", "null"],
+              "enum": ["epic", "task", "subtask", null]
+            }
+          }
+        }
+      }
+    },
+
+    "idMap": {
+      "type": "object",
+      "description": "Quick-reference map of task IDs to their key properties. Used for relationship validation without parsing full task objects.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["title"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["epic", "task", "subtask"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "active", "blocked", "done", "cancelled"]
+          },
+          "parentId": {
+            "type": ["string", "null"],
+            "pattern": "^T\\d{3,}$"
+          },
+          "depends": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^T\\d{3,}$"
+            }
+          }
+        }
+      }
+    },
+
+    "tasks": {
+      "type": "array",
+      "description": "Full task objects to be imported",
+      "items": { "$ref": "#/definitions/exportedTask" }
+    },
+
+    "relationshipGraph": {
+      "type": "object",
+      "description": "Pre-computed relationship graph for efficient import ordering",
+      "additionalProperties": false,
+      "properties": {
+        "hierarchy": {
+          "type": "object",
+          "description": "Map of parent IDs to their children: { 'T001': ['T002', 'T003'] }",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^T\\d{3,}$"
+            }
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "description": "Map of task IDs to their dependencies: { 'T003': ['T002'] }",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^T\\d{3,}$"
+            }
+          }
+        },
+        "roots": {
+          "type": "array",
+          "description": "Task IDs with no parent and no dependencies (import entry points)",
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          }
+        }
+      }
+    },
+
+    "phases": {
+      "type": "object",
+      "description": "Phase definitions from source project (for reference during import)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "order": { "type": "integer" },
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+
+    "labels": {
+      "type": "array",
+      "description": "All unique labels used by exported tasks",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9.-]*$"
+      }
+    }
+  },
+
+  "definitions": {
+    "exportedTask": {
+      "type": "object",
+      "description": "Task object for export/import. Mirrors todo.schema.json task definition.",
+      "required": ["id", "title", "status", "priority", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Original task ID from source project. Will be remapped on import."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "type": {
+          "type": "string",
+          "enum": ["epic", "task", "subtask"],
+          "default": "task"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "active", "blocked", "done", "cancelled"]
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "phase": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "size": {
+          "type": ["string", "null"],
+          "enum": ["small", "medium", "large", null]
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9.-]*$"
+          },
+          "uniqueItems": true
+        },
+        "parentId": {
+          "type": ["string", "null"],
+          "pattern": "^T\\d{3,}$",
+          "description": "Original parent ID. Will be remapped on import if parent is in export."
+        },
+        "depends": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
+          "uniqueItems": true,
+          "description": "Original dependency IDs. Will be remapped on import."
+        },
+        "position": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 5000
+          }
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "blockedBy": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cancelledAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cancellationReason": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "epicLifecycle": {
+          "type": ["string", "null"],
+          "enum": ["backlog", "planning", "active", "review", "released", "archived", null]
+        },
+        "verification": {
+          "type": ["object", "null"],
+          "description": "Verification state (preserved but not validated on import)"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "blocked" } } },
+          "then": { "required": ["blockedBy"] }
+        },
+        {
+          "if": { "properties": { "status": { "const": "done" } } },
+          "then": { "required": ["completedAt"] }
+        },
+        {
+          "if": { "properties": { "status": { "const": "cancelled" } } },
+          "then": { "required": ["cancelledAt", "cancellationReason"] }
+        }
+      ]
+    }
+  }
+}

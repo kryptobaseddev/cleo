@@ -1,5 +1,4 @@
 {
-  "$schema": "../schemas/todo.schema.json",
   "version": "{{SCHEMA_VERSION_TODO}}",
   "project": {
     "name": "{{PROJECT_NAME}}",

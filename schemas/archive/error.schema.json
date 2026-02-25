@@ -1,0 +1,161 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/error.schema.json",
+  "title": "CLEO Error Envelope",
+  "description": "Standard JSON envelope for all cleo error responses",
+  "type": "object",
+  "required": ["_meta", "success", "error"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Schema URL for validation",
+      "const": "https://cleo-dev.com/schemas/v1/error.schema.json"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Response metadata",
+      "required": ["command", "timestamp", "version"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "json",
+          "description": "Output format identifier"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+",
+          "description": "cleo version (semver)"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command name that generated this error"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 UTC timestamp of error generation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "success": {
+      "type": "boolean",
+      "const": false,
+      "description": "Always false for error responses"
+    },
+    "error": {
+      "type": "object",
+      "description": "Error details",
+      "required": ["code", "message", "exitCode"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^E_[A-Z_]+$",
+          "description": "Error code (E_ prefix convention)",
+          "enum": [
+            "E_TASK_NOT_FOUND",
+            "E_TASK_ALREADY_EXISTS",
+            "E_TASK_INVALID_ID",
+            "E_TASK_INVALID_STATUS",
+            "E_FILE_NOT_FOUND",
+            "E_FILE_READ_ERROR",
+            "E_FILE_WRITE_ERROR",
+            "E_FILE_PERMISSION",
+            "E_VALIDATION_SCHEMA",
+            "E_VALIDATION_CHECKSUM",
+            "E_VALIDATION_REQUIRED",
+            "E_INPUT_MISSING",
+            "E_INPUT_INVALID",
+            "E_INPUT_FORMAT",
+            "E_DEPENDENCY_MISSING",
+            "E_DEPENDENCY_VERSION",
+            "E_PHASE_NOT_FOUND",
+            "E_PHASE_INVALID",
+            "E_SESSION_ACTIVE",
+            "E_SESSION_NOT_ACTIVE",
+            "E_UNKNOWN",
+            "E_NOT_INITIALIZED",
+            "E_PARENT_NOT_FOUND",
+            "E_DEPTH_EXCEEDED",
+            "E_SIBLING_LIMIT",
+            "E_INVALID_PARENT_TYPE",
+            "E_CIRCULAR_REFERENCE",
+            "E_ORPHAN_DETECTED",
+            "E_HAS_CHILDREN",
+            "E_TASK_COMPLETED",
+            "E_CASCADE_FAILED",
+            "E_CANCEL_REASON_REQUIRED",
+            "E_CHECKSUM_MISMATCH",
+            "E_CONCURRENT_MODIFICATION",
+            "E_ID_COLLISION",
+            "E_SESSION_EXISTS",
+            "E_SESSION_NOT_FOUND",
+            "E_SCOPE_CONFLICT",
+            "E_SCOPE_INVALID",
+            "E_TASK_NOT_IN_SCOPE",
+            "E_TASK_CLAIMED",
+            "E_SESSION_REQUIRED",
+            "E_SESSION_CLOSE_BLOCKED",
+            "E_FOCUS_REQUIRED",
+            "E_NOTES_REQUIRED",
+            "E_SESSION_DISCOVERY_MODE",
+            "E_SESSION_RESUME_ACTIVE",
+            "E_ALREADY_INITIALIZED",
+            "E_CONFIRMATION_REQUIRED",
+            "E_HAS_DEPENDENTS"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable error message"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 127,
+          "description": "Shell exit code for this error"
+        },
+        "recoverable": {
+          "type": "boolean",
+          "description": "Whether the error can be recovered from"
+        },
+        "suggestion": {
+          "type": ["string", "null"],
+          "description": "Suggested action to resolve the error"
+        },
+        "fix": {
+          "type": ["string", "null"],
+          "description": "Concrete command to fix the error (copy-paste ready)"
+        },
+        "alternatives": {
+          "type": "array",
+          "description": "Alternative recovery actions with executable commands",
+          "items": {
+            "type": "object",
+            "required": ["action", "command"],
+            "properties": {
+              "action": {
+                "type": "string",
+                "description": "Short description of what this alternative does"
+              },
+              "command": {
+                "type": "string",
+                "description": "Executable command (copy-paste ready)"
+              }
+            }
+          }
+        },
+        "context": {
+          "type": "object",
+          "description": "Additional error context (varies by error type)",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

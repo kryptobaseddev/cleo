@@ -63,16 +63,9 @@ export type { ShellType } from './aliases.js';
 //   mcp-config.ts   -> CAAMP detectAllProviders()/installMcpServer()
 //   injection-registry.ts -> CAAMP getInstructionFiles()
 
-// Injection legacy utilities (kept for validation/migration support)
+// Injection legacy utilities (kept for validation output support)
 export {
   getValidationKey,
-  extractMarkerVersion,
   INJECTION_VALIDATION_KEYS,
 } from './injection-legacy.js';
 
-// Version check
-export {
-  checkProjectNeedsUpdate,
-  showVersionWarnings,
-} from './version-check.js';
-export type { VersionCheckResult } from './version-check.js';
