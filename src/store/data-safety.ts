@@ -21,6 +21,9 @@ import {
 } from '../core/sequence/index.js';
 import type { Task } from '../types/task.js';
 import type { Session } from '../types/session.js';
+import { getLogger } from '../core/logger.js';
+
+const log = getLogger('data-safety');
 
 /** Safety configuration options. */
 export interface SafetyConfig {
@@ -70,7 +73,7 @@ export async function checkTaskExists(
   if (!cfg.detectCollisions) return false;
 
   const db = await getDb(cwd);
-  const existing = db
+  const existing = await db
     .select()
     .from(schema.tasks)
     .where(eq(schema.tasks.id, taskId))
@@ -104,7 +107,7 @@ export async function verifyTaskWrite(
   if (!cfg.verifyWrites) return true;
 
   const db = await getDb(cwd);
-  const rows = db
+  const rows = await db
     .select()
     .from(schema.tasks)
     .where(eq(schema.tasks.id, taskId))
@@ -164,7 +167,7 @@ export async function validateAndRepairSequence(
     const repair = await repairSequence(cwd);
 
     if (repair.repaired) {
-      console.warn(`[SAFETY] Sequence repaired: ${repair.oldCounter} -> ${repair.newCounter}`);
+      log.warn({ oldCounter: repair.oldCounter, newCounter: repair.newCounter }, 'Sequence repaired');
       return {
         valid: true,
         repaired: true,
@@ -173,7 +176,8 @@ export async function validateAndRepairSequence(
       };
     }
 
-    return { valid: false, repaired: false };
+    // repairSequence returning repaired:false means "already valid, nothing to do"
+    return { valid: true, repaired: false };
   } catch (err) {
     if (cfg.strictMode) {
       throw new SafetyError(
@@ -202,7 +206,7 @@ export async function triggerCheckpoint(
     await gitCheckpoint('auto', context, cwd);
   } catch (err) {
     // Checkpoint failures are non-fatal but should be logged
-    console.warn(`[SAFETY] Checkpoint failed (non-fatal): ${String(err)}`);
+    log.warn({ err }, 'Checkpoint failed (non-fatal)');
   }
 }
 
@@ -293,7 +297,7 @@ export async function safeDeleteTask(
   // 2. Verify the deletion (task should NOT exist)
   if (cfg.verifyWrites) {
     const db = await getDb(cwd);
-    const rows = db
+    const rows = await db
       .select()
       .from(schema.tasks)
       .where(eq(schema.tasks.id, taskId))
@@ -331,7 +335,7 @@ export async function verifySessionWrite(
   if (!cfg.verifyWrites) return true;
 
   const db = await getDb(cwd);
-  const rows = db
+  const rows = await db
     .select()
     .from(schema.sessions)
     .where(eq(schema.sessions.id, sessionId))
@@ -386,12 +390,12 @@ export async function forceCheckpointBeforeOperation(
   operation: string,
   cwd?: string,
 ): Promise<void> {
-  console.log(`[SAFETY] Forcing checkpoint before: ${operation}`);
+  log.info({ operation }, 'Forcing checkpoint before operation');
 
   try {
     await gitCheckpoint('manual', `pre-${operation}`, cwd);
   } catch (err) {
-    console.error(`[SAFETY] Failed to create pre-operation checkpoint: ${String(err)}`);
+    log.error({ err }, 'Failed to create pre-operation checkpoint');
     // Don't throw - checkpoint failures shouldn't block operations
   }
 }
