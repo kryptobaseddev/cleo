@@ -172,11 +172,7 @@ export {
 
 // Install
 export {
-  getSkillsFromManifest,
   installSkill,
-  installAllSkills,
-  uninstallSkill,
-  uninstallAllSkills,
 } from './install.js';
 
 // Marketplace
@@ -188,17 +184,11 @@ export {
 } from './marketplace.js';
 export type { SkillsMpConfig, MarketplaceSkill } from './marketplace.js';
 
-// Version tracking (CAAMP primary, CLEO local fallback - T4680)
+// Version tracking (CAAMP primary)
 export {
-  readInstalledSkills,
-  saveInstalledSkills,
-  initInstalledSkills,
-  recordSkillVersion,
-  getInstalledVersion,
   getInstalledVersionAsync,
   checkSkillUpdateAsync,
-  checkSkillUpdates,
-  applySkillUpdates,
+  checkAllSkillUpdatesAsync,
 } from './version.js';
 
 // Skill paths (multi-source resolver)

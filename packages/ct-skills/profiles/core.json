@@ -1,0 +1,7 @@
+{
+  "name": "core",
+  "description": "Minimum viable CLEO skill set",
+  "extends": "minimal",
+  "skills": ["ct-orchestrator"],
+  "includeProtocols": ["agent-protocol"]
+}

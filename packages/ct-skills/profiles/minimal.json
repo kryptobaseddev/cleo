@@ -1,0 +1,7 @@
+{
+  "name": "minimal",
+  "description": "Bare minimum — just the default fallback skill",
+  "skills": ["ct-task-executor"],
+  "includeShared": true,
+  "includeProtocols": ["implementation"]
+}
