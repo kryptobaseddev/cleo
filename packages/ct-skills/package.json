@@ -1,0 +1,16 @@
+{
+  "name": "@cleocode/ct-skills",
+  "version": "2.0.0",
+  "description": "CLEO skill definitions - bundled with CLEO monorepo",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "skills",
+    "protocols",
+    "profiles",
+    "_shared",
+    "*.json",
+    "*.js",
+    "*.d.ts"
+  ]
+}

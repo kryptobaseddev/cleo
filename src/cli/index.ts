@@ -89,6 +89,15 @@ import { registerValidateCommand } from './commands/validate.js';
 import { registerVerifyCommand } from './commands/verify.js';
 import { registerDetectDriftCommand } from './commands/detect-drift.js';
 
+// T4882: Multi-contributor snapshot
+import { registerSnapshotCommand } from './commands/snapshot.js';
+
+// T4883: Config-driven sharing allowlist
+import { registerSharingCommand } from './commands/sharing.js';
+
+// T4884: .cleo/.git remote push/pull
+import { registerRemoteCommand } from './commands/remote.js';
+
 // Core: pre-flight migration check (@task T4699)
 import { checkStorageMigration } from '../core/migration/preflight.js';
 
@@ -251,6 +260,15 @@ registerVerifyCommand(program);
 
 // T4705: Documentation drift detection
 registerDetectDriftCommand(program);
+
+// T4882: Multi-contributor snapshot export/import
+registerSnapshotCommand(program);
+
+// T4883: Config-driven sharing allowlist
+registerSharingCommand(program);
+
+// T4884: .cleo/.git remote push/pull
+registerRemoteCommand(program);
 
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).

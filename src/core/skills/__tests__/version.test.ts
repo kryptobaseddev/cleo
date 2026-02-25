@@ -1,71 +1,85 @@
 /**
- * Tests for skills version tracking.
- * @task T4522
+ * Tests for CAAMP-backed skills version tracking.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock the CLEO_HOME to use a temp dir
-const testHome = join(tmpdir(), `cleo-version-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+const mocks = vi.hoisted(() => ({
+  getTrackedSkills: vi.fn(),
+  checkSkillUpdate: vi.fn(),
+  checkAllSkillUpdates: vi.fn(),
+}));
 
-beforeEach(() => {
-  mkdirSync(testHome, { recursive: true });
-  process.env['CLEO_HOME'] = testHome;
-});
+vi.mock('@cleocode/caamp', () => ({
+  getTrackedSkills: mocks.getTrackedSkills,
+  checkSkillUpdate: mocks.checkSkillUpdate,
+  checkAllSkillUpdates: mocks.checkAllSkillUpdates,
+}));
 
-afterEach(() => {
-  delete process.env['CLEO_HOME'];
-  if (existsSync(testHome)) {
-    rmSync(testHome, { recursive: true, force: true });
-  }
-  vi.restoreAllMocks();
-});
+import {
+  getInstalledVersionAsync,
+  checkSkillUpdateAsync,
+  checkAllSkillUpdatesAsync,
+} from '../version.js';
 
-// Lazy import to pick up env changes
-async function importVersion() {
-  // Force re-import by busting module cache
-  const mod = await import('../version.js');
-  return mod;
-}
-
-describe('version tracking', () => {
-  it('should initialize installed skills file', async () => {
-    const { initInstalledSkills, readInstalledSkills } = await importVersion();
-
-    const result = initInstalledSkills();
-
-    expect(result._meta.version).toBe('1.0.0');
-    expect(Object.keys(result.skills)).toHaveLength(0);
-
-    // File should exist now
-    const path = join(testHome, 'installed-skills.json');
-    expect(existsSync(path)).toBe(true);
+describe('skills version tracking (CAAMP)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('should record and retrieve skill versions', async () => {
-    const { recordSkillVersion, getInstalledVersion } = await importVersion();
+  it('reads installed version from CAAMP lock', async () => {
+    mocks.getTrackedSkills.mockResolvedValue({
+      'ct-test': { version: '2.1.0' },
+    });
 
-    recordSkillVersion('ct-test-skill', '1.2.3', '/src/path', '/target/path');
-
-    const version = getInstalledVersion('ct-test-skill');
-    expect(version).toBe('1.2.3');
+    await expect(getInstalledVersionAsync('ct-test')).resolves.toBe('2.1.0');
+    await expect(getInstalledVersionAsync('missing')).resolves.toBeNull();
   });
 
-  it('should return null for unknown skills', async () => {
-    const { getInstalledVersion } = await importVersion();
+  it('returns update details for a single skill', async () => {
+    mocks.checkSkillUpdate.mockResolvedValue({
+      hasUpdate: true,
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
+      status: 'update-available',
+    });
 
-    expect(getInstalledVersion('nonexistent')).toBeNull();
+    await expect(checkSkillUpdateAsync('ct-test')).resolves.toEqual({
+      needsUpdate: true,
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
+    });
   });
 
-  it('should update existing skill version', async () => {
-    const { recordSkillVersion, getInstalledVersion } = await importVersion();
+  it('maps bulk update results', async () => {
+    mocks.checkAllSkillUpdates.mockResolvedValue({
+      'ct-test': {
+        hasUpdate: true,
+        currentVersion: '2.0.0',
+        latestVersion: '2.1.0',
+        status: 'update-available',
+      },
+      'ct-stable': {
+        hasUpdate: false,
+        currentVersion: '1.0.0',
+        latestVersion: '1.0.0',
+        status: 'up-to-date',
+      },
+    });
 
-    recordSkillVersion('ct-test', '1.0.0', '/src', '/target');
-    recordSkillVersion('ct-test', '2.0.0', '/src', '/target');
-
-    expect(getInstalledVersion('ct-test')).toBe('2.0.0');
+    await expect(checkAllSkillUpdatesAsync()).resolves.toEqual([
+      {
+        name: 'ct-test',
+        installedVersion: '2.0.0',
+        availableVersion: '2.1.0',
+        needsUpdate: true,
+      },
+      {
+        name: 'ct-stable',
+        installedVersion: '1.0.0',
+        availableVersion: '1.0.0',
+        needsUpdate: false,
+      },
+    ]);
   });
 });

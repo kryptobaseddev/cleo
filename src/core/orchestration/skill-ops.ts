@@ -7,6 +7,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { getCanonicalSkillsDir } from '@cleocode/caamp';
 
 export interface SkillEntry {
   name: string;
@@ -25,8 +26,8 @@ export interface SkillContent {
 }
 
 /** List available skills. */
-export function listSkills(projectRoot: string): { skills: SkillEntry[]; total: number } {
-  const skillsDir = join(projectRoot, 'skills');
+export function listSkills(_projectRoot: string): { skills: SkillEntry[]; total: number } {
+  const skillsDir = getCanonicalSkillsDir();
 
   if (!existsSync(skillsDir)) {
     return { skills: [], total: 0 };
@@ -52,7 +53,7 @@ export function listSkills(projectRoot: string): { skills: SkillEntry[]; total: 
 
       return {
         name: d.name,
-        path: `skills/${d.name}`,
+        path: join(skillsDir, d.name),
         hasSkillFile: existsSync(skillPath),
         description,
       };
@@ -62,19 +63,19 @@ export function listSkills(projectRoot: string): { skills: SkillEntry[]; total: 
 }
 
 /** Read skill content for injection into agent context. */
-export function getSkillContent(skillName: string, projectRoot: string): SkillContent {
+export function getSkillContent(skillName: string, _projectRoot: string): SkillContent {
   if (!skillName) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'skill name is required');
   }
 
-  const skillDir = join(projectRoot, 'skills', skillName);
+  const skillDir = join(getCanonicalSkillsDir(), skillName);
   if (!existsSync(skillDir)) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Skill '${skillName}' not found at skills/${skillName}/`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Skill '${skillName}' not found at ${skillDir}`);
   }
 
   const skillFilePath = join(skillDir, 'SKILL.md');
   if (!existsSync(skillFilePath)) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Skill file not found: skills/${skillName}/SKILL.md`);
+    throw new CleoError(ExitCode.NOT_FOUND, `Skill file not found: ${skillFilePath}`);
   }
 
   const content = readFileSync(skillFilePath, 'utf-8');
@@ -88,7 +89,7 @@ export function getSkillContent(skillName: string, projectRoot: string): SkillCo
         .filter(f => f.endsWith('.md') || f.endsWith('.txt'))
         .map(f => ({
           name: f,
-          path: `skills/${skillName}/references/${f}`,
+          path: join(skillDir, 'references', f),
         }));
     } catch {
       // ignore
@@ -101,6 +102,6 @@ export function getSkillContent(skillName: string, projectRoot: string): SkillCo
     contentLength: content.length,
     estimatedTokens: Math.ceil(content.length / 4),
     references,
-    path: `skills/${skillName}/SKILL.md`,
+    path: skillFilePath,
   };
 }

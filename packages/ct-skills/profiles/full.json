@@ -1,0 +1,11 @@
+{
+  "name": "full",
+  "description": "All CT-SKILLS",
+  "extends": "recommended",
+  "skills": [
+    "ct-dev-workflow", "ct-test-writer-bats", "ct-library-implementer-bash",
+    "ct-documentor", "ct-docs-lookup", "ct-docs-write", "ct-docs-review",
+    "ct-skill-creator", "ct-skill-lookup", "ct-contribution", "ct-gitbook"
+  ],
+  "includeProtocols": ["contribution", "release", "testing", "artifact-publish", "provenance"]
+}

@@ -25,6 +25,15 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+### Architecture
+- Align skill catalog bootstrap with CAAMP at CLI and MCP startup using bundled `packages/ct-skills`
+- Remove legacy ct-skills fallback resolution and local `installed-skills.json` version tracking paths
+- Rewire orchestration and dispatch skill/provider operations to CAAMP-backed canonical APIs
+
+### Features
+- Add CAAMP-backed dispatch coverage for `tools.skill.*` and `tools.provider.*` operations
+- Add post-update bundled skill freshness refresh in `self-update --post-update`
+
 ## [2026.2.1] - 2026-02-17
 
 ### Features
