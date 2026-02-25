@@ -26,16 +26,11 @@ const execFileAsync = promisify(execFile);
  * files that don't exist on disk, so listing both engines is safe.
  */
 const STATE_FILES = [
-  // Core data (JSON engine)
-  'todo.json',
-  'todo-archive.json',
-  'sessions.json',
   // Core data (SQLite engine)
   'tasks.db',
   // Always-present files
   'config.json',
   'todo-log.jsonl',
-  '.sequence.json',
   'project-context.json',
   // Metrics
   'metrics/COMPLIANCE.jsonl',
@@ -300,6 +295,9 @@ export async function gitCheckpoint(
   if (config.noVerify) {
     commitArgs.push('--no-verify');
   }
+
+  // Restrict commit to only the staged state files (prevents sweeping pre-staged project files)
+  commitArgs.push('--', ...changed.map(f => f.path));
 
   // Commit
   const commitResult = await gitCommand(commitArgs, cwd);
