@@ -65,6 +65,16 @@ describe('Sequence Validation', () => {
       expect(result.repaired).toBe(false);
     });
 
+    it('should auto-repair when sequence file is missing (not throw)', async () => {
+      const { validateAndRepairSequence } = await import('../data-safety.js');
+
+      // No .sequence.json written — simulates deleted file (production bug scenario)
+      const result = await validateAndRepairSequence(tempDir);
+
+      // Must not throw; should return valid (repaired or already-valid with no tasks)
+      expect(result.valid).toBe(true);
+    });
+
     it('should repair when sequence is behind task IDs', async () => {
       const { validateAndRepairSequence } = await import('../data-safety.js');
       const { createTask } = await import('../task-store.js');

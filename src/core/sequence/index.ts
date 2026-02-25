@@ -59,7 +59,9 @@ export async function showSequence(cwd?: string): Promise<Record<string, unknown
 export async function checkSequence(cwd?: string, accessor?: DataAccessor): Promise<Record<string, unknown>> {
   const seq = readSequence(cwd);
   if (!seq) {
-    throw new CleoError(ExitCode.NOT_FOUND, 'Sequence file not found');
+    // File missing — return invalid state so callers trigger auto-repair instead of crashing.
+    // repairSequence() handles null seq and will recreate the file from actual task data.
+    return { valid: false, counter: 0, maxIdInData: 0, missing: true };
   }
 
   const todoData = accessor
