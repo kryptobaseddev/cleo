@@ -171,11 +171,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'job.status',     // Get background job status
     'job.list',       // List background jobs
     'dash',           // Project overview dashboard
-    'roadmap',        // Roadmap generation
-    'labels',         // Label listing and stats
-    'compliance',     // Compliance metrics
     'log',            // Audit log entries
-    'archive.stats',  // Archive analytics
     'sequence',       // ID sequence inspection
   ],
 
@@ -236,11 +232,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'job.status',     // Get background job status
     'job.list',       // List background jobs
     'dash',           // Project overview dashboard
-    'roadmap',        // Roadmap generation
-    'labels',         // Label listing and stats
-    'compliance',     // Compliance metrics
     'log',            // Audit log entries
-    'archive.stats',  // Archive analytics
     'sequence',       // ID sequence inspection
   ],
   issues: [
@@ -268,7 +260,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
  * Legacy aliases duplicate operations from their canonical counterparts,
  * so the total is higher than unique operations.
  */
-const EXPECTED_QUERY_COUNT = 123;
+const EXPECTED_QUERY_COUNT = 115;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(
