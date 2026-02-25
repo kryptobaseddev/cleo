@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { validateSchema as ajvValidateSchema, type SchemaType } from '../../mcp/engine/schema-validator.js';
+import { validateSchema as ajvValidateSchema } from '../../mcp/engine/schema-validator.js';
 import {
   validateTitleDescription,
   validateTimestamps,
@@ -283,7 +283,36 @@ export async function coreValidateReport(
 // Validate and Fix
 // ============================================================================
 
+import { runAllRepairs, type RepairAction } from '../repair.js';
+
 /** Result from validate + fix operation. */
+export interface ValidateAndFixResult extends ValidateReportResult {
+  repairsApplied: number;
+  repairs: RepairAction[];
+}
+
+/**
+ * Run validation report, then apply data repairs for fixable issues.
+ * Calls runAllRepairs() from src/core/repair.ts (same repairs used by `upgrade`).
+ * @task T4795
+ */
+export async function coreValidateAndFix(
+  projectRoot: string,
+  dryRun: boolean = false,
+): Promise<ValidateAndFixResult> {
+  // Repairs operate directly on SQLite — no TaskFile loading required
+  const repairs = await runAllRepairs(projectRoot, dryRun);
+  const applied = repairs.filter((r) => r.status === 'applied');
+
+  // Run validation report after repairs
+  const report = await coreValidateReport(projectRoot);
+
+  return {
+    ...report,
+    repairsApplied: applied.length,
+    repairs,
+  };
+}
 
 // ============================================================================
 // Schema Validation
@@ -300,47 +329,107 @@ function readJsonFile<T = unknown>(filePath: string): T | null {
 }
 
 /**
- * Validate data against a JSON schema type.
+ * Validate data against a schema type.
+ *
+ * For SQLite-backed types (todo, archive, sessions, log), queries rows
+ * directly from SQLite and validates with drizzle-zod schemas.
+ * For config type, uses AJV against the JSON schema file.
+ * If raw `data` is provided, validates directly with AJV (backward compat).
+ *
  * @task T4786
  */
-export function coreValidateSchema(
+export async function coreValidateSchema(
   type: string,
   data: unknown | undefined,
   projectRoot: string,
-): { type: string; valid: boolean; errors: unknown[]; errorCount: number } {
+): Promise<{ type: string; valid: boolean; errors: unknown[]; errorCount: number }> {
   if (!type) {
-    throw new Error('type is required (todo, config, archive, log)');
+    throw new Error('type is required (todo, config, archive, log, sessions)');
   }
 
-  let dataToValidate = data;
-  if (!dataToValidate) {
-    const fileMap: Record<string, string> = {
-      todo: '.cleo/todo.json',
-      config: '.cleo/config.json',
-      archive: '.cleo/todo-archive.json',
-      log: '.cleo/todo-log.jsonl',
-    };
-
-    const filePath = fileMap[type];
-    if (!filePath) {
-      throw new Error(`Unknown schema type: ${type}. Valid types: ${Object.keys(fileMap).join(', ')}`);
-    }
-
-    const fullPath = join(projectRoot, filePath);
-    if (!existsSync(fullPath)) {
-      throw new Error(`File not found: ${filePath}`);
-    }
-
-    dataToValidate = readJsonFile(fullPath);
+  const validTypes = ['todo', 'config', 'archive', 'log', 'sessions'];
+  if (!validTypes.includes(type)) {
+    throw new Error(`Unknown schema type: ${type}. Valid types: ${validTypes.join(', ')}`);
   }
 
-  const result = ajvValidateSchema(type as SchemaType, dataToValidate);
-  return {
-    type,
-    valid: result.valid,
-    errors: result.errors,
-    errorCount: result.errors.length,
-  };
+  // Config type: AJV against JSON schema file (not stored in SQLite)
+  if (type === 'config') {
+    const filePath = join(projectRoot, '.cleo', 'config.json');
+    if (!existsSync(filePath)) {
+      throw new Error('File not found: .cleo/config.json');
+    }
+    const configData = data ?? readJsonFile(filePath);
+    const result = ajvValidateSchema('config', configData);
+    return { type, valid: result.valid, errors: result.errors, errorCount: result.errors.length };
+  }
+
+  // SQLite-backed types: query rows and validate with drizzle-zod
+  return validateSqliteRows(type, projectRoot);
+}
+
+/** Collect validation errors from a Zod safeParse result for a given row. */
+function collectZodErrors(
+  result: { success: boolean; error?: { issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code: string }> } },
+  rowId: string,
+): Array<{ path: string; message: string; keyword: string; rowId: string }> {
+  if (result.success) return [];
+  return (result.error?.issues ?? []).map((issue) => ({
+    path: `/${rowId}/` + issue.path.map(String).join('/'),
+    message: issue.message,
+    keyword: issue.code,
+    rowId,
+  }));
+}
+
+/**
+ * Query rows from SQLite and validate each against the drizzle-zod select schema.
+ */
+async function validateSqliteRows(
+  type: string,
+  projectRoot: string,
+): Promise<{ type: string; valid: boolean; errors: unknown[]; errorCount: number }> {
+  const { getDb } = await import('../../store/sqlite.js');
+  const schemaTable = await import('../../store/schema.js');
+  const zodSchemas = await import('../../store/validation-schemas.js');
+  const { ne, eq } = await import('drizzle-orm');
+
+  const db = await getDb(projectRoot);
+  const errors: Array<{ path: string; message: string; keyword: string; rowId: string }> = [];
+
+  switch (type) {
+    case 'todo': {
+      const rows = await db.select().from(schemaTable.tasks).where(ne(schemaTable.tasks.status, 'archived'));
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectTaskSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    case 'archive': {
+      const rows = await db.select().from(schemaTable.tasks).where(eq(schemaTable.tasks.status, 'archived'));
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectTaskSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    case 'sessions': {
+      const rows = await db.select().from(schemaTable.sessions);
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectSessionSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    case 'log': {
+      const rows = await db.select().from(schemaTable.auditLog).limit(1000);
+      for (const row of rows) {
+        errors.push(...collectZodErrors(zodSchemas.selectAuditLogSchema.safeParse(row), row.id));
+      }
+      break;
+    }
+    default:
+      throw new Error(`Unknown SQLite type: ${type}`);
+  }
+
+  return { type, valid: errors.length === 0, errors, errorCount: errors.length };
 }
 
 // ============================================================================
@@ -370,7 +459,7 @@ export async function coreValidateTask(
   const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
 
   if (!todoData) {
-    throw new Error('todo.json not found');
+    throw new Error('Task data not found (SQLite store unavailable)');
   }
 
   const allTasks = [
@@ -438,7 +527,7 @@ export async function coreValidateProtocol(
   const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
 
   if (!todoData) {
-    throw new Error('todo.json not found');
+    throw new Error('Task data not found (SQLite store unavailable)');
   }
 
   const task = todoData.tasks?.find((t) => t.id === taskId);
@@ -458,7 +547,7 @@ export async function coreValidateProtocol(
     violations.push({ code: 'P_SAME_TITLE_DESC', message: 'Title and description must be different', severity: 'error' });
   }
 
-  const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled'];
+  const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled', 'archived'];
   if (!validStatuses.includes(task.status)) {
     violations.push({
       code: 'P_INVALID_STATUS',
@@ -807,7 +896,7 @@ export async function coreCoherenceCheck(
   const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
 
   if (!todoData || !todoData.tasks) {
-    throw new Error('No todo.json found');
+    throw new Error('No task data found (SQLite store unavailable)');
   }
 
   const tasks = todoData.tasks;
@@ -851,17 +940,36 @@ export async function coreCoherenceCheck(
     }
   }
 
-  // 3. Orphaned references
-  for (const task of tasks) {
-    if (task.depends) {
-      for (const depId of task.depends) {
-        if (!taskMap.has(depId)) {
-          issues.push({
-            type: 'orphaned_dependency',
-            taskId: task.id,
-            message: `Task ${task.id} depends on non-existent task ${depId}`,
-            severity: 'error',
-          });
+  // 3. Orphaned references — query taskDependencies directly to catch refs filtered
+  //    out by loadDependenciesForTasks (which strips non-existent dependsOn IDs).
+  try {
+    const { getDb } = await import('../../store/sqlite.js');
+    const schemaTable = await import('../../store/schema.js');
+    const db = await getDb(projectRoot);
+    const allDepRows = await db.select().from(schemaTable.taskDependencies).all();
+    for (const dep of allDepRows) {
+      if (!taskMap.has(dep.dependsOn)) {
+        issues.push({
+          type: 'orphaned_dependency',
+          taskId: dep.taskId,
+          message: `Task ${dep.taskId} depends on non-existent task ${dep.dependsOn}`,
+          severity: 'error',
+        });
+      }
+    }
+  } catch {
+    // Fall back to task.depends if direct DB query unavailable
+    for (const task of tasks) {
+      if (task.depends) {
+        for (const depId of task.depends) {
+          if (!taskMap.has(depId)) {
+            issues.push({
+              type: 'orphaned_dependency',
+              taskId: task.id,
+              message: `Task ${task.id} depends on non-existent task ${depId}`,
+              severity: 'error',
+            });
+          }
         }
       }
     }
@@ -1032,7 +1140,7 @@ export async function coreBatchValidate(
   const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
 
   if (!todoData) {
-    throw new Error('todo.json not found');
+    throw new Error('Task data not found (SQLite store unavailable)');
   }
 
   const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;

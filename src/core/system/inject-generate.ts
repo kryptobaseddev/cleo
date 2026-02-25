@@ -6,7 +6,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson } from '../../store/json.js';
-import { getTodoPath, getSessionsPath, getConfigPath } from '../paths.js';
+import { getTodoPath, getSessionsPath } from '../paths.js';
 import type { TodoFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
@@ -71,17 +71,8 @@ export async function generateInjection(
     // fallback to todo.json data
   }
 
-  // Storage engine from config
-  let storageEngine = 'json';
-  try {
-    const configPath = getConfigPath(projectRoot);
-    if (existsSync(configPath)) {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      storageEngine = config.storage?.engine || 'json';
-    }
-  } catch {
-    // default
-  }
+  // Storage engine is always sqlite (ADR-006)
+  const storageEngine = 'sqlite';
 
   // Build MVI markdown
   const mvi = buildMviMarkdown({

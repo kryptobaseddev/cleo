@@ -36,28 +36,38 @@
     "schemas": {
       "type": "object",
       "description": "Schema versions for core CLEO data files in this project.",
-      "required": ["todo", "config", "archive", "log"],
+      "required": ["config"],
       "additionalProperties": false,
       "properties": {
-        "todo": {
-          "type": "string",
-          "pattern": "^\\d+\\.\\d+\\.\\d+$",
-          "description": "Schema version for todo.json (semver)."
-        },
         "config": {
           "type": "string",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
           "description": "Schema version for config.json (semver)."
         },
+        "sqlite": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for tasks.db SQLite store (semver)."
+        },
+        "projectContext": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for project-context.json (semver)."
+        },
+        "todo": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Deprecated: JSON todo.json schema version. Kept for backward compatibility."
+        },
         "archive": {
           "type": "string",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
-          "description": "Schema version for todo-archive.json (semver)."
+          "description": "Deprecated: JSON archive schema version. Kept for backward compatibility."
         },
         "log": {
           "type": "string",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
-          "description": "Schema version for todo-log.jsonl (semver)."
+          "description": "Deprecated: JSON log schema version. Kept for backward compatibility."
         }
       }
     },

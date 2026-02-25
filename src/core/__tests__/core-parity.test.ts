@@ -167,15 +167,9 @@ describe('Import Graph Verification (T4796)', () => {
 // Shared fixture helper
 // ============================================================================
 
-/** Sequence file required for task ID generation. */
-const SEQUENCE_JSON = {
-  counter: 100,
-  lastId: 'T100',
-  checksum: 'test-parity',
-};
-
 /**
  * Create a minimal .cleo project directory with required files.
+ * Seeds task data into SQLite (ADR-006 canonical storage).
  * Returns { testDir, cleoDir }.
  */
 async function createTestProject(
@@ -187,16 +181,15 @@ async function createTestProject(
   await mkdir(cleoDir, { recursive: true });
   await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
 
-  await writeFile(
-    join(cleoDir, 'tasks.json'),
-    JSON.stringify(tasksJson),
-  );
+  // Seed tasks into SQLite via the task store
+  const { getDb } = await import('../../store/sqlite.js');
+  const { createTask } = await import('../../store/task-store.js');
+  await getDb(testDir);
 
-  // Sequence file needed for task creation (ID generation)
-  await writeFile(
-    join(cleoDir, '.sequence.json'),
-    JSON.stringify(SEQUENCE_JSON),
-  );
+  const tasks = (tasksJson as { tasks: Array<Record<string, unknown>> }).tasks ?? [];
+  for (const task of tasks) {
+    await createTask(task as any, testDir);
+  }
 
   return { testDir, cleoDir };
 }
@@ -277,6 +270,10 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   afterEach(async () => {
     delete process.env['CLEO_DIR'];
+    try {
+      const { closeDb } = await import('../../store/sqlite.js');
+      closeDb();
+    } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
 
@@ -382,7 +379,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
       accessor,
     );
 
-    const engineResult = await taskFind(testDir, 'alpha');
+    const engineResult = await taskFind(testDir, { query: 'alpha' });
 
     expect(engineResult.success).toBe(true);
     expect(engineResult.data).toBeDefined();
@@ -466,6 +463,10 @@ describe('Session Engine Delegation (T4796)', () => {
 
   afterEach(async () => {
     delete process.env['CLEO_DIR'];
+    try {
+      const { closeDb } = await import('../../store/sqlite.js');
+      closeDb();
+    } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
 

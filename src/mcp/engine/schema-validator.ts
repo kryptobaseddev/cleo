@@ -1,8 +1,11 @@
 /**
  * Schema Validator
  *
- * Validates CLEO JSON data against JSON Schema using Ajv.
- * Reuses existing schemas from the schemas/ directory.
+ * Task validation uses drizzle-zod schemas (src/store/validation-schemas.ts)
+ * as the single source of truth for field-level constraints.
+ *
+ * AJV/JSON Schema validation is retained for the `config` type and backward-
+ * compatible `validateSchema()` calls with raw data.
  */
 
 import AjvModule from 'ajv';
@@ -10,6 +13,7 @@ import addFormatsModule from 'ajv-formats';
 import type { ValidateFunction, ErrorObject } from 'ajv';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { insertTaskSchema } from '../../store/validation-schemas.js';
 
 // Handle ESM/CJS interop for Ajv and ajv-formats
 const Ajv = (AjvModule as any).default || AjvModule;
@@ -34,9 +38,10 @@ export interface ValidationError {
 }
 
 /**
- * Schema types that can be validated
+ * Schema types that can be validated via AJV/JSON Schema.
+ * SQLite-backed types (todo, archive, log, sessions) use drizzle-zod validation instead.
  */
-export type SchemaType = 'todo' | 'config' | 'archive' | 'log' | 'sessions';
+export type SchemaType = 'config';
 
 /**
  * Schema cache to avoid re-reading/re-compiling
@@ -162,8 +167,9 @@ export function validateSchema(
 }
 
 /**
- * Validate a single task object against the task definition in todo.schema.json.
- * This extracts the task definition from the full schema for targeted validation.
+ * Validate a single task object against the drizzle-zod insert schema.
+ * Uses drizzle-derived Zod schemas as the single source of truth for
+ * field-level constraints (pattern, length, enum).
  *
  * @param task - Task object to validate
  * @returns Validation result
@@ -182,11 +188,10 @@ export function validateTask(task: unknown): ValidationResult {
   }
 
   const taskObj = task as Record<string, unknown>;
-
-  // Validate required fields exist
-  const requiredFields = ['id', 'title', 'status', 'priority', 'createdAt'];
   const errors: ValidationError[] = [];
 
+  // Check required fields that insertTaskSchema marks optional (they have DB defaults)
+  const requiredFields = ['id', 'title', 'status', 'priority', 'createdAt'];
   for (const field of requiredFields) {
     if (taskObj[field] === undefined || taskObj[field] === null) {
       errors.push({
@@ -198,66 +203,21 @@ export function validateTask(task: unknown): ValidationResult {
     }
   }
 
-  // Validate ID format
-  if (typeof taskObj.id === 'string' && !/^T\d{3,}$/.test(taskObj.id)) {
-    errors.push({
-      path: '/id',
-      message: 'Task ID must match pattern T followed by 3+ digits (e.g., T001)',
-      keyword: 'pattern',
-      params: { pattern: '^T\\d{3,}$' },
-    });
-  }
-
-  // Validate status enum
-  const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled'];
-  if (taskObj.status && !validStatuses.includes(taskObj.status as string)) {
-    errors.push({
-      path: '/status',
-      message: `Status must be one of: ${validStatuses.join(', ')}`,
-      keyword: 'enum',
-      params: { allowedValues: validStatuses },
-    });
-  }
-
-  // Validate priority enum
-  const validPriorities = ['critical', 'high', 'medium', 'low'];
-  if (taskObj.priority && !validPriorities.includes(taskObj.priority as string)) {
-    errors.push({
-      path: '/priority',
-      message: `Priority must be one of: ${validPriorities.join(', ')}`,
-      keyword: 'enum',
-      params: { allowedValues: validPriorities },
-    });
-  }
-
-  // Validate title length
-  if (typeof taskObj.title === 'string') {
-    if (taskObj.title.length === 0) {
-      errors.push({
-        path: '/title',
-        message: 'Title cannot be empty',
-        keyword: 'minLength',
-        params: { limit: 1 },
-      });
+  // Run drizzle-zod schema validation for field-level constraints
+  const result = insertTaskSchema.safeParse(task);
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      const path = '/' + issue.path.join('/');
+      // Skip duplicates already reported by required-fields check
+      if (!errors.some((e) => e.path === path)) {
+        errors.push({
+          path,
+          message: issue.message,
+          keyword: issue.code,
+          params: {},
+        });
+      }
     }
-    if (taskObj.title.length > 120) {
-      errors.push({
-        path: '/title',
-        message: 'Title cannot exceed 120 characters',
-        keyword: 'maxLength',
-        params: { limit: 120 },
-      });
-    }
-  }
-
-  // Validate description length
-  if (typeof taskObj.description === 'string' && taskObj.description.length > 2000) {
-    errors.push({
-      path: '/description',
-      message: 'Description cannot exceed 2000 characters',
-      keyword: 'maxLength',
-      params: { limit: 2000 },
-    });
   }
 
   return {

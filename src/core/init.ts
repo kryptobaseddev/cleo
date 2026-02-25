@@ -6,9 +6,9 @@
  *
  * Handles:
  *   1. .cleo/ directory structure creation
- *   2. Core data files (todo.json, config.json, sessions.json, etc.)
+ *   2. Core data files (config.json, tasks.db)
  *   3. Schema file installation (.cleo/schemas/)
- *   4. Sequence counter (.cleo/.sequence.json)
+ *   4. Sequence counter (SQLite schema_meta)
  *   5. Project info (.cleo/project-info.json)
  *   6. CAAMP injection into agent instruction files (AGENTS.md hub pattern)
  *   7. MCP server installation to detected providers
@@ -38,9 +38,8 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { saveJson } from '../store/json.js';
-import { getCleoDirAbsolute, getTaskPath, getConfigPath, getProjectRoot, getCleoHome } from './paths.js';
+import { getCleoDirAbsolute, getConfigPath, getProjectRoot, getCleoHome } from './paths.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
-import type { TaskFile } from '../types/task.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -81,31 +80,6 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-/**
- * Create default todo.json content.
- * @task T4681
- */
-function createDefaultTodo(projectName: string): TaskFile {
-  const now = new Date().toISOString();
-  return {
-    version: '2.10.0',
-    project: {
-      name: projectName,
-      currentPhase: null,
-      phases: {},
-    },
-    lastUpdated: now,
-    _meta: {
-      schemaVersion: '2.10.0',
-      checksum: '',
-      configVersion: '2.10.0',
-    },
-    focus: {
-      currentTask: null,
-    },
-    tasks: [],
-  };
-}
 
 /**
  * Create default config.json content.
@@ -138,18 +112,6 @@ function createDefaultConfig(): Record<string, unknown> {
   };
 }
 
-/**
- * Create default sessions.json content.
- * @task T4681
- */
-function createDefaultSessions(projectName: string): Record<string, unknown> {
-  return {
-    version: '1.0.0',
-    project: { name: projectName },
-    sessions: [],
-    _meta: { schemaVersion: '1.0.0' },
-  };
-}
 
 /**
  * Resolve the package root directory (where schemas/ and templates/ live).
@@ -181,7 +143,7 @@ function getGitignoreContent(): string {
 
 /** Embedded fallback for .cleo/.gitignore content. */
 const CLEO_GITIGNORE_FALLBACK = `# CLEO Project Data - Selective Git Tracking
-# Tracked: todo.json, config.json, sessions.json, templates/, schemas/
+# Tracked: config.json, templates/, schemas/
 # IGNORED:
 *.lock
 *.tmp
@@ -189,10 +151,13 @@ const CLEO_GITIGNORE_FALLBACK = `# CLEO Project Data - Selective Git Tracking
 backups/
 metrics/
 audit-log-*.json
-# Legacy audit log pattern, superseded by pino (logs/cleo.log)
 .context-state.json
 .context-state-session_*.json
 context-states/
+tasks.db
+tasks.db-journal
+tasks.db-wal
+tasks.db-shm
 *.db-journal
 *.db-wal
 *.db-shm
@@ -277,7 +242,7 @@ function getInjectionTemplateContent(): string | null {
  */
 async function initCoreFiles(
   cleoDir: string,
-  projectName: string,
+  _projectName: string,
   force: boolean,
   created: string[],
   skipped: string[],
@@ -285,16 +250,7 @@ async function initCoreFiles(
   // Create .cleo directory
   await mkdir(cleoDir, { recursive: true });
 
-  // Create todo.json
-  const todoPath = getTaskPath();
-  if (await fileExists(todoPath) && !force) {
-    skipped.push('tasks.json');
-  } else {
-    await saveJson(todoPath, createDefaultTodo(projectName));
-    created.push('tasks.json');
-  }
-
-  // Create config.json
+  // Create config.json (human-editable settings — ADR-006 exception)
   const configPath = getConfigPath();
   if (await fileExists(configPath) && !force) {
     skipped.push('config.json');
@@ -303,56 +259,26 @@ async function initCoreFiles(
     created.push('config.json');
   }
 
-  // Create sessions.json
-  const sessionsPath = join(cleoDir, 'sessions.json');
-  if (await fileExists(sessionsPath) && !force) {
-    skipped.push('sessions.json');
-  } else {
-    await saveJson(sessionsPath, createDefaultSessions(projectName));
-    created.push('sessions.json');
-  }
-
-  // Create .sequence.json (task ID counter — JSON format for sequence module)
-  const sequencePath = join(cleoDir, '.sequence.json');
-  if (await fileExists(sequencePath) && !force) {
-    skipped.push('.sequence.json');
-  } else {
-    await writeFile(sequencePath, JSON.stringify({ counter: 0, lastId: 'T000', checksum: '' }, null, 2));
-    created.push('.sequence.json');
-  }
-
-  // Remove legacy .sequence plain-text file if it exists (migration)
+  // Remove legacy sequence files if they exist (migration)
   const legacySequencePath = join(cleoDir, '.sequence');
   try { await unlink(legacySequencePath); } catch { /* ignore if absent */ }
+  const legacySequenceJsonPath = join(cleoDir, '.sequence.json');
+  try { await unlink(legacySequenceJsonPath); } catch { /* ignore if absent */ }
 
   // Create backup directories
   const backupDir = join(cleoDir, 'backups');
   await mkdir(join(backupDir, 'operational'), { recursive: true });
   await mkdir(join(backupDir, 'safety'), { recursive: true });
 
-  // Create log file
-  const logPath = join(cleoDir, 'todo-log.jsonl');
-  if (!(await fileExists(logPath))) {
-    const legacyLogPath = join(cleoDir, 'todo-log.json');
-    if (await fileExists(legacyLogPath)) {
-      const { rename: renameFile } = await import('node:fs/promises');
-      await renameFile(legacyLogPath, logPath);
-      created.push('todo-log.jsonl (migrated from todo-log.json)');
-    } else {
-      await writeFile(logPath, '');
-      created.push('todo-log.jsonl');
-    }
-  }
-
-  // Create archive file
-  const archivePath = join(cleoDir, 'todo-archive.json');
-  if (!(await fileExists(archivePath))) {
-    await writeFile(archivePath, JSON.stringify({
-      version: '2.10.0',
-      _meta: { schemaVersion: '2.10.0' },
-      archivedTasks: [],
-    }, null, 2));
-    created.push('todo-archive.json');
+  // Initialize SQLite database (tasks, sessions, archive, audit log all live here)
+  try {
+    const { getDb } = await import('../store/sqlite.js');
+    await getDb(join(cleoDir, '..'));
+    created.push('tasks.db');
+  } catch (err) {
+    // SQLite init failure is not fatal — will be created on first access
+    // but we should note it
+    created.push(`tasks.db (deferred: ${err instanceof Error ? err.message : String(err)})`);
   }
 
   // Create .cleo/.gitignore
@@ -386,13 +312,9 @@ async function initSchemas(
     return;
   }
 
-  // Core schemas to copy
+  // Core schemas to copy (only config-file schemas — task/session/archive/log are in SQLite)
   const coreSchemas = [
-    'todo.schema.json',
     'config.schema.json',
-    'archive.schema.json',
-    'log.schema.json',
-    'sessions.schema.json',
     'project-info.schema.json',
     'project-context.schema.json',
   ];
@@ -445,6 +367,11 @@ async function initProjectInfo(
   const cleoVersion = getCleoVersion();
   const now = new Date().toISOString();
 
+  // Read schema versions from their canonical sources — never hardcode.
+  const { readSchemaVersionFromFile } = await import('./validation/schema-integrity.js');
+  const { SQLITE_SCHEMA_VERSION } = await import('../store/sqlite.js');
+  const configSchemaVersion = readSchemaVersionFromFile('config.schema.json') ?? cleoVersion;
+
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
@@ -452,10 +379,8 @@ async function initProjectInfo(
     cleoVersion,
     lastUpdated: now,
     schemas: {
-      todo: '2.10.0',
-      config: '2.10.0',
-      archive: '2.10.0',
-      log: '1.0.0',
+      config: configSchemaVersion,
+      sqlite: SQLITE_SCHEMA_VERSION,
     },
     injection: {
       'CLAUDE.md': null,
@@ -830,7 +755,7 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const skipped: string[] = [];
   const warnings: string[] = [];
 
-  // T4681: Core files (todo.json, config.json, sessions.json, .sequence.json, etc.)
+  // T4681: Core files (config.json, tasks.db, etc.)
   await initCoreFiles(cleoDir, projectName, force, created, skipped);
 
   // T4700: Migrate legacy agent-output directories before proceeding
@@ -900,7 +825,9 @@ export function isAutoInitEnabled(): boolean {
 export async function ensureInitialized(projectRoot?: string): Promise<{ initialized: boolean }> {
   const root = projectRoot ?? getProjectRoot();
   const cleoDir = join(root, '.cleo');
-  const isInit = existsSync(cleoDir) && existsSync(join(cleoDir, 'todo.json'));
+  const isInit = existsSync(cleoDir) && (
+    existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json'))
+  );
 
   if (isInit) {
     return { initialized: true };

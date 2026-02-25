@@ -10,8 +10,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 
 import {
   orchestrateBootstrap,
@@ -42,76 +43,80 @@ import {
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
-const TEST_ROOT = join(process.cwd(), '.test-brain-ops');
-const CLEO_DIR = join(TEST_ROOT, '.cleo');
-const AUDIT_DIR = join(CLEO_DIR, 'audit');
-const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
+let TEST_ROOT: string;
+let CLEO_DIR: string;
+let AUDIT_DIR: string;
+let MANIFEST_DIR: string;
 
 /**
- * Write tasks.json with the given tasks and optional meta/focus overrides.
+ * Seed tasks into SQLite via the task store.
+ * Replaces the legacy writeTodoJson approach (ADR-006).
  */
-function writeTodoJson(
+async function writeTodoJson(
   tasks: any[],
-  opts?: {
+  _opts?: {
     focus?: Record<string, unknown>;
     meta?: Record<string, unknown>;
     project?: Record<string, unknown>;
   },
-): void {
-  mkdirSync(CLEO_DIR, { recursive: true });
-  writeFileSync(
-    join(CLEO_DIR, 'tasks.json'),
-    JSON.stringify(
-      {
-        tasks,
-        project: opts?.project ?? { name: 'brain-ops-test' },
-        focus: opts?.focus ?? {
-          currentTask: null,
-          currentPhase: null,
-          blockedUntil: null,
-          sessionNote: null,
-          sessionNotes: [],
-          nextAction: null,
-          primarySession: null,
-        },
-        _meta: {
-          schemaVersion: '2.6.0',
-          checksum: 'test',
-          lastModified: new Date().toISOString(),
-          generation: 1,
-          ...(opts?.meta ?? {}),
-        },
-      },
-      null,
-      2,
-    ),
-    'utf-8',
-  );
+): Promise<void> {
+  const { getDb } = await import('../../../store/sqlite.js');
+  const { tasks: tasksTable, taskDependencies } = await import('../../../store/schema.js');
+  const db = await getDb(TEST_ROOT);
+  const taskIds = new Set(tasks.map(t => t.id));
+
+  // Insert tasks without dependencies first
+  for (const task of tasks) {
+    await db.insert(tasksTable).values({
+      id: task.id,
+      title: task.title,
+      description: task.description ?? null,
+      status: task.status ?? 'pending',
+      priority: task.priority ?? 'medium',
+      type: task.type ?? 'task',
+      parentId: task.parentId ?? null,
+      phase: task.phase ?? null,
+      size: task.size ?? null,
+      labelsJson: task.labels ? JSON.stringify(task.labels) : null,
+      acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : null,
+      filesJson: task.files ? JSON.stringify(task.files) : null,
+      notesJson: task.notes ? JSON.stringify(task.notes) : null,
+      createdAt: task.createdAt ?? new Date().toISOString(),
+      updatedAt: task.updatedAt ?? null,
+      completedAt: task.completedAt ?? null,
+    }).run();
+  }
+
+  // Insert dependencies — temporarily disable FK checks for orphaned dep tests
+  const { getNativeDb } = await import('../../../store/sqlite.js');
+  const nativeDb = getNativeDb();
+  if (nativeDb) {
+    nativeDb.prepare('PRAGMA foreign_keys = OFF').run();
+  }
+  for (const task of tasks) {
+    if (task.depends && task.depends.length > 0) {
+      for (const depId of task.depends) {
+        await db.insert(taskDependencies).values({
+          taskId: task.id,
+          dependsOn: depId,
+        }).run();
+      }
+    }
+  }
+  if (nativeDb) {
+    nativeDb.prepare('PRAGMA foreign_keys = ON').run();
+  }
 }
 
 /**
- * Write sessions.json with the given sessions.
+ * Seed sessions into SQLite via the session store.
  */
-function writeSessionsJson(sessions: any[]): void {
-  mkdirSync(CLEO_DIR, { recursive: true });
-  writeFileSync(
-    join(CLEO_DIR, 'sessions.json'),
-    JSON.stringify(
-      {
-        _meta: {
-          schemaVersion: '1.0.0',
-          checksum: '',
-          lastModified: new Date().toISOString(),
-          totalSessionsCreated: sessions.length,
-        },
-        sessions,
-        sessionHistory: [],
-      },
-      null,
-      2,
-    ),
-    'utf-8',
-  );
+async function writeSessionsJson(sessions: any[]): Promise<void> {
+  const { createSession } = await import('../../../store/session-store.js');
+
+  for (const session of sessions) {
+    await createSession(session as any, TEST_ROOT);
+  }
 }
 
 /**
@@ -368,11 +373,22 @@ const SAMPLE_DECISIONS = [
 // ---------------------------------------------------------------------------
 
 describe('E2E: Brain Operations', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-brain-'));
+    CLEO_DIR = join(TEST_ROOT, '.cleo');
+    AUDIT_DIR = join(CLEO_DIR, 'audit');
+    MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
     mkdirSync(CLEO_DIR, { recursive: true });
+    // Initialize SQLite database
+    const { getDb } = await import('../../../store/sqlite.js');
+    await getDb(TEST_ROOT);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* ignore */ }
     if (existsSync(TEST_ROOT)) {
       rmSync(TEST_ROOT, { recursive: true, force: true });
     }
@@ -383,7 +399,7 @@ describe('E2E: Brain Operations', () => {
   // -------------------------------------------------------------------------
   describe('orchestrateBootstrap', () => {
     it('should return BrainState with expected fields for fast tier', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'fast' });
       expect(result.success).toBe(true);
@@ -407,7 +423,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should return BrainState with full-tier fields for full speed', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
       writeDecisions(SAMPLE_DECISIONS);
 
       const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'full' });
@@ -428,7 +444,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should return BrainState with complete-tier fields', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'complete' });
       expect(result.success).toBe(true);
@@ -440,7 +456,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should default to fast speed when no speed parameter provided', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await orchestrateBootstrap(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -448,7 +464,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should include nextSuggestion when pending tasks exist', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await orchestrateBootstrap(TEST_ROOT, { speed: 'fast' });
       expect(result.success).toBe(true);
@@ -466,7 +482,7 @@ describe('E2E: Brain Operations', () => {
   // -------------------------------------------------------------------------
   describe('taskComplexityEstimate', () => {
     it('should classify a simple task as small', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       // T107: short description, no deps, no subtasks, no files
       const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T107' });
@@ -483,7 +499,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should classify a complex task as medium or large', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       // T102: long description, has deps (T101), has subtasks (T108, T109),
       //        has acceptance criteria (3), has files (2)
@@ -500,7 +516,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should return error for non-existent task', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T999' });
       expect(result.success).toBe(false);
@@ -508,7 +524,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should score dependency depth correctly for chained tasks', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       // T104 depends on T103, which depends on T102, which depends on T101
       const result = await taskComplexityEstimate(TEST_ROOT, { taskId: 'T104' });
@@ -545,7 +561,7 @@ describe('E2E: Brain Operations', () => {
         },
       ];
 
-      writeTodoJson(incoherentTasks);
+      await writeTodoJson(incoherentTasks);
 
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -576,7 +592,7 @@ describe('E2E: Brain Operations', () => {
         },
       ];
 
-      writeTodoJson(orphanedTasks);
+      await writeTodoJson(orphanedTasks);
 
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -615,7 +631,7 @@ describe('E2E: Brain Operations', () => {
         },
       ];
 
-      writeTodoJson(inconsistentTasks);
+      await writeTodoJson(inconsistentTasks);
 
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -654,7 +670,7 @@ describe('E2E: Brain Operations', () => {
         },
       ];
 
-      writeTodoJson(validTasks);
+      await writeTodoJson(validTasks);
 
       const result = await validateCoherenceCheck(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -668,7 +684,7 @@ describe('E2E: Brain Operations', () => {
   // -------------------------------------------------------------------------
   describe('orchestrateCriticalPath', () => {
     it('should find the longest dependency chain', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await orchestrateCriticalPath(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -701,7 +717,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should return empty path for empty task list', async () => {
-      writeTodoJson([]);
+      await writeTodoJson([]);
 
       const result = await orchestrateCriticalPath(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -717,7 +733,7 @@ describe('E2E: Brain Operations', () => {
   // -------------------------------------------------------------------------
   describe('orchestrateUnblockOpportunities', () => {
     it('should detect single-blocker tasks', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -736,7 +752,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should identify high-impact completions', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -778,7 +794,7 @@ describe('E2E: Brain Operations', () => {
           updatedAt: null,
         },
       ];
-      writeTodoJson(noDeps);
+      await writeTodoJson(noDeps);
 
       const result = await orchestrateUnblockOpportunities(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -794,7 +810,7 @@ describe('E2E: Brain Operations', () => {
   // -------------------------------------------------------------------------
   describe('sessionRecordDecision / sessionDecisionLog', () => {
     it('should record a decision and retrieve it', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       // Record a decision
       const recordResult = await sessionRecordDecision(TEST_ROOT, {
@@ -828,7 +844,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should filter decisions by taskId', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
       writeDecisions(SAMPLE_DECISIONS);
 
       const result = await sessionDecisionLog(TEST_ROOT, { taskId: 'T102' });
@@ -843,7 +859,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should return all decisions when no filters applied', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
       writeDecisions(SAMPLE_DECISIONS);
 
       const result = await sessionDecisionLog(TEST_ROOT);
@@ -852,7 +868,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should return empty array when no decisions exist', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await sessionDecisionLog(TEST_ROOT);
       expect(result.success).toBe(true);
@@ -865,7 +881,7 @@ describe('E2E: Brain Operations', () => {
   // -------------------------------------------------------------------------
   describe('sessionRecordAssumption', () => {
     it('should record an assumption and write to JSONL file', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await sessionRecordAssumption(TEST_ROOT, {
         sessionId: 'test-session-001',
@@ -902,7 +918,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should reject assumption with invalid confidence', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await sessionRecordAssumption(TEST_ROOT, {
         assumption: 'Some assumption',
@@ -914,7 +930,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should reject assumption with missing assumption text', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await sessionRecordAssumption(TEST_ROOT, {
         assumption: '',
@@ -932,7 +948,7 @@ describe('E2E: Brain Operations', () => {
   describe('sessionContextDrift', () => {
     it('should calculate drift score with focus-based scope', async () => {
       // Single-session mode: focus set to T100 (epic)
-      writeTodoJson(SAMPLE_TASKS, {
+      await writeTodoJson(SAMPLE_TASKS, {
         focus: {
           currentTask: 'T100',
           currentPhase: null,
@@ -959,7 +975,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should return zero drift when no focus is set', async () => {
-      writeTodoJson(SAMPLE_TASKS, {
+      await writeTodoJson(SAMPLE_TASKS, {
         focus: {
           currentTask: null,
           currentPhase: null,
@@ -977,7 +993,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should calculate drift for multi-session scope', async () => {
-      writeTodoJson(SAMPLE_TASKS, {
+      await writeTodoJson(SAMPLE_TASKS, {
         focus: {
           currentTask: 'T102',
           currentPhase: null,
@@ -994,7 +1010,7 @@ describe('E2E: Brain Operations', () => {
           sessionsFile: 'sessions.json',
         },
       });
-      writeSessionsJson([SAMPLE_SESSION]);
+      await writeSessionsJson([SAMPLE_SESSION]);
 
       const result = await sessionContextDrift(TEST_ROOT, {
         sessionId: SAMPLE_SESSION.id,
@@ -1013,7 +1029,7 @@ describe('E2E: Brain Operations', () => {
   // -------------------------------------------------------------------------
   describe('systemInjectGenerate', () => {
     it('should generate valid MVI markdown under 5KB', async () => {
-      writeTodoJson(SAMPLE_TASKS, {
+      await writeTodoJson(SAMPLE_TASKS, {
         project: { name: 'brain-ops-test' },
       });
 
@@ -1049,7 +1065,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should include session info when active session exists', async () => {
-      writeTodoJson(SAMPLE_TASKS, {
+      await writeTodoJson(SAMPLE_TASKS, {
         focus: { currentTask: 'T102' },
         meta: {
           schemaVersion: '2.6.0',
@@ -1058,7 +1074,7 @@ describe('E2E: Brain Operations', () => {
           sessionsFile: 'sessions.json',
         },
       });
-      writeSessionsJson([SAMPLE_SESSION]);
+      await writeSessionsJson([SAMPLE_SESSION]);
       writeFileSync(
         join(TEST_ROOT, 'package.json'),
         JSON.stringify({ version: '2.0.0' }),
@@ -1074,7 +1090,7 @@ describe('E2E: Brain Operations', () => {
     });
 
     it('should handle missing package.json gracefully', async () => {
-      writeTodoJson(SAMPLE_TASKS);
+      await writeTodoJson(SAMPLE_TASKS);
 
       const result = await systemInjectGenerate(TEST_ROOT);
       expect(result.success).toBe(true);

@@ -107,7 +107,7 @@ export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataA
   }
 
   const childTasks = data.tasks.filter(t => t.parentId === epicId);
-  const waves = await getExecutionWaves(epicId, cwd);
+  const waves = await getExecutionWaves(epicId, cwd, accessor);
 
   const completedTasks = childTasks.filter(t => t.status === 'done').map(t => t.id);
   const blockedTasks = childTasks.filter(t => t.status === 'blocked').map(t => t.id);

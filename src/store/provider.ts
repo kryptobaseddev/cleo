@@ -1,19 +1,13 @@
 /**
  * Store provider abstraction layer.
  *
- * Defines the StoreProvider interface that both JSON and SQLite stores implement.
- * CLI and MCP engine use StoreProvider — switchable via config.
- *
- * Config flag: storage.engine: "json" | "sqlite" in .cleo/config.json
- * Default: "sqlite" for new projects, "json" for existing (until migrated).
+ * Defines the StoreProvider interface backed by SQLite (ADR-006).
+ * CLI and MCP engine use StoreProvider for all data access.
  *
  * @epic T4454
  * @task W1-T6
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { getCleoDirAbsolute } from '../core/paths.js';
 import type { Task, TaskStatus, TaskType } from '../types/task.js';
 import type { Session } from '../types/session.js';
 import type { DataAccessor } from './data-accessor.js';
@@ -48,10 +42,17 @@ export type {
 };
 
 /**
- * Store engine type.
+ * Store engine type. SQLite is the only supported engine (ADR-006).
  * @task T4647
  */
-export type StoreEngine = 'json' | 'sqlite';
+export type StoreEngine = 'sqlite';
+
+/**
+ * @deprecated SQLite is the only supported engine.
+ */
+export function detectStoreEngine(_cwd?: string): StoreEngine {
+  return 'sqlite';
+}
 
 /** Common task filter options. */
 export interface TaskFilters {
@@ -70,7 +71,7 @@ export interface SessionFilters {
 
 /**
  * Store provider interface.
- * Both JSON and SQLite stores implement this contract.
+ * Backed by SQLite (ADR-006 canonical storage).
  */
 export interface StoreProvider {
   readonly engine: StoreEngine;
@@ -183,7 +184,7 @@ export interface StoreProvider {
 /**
  * Create high-level domain operation methods that delegate to core modules.
  * An accessor is created once and passed to every core call, ensuring that
- * the configured storage engine (JSON, SQLite) is actually used.
+ * the SQLite storage engine is used consistently.
  *
  * @task T4656
  * @epic T4654
@@ -213,7 +214,6 @@ async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<P
   const taskWork = await import('../core/task-work/index.js');
 
   // Resolve accessor once; all domain ops share the same instance.
-  // If not provided, auto-detect from config (getAccessor).
   const acc = accessor ?? await getAccessor(cwd);
 
   return {
@@ -247,58 +247,14 @@ async function createDomainOps(cwd?: string, accessor?: DataAccessor): Promise<P
 }
 
 /**
- * Detect the configured storage engine from .cleo/config.json.
- * Falls back to 'sqlite' for new projects (CLEO V2 default).
- * Auto-detects 'json' for existing projects with todo.json but no tasks.db.
- * @task T4647
- */
-export function detectStoreEngine(cwd?: string): StoreEngine {
-  const cleoDir = getCleoDirAbsolute(cwd);
-
-  // Check config for explicit setting
-  const configPath = join(cleoDir, 'config.json');
-  if (existsSync(configPath)) {
-    try {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      const engine = config?.storage?.engine;
-      if (engine === 'sqlite' || engine === 'json') return engine;
-    } catch {
-      // Fall through to auto-detection
-    }
-  }
-
-  // Auto-detect: if tasks.db exists, use sqlite
-  const dbPath = join(cleoDir, 'tasks.db');
-  if (existsSync(dbPath)) return 'sqlite';
-
-  // Backward compat: if todo.json or tasks.json exists (but no tasks.db), keep json
-  const todoPath = join(cleoDir, 'todo.json');
-  if (existsSync(todoPath)) return 'json';
-  const tasksJsonPath = join(cleoDir, 'tasks.json');
-  if (existsSync(tasksJsonPath)) return 'json';
-
-  // Default: sqlite (CLEO V2 default for new projects)
-  return 'sqlite';
-}
-
-/**
- * Create a store provider based on engine type.
+ * Create a store provider. Always creates SQLite provider (ADR-006).
  * @task T4647
  */
 export async function createStoreProvider(
-  engine?: StoreEngine,
+  _engine?: StoreEngine,
   cwd?: string,
 ): Promise<StoreProvider> {
-  const resolvedEngine = engine ?? detectStoreEngine(cwd);
-
-  if (resolvedEngine === 'sqlite') {
-    return createSqliteProvider(cwd);
-  }
-
-
-  // JSON store - delegates to existing core module functions
-  const { createJsonStoreProvider } = await import('./json-provider.js');
-  return createJsonStoreProvider(cwd);
+  return createSqliteProvider(cwd);
 }
 
 /**
@@ -335,4 +291,3 @@ async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
     ...domainOps,
   };
 }
-

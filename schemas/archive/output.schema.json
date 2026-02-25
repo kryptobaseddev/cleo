@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/output.schema.json",
+  "title": "CLEO Response Envelope",
+  "description": "Standard JSON envelope for all successful cleo command responses",
+  "type": "object",
+  "required": ["_meta", "success"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Schema URL for validation",
+      "const": "https://cleo-dev.com/schemas/v1/output.schema.json"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Response metadata",
+      "required": ["command", "timestamp", "version"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "json",
+          "description": "Output format identifier"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+",
+          "description": "cleo version (semver)"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command name that generated this response"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 UTC timestamp of response generation"
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA256 checksum of source file (optional)"
+        },
+        "execution_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Execution time in milliseconds (optional)"
+        },
+        "resultsField": {
+          "type": "string",
+          "description": "Name of the field containing primary results (e.g., 'tasks', 'matches', 'data', 'blockedTasks', 'items'). Enables self-documenting JSON for LLM agents. If omitted, defaults to 'tasks' for list commands or 'task' for single-task commands."
+        }
+      },
+      "additionalProperties": false
+    },
+    "success": {
+      "type": "boolean",
+      "const": true,
+      "description": "Indicates successful operation"
+    },
+    "summary": {
+      "type": "object",
+      "description": "Aggregated statistics or summary data (optional)",
+      "additionalProperties": true
+    },
+    "data": {
+      "description": "Generic data payload (type depends on command)"
+    },
+    "task": {
+      "type": "object",
+      "description": "Single task object (for add, update, show commands)",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Task identifier (T001+, expandable)"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["epic", "task", "subtask"],
+          "description": "Hierarchy type"
+        },
+        "parentId": {
+          "type": ["string", "null"],
+          "pattern": "^T\\d{3,}$",
+          "description": "Parent task ID or null for root tasks"
+        },
+        "size": {
+          "type": ["string", "null"],
+          "enum": ["small", "medium", "large", null],
+          "description": "Task size estimate"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "active", "blocked", "done"]
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    },
+    "tasks": {
+      "type": "array",
+      "description": "Array of task objects (for list commands)",
+      "items": {
+        "type": "object"
+      }
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "Task ID affected by operation"
+    },
+    "changes": {
+      "type": "object",
+      "description": "Change tracking for update operations",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "before": {},
+          "after": {}
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Non-fatal warnings",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^W_[A-Z_]+$"
+          },
+          "message": {
+            "type": "string"
+          },
+          "suggestion": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

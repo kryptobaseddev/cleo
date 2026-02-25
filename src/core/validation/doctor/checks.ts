@@ -193,6 +193,172 @@ export function checkAtReferenceResolution(
 }
 
 // ============================================================================
+// Check: AGENTS.md injection hub
+// ============================================================================
+
+/**
+ * Check that AGENTS.md exists in project root and contains the CAAMP:START marker,
+ * indicating it serves as the injection hub for CLEO protocol content.
+ */
+export function checkAgentsMdHub(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const agentsMdPath = join(root, 'AGENTS.md');
+
+  if (!existsSync(agentsMdPath)) {
+    return {
+      id: 'agents_md_hub',
+      category: 'configuration',
+      status: 'warning',
+      message: 'AGENTS.md not found in project root',
+      details: { path: agentsMdPath, exists: false },
+      fix: 'cleo init --update-docs',
+    };
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(agentsMdPath, 'utf-8');
+  } catch {
+    return {
+      id: 'agents_md_hub',
+      category: 'configuration',
+      status: 'warning',
+      message: 'AGENTS.md exists but is not readable',
+      details: { path: agentsMdPath, readable: false },
+      fix: `chmod +r ${agentsMdPath}`,
+    };
+  }
+
+  if (!content.includes('CAAMP:START')) {
+    return {
+      id: 'agents_md_hub',
+      category: 'configuration',
+      status: 'warning',
+      message: 'AGENTS.md exists but has no CAAMP:START marker',
+      details: { path: agentsMdPath, hasCaampMarker: false },
+      fix: 'cleo init --update-docs',
+    };
+  }
+
+  return {
+    id: 'agents_md_hub',
+    category: 'configuration',
+    status: 'passed',
+    message: 'AGENTS.md hub with CAAMP injection found',
+    details: { path: agentsMdPath, hasCaampMarker: true },
+    fix: null,
+  };
+}
+
+// ============================================================================
+// Check: Stale AGENT-INJECTION.md template
+// ============================================================================
+
+/**
+ * Warn if the legacy .cleo/templates/AGENT-INJECTION.md file still exists.
+ * This file is no longer needed — AGENTS.md is the injection hub now.
+ */
+export function checkStaleAgentInjection(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const stalePath = join(root, '.cleo', 'templates', 'AGENT-INJECTION.md');
+
+  if (existsSync(stalePath)) {
+    return {
+      id: 'stale_agent_injection',
+      category: 'configuration',
+      status: 'warning',
+      message: 'Stale .cleo/templates/AGENT-INJECTION.md found (no longer needed)',
+      details: { path: stalePath, exists: true },
+      fix: `rm ${stalePath}`,
+    };
+  }
+
+  return {
+    id: 'stale_agent_injection',
+    category: 'configuration',
+    status: 'passed',
+    message: 'No stale AGENT-INJECTION.md template found',
+    details: { exists: false },
+    fix: null,
+  };
+}
+
+// ============================================================================
+// Check: Injection pattern in CLAUDE.md
+// ============================================================================
+
+/**
+ * Check that CLAUDE.md references @AGENTS.md instead of the old
+ * @.cleo/templates/AGENT-INJECTION.md pattern.
+ */
+export function checkInjectionPattern(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const claudeMdPath = join(root, 'CLAUDE.md');
+
+  if (!existsSync(claudeMdPath)) {
+    return {
+      id: 'injection_pattern',
+      category: 'configuration',
+      status: 'info',
+      message: 'CLAUDE.md not found (skipping injection pattern check)',
+      details: { path: claudeMdPath, exists: false },
+      fix: null,
+    };
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(claudeMdPath, 'utf-8');
+  } catch {
+    return {
+      id: 'injection_pattern',
+      category: 'configuration',
+      status: 'warning',
+      message: 'CLAUDE.md exists but is not readable',
+      details: { path: claudeMdPath, readable: false },
+      fix: `chmod +r ${claudeMdPath}`,
+    };
+  }
+
+  if (content.includes('@.cleo/templates/AGENT-INJECTION.md')) {
+    return {
+      id: 'injection_pattern',
+      category: 'configuration',
+      status: 'warning',
+      message: 'CLAUDE.md uses legacy @.cleo/templates/AGENT-INJECTION.md pattern',
+      details: { path: claudeMdPath, pattern: 'legacy' },
+      fix: 'cleo init --update-docs',
+    };
+  }
+
+  if (content.includes('@AGENTS.md') || content.includes('CAAMP:START')) {
+    return {
+      id: 'injection_pattern',
+      category: 'configuration',
+      status: 'passed',
+      message: 'CLAUDE.md uses @AGENTS.md injection pattern',
+      details: { path: claudeMdPath, pattern: 'current' },
+      fix: null,
+    };
+  }
+
+  return {
+    id: 'injection_pattern',
+    category: 'configuration',
+    status: 'info',
+    message: 'CLAUDE.md has no CLEO injection (may be manually managed)',
+    details: { path: claudeMdPath, pattern: 'none' },
+    fix: null,
+  };
+}
+
+// ============================================================================
 // Check: Root .gitignore blocking .cleo/
 // ============================================================================
 
@@ -369,7 +535,7 @@ function detectStorageEngine(_projectRoot: string): string {
 
 /**
  * Check that vital CLEO files are tracked by git.
- * Engine-aware: checks the right data files based on storage.engine config.
+ * SQLite-only (ADR-006): validates tasks.db/config/.gitignore tracking.
  * @task T4700
  */
 export function checkVitalFilesTracked(
@@ -521,6 +687,82 @@ export function checkNodeVersion(): CheckResult {
 // Run All Checks
 // ============================================================================
 
+// ============================================================================
+// Check: JSON schema file integrity
+// ============================================================================
+
+/**
+ * Check that active JSON files (config.json, project-info.json, etc.) are valid
+ * against their schemas and have current schema versions.
+ *
+ * Maps JsonFileIntegrityResult[] from checkSchemaIntegrity() into CheckResult[],
+ * then returns a single rolled-up CheckResult for the doctor summary.
+ */
+export async function checkJsonSchemaIntegrity(
+  projectDir: string,
+): Promise<CheckResult> {
+  const { checkSchemaIntegrity } = await import('../schema-integrity.js');
+
+  let report;
+  try {
+    report = await checkSchemaIntegrity(projectDir);
+  } catch (err) {
+    return {
+      id: 'json_schema_integrity',
+      category: 'data',
+      status: 'warning',
+      message: `Could not run JSON schema integrity check: ${err instanceof Error ? err.message : String(err)}`,
+      details: {},
+      fix: null,
+    };
+  }
+
+  const failures = report.files.filter(
+    (f) => f.status === 'missing' || f.status === 'invalid',
+  );
+  const warnings = report.files.filter(
+    (f) => f.status === 'version_mismatch' || f.status === 'schema_not_found',
+  );
+
+  const details: Record<string, unknown> = {
+    files: report.files.map((f) => ({ label: f.label, status: f.status, errors: f.errors })),
+    sqliteVersion: report.sqliteVersion,
+  };
+
+  if (failures.length > 0) {
+    const messages = failures.flatMap((f) => f.errors);
+    return {
+      id: 'json_schema_integrity',
+      category: 'data',
+      status: 'failed',
+      message: `JSON schema integrity failures: ${messages.join('; ')}`,
+      details,
+      fix: 'cleo upgrade',
+    };
+  }
+
+  if (warnings.length > 0) {
+    const messages = warnings.flatMap((f) => f.errors);
+    return {
+      id: 'json_schema_integrity',
+      category: 'data',
+      status: 'warning',
+      message: `JSON schema integrity warnings: ${messages.join('; ')}`,
+      details,
+      fix: 'cleo upgrade',
+    };
+  }
+
+  return {
+    id: 'json_schema_integrity',
+    category: 'data',
+    status: 'passed',
+    message: `All JSON config files valid (SQLite: ${report.sqliteVersion ?? 'unknown'})`,
+    details,
+    fix: null,
+  };
+}
+
 /**
  * Run all global health checks and return results array.
  * @task T4525
@@ -537,6 +779,9 @@ export function runAllGlobalChecks(
     checkCliVersion(home),
     checkDocsAccessibility(home),
     checkAtReferenceResolution(home),
+    checkAgentsMdHub(projectRoot),
+    checkStaleAgentInjection(projectRoot),
+    checkInjectionPattern(projectRoot),
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
     checkVitalFilesTracked(projectRoot),
