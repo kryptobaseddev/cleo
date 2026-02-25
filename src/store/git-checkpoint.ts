@@ -62,20 +62,26 @@ export function isCleoGitInitialized(cleoDir: string): boolean {
 }
 
 /**
- * State files eligible for checkpointing (relative to .cleo/).
- * Includes both JSON and SQLite data files — `getChangedStateFiles()` skips
- * files that don't exist on disk, so listing both engines is safe.
+ * State files and directories eligible for checkpointing (relative to .cleo/).
+ *
+ * Only human-editable JSON config files (per ADR-006) and documentation
+ * output directories. All operational data lives in tasks.db (SQLite).
+ * tasks.db is excluded from git — backed up via VACUUM INTO rotation instead.
+ *
+ * Directory entries (trailing slash) are passed directly to git; git handles
+ * them recursively for add/diff/ls-files operations.
+ *
+ * TODO: make this list config-driven via a .cleoignore-style allowlist in
+ * config.json so users can add custom files without touching source code.
  */
 const STATE_FILES = [
-  // Always-present files
+  // Human-editable config files (ADR-006: JSON retained for human-editable config only)
   'config.json',
-  'todo-log.jsonl',
+  'project-info.json',
   'project-context.json',
-  // Metrics
-  'metrics/COMPLIANCE.jsonl',
-  'metrics/SESSIONS.jsonl',
-  'metrics/TOKEN_USAGE.jsonl',
-  'metrics/BENCHMARK.jsonl',
+  // Architecture decisions and research outputs (docs, never in SQLite)
+  'adrs/',
+  'agent-outputs/',
 ] as const;
 
 /** Debounce state file name (relative to .cleo/). */
