@@ -516,8 +516,8 @@ describe('Gate Validators', () => {
       expect(depthViolations).toHaveLength(0);
     });
 
-    // Section 8.1: Sibling limit max 7
-    it('should fail when sibling limit reached', async () => {
+    // Section 8.1: Sibling limit — MAX_SIBLINGS=0 means unlimited, so no violation fires by default
+    it('should pass when sibling count is high and limit is unlimited (default)', async () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
@@ -528,8 +528,7 @@ describe('Gate Validators', () => {
       };
 
       const result = await validateLayer3Referential(context);
-      expect(result.passed).toBe(false);
-      expect(result.violations.some(v => v.code === 'E_SIBLING_LIMIT')).toBe(true);
+      expect(result.violations.some(v => v.code === 'E_SIBLING_LIMIT')).toBe(false);
     });
 
     it('should pass when under sibling limit', async () => {
@@ -703,12 +702,12 @@ describe('Gate Validators', () => {
       expect(VALIDATION_RULES.TITLE_MIN_LENGTH).toBe(5);
       expect(VALIDATION_RULES.TITLE_MAX_LENGTH).toBe(100);
       expect(VALIDATION_RULES.DESCRIPTION_MIN_LENGTH).toBe(10);
-      expect(VALIDATION_RULES.VALID_STATUSES).toEqual(['pending', 'active', 'blocked', 'done']);
+      expect(VALIDATION_RULES.VALID_STATUSES).toEqual(['pending', 'active', 'blocked', 'done', 'cancelled', 'archived']);
       expect(VALIDATION_RULES.VALID_PRIORITIES).toEqual(['critical', 'high', 'medium', 'low']);
       expect(VALIDATION_RULES.PRIORITY_NUMERIC_MIN).toBe(1);
       expect(VALIDATION_RULES.PRIORITY_NUMERIC_MAX).toBe(9);
       expect(VALIDATION_RULES.MAX_DEPTH).toBe(3);
-      expect(VALIDATION_RULES.MAX_SIBLINGS).toBe(7);
+      expect(VALIDATION_RULES.MAX_SIBLINGS).toBe(0);
     });
 
     it('should export new Section 8 rule constants', () => {

@@ -37,7 +37,7 @@ describe('loadConfig', () => {
     const config = await loadConfig(projectDir);
     expect(config.output.defaultFormat).toBe('json');
     expect(config.hierarchy.maxDepth).toBe(3);
-    expect(config.hierarchy.maxSiblings).toBe(7);
+    expect(config.hierarchy.maxSiblings).toBe(0);
     expect(config.backup.maxSafetyBackups).toBe(5);
   });
 

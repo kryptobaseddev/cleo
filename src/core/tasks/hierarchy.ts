@@ -8,12 +8,6 @@
 
 import type { Task } from '../../types/task.js';
 
-/** Maximum nesting depth (epic -> task -> subtask). */
-const MAX_DEPTH = 3;
-
-/** Maximum siblings per parent. */
-const MAX_SIBLINGS = 7;
-
 /**
  * Get direct children of a task.
  */
@@ -154,6 +148,7 @@ export interface HierarchyValidation {
 export function validateHierarchy(
   parentId: string | null,
   tasks: Task[],
+  policy?: { maxDepth?: number; maxSiblings?: number },
 ): HierarchyValidation {
   if (!parentId) {
     return { valid: true };
@@ -169,24 +164,25 @@ export function validateHierarchy(
 
   // Check depth
   const parentDepth = getDepth(parentId, tasks);
-  if (parentDepth + 1 >= MAX_DEPTH) {
+  if (parentDepth + 1 >= (policy?.maxDepth ?? 3)) {
     return {
       valid: false,
       error: {
         code: 'E_DEPTH_EXCEEDED',
-        message: `Maximum nesting depth ${MAX_DEPTH} would be exceeded`,
+        message: `Maximum nesting depth ${policy?.maxDepth ?? 3} would be exceeded`,
       },
     };
   }
 
   // Check sibling limit
   const existingChildren = getChildren(parentId, tasks);
-  if (existingChildren.length >= MAX_SIBLINGS) {
+  const maxSiblings = policy?.maxSiblings ?? 0;
+  if (maxSiblings > 0 && existingChildren.length >= maxSiblings) {
     return {
       valid: false,
       error: {
         code: 'E_SIBLING_LIMIT',
-        message: `Parent ${parentId} already has ${MAX_SIBLINGS} children (max)`,
+        message: `Parent ${parentId} already has ${maxSiblings} children (max)`,
       },
     };
   }

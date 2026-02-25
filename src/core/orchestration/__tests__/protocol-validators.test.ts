@@ -262,7 +262,7 @@ describe('Decomposition Protocol', () => {
   it('fails with too many siblings', () => {
     const result = validateDecompositionProtocol(
       validEntry('decomposition'),
-      { siblingCount: 10 },
+      { siblingCount: 10, maxSiblings: 7 },
     );
     expect(result.valid).toBe(false);
     expect(result.violations).toContainEqual(

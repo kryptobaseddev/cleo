@@ -1,3 +1,16 @@
+---
+id: CONT
+title: Contribution Protocol
+version: 1.0.0
+status: active
+type: cross-cutting
+audience: [llm-agent, orchestrator]
+tags: [contribution, commit, pr]
+skillRef: ct-contribution
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Contribution Protocol
 
 **Provenance**: @task T3155, @epic T3147

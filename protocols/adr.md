@@ -1,3 +1,16 @@
+---
+id: ADR
+title: Architecture Decision Record Protocol
+version: 1.0.0
+status: active
+type: conditional
+audience: [llm-agent, orchestrator]
+tags: [adr, architecture, decisions]
+skillRef: ct-spec-writer
+lastUpdated: 2026-02-24
+enforcement: advisory
+---
+
 # Architecture Decision Record (ADR) Protocol
 
 **Provenance**: @task T4798 (ADR-006 Implementation)

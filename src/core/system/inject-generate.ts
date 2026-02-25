@@ -157,9 +157,13 @@ ${focusLine}
 | 4 | \`E_NOT_FOUND\` | Use \`ct find\` or \`ct list\` to verify |
 | 6 | \`E_VALIDATION\` | Check field lengths, escape \`$\` as \`\\$\` |
 | 10 | \`E_PARENT_NOT_FOUND\` | Verify with \`ct exists <parent-id>\` |
-| 11 | \`E_DEPTH_EXCEEDED\` | Max depth 3 (epic->task->subtask) |
-| 12 | \`E_SIBLING_LIMIT\` | Max 7 siblings per parent |
+| 11 | \`E_DEPTH_EXCEEDED\` | Exceeds configured hierarchy.maxDepth (default: 3) |
+| 12 | \`E_SIBLING_LIMIT\` | Exceeds configured maxSiblings (default: unlimited) |
 
 **After EVERY command**: Check exit code (\`0\` = success), check \`"success"\` in JSON output, execute \`error.fix\` if provided.
+
+### Detailed Guidance
+
+For full protocol details, load the **ct-cleo** skill: \`cleo_query({ domain: "skills", operation: "show", params: { name: "ct-cleo" }})\`
 `;
 }
