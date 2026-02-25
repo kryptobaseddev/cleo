@@ -12,7 +12,7 @@ const mockLoadArchive = vi.fn();
 
 vi.mock('../../store/data-accessor.js', () => ({
   getAccessor: vi.fn().mockResolvedValue({
-    engine: 'json',
+    engine: 'sqlite',
     loadArchive: (...args: unknown[]) => mockLoadArchive(...args),
     close: vi.fn(),
   }),

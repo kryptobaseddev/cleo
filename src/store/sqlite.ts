@@ -31,8 +31,9 @@ import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from '
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
 
-/** Schema version for newly created databases. */
-const SCHEMA_VERSION = '2.0.0';
+/** Schema version for newly created databases. Single source of truth. */
+export const SQLITE_SCHEMA_VERSION = '2.0.0';
+const SCHEMA_VERSION = SQLITE_SCHEMA_VERSION;
 
 /** Singleton state for lazy initialization. */
 let _db: SqliteRemoteDatabase<typeof schema> | null = null;
@@ -91,6 +92,9 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
     // Seed schema version for new databases (no-op if already set)
     nativeDb.exec(
       `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
+    );
+    nativeDb.exec(
+      `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('task_id_sequence', '{"counter":0,"lastId":"T000","checksum":"seed"}')`,
     );
 
     // Set singleton only after migrations complete

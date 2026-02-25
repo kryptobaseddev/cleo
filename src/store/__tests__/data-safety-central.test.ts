@@ -100,7 +100,7 @@ describe('Data Safety Central', () => {
     _logs: Record<string, unknown>[];
   } {
     const mock = {
-      engine: 'json' as const,
+      engine: 'sqlite' as const,
       _taskFile: makeTaskFile(),
       _sessions: makeSessionsFile(),
       _archive: null as ArchiveFile | null,

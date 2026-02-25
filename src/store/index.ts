@@ -20,7 +20,6 @@ export {
 export type { SaveJsonOptions } from './json.js';
 export {
   createStoreProvider,
-  detectStoreEngine,
 } from './provider.js';
 export type {
   StoreProvider,
@@ -38,8 +37,6 @@ export type {
   TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry,
   AnalysisResult,
 } from './provider.js';
-export { createJsonStoreProvider } from './json-provider.js';
-
 // Safety-enabled DataAccessor exports (@task T4745)
 export {
   SafetyDataAccessor,
@@ -57,6 +54,7 @@ export {
   disableSafety,
   enableSafety,
 } from './data-safety-central.js';
+export { forceCheckpointBeforeOperation } from './data-safety.js';
 
 /**
  * Get a StoreProvider instance for the given working directory.

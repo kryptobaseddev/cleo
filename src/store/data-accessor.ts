@@ -2,15 +2,13 @@
  * DataAccessor: File-level storage abstraction for core modules.
  *
  * Core modules operate on whole-file data structures (TaskFile, ArchiveFile, SessionsFile).
- * The DataAccessor abstracts WHERE that data is stored (JSON files vs SQLite)
+ * The DataAccessor abstracts WHERE that data is stored (SQLite via Drizzle ORM)
  * while preserving the read-modify-write pattern that core business logic relies on.
  *
  * This is the DRY/SOLID injection point: core modules accept a DataAccessor parameter
  * instead of calling readJson/saveJson directly.
  *
- * Two implementations:
- * - JsonDataAccessor: reads/writes .cleo/*.json files (current behavior)
- * - SqliteDataAccessor: materializes/dematerializes from SQLite tables
+ * Implementation: SqliteDataAccessor (materializes/dematerializes from SQLite tables)
  *
  * @epic T4454
  */
@@ -43,9 +41,9 @@ export interface SessionsFile {
  */
 export interface DataAccessor {
   /** The storage engine backing this accessor. */
-  readonly engine: 'json' | 'sqlite';
+  readonly engine: 'sqlite';
 
-  // ---- Task data (tasks.json equivalent) ----
+  // ---- Task data ----
 
   /** Load the full TaskFile (tasks + project meta + work state). */
   loadTaskFile(): Promise<TaskFile>;
@@ -59,7 +57,7 @@ export interface DataAccessor {
   /** @deprecated Use saveTaskFile() instead. */
   saveTodoFile(data: TaskFile): Promise<void>;
 
-  // ---- Archive data (todo-archive.json equivalent) ----
+  // ---- Archive data ----
 
   /** Load the archive file. Returns null if archive doesn't exist. */
   loadArchive(): Promise<ArchiveFile | null>;
@@ -67,7 +65,7 @@ export interface DataAccessor {
   /** Save the archive file atomically. Creates backup before write. */
   saveArchive(data: ArchiveFile): Promise<void>;
 
-  // ---- Session data (sessions.json equivalent) ----
+  // ---- Session data ----
 
   /** Load the sessions file. Returns empty sessions array if file doesn't exist. */
   loadSessions(): Promise<SessionsFile>;
@@ -75,7 +73,7 @@ export interface DataAccessor {
   /** Save the sessions file atomically. */
   saveSessions(data: SessionsFile): Promise<void>;
 
-  // ---- Audit log (todo-log.jsonl equivalent) ----
+  // ---- Audit log ----
 
   /** Append an entry to the audit log. */
   appendLog(entry: Record<string, unknown>): Promise<void>;
@@ -84,40 +82,35 @@ export interface DataAccessor {
 
   /** Release any resources (close DB connections, etc.). */
   close(): Promise<void>;
+
+  // ---- Metadata (schema_meta KV store) ----
+
+  /** Read a typed value from the metadata store. Returns null if not found. */
+  getMetaValue?<T>(key: string): Promise<T | null>;
+
+  /** Write a typed value to the metadata store. */
+  setMetaValue?(key: string, value: unknown): Promise<void>;
+
+  /** Read the schema version from metadata. Convenience for getMetaValue('schema_version'). */
+  getSchemaVersion?(): Promise<string | null>;
 }
 
 /**
  * Create a DataAccessor for the given working directory.
- * Auto-detects engine from .cleo/config.json (storage.engine field).
+ * Always creates a SQLite accessor (ADR-006 canonical storage).
  *
  * ALL accessors returned are safety-enabled by default via SafetyDataAccessor wrapper.
  * Use CLEO_DISABLE_SAFETY=true to bypass (emergency only).
  *
- * @param engine - Force a specific engine, or undefined for auto-detect
+ * @param _engine - Ignored. Kept for API compatibility during migration period.
  * @param cwd - Working directory (defaults to process.cwd())
  */
 export async function createDataAccessor(
-  engine?: 'json' | 'sqlite',
+  _engine?: 'sqlite',
   cwd?: string,
 ): Promise<DataAccessor> {
-  const resolvedEngine = engine ?? (await detectEngine(cwd));
-
-  // Create the inner accessor based on engine
-  let inner: DataAccessor;
-  switch (resolvedEngine) {
-    case 'sqlite': {
-      const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
-      inner = await createSqliteDataAccessor(cwd);
-      break;
-    }
-
-    case 'json':
-    default: {
-      const { createJsonDataAccessor } = await import('./json-data-accessor.js');
-      inner = await createJsonDataAccessor(cwd);
-      break;
-    }
-  }
+  const { createSqliteDataAccessor } = await import('./sqlite-data-accessor.js');
+  const inner = await createSqliteDataAccessor(cwd);
 
   // Always wrap with safety - cannot be bypassed at factory level
   const { wrapWithSafety } = await import('./safety-data-accessor.js');
@@ -127,36 +120,4 @@ export async function createDataAccessor(
 /** Convenience: get a DataAccessor with auto-detected engine. */
 export async function getAccessor(cwd?: string): Promise<DataAccessor> {
   return createDataAccessor(undefined, cwd);
-}
-
-// ---- Internal helpers ----
-
-async function detectEngine(cwd?: string): Promise<'json' | 'sqlite' > {
-  try {
-    const { existsSync, readFileSync } = await import('node:fs');
-    const { getCleoDirAbsolute } = await import('../core/paths.js');
-    const cleoDir = getCleoDirAbsolute(cwd);
-    const configPath = (await import('node:path')).join(cleoDir, 'config.json');
-
-    if (existsSync(configPath)) {
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      const engine = config?.storage?.engine;
-      if (engine === 'sqlite' || engine === 'json') {
-        return engine;
-      }
-    }
-
-    const { join } = await import('node:path');
-
-    // Auto-detect: if tasks.db exists, use sqlite
-    if (existsSync(join(cleoDir, 'tasks.db'))) return 'sqlite';
-
-    // Backward compat: if todo.json or tasks.json exists (but no tasks.db), keep json
-    if (existsSync(join(cleoDir, 'todo.json'))) return 'json';
-    if (existsSync(join(cleoDir, 'tasks.json'))) return 'json';
-  } catch {
-    // Fall through to default
-  }
-  // Default: sqlite (ADR-006 canonical storage for new projects)
-  return 'sqlite';
 }

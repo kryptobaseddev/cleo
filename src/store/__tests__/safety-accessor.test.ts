@@ -69,7 +69,7 @@ describe('SafetyDataAccessor', () => {
     };
 
     return {
-      engine: 'json' as const,
+      engine: 'sqlite' as const,
       async loadTaskFile() { return data.taskFile; },
       async saveTaskFile(d: TaskFile) { data.taskFile = d; },
       async loadTodoFile() { return data.taskFile; },
@@ -94,7 +94,7 @@ describe('SafetyDataAccessor', () => {
 
       expect(isSafetyEnabled()).toBe(true);
       // Wrapped accessor should have same engine property
-      expect(wrapped.engine).toBe('json');
+      expect(wrapped.engine).toBe('sqlite');
     });
 
     it('should bypass safety when CLEO_DISABLE_SAFETY=true', async () => {

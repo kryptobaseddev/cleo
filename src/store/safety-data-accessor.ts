@@ -23,6 +23,9 @@ import {
   safeAppendLog,
   type SafetyOptions,
 } from './data-safety-central.js';
+import { getLogger } from '../core/logger.js';
+
+const log = getLogger('data-safety');
 
 /** Safety configuration for the wrapper. */
 interface WrapperSafetyConfig {
@@ -77,21 +80,21 @@ export class SafetyDataAccessor implements DataAccessor {
     };
 
     if (this.config.verbose) {
-      console.log(`[SafetyDataAccessor] Initialized with engine: ${inner.engine}`);
+      log.debug({ engine: inner.engine }, 'SafetyDataAccessor initialized');
     }
   }
 
   /** The storage engine backing this accessor. */
-  get engine(): 'json' | 'sqlite' {
+  get engine(): 'sqlite' {
     return this.inner.engine;
   }
 
   /**
    * Log safety operation if verbose mode is enabled.
    */
-  private log(message: string): void {
+  private logVerbose(message: string): void {
     if (this.config.verbose) {
-      console.log(`[SafetyDataAccessor] ${message}`);
+      log.debug(message);
     }
   }
 
@@ -110,18 +113,18 @@ export class SafetyDataAccessor implements DataAccessor {
   // ---- Read operations (pass-through) ----
 
   async loadTaskFile(): Promise<TaskFile> {
-    this.log('Loading TaskFile (pass-through)');
+    this.logVerbose('Loading TaskFile (pass-through)');
     // Call deprecated method on inner accessor (underlying implementations use old names)
     return this.inner.loadTaskFile();
   }
 
   async loadArchive(): Promise<ArchiveFile | null> {
-    this.log('Loading ArchiveFile (pass-through)');
+    this.logVerbose('Loading ArchiveFile (pass-through)');
     return this.inner.loadArchive();
   }
 
   async loadSessions(): Promise<SessionsFile> {
-    this.log('Loading SessionsFile (pass-through)');
+    this.logVerbose('Loading SessionsFile (pass-through)');
     return this.inner.loadSessions();
   }
 
@@ -133,7 +136,7 @@ export class SafetyDataAccessor implements DataAccessor {
   // ---- Write operations (with safety) ----
 
   async saveTaskFile(data: TaskFile): Promise<void> {
-    this.log(`Saving TaskFile with ${data.tasks?.length ?? 0} tasks`);
+    this.logVerbose(`Saving TaskFile with ${data.tasks?.length ?? 0} tasks`);
     await safeSaveTaskFile(this.inner, data, this.cwd, this.getSafetyOptions());
   }
 
@@ -143,24 +146,38 @@ export class SafetyDataAccessor implements DataAccessor {
   }
 
   async saveSessions(data: SessionsFile): Promise<void> {
-    this.log(`Saving SessionsFile with ${data.sessions?.length ?? 0} sessions`);
+    this.logVerbose(`Saving SessionsFile with ${data.sessions?.length ?? 0} sessions`);
     await safeSaveSessions(this.inner, data, this.cwd, this.getSafetyOptions());
   }
 
   async saveArchive(data: ArchiveFile): Promise<void> {
-    this.log(`Saving ArchiveFile with ${data.archivedTasks?.length ?? 0} tasks`);
+    this.logVerbose(`Saving ArchiveFile with ${data.archivedTasks?.length ?? 0} tasks`);
     await safeSaveArchive(this.inner, data, this.cwd, this.getSafetyOptions());
   }
 
   async appendLog(entry: Record<string, unknown>): Promise<void> {
-    this.log('Appending log entry');
+    this.logVerbose('Appending log entry');
     await safeAppendLog(this.inner, entry, this.cwd, this.getSafetyOptions());
+  }
+
+  // ---- Metadata (pass-through to inner) ----
+
+  async getMetaValue<T>(key: string): Promise<T | null> {
+    return this.inner.getMetaValue?.(key) ?? null;
+  }
+
+  async setMetaValue(key: string, value: unknown): Promise<void> {
+    return this.inner.setMetaValue?.(key, value);
+  }
+
+  async getSchemaVersion(): Promise<string | null> {
+    return this.inner.getSchemaVersion?.() ?? null;
   }
 
   // ---- Lifecycle ----
 
   async close(): Promise<void> {
-    this.log('Closing accessor');
+    this.logVerbose('Closing accessor');
     await this.inner.close();
   }
 }
@@ -181,8 +198,7 @@ export function wrapWithSafety(
 ): DataAccessor {
   // Check for emergency disable
   if (isSafetyDisabled()) {
-    console.warn('⚠️  SAFETY DISABLED - EMERGENCY MODE (CLEO_DISABLE_SAFETY=true)');
-    console.warn('⚠️  Data integrity checks are bypassed. Use with extreme caution!');
+    log.warn('Safety disabled - emergency mode (CLEO_DISABLE_SAFETY=true). Data integrity checks bypassed.');
     return accessor;
   }
 
