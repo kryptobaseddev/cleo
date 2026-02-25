@@ -20,11 +20,14 @@ export type {
   LAFSError,
   LAFSErrorCategory,
   LAFSPage,
+  LAFSPageOffset,
+  LAFSPageNone,
   LAFSEnvelope,
   LAFSTransport,
   ConformanceReport,
   FlagInput,
   MVILevel,
+  Warning,
 } from '@cleocode/lafs-protocol';
 
 // ---------------------------------------------------------------------------
