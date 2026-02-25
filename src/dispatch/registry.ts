@@ -639,48 +639,8 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    operation: 'roadmap',
-    description: 'admin.roadmap (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'admin',
-    operation: 'labels',
-    description: 'admin.labels (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'admin',
-    operation: 'compliance',
-    description: 'admin.compliance (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'admin',
     operation: 'log',
     description: 'admin.log (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'admin',
-    operation: 'archive.stats',
-    description: 'admin.archive.stats (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -1559,6 +1519,6 @@ export function getCounts(): { query: number; mutate: number; total: number } {
 
 // Module load validation
 const counts = getCounts();
-if (counts.query !== 81 || counts.mutate !== 64) {
-  console.warn(`[Registry] Expected 81 query & 64 mutate ops, got ${counts.query} query & ${counts.mutate} mutate.`);
+if (counts.query !== 77 || counts.mutate !== 64) {
+  console.warn(`[Registry] Expected 77 query & 64 mutate ops, got ${counts.query} query & ${counts.mutate} mutate.`);
 }

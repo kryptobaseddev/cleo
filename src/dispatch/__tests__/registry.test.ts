@@ -12,12 +12,12 @@ import {
 
 describe('Operation Registry', () => {
   describe('Module validation', () => {
-    it('should have exactly 145 operations registered (81Q + 64M)', () => {
+    it('should have exactly 141 operations registered (77Q + 64M)', () => {
       const counts = getCounts();
-      expect(counts.query).toBe(81);
+      expect(counts.query).toBe(77);
       expect(counts.mutate).toBe(64);
-      expect(counts.total).toBe(145);
-      expect(OPERATIONS.length).toBe(145);
+      expect(counts.total).toBe(141);
+      expect(OPERATIONS.length).toBe(141);
     });
 
     it('should cover all 9 canonical domains', () => {
@@ -122,7 +122,7 @@ describe('Operation Registry', () => {
 
     it('should get operations by gateway', () => {
       const queryOps = getByGateway('query');
-      expect(queryOps.length).toBe(81);
+      expect(queryOps.length).toBe(77);
       expect(queryOps.every(o => o.gateway === 'query')).toBe(true);
 
       const mutateOps = getByGateway('mutate');
@@ -135,7 +135,7 @@ describe('Operation Registry', () => {
       expect(tier0.every(o => o.tier === 0)).toBe(true);
 
       const allTiers = getByTier(2);
-      expect(allTiers.length).toBe(145);
+      expect(allTiers.length).toBe(141);
     });
   });
 });
