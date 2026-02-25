@@ -18,8 +18,11 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
+import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import * as schema from './schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
@@ -35,8 +38,8 @@ const SCHEMA_VERSION = '2.0.0';
 let _db: SqliteRemoteDatabase<typeof schema> | null = null;
 let _nativeDb: DatabaseSync | null = null;
 let _dbPath: string | null = null;
-/** Track whether the DB was loaded from an existing file or created fresh. */
-let _isNewDb = false;
+/** Guard against concurrent initialization (async migration). */
+let _initPromise: Promise<SqliteRemoteDatabase<typeof schema>> | null = null;
 
 /**
  * Get the path to the SQLite database file.
@@ -49,6 +52,9 @@ export function getDbPath(cwd?: string): string {
  * Initialize the SQLite database (lazy, singleton).
  * Creates the database file and tables if they don't exist.
  * Returns the drizzle ORM instance (async via sqlite-proxy).
+ *
+ * Uses a promise guard so concurrent callers wait for the same
+ * initialization to complete (migrations are async).
  */
 export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof schema>> {
   const requestedPath = getDbPath(cwd);
@@ -60,150 +66,122 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
 
   if (_db) return _db;
 
-  const dbPath = requestedPath;
-  _dbPath = dbPath;
+  // If already initializing, wait for the in-flight init
+  if (_initPromise) return _initPromise;
 
-  // Ensure directory exists
-  mkdirSync(dirname(dbPath), { recursive: true });
+  _initPromise = (async () => {
+    const dbPath = requestedPath;
+    _dbPath = dbPath;
 
-  // Open file-backed SQLite via node:sqlite with WAL mode
-  _isNewDb = !existsSync(dbPath);
-  const nativeDb = openNativeDatabase(dbPath);
-  _nativeDb = nativeDb;
+    // Ensure directory exists
+    mkdirSync(dirname(dbPath), { recursive: true });
 
-  // Create drizzle ORM wrapper via sqlite-proxy
-  const callback = createDrizzleCallback(nativeDb);
-  const batchCb = createBatchCallback(nativeDb);
-  const db = drizzle(callback, batchCb, { schema });
-  _db = db;
+    // Open file-backed SQLite via node:sqlite with WAL mode
+    const nativeDb = openNativeDatabase(dbPath);
+    _nativeDb = nativeDb;
 
-  // Ensure tables exist
-  createTablesIfNeeded(nativeDb);
+    // Create drizzle ORM wrapper via sqlite-proxy
+    const callback = createDrizzleCallback(nativeDb);
+    const batchCb = createBatchCallback(nativeDb);
+    const db = drizzle(callback, batchCb, { schema });
 
-  return db;
-}
+    // Run drizzle migrations (creates/updates tables)
+    await runMigrations(nativeDb, db);
 
-/**
- * Create all tables if they don't exist.
- * Uses raw SQL via node:sqlite DatabaseSync.exec() since drizzle-kit
- * migrations aren't needed for initial setup.
- *
- * With node:sqlite, writes go directly to disk via WAL -- no saveToFile() needed.
- *
- * @task T4810 - Only writes schema version for NEW databases.
- * Existing databases retain their schema version.
- */
-export function createTablesIfNeeded(nativeDb: DatabaseSync): void {
-  nativeDb.exec(`
-    CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'pending'
-        CHECK(status IN ('pending','active','blocked','done','cancelled','archived')),
-      priority TEXT NOT NULL DEFAULT 'medium'
-        CHECK(priority IN ('critical','high','medium','low')),
-      type TEXT CHECK(type IN ('epic','task','subtask')),
-      parent_id TEXT REFERENCES tasks(id),
-      phase TEXT,
-      size TEXT CHECK(size IN ('small','medium','large')),
-      position INTEGER,
-      position_version INTEGER DEFAULT 0,
-      labels_json TEXT DEFAULT '[]',
-      notes_json TEXT DEFAULT '[]',
-      acceptance_json TEXT DEFAULT '[]',
-      files_json TEXT DEFAULT '[]',
-      origin TEXT,
-      blocked_by TEXT,
-      epic_lifecycle TEXT,
-      no_auto_complete INTEGER,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT,
-      completed_at TEXT,
-      cancelled_at TEXT,
-      cancellation_reason TEXT,
-      archived_at TEXT,
-      archive_reason TEXT,
-      cycle_time_days INTEGER,
-      verification_json TEXT,
-      created_by TEXT,
-      modified_by TEXT,
-      session_id TEXT
-    );
-  `);
-
-  nativeDb.exec(`
-    CREATE TABLE IF NOT EXISTS task_dependencies (
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      depends_on TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      PRIMARY KEY (task_id, depends_on)
-    );
-  `);
-
-  nativeDb.exec(`
-    CREATE TABLE IF NOT EXISTS task_relations (
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      related_to TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      relation_type TEXT NOT NULL DEFAULT 'related'
-        CHECK(relation_type IN ('related','blocks','duplicates')),
-      PRIMARY KEY (task_id, related_to)
-    );
-  `);
-
-  nativeDb.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active'
-        CHECK(status IN ('active','ended','orphaned','suspended')),
-      scope_json TEXT NOT NULL DEFAULT '{}',
-      current_task TEXT,
-      task_started_at TEXT,
-      agent TEXT,
-      notes_json TEXT DEFAULT '[]',
-      tasks_completed_json TEXT DEFAULT '[]',
-      tasks_created_json TEXT DEFAULT '[]',
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      ended_at TEXT
-    );
-  `);
-
-  nativeDb.exec(`
-    CREATE TABLE IF NOT EXISTS task_work_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      task_id TEXT NOT NULL,
-      set_at TEXT NOT NULL DEFAULT (datetime('now')),
-      cleared_at TEXT
-    );
-  `);
-
-  nativeDb.exec(`
-    CREATE TABLE IF NOT EXISTS schema_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
-
-  // Create indexes (IF NOT EXISTS)
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);');
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);');
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase);');
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);');
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);');
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON task_dependencies(depends_on);');
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);');
-  nativeDb.exec('CREATE INDEX IF NOT EXISTS idx_work_history_session ON task_work_history(session_id);');
-
-  // Only set schema version for NEW databases.
-  // Existing databases already have their version and data.
-  if (_isNewDb) {
+    // Seed schema version for new databases (no-op if already set)
     nativeDb.exec(
-      `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
+      `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
     );
+
+    // Set singleton only after migrations complete
+    _db = db;
+    return db;
+  })();
+
+  try {
+    return await _initPromise;
+  } finally {
+    _initPromise = null;
   }
 }
 
+/**
+ * Resolve the path to the drizzle migrations folder.
+ * Works from both src/ (dev via tsx) and dist/ (compiled).
+ */
+export function resolveMigrationsFolder(): string {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  // Both src/store/ and dist/store/ are 2 levels deep from package root
+  return join(__dirname, '..', '..', 'drizzle');
+}
+
+/**
+ * Check whether a table exists in the SQLite database.
+ */
+function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
+  const result = nativeDb.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+  ).get(tableName) as Record<string, unknown> | undefined;
+  return !!result;
+}
+
+/**
+ * Run drizzle migrations to create/update tables.
+ *
+ * Handles three cases:
+ * 1. New database — runs all migrations from scratch.
+ * 2. Existing database created by legacy createTablesIfNeeded() — bootstraps
+ *    the baseline migration as already applied, then runs remaining migrations.
+ * 3. Already-migrated database — runs only pending migrations.
+ *
+ * @task T4837 - ADR-012 drizzle-kit migration system
+ */
+async function runMigrations(
+  nativeDb: DatabaseSync,
+  db: SqliteRemoteDatabase<typeof schema>,
+): Promise<void> {
+  const migrationsFolder = resolveMigrationsFolder();
+
+  // Bootstrap existing databases that predate drizzle migrations (ADR-012 Step D).
+  // These have tables (e.g., 'tasks') but no __drizzle_migrations record.
+  // Mark the baseline migration as already applied so migrate() doesn't
+  // try to re-create existing tables.
+  if (tableExists(nativeDb, 'tasks') && !tableExists(nativeDb, '__drizzle_migrations')) {
+    const migrations = readMigrationFiles({ migrationsFolder });
+    const baseline = migrations[0];
+    if (baseline) {
+      nativeDb.exec(`
+        CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+          id SERIAL PRIMARY KEY,
+          hash text NOT NULL,
+          created_at numeric
+        )
+      `);
+      nativeDb.exec(
+        `INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES ('${baseline.hash}', ${baseline.folderMillis})`,
+      );
+    }
+  }
+
+  // Run pending migrations via drizzle-orm/sqlite-proxy/migrator.
+  // Each batch of queries (one migration) is wrapped in an explicit transaction.
+  // drizzle appends INSERT INTO __drizzle_migrations as the final query in the
+  // batch. Without a transaction, a failed CREATE TABLE leaves the hash
+  // unrecorded, causing the same migration to re-run and crash on every startup.
+  await migrate(db, async (queries: string[]) => {
+    nativeDb.prepare('BEGIN').run();
+    try {
+      for (const query of queries) {
+        nativeDb.prepare(query).run();
+      }
+      nativeDb.prepare('COMMIT').run();
+    } catch (err) {
+      nativeDb.prepare('ROLLBACK').run();
+      throw err;
+    }
+  }, { migrationsFolder });
+}
 
 /**
  * Close the database connection and release resources.
@@ -241,7 +219,7 @@ export function resetDbState(): void {
   }
   _db = null;
   _dbPath = null;
-  _isNewDb = false;
+  _initPromise = null;
 }
 
 /**
