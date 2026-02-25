@@ -969,16 +969,6 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'tasks',
-    operation: 'uncancel',
-    description: 'tasks.uncancel (mutate) — alias for tasks.restore',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tasks',
     operation: 'start',
     description: 'tasks.start (mutate)',
     tier: 0,
@@ -1389,16 +1379,6 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'admin',
-    operation: 'uncancel',
-    description: 'admin.uncancel (mutate) — alias for admin.restore',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'admin',
     operation: 'inject.generate',
     description: 'admin.inject.generate (mutate)',
     tier: 0,
@@ -1579,6 +1559,6 @@ export function getCounts(): { query: number; mutate: number; total: number } {
 
 // Module load validation
 const counts = getCounts();
-if (counts.query !== 81 || counts.mutate !== 66) {
-  console.warn(`[Registry] Expected 81 query & 66 mutate ops, got ${counts.query} query & ${counts.mutate} mutate.`);
+if (counts.query !== 81 || counts.mutate !== 64) {
+  console.warn(`[Registry] Expected 81 query & 64 mutate ops, got ${counts.query} query & ${counts.mutate} mutate.`);
 }

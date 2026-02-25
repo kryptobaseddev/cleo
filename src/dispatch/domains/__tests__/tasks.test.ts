@@ -89,7 +89,7 @@ describe('TasksHandler', () => {
       expect(ops.mutate).toEqual([
         'add', 'update', 'complete', 'delete', 'archive', 'restore',
         'reparent', 'promote', 'reorder', 'reopen', 'relates.add',
-        'uncancel', 'start', 'stop',
+        'start', 'stop',
       ]);
     });
   });
@@ -133,7 +133,16 @@ describe('TasksHandler', () => {
       const result = await handler.query('find', { query: 'test', limit: 10 });
 
       expect(result.success).toBe(true);
-      expect(taskFind).toHaveBeenCalledWith('/mock/project', 'test', 10);
+      expect(taskFind).toHaveBeenCalledWith('/mock/project', {
+        query: 'test',
+        id: undefined,
+        exact: undefined,
+        status: undefined,
+        field: undefined,
+        includeArchive: undefined,
+        limit: 10,
+        offset: undefined,
+      });
     });
 
     it('exists - delegates to taskExists', async () => {
@@ -350,15 +359,6 @@ describe('TasksHandler', () => {
       const result = await handler.mutate('relates.add', { taskId: 'T001' });
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
-    });
-
-    it('uncancel - delegates to taskRestore', async () => {
-      vi.mocked(taskRestore).mockResolvedValue({ success: true, data: { task: 'T001', restored: ['T001'], count: 1 } });
-
-      const result = await handler.mutate('uncancel', { taskId: 'T001' });
-
-      expect(result.success).toBe(true);
-      expect(taskRestore).toHaveBeenCalledWith('/mock/project', 'T001');
     });
 
     it('start - delegates to taskStart', async () => {

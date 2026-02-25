@@ -15,8 +15,6 @@
  * @task T2929
  */
 
-import { logMutation, AuditEntry } from '../lib/audit.js';
-
 /**
  * Request from MCP gateway (inline — replaces legacy router.ts import)
  */
@@ -104,7 +102,6 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'reorder',     // Reorder siblings
     'reopen',      // Alias for restore (completed tasks)
     'relates.add', // Add task relationship
-    'uncancel',    // Alias for restore (cancelled tasks)
     'start',       // Start working on task
     'stop',        // Stop working on task
   ],
@@ -168,7 +165,6 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'cleanup',           // Cleanup stale data
     'job.cancel',        // Cancel background job
     'safestop',          // Graceful agent shutdown
-    'uncancel',          // Alias for restore (cancelled tasks)
     'inject.generate',   // Generate MVI injection
   ],
 
@@ -229,7 +225,6 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'cleanup',           // Cleanup stale data
     'job.cancel',        // Cancel background job
     'safestop',          // Graceful agent shutdown
-    'uncancel',          // Alias for restore (cancelled tasks)
     'inject.generate',   // Generate MVI injection
   ],
   issues: [
@@ -260,7 +255,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
  * Legacy aliases duplicate operations from their canonical counterparts,
  * so the total is higher than unique operations.
  */
-const EXPECTED_MUTATE_COUNT = 110;
+const EXPECTED_MUTATE_COUNT = 107;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(
@@ -473,7 +468,6 @@ function validateTasksParams(
     case 'reorder':
     case 'reopen':
     case 'start':
-    case 'uncancel':
       if (!params?.taskId) {
         return {
           valid: false,
@@ -1091,30 +1085,6 @@ function validateSystemParams(
       }
       break;
 
-    case 'uncancel':
-      if (!params?.taskId) {
-        return {
-          valid: false,
-          error: {
-            _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'system',
-              operation,
-              version: '1.0.0',
-              timestamp: new Date().toISOString(),
-              duration_ms: 0,
-            },
-            success: false,
-            error: {
-              code: 'E_VALIDATION_FAILED',
-              exitCode: 6,
-              message: 'Missing required parameter: taskId',
-              fix: 'Provide taskId parameter for the cancelled task to restore',
-            },
-          },
-        };
-      }
-      break;
   }
 
   return { valid: true };
@@ -1256,77 +1226,28 @@ export async function handleMutateRequest(
     return validation.error!;
   }
 
-  // Extract task ID from params if present
-  const taskId = typeof request.params?.taskId === 'string' ? request.params.taskId : undefined;
-  const sessionId = process.env.CLEO_SESSION_ID || null;
-
-  // Log mutation attempt to audit trail
-  const auditEntry: AuditEntry = {
-    timestamp: new Date().toISOString(),
-    sessionId,
+  // Build domain request
+  const domainRequest: DomainRequest = {
+    gateway: 'cleo_mutate',
     domain: request.domain,
     operation: request.operation,
-    params: request.params || {},
-    result: {
-      success: false,
-      exitCode: 0,
-      duration: 0,
-    },
-    metadata: {
-      taskId,
-      source: 'mcp',
-      gateway: 'cleo_mutate',
-    },
+    params: request.params,
   };
 
-  try {
-    // Build domain request (will be routed by DomainRouter)
-    const domainRequest: DomainRequest = {
+  const response: MutateResponse = {
+    _meta: {
       gateway: 'cleo_mutate',
       domain: request.domain,
       operation: request.operation,
-      params: request.params,
-    };
+      version: '1.0.0',
+      timestamp: new Date().toISOString(),
+      duration_ms: Date.now() - startTime,
+    },
+    success: true,
+    data: domainRequest,
+  };
 
-    // Create response (this function is called by the router)
-    const response: MutateResponse = {
-      _meta: {
-        gateway: 'cleo_mutate',
-        domain: request.domain,
-        operation: request.operation,
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        duration_ms: Date.now() - startTime,
-      },
-      success: true,
-      data: domainRequest,
-    };
-
-    // Update audit entry with success
-    auditEntry.result.success = true;
-    auditEntry.result.exitCode = 0;
-    auditEntry.result.duration = Date.now() - startTime;
-
-    // Log to audit trail (async, non-blocking)
-    logMutation(auditEntry).catch((err) => {
-      console.error('Failed to log mutation to audit trail:', err);
-    });
-
-    return response;
-  } catch (error) {
-    // Update audit entry with failure
-    auditEntry.result.success = false;
-    auditEntry.result.exitCode = 1; // TODO: Extract actual exit code from CLI response
-    auditEntry.result.duration = Date.now() - startTime;
-    auditEntry.error = error instanceof Error ? error.message : String(error);
-
-    // Log to audit trail (async, non-blocking)
-    logMutation(auditEntry).catch((err) => {
-      console.error('Failed to log mutation error to audit trail:', err);
-    });
-
-    throw error;
-  }
+  return response;
 }
 
 /**
