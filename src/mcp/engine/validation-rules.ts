@@ -7,7 +7,7 @@
  * - No duplicate task descriptions
  * - Unique IDs across todo.json AND todo-archive.json
  * - Valid status transitions
- * - Hierarchy constraints (max depth 3, max 7 siblings)
+ * - Hierarchy constraints (configurable max depth, configurable max siblings; 0 = unlimited)
  */
 
 /**
@@ -179,7 +179,7 @@ export function validateHierarchy(
   }
 
   const maxDepth = limits?.maxDepth ?? 3;
-  const maxSiblings = limits?.maxSiblings ?? 7;
+  const maxSiblings = limits?.maxSiblings ?? 0;
 
   // Find parent
   const parent = tasks.find((t) => t.id === parentId);
@@ -214,7 +214,7 @@ export function validateHierarchy(
 
   // Check sibling count
   const siblingCount = tasks.filter((t) => t.parentId === parentId).length;
-  if (siblingCount >= maxSiblings) {
+  if (maxSiblings > 0 && siblingCount >= maxSiblings) {
     violations.push({
       rule: 'max-siblings',
       field: 'parentId',

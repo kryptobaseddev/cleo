@@ -1,0 +1,404 @@
+{
+  "_comment": "Manual dispatch routing rules merged with SKILL.md frontmatter to generate manifest.json",
+  "dispatch_matrix": {
+    "_comment": "Maps task types/keywords to skill NAMES (protocol identifiers). All spawns use 'cleo-subagent' with the selected skill as context injection.",
+    "by_task_type": {
+      "research": "ct-research-agent",
+      "planning": "ct-epic-architect",
+      "implementation": "ct-task-executor",
+      "testing": "ct-test-writer-bats",
+      "documentation": "ct-documentor",
+      "specification": "ct-spec-writer",
+      "validation": "ct-validator",
+      "bash-library": "ct-library-implementer-bash",
+      "release": "ct-dev-workflow",
+      "consensus": "ct-validator",
+      "contribution": "ct-contribution"
+    },
+    "by_keyword": {
+      "research|investigate|explore|discover": "ct-research-agent",
+      "epic|plan|decompose|architect": "ct-epic-architect",
+      "implement|build|execute|create": "ct-task-executor",
+      "test|bats|coverage|integration": "ct-test-writer-bats",
+      "doc|document|readme|guide": "ct-documentor",
+      "spec|rfc|protocol|contract": "ct-spec-writer",
+      "validate|verify|audit|compliance|consensus|vote": "ct-validator",
+      "lib/|bash|shell|function": "ct-library-implementer-bash",
+      "release|version|publish|deploy|ship|changelog": "ct-dev-workflow"
+    },
+    "by_protocol": {
+      "RSCH": { "skillRef": "ct-research-agent", "enforcement": "strict" },
+      "CONS": { "skillRef": "ct-validator", "enforcement": "strict" },
+      "SPEC": { "skillRef": "ct-spec-writer", "enforcement": "strict" },
+      "DCMP": { "skillRef": "ct-epic-architect", "enforcement": "strict" },
+      "IMPL": { "skillRef": "ct-task-executor", "enforcement": "strict" },
+      "CONT": { "skillRef": "ct-contribution", "enforcement": "strict" },
+      "VALID": { "skillRef": "ct-validator", "enforcement": "strict" },
+      "TEST": { "skillRef": "ct-test-writer-bats", "enforcement": "strict" },
+      "REL": { "skillRef": "ct-dev-workflow", "enforcement": "strict" },
+      "ADR": { "skillRef": "ct-spec-writer", "enforcement": "advisory" },
+      "AGENT": { "skillRef": "ct-orchestrator", "enforcement": "strict" },
+      "ART": { "skillRef": "ct-contribution", "enforcement": "advisory" },
+      "PROV": { "skillRef": "ct-orchestrator", "enforcement": "advisory" }
+    }
+  },
+  "skill_overrides": {
+    "ct-orchestrator": {
+      "tags": ["workflow", "multi-agent", "coordination"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "SESSION_ID", "EPIC_ID"],
+        "outputs": ["workflow-coordination", "subagent-spawns"],
+        "dispatch_triggers": ["orchestrate", "orchestrator mode", "run as orchestrator", "delegate to subagents", "coordinate agents", "spawn subagents", "multi-agent workflow", "context-protected workflow", "agent farm", "HITL orchestration"],
+        "compatible_subagent_types": ["orchestrator"],
+        "chains_to": ["ct-epic-architect", "ct-research-agent", "ct-task-executor", "ct-test-writer-bats", "ct-spec-writer", "ct-library-implementer-bash", "ct-validator", "ct-documentor"],
+        "dispatch_keywords": {
+          "primary": ["orchestrate", "coordinate", "delegate", "multi-agent"],
+          "secondary": ["spawn", "farm", "HITL", "workflow"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 150000,
+        "requires_session": true,
+        "requires_epic": true
+      }
+    },
+    "ct-epic-architect": {
+      "tags": ["planning", "architecture", "task-management"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "FEATURE_NAME", "FEATURE_SLUG", "DATE", "EPIC_ID", "SESSION_ID"],
+        "outputs": ["epic", "tasks", "manifest-entry", "session"],
+        "dispatch_triggers": ["create epic", "plan epic", "decompose into tasks", "architect the work", "break down this project", "epic planning", "task breakdown", "dependency analysis", "wave planning", "sprint planning"],
+        "compatible_subagent_types": ["general-purpose", "planning"],
+        "chains_to": ["ct-task-executor", "ct-research-agent", "ct-spec-writer"],
+        "dispatch_keywords": {
+          "primary": ["epic", "plan", "decompose", "architect"],
+          "secondary": ["breakdown", "wave", "sprint", "dependency"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 100000,
+        "requires_session": true,
+        "requires_epic": false
+      }
+    },
+    "ct-task-executor": {
+      "tags": ["execution", "implementation", "task-management"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "TASK_NAME", "TASK_INSTRUCTIONS", "DELIVERABLES_LIST", "ACCEPTANCE_CRITERIA", "TOPIC_SLUG", "DATE", "EPIC_ID", "SESSION_ID", "DEPENDS_LIST", "MANIFEST_SUMMARIES", "TOPICS_JSON"],
+        "outputs": ["deliverables", "manifest-entry"],
+        "dispatch_triggers": ["execute task", "implement", "do the work", "complete this task", "carry out", "perform task", "run task", "work on", "implement feature", "build component", "create implementation"],
+        "compatible_subagent_types": ["general-purpose", "Code"],
+        "chains_to": ["ct-test-writer-bats", "ct-documentor"],
+        "dispatch_keywords": {
+          "primary": ["implement", "build", "execute", "create"],
+          "secondary": ["complete", "finish", "work on", "carry out"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": true,
+        "requires_epic": false
+      }
+    },
+    "ct-research-agent": {
+      "tags": ["research", "investigation", "discovery"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "TOPIC", "TOPIC_SLUG", "RESEARCH_QUESTIONS", "RESEARCH_TITLE", "DATE", "EPIC_ID", "SESSION_ID", "TOPICS_JSON"],
+        "outputs": ["research-file", "manifest-entry"],
+        "dispatch_triggers": ["research", "investigate", "gather information", "look up", "find out about", "analyze topic", "explore options", "survey alternatives"],
+        "compatible_subagent_types": ["general-purpose", "Explore"],
+        "chains_to": ["ct-spec-writer", "ct-epic-architect"],
+        "dispatch_keywords": {
+          "primary": ["research", "investigate", "explore", "discover"],
+          "secondary": ["gather", "survey", "analyze", "fact-finding"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-spec-writer": {
+      "tags": ["specification", "documentation", "rfc"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "SPEC_NAME", "spec_topic", "requirements_list", "DATE", "TOPIC_SLUG"],
+        "outputs": ["specification-file", "manifest-entry"],
+        "dispatch_triggers": ["write a spec", "create specification", "define protocol", "document requirements", "RFC-style document", "technical specification"],
+        "compatible_subagent_types": ["general-purpose", "Code"],
+        "chains_to": ["ct-task-executor", "ct-documentor"],
+        "dispatch_keywords": {
+          "primary": ["spec", "rfc", "protocol", "contract"],
+          "secondary": ["specification", "requirements", "interface", "architecture"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-test-writer-bats": {
+      "tags": ["testing", "bats", "integration"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "test_target", "test_scenarios", "DATE", "TOPIC_SLUG"],
+        "outputs": ["test-file", "manifest-entry"],
+        "dispatch_triggers": ["write tests", "create BATS tests", "add integration tests", "bash tests", "test coverage"],
+        "compatible_subagent_types": ["general-purpose", "Code"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["test", "bats", "coverage", "integration"],
+          "secondary": ["unit tests", "test cases", "shell tests", "bash tests"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-library-implementer-bash": {
+      "tags": ["implementation", "bash", "library"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "MODULE_NAME", "function_signatures", "DATE", "TOPIC_SLUG"],
+        "outputs": ["library-file", "manifest-entry"],
+        "dispatch_triggers": ["create library", "implement functions", "add to lib/", "shared utilities", "bash library"],
+        "compatible_subagent_types": ["general-purpose", "Code"],
+        "chains_to": ["ct-test-writer-bats"],
+        "dispatch_keywords": {
+          "primary": ["lib/", "bash", "shell", "function"],
+          "secondary": ["library", "utilities", "helper", "module"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-validator": {
+      "tags": ["validation", "compliance", "audit"],
+      "status": "active",
+      "token_budget": 6000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "VALIDATION_TARGET", "TARGET_FILES_OR_SYSTEMS", "VALIDATION_CRITERIA", "VALIDATION_COMMANDS", "TOPIC_SLUG", "DATE"],
+        "outputs": ["validation-report", "manifest-entry"],
+        "dispatch_triggers": ["validate", "verify", "check compliance", "audit", "compliance check"],
+        "compatible_subagent_types": ["general-purpose", "Explore"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["validate", "verify", "audit", "compliance"],
+          "secondary": ["check", "conformance", "standards", "requirements"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-dev-workflow": {
+      "tags": ["workflow", "git", "commits", "release", "task-tracking"],
+      "status": "active",
+      "token_budget": 6000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "CHANGE_TYPE", "SCOPE", "DESCRIPTION"],
+        "outputs": ["commit", "tag", "push"],
+        "dispatch_triggers": ["commit", "release", "run the workflow", "prepare release", "atomic commit"],
+        "compatible_subagent_types": ["general-purpose", "Code"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["commit", "release", "push", "version"],
+          "secondary": ["atomic", "conventional", "ship", "finalize"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-documentor": {
+      "tags": ["documentation", "orchestration", "workflow"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "documentation_topic", "target_audience"],
+        "outputs": ["documentation-file", "manifest-entry", "review-report"],
+        "dispatch_triggers": ["write documentation", "create docs", "review docs", "update documentation"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Code"],
+        "chains_to": ["ct-docs-lookup", "ct-docs-write", "ct-docs-review"],
+        "dispatch_keywords": {
+          "primary": ["doc", "document", "readme", "guide"],
+          "secondary": ["documentation", "docs", "markdown", "mdx"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-docs-lookup": {
+      "tags": ["documentation", "libraries", "context7"],
+      "status": "active",
+      "token_budget": 6000,
+      "capabilities": {
+        "inputs": ["library_name", "query", "version"],
+        "outputs": ["documentation-content", "code-examples"],
+        "dispatch_triggers": ["how do I configure", "write code using", "what are the methods", "show me examples"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Explore"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["library", "framework", "api", "reference"],
+          "secondary": ["configure", "methods", "examples", "docs"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-docs-write": {
+      "tags": ["documentation", "writing", "style-guide"],
+      "status": "active",
+      "token_budget": 6000,
+      "capabilities": {
+        "inputs": ["file_path", "content_topic", "audience"],
+        "outputs": ["documentation-file", "markdown-content"],
+        "dispatch_triggers": ["write docs", "create documentation", "edit the README"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Code"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["write", "create", "edit", "style"],
+          "secondary": ["clarity", "readable", "user-facing", "content"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-docs-review": {
+      "tags": ["documentation", "review", "style-guide"],
+      "status": "active",
+      "token_budget": 6000,
+      "capabilities": {
+        "inputs": ["file_path", "pr_url", "diff_content"],
+        "outputs": ["review-comments", "style-violations", "improvement-suggestions"],
+        "dispatch_triggers": ["review documentation", "check docs style", "review this markdown file"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Explore"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["review", "check", "style", "compliance"],
+          "secondary": ["violations", "improvements", "pr review", "markdown"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-skill-creator": {
+      "tags": ["skills", "creation", "meta"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["skill_name", "skill_purpose", "concrete_examples"],
+        "outputs": ["skill-directory", "SKILL.md", "skill-resources"],
+        "dispatch_triggers": ["create a new skill", "update an existing skill", "skill creation"],
+        "compatible_subagent_types": ["general-purpose", "Code"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["skill", "create", "build", "extend"],
+          "secondary": ["capabilities", "workflow", "integration", "new skill"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-skill-lookup": {
+      "tags": ["skills", "discovery", "prompts-chat"],
+      "status": "active",
+      "token_budget": 6000,
+      "capabilities": {
+        "inputs": ["search_query", "skill_id", "category", "tag"],
+        "outputs": ["skill-list", "skill-content", "skill-files"],
+        "dispatch_triggers": ["find me a skill", "search for skills", "what skills are available"],
+        "compatible_subagent_types": ["general-purpose", "Explore"],
+        "chains_to": ["ct-skill-creator"],
+        "dispatch_keywords": {
+          "primary": ["find", "search", "skill", "lookup"],
+          "secondary": ["available", "install", "get", "discover"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-contribution": {
+      "tags": ["contribution", "consensus", "workflow"],
+      "status": "active",
+      "token_budget": 6000,
+      "capabilities": {
+        "inputs": ["TASK_ID", "contribution_type", "context"],
+        "outputs": ["contribution-record", "consensus-report"],
+        "dispatch_triggers": ["contribution", "contribution protocol", "submit contribution", "consensus workflow"],
+        "compatible_subagent_types": ["general-purpose"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["contribution", "consensus", "submit", "decision"],
+          "secondary": ["conflict", "weighted", "tracking", "resolution"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 60000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    },
+    "ct-gitbook": {
+      "tags": ["documentation", "gitbook", "publishing"],
+      "status": "active",
+      "token_budget": 8000,
+      "capabilities": {
+        "inputs": ["site_name", "configuration", "content"],
+        "outputs": ["gitbook-config", "documentation-site"],
+        "dispatch_triggers": ["gitbook", "docs site", "publish documentation", "git sync"],
+        "compatible_subagent_types": ["general-purpose", "Code"],
+        "chains_to": [],
+        "dispatch_keywords": {
+          "primary": ["gitbook", "docs-site", "publish", "sync"],
+          "secondary": ["documentation", "site", "migration", "sdk"]
+        }
+      },
+      "constraints": {
+        "max_context_tokens": 80000,
+        "requires_session": false,
+        "requires_epic": false
+      }
+    }
+  }
+}

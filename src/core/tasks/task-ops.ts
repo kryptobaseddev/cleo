@@ -158,7 +158,7 @@ function getHierarchyLimits(projectRoot: string): { maxDepth: number; maxSibling
   const config = storeReadJsonFile<Record<string, unknown>>(configPath);
 
   let maxDepth = 3;
-  let maxSiblings = 7;
+  let maxSiblings = 0;
 
   if (config) {
     const hierarchy = config.hierarchy as Record<string, unknown> | undefined;
@@ -842,9 +842,9 @@ export async function coreTaskReparent(
     throw new Error(`Move would exceed max depth of ${reparentLimits.maxDepth}`);
   }
 
-  // Check sibling limit
+  // Check sibling limit (0 = unlimited)
   const siblingCount = current.tasks.filter((t) => t.parentId === effectiveParentId && t.id !== taskId).length;
-  if (siblingCount >= reparentLimits.maxSiblings) {
+  if (reparentLimits.maxSiblings > 0 && siblingCount >= reparentLimits.maxSiblings) {
     throw new Error(`Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded`);
   }
 

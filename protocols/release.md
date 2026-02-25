@@ -1,3 +1,16 @@
+---
+id: REL
+title: Release Protocol
+version: 1.0.0
+status: active
+type: conditional
+audience: [llm-agent, orchestrator]
+tags: [release, semver, changelog]
+skillRef: ct-dev-workflow
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Release Protocol
 
 **Provenance**: @task T3155, @epic T3147

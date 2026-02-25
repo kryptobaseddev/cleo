@@ -304,6 +304,6 @@ describe('addTask (integration)', () => {
   it('rejects invalid parent', async () => {
     await expect(
       addTask({ title: 'Child', parentId: 'T999' }, tempDir),
-    ).rejects.toThrow('Parent task not found');
+    ).rejects.toThrow('not found');
   });
 });

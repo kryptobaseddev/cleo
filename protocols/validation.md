@@ -1,3 +1,16 @@
+---
+id: VALID
+title: Validation Protocol
+version: 1.0.0
+status: active
+type: base
+audience: [llm-agent, orchestrator]
+tags: [validation, quality, compliance]
+skillRef: ct-validator
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Validation Protocol
 
 **Provenance**: @task T3155, @epic T3147

@@ -288,7 +288,7 @@ describe('validateHierarchy', () => {
       makeTask({ id: `T00${i + 2}`, parentId: 'T001' }),
     );
     const tasks = [makeTask({ id: 'T001' }), ...children];
-    const result = validateHierarchy('T001', tasks);
+    const result = validateHierarchy('T001', tasks, { maxSiblings: 7 });
     expect(result.valid).toBe(false);
     expect(result.error?.code).toBe('E_SIBLING_LIMIT');
   });

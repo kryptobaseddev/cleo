@@ -27,11 +27,20 @@ export interface BackupConfig {
   compressionEnabled: boolean;
 }
 
+/** Hierarchy enforcement profile preset. */
+export type EnforcementProfile = 'llm-agent-first' | 'human-cognitive' | 'custom';
+
 /** Hierarchy configuration. */
 export interface HierarchyConfig {
   maxDepth: number;
   maxSiblings: number;
   cascadeDelete: boolean;
+  /** Maximum number of active (non-done) siblings. 0 = disabled. */
+  maxActiveSiblings: number;
+  /** Whether done tasks count toward the sibling limit. */
+  countDoneInLimit: boolean;
+  /** Enforcement profile preset. Explicit fields override preset values. */
+  enforcementProfile: EnforcementProfile;
 }
 
 /** Session configuration. */
@@ -39,6 +48,21 @@ export interface SessionConfig {
   autoStart: boolean;
   requireNotes: boolean;
   multiSession: boolean;
+}
+
+/** Pino log levels. */
+export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
+
+/** Logging configuration. */
+export interface LoggingConfig {
+  /** Minimum log level to record (default: 'info') */
+  level: LogLevel;
+  /** Log file path relative to .cleo/ (default: 'logs/cleo.log') */
+  filePath: string;
+  /** Max log file size in bytes before rotation (default: 10MB) */
+  maxFileSize: number;
+  /** Number of rotated log files to retain (default: 5) */
+  maxFiles: number;
 }
 
 /** Lifecycle enforcement mode. */
@@ -57,6 +81,7 @@ export interface CleoConfig {
   hierarchy: HierarchyConfig;
   session: SessionConfig;
   lifecycle: LifecycleConfig;
+  logging: LoggingConfig;
 }
 
 /** Configuration resolution priority. */

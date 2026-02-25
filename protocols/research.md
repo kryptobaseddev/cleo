@@ -1,3 +1,16 @@
+---
+id: RSCH
+title: Research Protocol
+version: 1.0.0
+status: active
+type: base
+audience: [llm-agent, orchestrator]
+tags: [research, investigation, evidence]
+skillRef: ct-research-agent
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Research Protocol
 
 **Provenance**: @task T3155, @epic T3147

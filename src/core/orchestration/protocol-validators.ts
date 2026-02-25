@@ -301,17 +301,18 @@ export function validateSpecificationProtocol(
 /** @task T4499 */
 export function validateDecompositionProtocol(
   entry: ManifestEntryInput,
-  options: { siblingCount?: number; descriptionClarity?: boolean } = {},
+  options: { siblingCount?: number; descriptionClarity?: boolean; maxSiblings?: number; maxDepth?: number } = {},
 ): ProtocolValidationResult {
   const violations: ProtocolViolation[] = [];
   let score = 100;
 
-  // DCOMP-001: Max 7 siblings per parent
-  if (options.siblingCount !== undefined && options.siblingCount > 7) {
+  // DCOMP-001: Siblings must respect hierarchy.maxSiblings policy (0 = unlimited)
+  const maxSiblings = options.maxSiblings ?? 0;
+  if (options.siblingCount !== undefined && maxSiblings > 0 && options.siblingCount > maxSiblings) {
     violations.push({
       requirement: 'DCOMP-001',
       severity: 'error',
-      message: `Too many siblings: ${options.siblingCount} (max 7)`,
+      message: `Too many siblings: ${options.siblingCount} (max ${maxSiblings})`,
       fix: 'Split into sub-epics or reduce task count',
     });
     score -= 25;
@@ -629,7 +630,7 @@ export function validateProtocol(
       result = validateSpecificationProtocol(entry, options.specContent as string);
       break;
     case 'decomposition':
-      result = validateDecompositionProtocol(entry, options as { siblingCount?: number; descriptionClarity?: boolean });
+      result = validateDecompositionProtocol(entry, options as { siblingCount?: number; descriptionClarity?: boolean; maxSiblings?: number; maxDepth?: number });
       break;
     case 'implementation':
       result = validateImplementationProtocol(entry, options as { hasTaskTags?: boolean });

@@ -27,6 +27,7 @@ import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
 import { createPage, paginate } from '../pagination.js';
 import { getCleoErrorRegistry, isCleoRegisteredCode, getRegistryEntry } from '../error-registry.js';
 import { enforceBudget, isWithinBudget } from '../../mcp/lib/budget.js';
+import { validateHierarchyPlacement } from '../tasks/hierarchy-policy.js';
 
 // ============================
 // FULL LAFS ENVELOPE VALIDATION
@@ -770,5 +771,85 @@ describe('runEnvelopeConformance() CI Suite (T4673)', () => {
     const envelope = JSON.parse(json);
     const result = validateEnvelope(envelope);
     expect(result.valid).toBe(true);
+  });
+});
+
+// ============================
+// T5001: HIERARCHY POLICY CONFORMANCE
+// ============================
+
+describe('hierarchy policy conformance', () => {
+  it('validateHierarchyPlacement returns well-formed result with all required fields', () => {
+    const tasks = [
+      { id: 'T001', title: 'Root', status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00Z' },
+    ];
+    const policy = {
+      maxDepth: 3,
+      maxSiblings: 7,
+      maxActiveSiblings: 3,
+      countDoneInLimit: false,
+      enforcementProfile: 'human-cognitive',
+    };
+
+    // Valid placement
+    const successResult = validateHierarchyPlacement('T001', tasks, policy);
+    expect(successResult).toHaveProperty('valid');
+    expect(typeof successResult.valid).toBe('boolean');
+
+    // Error placement (parent not found)
+    const errorResult = validateHierarchyPlacement('T999', tasks, policy);
+    expect(errorResult).toHaveProperty('valid', false);
+    expect(errorResult).toHaveProperty('error');
+    expect(errorResult.error).toHaveProperty('code');
+    expect(errorResult.error).toHaveProperty('message');
+    expect(typeof errorResult.error.code).toBe('string');
+    expect(typeof errorResult.error.message).toBe('string');
+  });
+
+  it('hierarchy error codes follow E_ prefix convention', () => {
+    const tasks = [
+      { id: 'T001', title: 'Root', status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00Z' },
+    ];
+    const policy = {
+      maxDepth: 3,
+      maxSiblings: 7,
+      maxActiveSiblings: 3,
+      countDoneInLimit: false,
+      enforcementProfile: 'human-cognitive',
+    };
+
+    const result = validateHierarchyPlacement('T999', tasks, policy);
+    expect(result.error.code).toMatch(/^E_/);
+  });
+
+  it('hierarchy error flows through LAFS-structured formatError envelope', () => {
+    const err = new CleoError(ExitCode.DEPTH_EXCEEDED, 'Maximum nesting depth exceeded');
+    const json = formatError(err, 'tasks.add');
+    const parsed = JSON.parse(json);
+
+    // Verify LAFS structure
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toBeDefined();
+    expect(typeof parsed.error.message).toBe('string');
+    expect(parsed._meta).toBeDefined();
+    expect(parsed._meta.specVersion).toBeDefined();
+    expect(parsed._meta.strict).toBe(true);
+    expect(parsed._meta.transport).toBeDefined();
+
+    // Passes protocol validation
+    const validation = validateEnvelope(parsed);
+    expect(validation.valid).toBe(true);
+  });
+
+  it('sibling limit error produces valid LAFS error envelope', () => {
+    const err = new CleoError(ExitCode.SIBLING_LIMIT, 'Parent has too many children');
+    const json = formatError(err, 'tasks.add');
+    const parsed = JSON.parse(json);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toMatch(/^E_/);
+    expect(parsed._meta).toBeDefined();
+    const validation = validateEnvelope(parsed);
+    expect(validation.valid).toBe(true);
   });
 });

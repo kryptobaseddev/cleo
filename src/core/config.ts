@@ -31,8 +31,11 @@ const DEFAULTS: CleoConfig = {
   },
   hierarchy: {
     maxDepth: 3,
-    maxSiblings: 7,
+    maxSiblings: 0,
     cascadeDelete: false,
+    maxActiveSiblings: 32,
+    countDoneInLimit: false,
+    enforcementProfile: 'llm-agent-first',
   },
   session: {
     autoStart: false,
@@ -41,6 +44,12 @@ const DEFAULTS: CleoConfig = {
   },
   lifecycle: {
     mode: 'strict',
+  },
+  logging: {
+    level: 'info',
+    filePath: 'logs/cleo.log',
+    maxFileSize: 10 * 1024 * 1024, // 10MB
+    maxFiles: 5,
   },
 };
 
@@ -54,9 +63,13 @@ const ENV_MAP: Record<string, string> = {
   'CLEO_OUTPUT_DATE_FORMAT': 'output.dateFormat',
   'CLEO_HIERARCHY_MAX_DEPTH': 'hierarchy.maxDepth',
   'CLEO_HIERARCHY_MAX_SIBLINGS': 'hierarchy.maxSiblings',
+  'CLEO_HIERARCHY_MAX_ACTIVE_SIBLINGS': 'hierarchy.maxActiveSiblings',
+  'CLEO_HIERARCHY_ENFORCEMENT_PROFILE': 'hierarchy.enforcementProfile',
   'CLEO_SESSION_AUTO_START': 'session.autoStart',
   'CLEO_SESSION_REQUIRE_NOTES': 'session.requireNotes',
   'CLEO_LIFECYCLE_MODE': 'lifecycle.mode',
+  'CLEO_LOG_LEVEL': 'logging.level',
+  'CLEO_LOG_FILE': 'logging.filePath',
 };
 
 /**
@@ -146,6 +159,13 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
   // Layer 2: Project config
   const projectConfig = await readJson<Record<string, unknown>>(getConfigPath(cwd));
   if (projectConfig) {
+    // Map pinoLogging config key to the logging section used by the pino logger factory
+    if (projectConfig.pinoLogging && typeof projectConfig.pinoLogging === 'object') {
+      merged.logging = deepMerge(
+        (merged.logging ?? {}) as Record<string, unknown>,
+        projectConfig.pinoLogging as Record<string, unknown>,
+      );
+    }
     merged = deepMerge(merged, projectConfig);
   }
 

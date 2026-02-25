@@ -1,3 +1,16 @@
+---
+id: CONS
+title: Consensus Protocol
+version: 1.0.0
+status: active
+type: conditional
+audience: [llm-agent, orchestrator]
+tags: [consensus, voting, validation]
+skillRef: ct-validator
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Consensus Protocol
 
 **Provenance**: @task T3155, @epic T3147

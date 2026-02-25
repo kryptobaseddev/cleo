@@ -1,3 +1,16 @@
+---
+id: AGENT
+title: Agent Protocol
+version: 1.0.0
+status: active
+type: base
+audience: [llm-agent, orchestrator]
+tags: [agent, multi-agent, coordination]
+skillRef: ct-orchestrator
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # CLEO Agent Protocol
 
 **Version**: 1.0.0

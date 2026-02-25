@@ -368,11 +368,12 @@ const DECOMPOSITION_RULES: ProtocolRule[] = [
   {
     id: 'DCMP-003',
     level: 'MUST',
-    message: 'Must respect max depth 3 (epic→task→subtask)',
-    fix: 'Flatten hierarchy to max 3 levels',
+    message: 'Must respect configured hierarchy.maxDepth policy (default: 3)',
+    fix: 'Flatten hierarchy to configured max depth',
     validate: (_entry, data) => {
       const depth = data?.hierarchyDepth as number | undefined;
-      return depth === undefined || depth <= 3;
+      const maxDepth = data?.maxDepth as number | undefined ?? 3;
+      return depth === undefined || depth <= maxDepth;
     },
   },
   {
@@ -404,15 +405,39 @@ const DECOMPOSITION_RULES: ProtocolRule[] = [
   {
     id: 'DCMP-006',
     level: 'MUST',
-    message: 'Must enforce max 7 siblings per parent',
-    fix: 'Break epic into smaller sub-epics or reduce task count',
-    validate: (_entry, data) => {
-      const siblingCount = data?.siblingCount as number | undefined;
-      return siblingCount === undefined || siblingCount <= 7;
+    message: 'Must include acceptance criteria in task description',
+    fix: 'Add clear acceptance criteria: what must be true when the task is done',
+    validate: (entry) => {
+      const desc = entry.description as string | undefined;
+      if (!desc) return false;
+      return /\b(must|should|acceptance|criteria|verify|test|passes when|done when|complete when)\b/i.test(desc);
     },
   },
   {
     id: 'DCMP-007',
+    level: 'MUST',
+    message: 'Siblings MUST respect the hierarchy.maxSiblings policy (0 = unlimited)',
+    fix: 'Reduce sibling count or adjust hierarchy.maxSiblings in .cleo/config.json',
+    validate: (_entry, data) => {
+      const siblingCount = data?.siblingCount as number | undefined;
+      const maxSiblings = data?.maxSiblings as number | undefined ?? 0;
+      // maxSiblings === 0 means unlimited
+      return siblingCount === undefined || maxSiblings === 0 || siblingCount <= maxSiblings;
+    },
+  },
+  {
+    id: 'DCMP-008',
+    level: 'MUST',
+    message: 'Depth MUST respect the hierarchy.maxDepth policy (default: 3)',
+    fix: 'Reduce hierarchy nesting depth or adjust hierarchy.maxDepth in .cleo/config.json',
+    validate: (_entry, data) => {
+      const depth = data?.hierarchyDepth as number | undefined;
+      const maxDepth = data?.maxDepth as number | undefined ?? 3;
+      return depth === undefined || depth <= maxDepth;
+    },
+  },
+  {
+    id: 'DCMP-009',
     level: 'MUST',
     message: 'Must set agent_type: specification',
     fix: 'Update manifest entry agent_type field',

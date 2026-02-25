@@ -1,3 +1,16 @@
+---
+id: SPEC
+title: Specification Protocol
+version: 1.0.0
+status: active
+type: conditional
+audience: [llm-agent, orchestrator]
+tags: [specification, requirements, rfc2119]
+skillRef: ct-spec-writer
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Specification Protocol
 
 **Provenance**: @task T3155, @epic T3147

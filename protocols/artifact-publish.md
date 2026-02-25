@@ -1,3 +1,16 @@
+---
+id: ART
+title: Artifact Publish Protocol
+version: 1.0.0
+status: active
+type: cross-cutting
+audience: [llm-agent, orchestrator]
+tags: [artifact, publish, distribution]
+skillRef: ct-contribution
+lastUpdated: 2026-02-24
+enforcement: advisory
+---
+
 # Artifact Publish Protocol
 
 **Version**: 1.0.0
