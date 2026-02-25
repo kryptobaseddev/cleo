@@ -1,7 +1,25 @@
+---
+id: DCMP
+title: Decomposition Protocol
+version: 2.0.0
+status: active
+type: conditional
+audience: [llm-agent, orchestrator]
+tags: [decomposition, hierarchy, atomicity, planning]
+skillRef: ct-epic-architect
+mcpOperations:
+  - tasks.add
+  - tasks.update
+  - session.start
+lastUpdated: 2026-02-24
+provenanceTask: T3155
+enforcement: strict
+---
+
 # Decomposition Protocol
 
 **Provenance**: @task T3155, @epic T3147
-**Version**: 1.0.1
+**Version**: 2.0.0
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -22,6 +40,33 @@ This protocol activates when the task involves:
 
 ---
 
+## Hard Invariants vs. Configurable Limits
+
+### Hard Invariants (always enforced regardless of profile)
+- **Parent must exist**: The parent task ID must be present in the task store
+- **No circular references**: Moving a task under its own descendant is always rejected
+- **Dependency DAG integrity**: The blockedBy/blocks relationship must remain acyclic
+
+### Configurable Limits (profile-driven, overridable per project)
+- **maxSiblings** (default: 0 = unlimited for `llm-agent-first` profile; 7 for `human-cognitive`)
+  — Set `hierarchy.maxSiblings` in `.cleo/config.json` to enforce a limit
+- **maxActiveSiblings** (default: 32): Operational concurrency guard — caps the number of `pending|active|blocked` siblings under one parent
+- **maxDepth** (default: 3): Maximum nesting depth (epic → task → subtask)
+
+### Enforcement Profiles
+
+| Profile | maxSiblings | maxActiveSiblings | maxDepth |
+|---------|-------------|-------------------|----------|
+| `llm-agent-first` (default) | 0 (unlimited) | 32 | 3 |
+| `human-cognitive` | 7 | 3 | 3 |
+
+Configure via `.cleo/config.json`:
+```json
+{ "hierarchy": { "enforcementProfile": "human-cognitive" } }
+```
+
+---
+
 ## Requirements (RFC 2119)
 
 ### MUST
@@ -30,11 +75,13 @@ This protocol activates when the task involves:
 |-------------|-------------|
 | DCMP-001 | MUST follow MECE principle (Mutually Exclusive, Collectively Exhaustive) |
 | DCMP-002 | MUST map dependencies between tasks |
-| DCMP-003 | MUST respect maximum depth (3 levels: epic > task > subtask) |
+| DCMP-003 | MUST respect the configured hierarchy.maxDepth policy (default: 3) |
 | DCMP-004 | MUST verify atomicity for leaf tasks |
 | DCMP-005 | MUST NOT include time estimates (use size: small/medium/large) |
 | DCMP-006 | MUST include acceptance criteria for each task |
-| DCMP-007 | MUST set `agent_type: "analysis"` in manifest |
+| DCMP-007 | Siblings MUST respect the configured hierarchy.maxSiblings policy (0 = unlimited) |
+| DCMP-008 | Depth MUST respect the configured hierarchy.maxDepth policy (default: 3) |
+| DCMP-009 | MUST set `agent_type: "analysis"` in manifest |
 
 ### SHOULD
 
@@ -82,9 +129,9 @@ EPIC (T001) - Large initiative
 | # | Criterion | Pass Condition |
 |---|-----------|----------------|
 | 1 | Single File Scope | Affects ≤3 tightly-coupled files |
-| 2 | Single Cognitive Concern | One "thing" to understand |
+| 2 | Single Cognitive Concern | One bounded concern per task |
 | 3 | Clear Acceptance Criteria | Testable completion condition |
-| 4 | No Context Switching | Can complete in one session |
+| 4 | No Context Switching | Completable within a single agent session |
 | 5 | No Hidden Sub-Decisions | All choices made at decomposition |
 | 6 | Programmatic Validation | Result verifiable by code/test |
 
@@ -264,6 +311,24 @@ cleo research add \
 
 ---
 
+## Atomicity Validation Module
+
+The 6-point atomicity test is implemented as a shared TypeScript module at
+`src/core/tasks/atomicity.ts`. The `checkAtomicity(task, threshold?)` function
+scores tasks against these criteria:
+
+1. **single-file-scope** — Task targets a single file or bounded concern
+2. **single-cognitive-concern** — Title uses at most one action verb
+3. **clear-acceptance-criteria** — Description specifies verifiable completion
+4. **no-context-switching** — Task spans at most 2 technical domains
+5. **no-hidden-decisions** — No deferred choices (TBD, figure out, unclear)
+6. **programmatic-validation-possible** — Output can be tested programmatically
+
+Default passing threshold: 4/6. The `ATOMICITY_CRITERIA` constant is exported
+for use in protocol validators and orchestrator pre-spawn gating.
+
+---
+
 ## Atomicity Validation
 
 ### Atomicity Checklist
@@ -271,7 +336,7 @@ cleo research add \
 For each leaf task, verify:
 
 - [ ] **Single Responsibility**: One clear objective
-- [ ] **Completable in 1 session**: No multi-day work
+- [ ] **Completable in 1 agent session**: Scoped to a single execution context
 - [ ] **Testable**: Has clear acceptance criteria
 - [ ] **Mergeable**: Can be PR'd independently
 - [ ] **Reversible**: Can be rolled back if needed
@@ -292,9 +357,9 @@ result=$(validate_decomposition_protocol "T2000" "T2000" "$child_tasks" "false")
 
 **Checks**:
 - DCMP-002: No circular dependencies (via hierarchy validation)
-- DCMP-003: Max depth 3 (epic→task→subtask)
+- DCMP-003: Exceeds configured maxDepth (default: 3, epic→task→subtask)
 - DCMP-004: Atomicity test (6 criteria above)
-- DCMP-006: Max 7 siblings per parent
+- DCMP-007: Exceeds configured maxSiblings (default: unlimited for llm-agent-first profile)
 
 ### Scoring System
 
@@ -311,10 +376,14 @@ Each leaf task scored on 6 criteria (pass/fail per criterion):
 
 ### Orchestrator Integration
 
+Hierarchy enforcement is implemented in `src/core/tasks/hierarchy-policy.ts`.
+The `resolveHierarchyPolicy(config)` function returns the active `HierarchyPolicy`
+for the project, incorporating the configured enforcement profile and any explicit overrides.
+
 **Pre-Decomposition**:
 - Epic architect validates parent epic exists
-- Checks current depth < 3
-- Verifies sibling count < 7
+- Checks current depth against the configured hierarchy.maxDepth policy (default: 3)
+- Verifies sibling count against the configured hierarchy.maxSiblings policy (default: unlimited for llm-agent-first profile)
 
 **Post-Decomposition**:
 - Validates all new tasks meet atomicity criteria
@@ -324,7 +393,7 @@ Each leaf task scored on 6 criteria (pass/fail per criterion):
 ### Exit Codes
 
 - `EXIT_PROTOCOL_DECOMPOSITION` (63) - Decomposition protocol violation
-- Common violations: Max siblings exceeded, depth limit exceeded, non-atomic tasks
+- Common violations: Configured maxSiblings exceeded, configured maxDepth exceeded, non-atomic tasks
 
 ### Auto-Refinement (Future)
 
@@ -343,10 +412,10 @@ Each leaf task scored on 6 criteria (pass/fail per criterion):
 | Time estimates | Cannot predict duration accurately |
 | Non-atomic leaf tasks | Create hidden work |
 | Missing dependencies | Incorrect execution order |
-| Violating depth limit | Complexity explosion |
+| Exceeding configured maxDepth | Complexity explosion |
 | Overlapping scopes (not MECE) | Duplicate work |
 | Skipping atomicity check | Quality regression |
 
 ---
 
-*Protocol Version 1.0.0 - Decomposition Protocol*
+*Protocol Version 2.0.0 - Decomposition Protocol*

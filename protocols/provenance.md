@@ -1,3 +1,16 @@
+---
+id: PROV
+title: Provenance Protocol
+version: 1.0.0
+status: active
+type: cross-cutting
+audience: [llm-agent, orchestrator]
+tags: [provenance, traceability, lineage]
+skillRef: ct-orchestrator
+lastUpdated: 2026-02-24
+enforcement: advisory
+---
+
 # Provenance Protocol
 
 **Version**: 1.0.0

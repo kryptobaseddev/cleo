@@ -151,7 +151,7 @@ export async function validateLayer1Schema(
   // Status validation
   if (context.params?.status) {
     const status = context.params.status as string;
-    const validStatuses = ['pending', 'active', 'blocked', 'done'];
+    const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled', 'archived'];
     if (!validStatuses.includes(status)) {
       violations.push({
         layer: GateLayer.SCHEMA,
@@ -441,10 +441,10 @@ export async function validateLayer3Referential(
     }
   }
 
-  // Sibling limit validation (Section 8.1: max 7 per parent)
+  // Sibling limit validation (Section 8.1: configured hierarchy policy, 0 = unlimited)
   if (context.params?.siblingCount !== undefined) {
     const siblingCount = context.params.siblingCount as number;
-    if (typeof siblingCount === 'number' && siblingCount >= VALIDATION_RULES.MAX_SIBLINGS) {
+    if (typeof siblingCount === 'number' && VALIDATION_RULES.MAX_SIBLINGS > 0 && siblingCount >= VALIDATION_RULES.MAX_SIBLINGS) {
       violations.push({
         layer: GateLayer.REFERENTIAL,
         severity: ErrorSeverity.ERROR,
@@ -634,7 +634,7 @@ export const VALIDATION_RULES = {
   TITLE_MAX_LENGTH: 100,
   DESCRIPTION_MIN_LENGTH: 10,
   DESCRIPTION_MAX_LENGTH: 1000,
-  VALID_STATUSES: ['pending', 'active', 'blocked', 'done'] as const,
+  VALID_STATUSES: ['pending', 'active', 'blocked', 'done', 'cancelled', 'archived'] as const,
   VALID_MANIFEST_STATUSES: ['complete', 'partial', 'blocked'] as const,
   VALID_AGENT_TYPES: [
     'research', 'analysis', 'specification', 'implementation',
@@ -644,7 +644,7 @@ export const VALIDATION_RULES = {
   PRIORITY_NUMERIC_MIN: 1,
   PRIORITY_NUMERIC_MAX: 9,
   MAX_DEPTH: 3,
-  MAX_SIBLINGS: 7,
+  MAX_SIBLINGS: 0,
   KEY_FINDINGS_MIN: 3,
   KEY_FINDINGS_MAX: 7,
 };

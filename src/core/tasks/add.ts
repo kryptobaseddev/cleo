@@ -13,11 +13,9 @@ import { getTaskPath, getLogPath, getArchivePath, getBackupDir } from '../paths.
 import { saveJson, appendJsonl, computeChecksum } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { loadConfig } from '../config.js';
-import {
-  safeAppendLog,
-} from '../../store/data-safety-central.js';
 import { createTaskSafe, updateTask } from '../../store/task-store.js';
 import { setMetaValue } from '../../store/sqlite-data-accessor.js';
+import { resolveHierarchyPolicy, validateHierarchyPlacement, countActiveChildren } from './hierarchy-policy.js';
 
 /** Options for creating a task. */
 export interface AddTaskOptions {
@@ -244,7 +242,7 @@ export function validateParent(
   parentId: string,
   tasks: Task[],
   maxDepth: number = 3,
-  maxSiblings: number = 7,
+  maxSiblings: number = 0,
 ): void {
   // Check parent exists
   const parent = tasks.find(t => t.id === parentId);
@@ -482,11 +480,26 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     if (!/^T\d{3,}$/.test(parentId)) {
       throw new CleoError(ExitCode.INVALID_INPUT, `Invalid parent ID format: ${parentId}`);
     }
-    // Read hierarchy limits from config
+    // Read hierarchy limits from config via policy module
     const config = await loadConfig(cwd);
-    const maxDepth = (config as any).hierarchy?.maxDepth ?? 3;
-    const maxSiblings = (config as any).hierarchy?.maxSiblings ?? 7;
-    validateParent(parentId, data.tasks, maxDepth, maxSiblings);
+    const policy = resolveHierarchyPolicy(config);
+    const placement = validateHierarchyPlacement(parentId, data.tasks, policy);
+    if (!placement.valid) {
+      const code = placement.error?.code === 'E_PARENT_NOT_FOUND'
+        ? ExitCode.PARENT_NOT_FOUND
+        : placement.error?.code === 'E_DEPTH_EXCEEDED'
+          ? ExitCode.DEPTH_EXCEEDED
+          : ExitCode.SIBLING_LIMIT;
+      throw new CleoError(code, placement.error?.message ?? 'Hierarchy constraint violated');
+    }
+    // Active siblings cap
+    const activeCount = countActiveChildren(parentId, data.tasks);
+    if (policy.maxActiveSiblings > 0 && activeCount >= policy.maxActiveSiblings) {
+      throw new CleoError(
+        ExitCode.SIBLING_LIMIT,
+        `Parent ${parentId} already has ${activeCount} active children (maxActiveSiblings=${policy.maxActiveSiblings})`,
+      );
+    }
 
     // Validate type constraints
     if (taskType === 'epic') {
@@ -568,8 +581,8 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
   }
 
   // Save atomically with safety
-  if (accessor) {
-    // Incremental path: insert only the new task + targeted position updates.
+  if (accessor && accessor.engine === 'sqlite') {
+    // SQLite incremental path: insert only the new task + targeted position updates.
     // This avoids re-saving all ~832 tasks and the FK failures from orphaned deps.
 
     // Position shuffling via targeted SQL updates
@@ -595,7 +608,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       await setMetaValue(cwd, 'project_meta', data.project);
     }
 
-    await safeAppendLog(accessor, {
+    await accessor.appendLog({
       id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_created',
@@ -604,7 +617,38 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       details: { title: options.title, status, priority },
       before: null,
       after: { title: options.title, status, priority },
-    }, cwd);
+    });
+  } else if (accessor) {
+    // JSON accessor path: save through the accessor's load/save mechanism
+    // Position shuffling if explicit position was given
+    if (options.position !== undefined) {
+      for (const t of data.tasks) {
+        const isInScope = parentId
+          ? t.parentId === parentId
+          : (!t.parentId || t.parentId === null);
+        if (isInScope && t.position !== undefined && t.position !== null && t.position >= options.position) {
+          t.position = t.position + 1;
+          t.positionVersion = (t.positionVersion ?? 0) + 1;
+        }
+      }
+    }
+
+    data.tasks.push(task);
+    const checksum = computeChecksum(data.tasks);
+    data._meta.checksum = checksum;
+    data.lastUpdated = now;
+
+    await accessor.saveTaskFile(data);
+    await accessor.appendLog({
+      id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_created',
+      taskId,
+      actor: 'system',
+      details: { title: options.title, status, priority },
+      before: null,
+      after: { title: options.title, status, priority },
+    });
   } else {
     // Legacy JSON path
 

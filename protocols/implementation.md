@@ -1,3 +1,16 @@
+---
+id: IMPL
+title: Implementation Protocol
+version: 1.0.0
+status: active
+type: base
+audience: [llm-agent]
+tags: [implementation, coding, development]
+skillRef: ct-task-executor
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Implementation Protocol
 
 **Provenance**: @task T3155, @epic T3147

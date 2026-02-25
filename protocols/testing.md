@@ -1,3 +1,16 @@
+---
+id: TEST
+title: Testing Protocol
+version: 1.0.0
+status: active
+type: base
+audience: [llm-agent]
+tags: [testing, bats, unit, integration]
+skillRef: ct-test-writer-bats
+lastUpdated: 2026-02-24
+enforcement: strict
+---
+
 # Testing Protocol
 
 **Provenance**: @task T3155, @epic T3147

@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo.dev/schemas/protocol-frontmatter.schema.json",
+  "title": "Protocol Frontmatter Schema",
+  "description": "JSON Schema for CLEO protocol YAML frontmatter blocks",
+  "_meta": {
+    "schemaVersion": "1.0.0"
+  },
+  "type": "object",
+  "required": ["id", "title", "version", "status"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "enum": ["RSCH", "CONS", "SPEC", "DCMP", "IMPL", "CONT", "VALID", "TEST", "REL", "ADR", "ART", "PROV", "AGENT"],
+      "description": "Short protocol code"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Full protocol title"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver version"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "draft", "deprecated", "experimental"]
+    },
+    "type": {
+      "type": "string",
+      "enum": ["base", "conditional", "cross-cutting"]
+    },
+    "audience": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "skillRef": {
+      "type": "string",
+      "description": "ct-skills skill that executes this pipeline"
+    },
+    "mcpOperations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "lastUpdated": {
+      "type": "string",
+      "description": "ISO date string"
+    },
+    "provenanceTask": {
+      "type": "string",
+      "pattern": "^T\\d+$",
+      "description": "CLEO task ID that originated this protocol"
+    },
+    "enforcement": {
+      "type": "string",
+      "enum": ["strict", "advisory", "disabled"]
+    }
+  },
+  "additionalProperties": false
+}

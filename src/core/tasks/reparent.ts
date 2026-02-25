@@ -13,16 +13,19 @@ import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import {
-  validateHierarchy,
   wouldCreateCircle,
   getDepth,
 } from './hierarchy.js';
+import { resolveHierarchyPolicy, validateHierarchyPlacement } from './hierarchy-policy.js';
+import type { HierarchyPolicy } from './hierarchy-policy.js';
 
 /** Options for reparenting a task. */
 export interface ReparentOptions {
   taskId: string;
   /** New parent ID, or null to promote to root. */
   newParentId: string | null;
+  /** Optional resolved hierarchy policy. If not provided, uses llm-agent-first defaults. */
+  policy?: HierarchyPolicy;
 }
 
 /** @deprecated Use ReparentOptions */
@@ -83,7 +86,17 @@ export async function reparentTask(
   }
 
   // Validate target parent exists and hierarchy constraints (depth + sibling limits)
-  const validation = validateHierarchy(effectiveNewParent, data.tasks);
+  const effectivePolicy = opts.policy ?? resolveHierarchyPolicy({
+    hierarchy: {
+      maxDepth: 3,
+      maxSiblings: 0,
+      maxActiveSiblings: 32,
+      cascadeDelete: false,
+      countDoneInLimit: false,
+      enforcementProfile: 'llm-agent-first',
+    },
+  } as any);
+  const validation = validateHierarchyPlacement(effectiveNewParent, data.tasks, effectivePolicy);
   if (!validation.valid) {
     const code = validation.error?.code === 'E_PARENT_NOT_FOUND'
       ? ExitCode.PARENT_NOT_FOUND
