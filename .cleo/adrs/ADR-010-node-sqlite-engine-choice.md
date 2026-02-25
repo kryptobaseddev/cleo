@@ -75,7 +75,7 @@ CLEO uses Zod (`zod` v4.3.6, peer dep `^3.25.0 || ^4.0.0`). When schema-derived 
 
 ### 5.2 Improved Migration Tooling (`drizzle-kit` v1)
 
-The v1 migrator applies all missing migrations regardless of creation date ordering. This fixes a class of bugs where out-of-order migration files were silently skipped. CLEO currently uses manual SQL schema creation (`CREATE TABLE IF NOT EXISTS`) but SHOULD adopt `drizzle-kit` managed migrations as the schema stabilizes.
+The v1 migrator applies all missing migrations by comparing each migration's `folderMillis` (the timestamp encoded in the migration folder name) against the `created_at` column in `__drizzle_migrations`. The `hash` column is populated for audit purposes but is not used as the tracking key — only `created_at` determines whether a migration has been applied. All pending migrations are batched into a single callback call, which must be wrapped in a `BEGIN/COMMIT/ROLLBACK` transaction to guarantee atomicity (see ADR-012 Step C and commit `1d0da22a`). `drizzle-kit` managed migrations adopted per ADR-012 (T4837, 2026-02-23).
 
 ### 5.3 Stricter SQLite Dialect Enforcement
 
@@ -116,11 +116,12 @@ This provides earlier detection of schema definition errors that previously only
 2. Update tests and docs that assume in-memory export/save behavior.
 3. Keep ADR-006 and ADR-010 cross-linked for decision traceability.
 4. Use `drizzle-orm/zod` (not `drizzle-zod`) for any new schema validation work.
-5. Evaluate adoption of `drizzle-kit` managed migrations when schema reaches stability.
+5. `drizzle-kit` migrations adopted. See ADR-012. Complete.
 
 ## 8. References
 
 - `.cleo/adrs/ADR-006-canonical-sqlite-storage.md` -- canonical storage architecture (amended by this ADR)
+- `.cleo/adrs/ADR-012-drizzle-kit-migration-system.md` -- drizzle-kit migration system (fulfills Section 5.2/7.5 recommendations)
 - `.cleo/adrs/archive/ADR-002-hybrid-storage-strategy.md` -- original sql.js selection (superseded by ADR-006)
 - `.cleo/agent-outputs/2026-02-23_T4820-adr006-compliance-review.md` -- compliance traceability checklist
 - `package.json` -- Node.js engines field (`>=24.0.0`), drizzle-orm `^1.0.0-beta.15`, drizzle-kit `^1.0.0-beta.15`
