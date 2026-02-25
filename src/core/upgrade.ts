@@ -172,15 +172,25 @@ export async function runUpgrade(options: {
           }
           copyFileSync(dbPath, dbBackupPath);
 
-          // Verify backup is valid before proceeding
-          const origStat = await import('node:fs').then(fs => fs.statSync(dbPath));
-          const backupStat = await import('node:fs').then(fs => fs.statSync(dbBackupPath));
-          if (backupStat.size !== origStat.size) {
+          // Verify backup integrity: SHA-256 checksum + SQLite open check
+          const { createHash } = await import('node:crypto');
+          const origChecksum = createHash('sha256').update(readFileSync(dbPath)).digest('hex');
+          const backupChecksum = createHash('sha256').update(readFileSync(dbBackupPath)).digest('hex');
+          if (origChecksum !== backupChecksum) {
             throw new Error(
-              `Backup verification failed: original=${origStat.size} bytes, backup=${backupStat.size} bytes. ` +
+              `Backup verification failed: checksum mismatch. ` +
               `Aborting migration to prevent data loss.`
             );
           }
+          const { validateSqliteDatabase } = await import('../store/atomic.js');
+          const backupIsValid = await validateSqliteDatabase(dbBackupPath);
+          if (!backupIsValid) {
+            throw new Error(
+              `Backup verification failed: backup is not a valid SQLite database. ` +
+              `Aborting migration to prevent data loss.`
+            );
+          }
+          logger.info('backup', 'verified', 'Backup integrity verified', { checksum: origChecksum });
         }
 
         // Step 2: Remove temp DB if leftover from a previous failed attempt
@@ -197,20 +207,24 @@ export async function runUpgrade(options: {
         }
 
         // Step 4: Close any existing DB connection before migration
-        const { closeDb } = await import('../store/sqlite.js');
-        closeDb();
+        const { resetDbState } = await import('../store/sqlite.js');
+        resetDbState();
 
-        // Step 5: Remove existing DB so migration creates a fresh one
-        // SAFE: backup verified at Step 1
-        if (existsSync(dbPath)) {
-          const { unlinkSync } = await import('node:fs');
-          unlinkSync(dbPath);
-        }
+        // Step 5 removed — do not delete original DB; atomic rename preserves it until new DB is verified
 
-        // Step 6: Run migration (creates new tasks.db from JSON sources)
+        // Step 6: Migrate JSON → temp DB, then atomically rename into place
         await updateMigrationPhase(cleoDir, 'import');
-        const { migrateJsonToSqlite } = await import('../store/migration-sqlite.js');
-        const result = await migrateJsonToSqlite(options.cwd);
+        const { migrateJsonToSqliteAtomic } = await import('../store/migration-sqlite.js');
+        const { atomicDatabaseMigration, validateSqliteDatabase: validateDb } = await import('../store/atomic.js');
+        const result = await migrateJsonToSqliteAtomic(options.cwd, dbTempPath, logger);
+
+        // Step 6b: Atomically rename temp DB into place (only if migration succeeded)
+        if (result.success) {
+          const atomicResult = await atomicDatabaseMigration(dbPath, dbTempPath, validateDb);
+          if (!atomicResult.success) {
+            throw new Error(`Atomic rename failed: ${atomicResult.error}. Original database preserved.`);
+          }
+        }
 
         // Update progress
         await updateMigrationProgress(cleoDir, {
@@ -226,7 +240,7 @@ export async function runUpgrade(options: {
         }
 
         // Step 7: Close db connection so config update doesn't conflict
-        closeDb();
+        resetDbState();
 
         // Step 8: Validate migration result before committing
         if (result.success) {
@@ -359,50 +373,17 @@ export async function runUpgrade(options: {
     });
   }
 
-  // ── Step 2: Schema + structural repairs ──────────────────────────
-  // Runs on task data via accessor (SQLite per ADR-006).
-  // Also runs if legacy todo.json still exists (pre-migration data).
-  if (existsSync(dbPath) || existsSync(todoPath)) {
+  // ── Step 2: SQLite structural repairs ────────────────────────────
+  // Direct Drizzle SQL updates — no TaskFile loading required.
+  if (existsSync(dbPath)) {
     try {
-      const { getAccessor } = await import('../store/data-accessor.js');
-      const { computeChecksum } = await import('../store/json.js');
       const { runAllRepairs } = await import('./repair.js');
-      const accessor = await getAccessor(options.cwd);
-      const data = await accessor.loadTaskFile();
-
-      // Run all repairs via extracted functions
-      const repairActions = runAllRepairs(data, isDryRun);
+      const repairActions = await runAllRepairs(options.cwd, isDryRun);
       for (const ra of repairActions) {
         actions.push({ ...ra, status: ra.status as UpgradeAction['status'] });
       }
-
-      // Check schema version mismatch (not fixable by repair — just report)
-      const { getCurrentSchemaVersion } = await import('./repair.js');
-      const schemaVersion = data._meta?.schemaVersion;
-      const currentVersion = getCurrentSchemaVersion();
-      if (schemaVersion && schemaVersion !== currentVersion) {
-        actions.push({
-          action: 'schema_version_check',
-          status: isDryRun ? 'preview' : 'skipped',
-          details: `Schema version ${schemaVersion} differs from current ${currentVersion}`,
-        });
-      } else if (schemaVersion === currentVersion) {
-        actions.push({
-          action: 'schema_version_check',
-          status: 'skipped',
-          details: 'Schema version up to date',
-        });
-      }
-
-      // Save if changes were made
-      const appliedRepairs = repairActions.filter((a) => a.status === 'applied');
-      if (appliedRepairs.length > 0 && !isDryRun) {
-        data._meta.checksum = computeChecksum(data.tasks);
-        data.lastUpdated = new Date().toISOString();
-        await accessor.saveTaskFile(data);
-      }
     } catch {
-      // Data load may fail if no store exists yet. Not an error.
+      // DB may not exist yet. Not an error.
     }
   }
 
