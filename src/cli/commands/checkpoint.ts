@@ -6,190 +6,73 @@
  */
 
 import { Command } from 'commander';
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getCleoDir, getConfigPath } from '../../core/paths.js';
-import { readJson } from '../../store/json.js';
-
-/**
- * Tracked CLEO state files for checkpointing.
- * @task T4551
- */
-const CHECKPOINT_FILES = [
-  'tasks.json',
-  'tasks-log.jsonl',
-  'tasks-archive.json',
-  'config.json',
-  'sessions.json',
-];
-
-/**
- * Default checkpoint configuration.
- * @task T4551
- */
-interface CheckpointConfig {
-  enabled: boolean;
-  debounceMinutes: number;
-  messagePrefix: string;
-  noVerify: boolean;
-}
-
-const DEFAULT_CONFIG: CheckpointConfig = {
-  enabled: true,
-  debounceMinutes: 5,
-  messagePrefix: 'chore(cleo):',
-  noVerify: true,
-};
-
-/**
- * Load checkpoint configuration from config.json.
- * @task T4551
- */
-async function loadCheckpointConfig(): Promise<CheckpointConfig> {
-  try {
-    const configPath = getConfigPath();
-    const config = await readJson<Record<string, unknown>>(configPath);
-    if (!config) return DEFAULT_CONFIG;
-
-    const gc = config['gitCheckpoint'] as Record<string, unknown> | undefined;
-    if (!gc) return DEFAULT_CONFIG;
-
-    return {
-      enabled: gc['enabled'] !== false,
-      debounceMinutes: typeof gc['debounceMinutes'] === 'number' ? gc['debounceMinutes'] : DEFAULT_CONFIG.debounceMinutes,
-      messagePrefix: typeof gc['messagePrefix'] === 'string' ? gc['messagePrefix'] : DEFAULT_CONFIG.messagePrefix,
-      noVerify: gc['noVerify'] !== false,
-    };
-  } catch {
-    return DEFAULT_CONFIG;
-  }
-}
+import { getCleoDir } from '../../core/paths.js';
+import {
+  gitCheckpoint,
+  gitCheckpointStatus,
+  isCleoGitInitialized,
+} from '../../store/git-checkpoint.js';
 
 /**
  * Check if inside a git repository.
  * @task T4551
+ * @deprecated Use isCleoGitInitialized() — kept for backwards-compat with --status output
  */
 function isGitRepo(): boolean {
   try {
-    execFileSync('git', ['rev-parse', '--git-dir'], { stdio: 'ignore' });
-    return true;
+    const cleoDir = getCleoDir();
+    return isCleoGitInitialized(cleoDir);
   } catch {
     return false;
   }
 }
 
 /**
- * Get changed CLEO files from git status.
- * @task T4551
- */
-function getChangedCleoFiles(): string[] {
-  const cleoDir = getCleoDir();
-  const changed: string[] = [];
-
-  for (const file of CHECKPOINT_FILES) {
-    const filePath = join(cleoDir, file);
-    try {
-      const status = execFileSync('git', ['status', '--porcelain', filePath], { encoding: 'utf-8' }).trim();
-      if (status.length > 0) {
-        changed.push(filePath);
-      }
-    } catch {
-      // File doesn't exist or git error - skip
-    }
-  }
-
-  return changed;
-}
-
-/**
- * Get last checkpoint timestamp from git log.
- * @task T4551
- */
-function getLastCheckpointTime(prefix: string): string | null {
-  try {
-    const result = execFileSync(
-      'git',
-      ['log', '--oneline', '--format=%aI', `--grep=${prefix}`, '-1'],
-      { encoding: 'utf-8' },
-    ).trim();
-    return result || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Perform a git checkpoint commit.
- * @task T4551
- */
-function performCheckpoint(files: string[], config: CheckpointConfig): void {
-  if (files.length === 0) return;
-
-  for (const file of files) {
-    execFileSync('git', ['add', file], { stdio: 'ignore' });
-  }
-
-  const commitArgs = ['commit', '-m', `${config.messagePrefix} auto checkpoint`];
-  if (config.noVerify) {
-    commitArgs.push('--no-verify');
-  }
-
-  execFileSync('git', commitArgs, { stdio: 'ignore' });
-}
-
-/**
  * Register the checkpoint command.
+ * Delegates to src/store/git-checkpoint.ts for isolated .cleo/.git operations.
  * @task T4551
+ * @task T4872
  */
 export function registerCheckpointCommand(program: Command): void {
   program
     .command('checkpoint')
-    .description('Git checkpoint for CLEO state files')
+    .description('Git checkpoint for CLEO state files (commits to isolated .cleo/.git repo)')
     .option('--status', 'Show configuration and last checkpoint time')
     .option('--dry-run', 'Show what files would be committed')
     .action(async (opts: Record<string, unknown>) => {
       try {
         if (!isGitRepo()) {
-          throw new CleoError(ExitCode.GENERAL_ERROR, 'Not a git repository');
+          throw new CleoError(ExitCode.GENERAL_ERROR, '.cleo/.git not initialized. Run: cleo init');
         }
 
-        const config = await loadCheckpointConfig();
-
         if (opts['status']) {
-          const lastCheckpoint = getLastCheckpointTime(config.messagePrefix);
-          const changedFiles = getChangedCleoFiles();
-
+          const status = await gitCheckpointStatus();
           cliOutput({
-            config: {
-              enabled: config.enabled,
-              debounceMinutes: config.debounceMinutes,
-              messagePrefix: config.messagePrefix,
-              noVerify: config.noVerify,
-            },
-            lastCheckpoint,
-            pendingFiles: changedFiles.length,
-            changedFiles,
+            config: status.config,
+            lastCheckpoint: status.status.lastCheckpoint,
+            pendingFiles: status.status.pendingChanges,
+            isGitRepo: status.status.isGitRepo,
           }, { command: 'checkpoint' });
           return;
         }
 
         if (opts['dryRun']) {
-          const changedFiles = getChangedCleoFiles();
-
+          const status = await gitCheckpointStatus();
+          const count = status.status.pendingChanges;
           cliOutput({
             dryRun: true,
-            wouldCommit: changedFiles,
-            fileCount: changedFiles.length,
-          }, { command: 'checkpoint', message: changedFiles.length === 0 ? 'No CLEO files to checkpoint' : `Would checkpoint ${changedFiles.length} file(s)` });
+            fileCount: count,
+          }, { command: 'checkpoint', message: count === 0 ? 'No CLEO files to checkpoint' : `Would checkpoint ${count} file(s)` });
           return;
         }
 
-        // Force checkpoint mode
-        if (!config.enabled) {
+        // Get pending count before committing so we can report it
+        const before = await gitCheckpointStatus();
+        if (!before.config.enabled) {
           cliOutput(
             { enabled: false },
             { command: 'checkpoint', message: 'Git checkpoint is disabled. Enable with: cleo config set gitCheckpoint.enabled true' },
@@ -197,8 +80,7 @@ export function registerCheckpointCommand(program: Command): void {
           return;
         }
 
-        const changedFiles = getChangedCleoFiles();
-        if (changedFiles.length === 0) {
+        if (before.status.pendingChanges === 0) {
           cliOutput(
             { noChange: true },
             { command: 'checkpoint', message: 'No CLEO files to checkpoint' },
@@ -206,11 +88,10 @@ export function registerCheckpointCommand(program: Command): void {
           return;
         }
 
-        performCheckpoint(changedFiles, config);
+        await gitCheckpoint('manual');
 
         cliOutput({
-          checkpointed: changedFiles.length,
-          files: changedFiles,
+          checkpointed: before.status.pendingChanges,
         }, { command: 'checkpoint', message: 'Checkpoint complete' });
       } catch (err) {
         if (err instanceof CleoError) {
