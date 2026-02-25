@@ -21,10 +21,14 @@ import type { TaskFile } from '../types/task.js';
 import type { SessionsFile } from '../types/session.js';
 import type { ArchiveFile } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
+import { vacuumIntoBackup } from './sqlite-backup.js';
 import {
   checkSequence,
   repairSequence,
 } from '../core/sequence/index.js';
+import { getLogger } from '../core/logger.js';
+
+const log = getLogger('data-safety');
 
 /** Safety violation error */
 export class DataSafetyError extends Error {
@@ -98,7 +102,7 @@ async function ensureSequenceValid(cwd?: string, options?: SafetyOptions): Promi
   const check = await checkSequence(cwd);
   
   if (!check.valid) {
-    console.warn(`[SAFETY] Sequence behind: counter=${check.counter}, maxId=T${check.maxIdInData}. Repairing...`);
+    log.warn({ counter: check.counter, maxId: check.maxIdInData }, 'Sequence behind, repairing');
     const repair = await repairSequence(cwd);
     
     if (!repair.repaired && options.strict) {
@@ -124,8 +128,10 @@ async function checkpoint(context: string, cwd?: string, options?: SafetyOptions
     stats.lastCheckpoint = new Date();
   } catch (err) {
     // Checkpoint failures are non-fatal but logged
-    console.warn(`[SAFETY] Checkpoint failed (non-fatal): ${String(err)}`);
+    log.warn({ err }, 'Checkpoint failed (non-fatal)');
   }
+
+  vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal SQLite snapshot
 }
 
 /**
@@ -386,8 +392,9 @@ export async function forceSafetyCheckpoint(
   context: string,
   cwd?: string,
 ): Promise<void> {
-  console.log(`[SAFETY] Forcing checkpoint: ${context}`);
+  log.info({ context }, 'Forcing checkpoint');
   await gitCheckpoint('manual', context, cwd);
+  vacuumIntoBackup({ cwd, force: true }).catch(() => {}); // non-fatal SQLite snapshot
 }
 
 /**
@@ -395,8 +402,7 @@ export async function forceSafetyCheckpoint(
  * DANGEROUS - only use for recovery operations.
  */
 export function disableSafety(): void {
-  console.warn('[SAFETY] ⚠️  ALL SAFETY CHECKS DISABLED ⚠️');
-  console.warn('[SAFETY] This should only be used for emergency recovery!');
+  log.warn('All safety checks disabled - emergency recovery mode');
   
   // Set all safety options to false
   Object.assign(DEFAULT_SAFETY, {
@@ -411,7 +417,7 @@ export function disableSafety(): void {
  * Re-enable safety after being disabled.
  */
 export function enableSafety(): void {
-  console.log('[SAFETY] Safety checks re-enabled');
+  log.info('Safety checks re-enabled');
   
   Object.assign(DEFAULT_SAFETY, {
     verify: true,
