@@ -1,5 +1,5 @@
 import { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
-import { createVerificationGate as legacyCreateGate } from '../lib/verification-gates.js';
+import { createVerificationGate as legacyCreateGate } from '../../mcp/lib/verification-gates.js';
 
 export function createVerificationGates(strictMode: boolean = true): Middleware {
   const gate = legacyCreateGate(strictMode);

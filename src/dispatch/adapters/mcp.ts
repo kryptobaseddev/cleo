@@ -18,7 +18,7 @@ import { createVerificationGates } from '../middleware/verification-gates.js';
 import { createProtocolEnforcement } from '../middleware/protocol-enforcement.js';
 import { createAudit } from '../middleware/audit.js';
 import { getProjectRoot } from '../../core/paths.js';
-import type { RateLimitingConfig } from '../lib/rate-limiter-types.js';
+import type { RateLimitingConfig } from '../../mcp/lib/rate-limiter.js';
 
 export interface McpDispatcherConfig {
   rateLimiting?: Partial<RateLimitingConfig>;
