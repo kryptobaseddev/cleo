@@ -48,6 +48,18 @@ describe('loadCheckpointConfig', () => {
   });
 });
 
+describe('gitCheckpoint commit args', () => {
+  it('includes -- path restriction to prevent sweeping pre-staged project files', async () => {
+    // Structural test: verify the commit call in git-checkpoint.ts
+    // includes '--' followed by file paths, not just bare 'git commit -m ...'
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(process.cwd(), 'src/store/git-checkpoint.ts'), 'utf-8');
+    // Verify the commit args include '--' path restriction
+    expect(src).toMatch(/commitArgs\.push\(['"]--['"]/);
+  });
+});
+
 describe('shouldCheckpoint', () => {
   const originalEnv = { ...process.env };
 
