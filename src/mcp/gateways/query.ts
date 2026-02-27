@@ -199,6 +199,14 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'provider.inject.status',  // Check injection status
   ],
 
+  // ── Canonical: nexus (BRAIN Network placeholder) ───────────────────
+  nexus: [
+    // Placeholder — NexusHandler returns E_NOT_IMPLEMENTED for all ops.
+    // Entries here allow domain routing to reach the handler without
+    // triggering E_INVALID_DOMAIN at the gateway validation layer.
+    'status',         // Nexus network status (not yet implemented)
+  ],
+
   // ── Legacy aliases (backward compat) ───────────────────────────────
   research: [
     'show',           // Research entry details

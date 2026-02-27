@@ -445,8 +445,11 @@ export async function sessionEnd(
     const sessionId = current._meta?.activeSession || 'default';
     const now = new Date().toISOString();
 
-    // Clear grade mode env vars when session ends
-    if (process.env.CLEO_SESSION_GRADE === 'true') {
+    // Only clear grade vars when the grade session itself ends, not inner subagent sessions.
+    // CLEO_SESSION_GRADE_ID is the stable grade attribution ID — if this session is the
+    // grade session, clear all grade vars; otherwise leave them untouched.
+    if (process.env.CLEO_SESSION_GRADE === 'true' &&
+        process.env.CLEO_SESSION_GRADE_ID === sessionId) {
       delete process.env.CLEO_SESSION_GRADE;
       delete process.env.CLEO_SESSION_GRADE_ID;
       delete process.env.CLEO_SESSION_ID;

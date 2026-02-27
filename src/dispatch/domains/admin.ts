@@ -75,6 +75,7 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
+        case 'config.show':
         case 'config.get': {
           const result = await configGet(this.projectRoot, params?.key as string | undefined);
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
@@ -363,7 +364,7 @@ export class AdminHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'version', 'health', 'config.get', 'stats', 'context',
+        'version', 'health', 'config.show', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list',
       ],

@@ -67,7 +67,7 @@ describe('AdminHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
-        'version', 'health', 'config.get', 'stats', 'context',
+        'version', 'health', 'config.show', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list',
       ]);
