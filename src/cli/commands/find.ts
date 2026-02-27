@@ -7,11 +7,9 @@
 
 import { Command } from 'commander';
 import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput, cliError } from '../renderers/index.js';
-import { getFieldContext } from '../field-context.js';
+import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createPage } from '../../core/pagination.js';
-import { extractFieldFromResult } from '@cleocode/lafs-protocol';
 
 /**
  * Register the find command.
@@ -44,11 +42,6 @@ export function registerFindCommand(program: Command): void {
       if (limit !== undefined) params['limit'] = limit;
       if (offset !== undefined) params['offset'] = offset;
 
-      // Thread global --fields/_mvi through to the field-filter middleware
-      const fieldCtxParams = getFieldContext();
-      if (fieldCtxParams.fields?.length) params['_fields'] = fieldCtxParams.fields;
-      if (fieldCtxParams.mvi && fieldCtxParams.mvi !== 'standard') params['_mvi'] = fieldCtxParams.mvi;
-
       const response = await dispatchRaw('query', 'tasks', 'find', params);
 
       if (!response.success) {
@@ -64,19 +57,6 @@ export function registerFindCommand(program: Command): void {
       if (results.length === 0) {
         cliOutput(data, { command: 'find', message: 'No matching tasks found', operation: 'tasks.find' });
         process.exit(ExitCode.NO_DATA);
-        return;
-      }
-
-      // Honor global --field: extract single field from the first result as plain text
-      const fieldCtx = getFieldContext();
-      if (fieldCtx.field) {
-        const value = extractFieldFromResult(rawData as import('@cleocode/lafs-protocol').LAFSEnvelope['result'], fieldCtx.field);
-        if (value === undefined) {
-          cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
-          process.exit(4);
-        }
-        const out = (value !== null && typeof value === 'object') ? JSON.stringify(value) : String(value);
-        process.stdout.write(out + '\n');
         return;
       }
 

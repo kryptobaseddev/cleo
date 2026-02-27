@@ -17,8 +17,6 @@ import { createSanitizer } from '../middleware/sanitizer.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { cliOutput, cliError, type CliOutputOptions } from '../../cli/renderers/index.js';
-import { getFieldContext } from '../../cli/field-context.js';
-import { extractFieldFromResult } from '@cleocode/lafs-protocol';
 
 // Reverse mapping from string error codes to numeric exit codes.
 // Used when dispatch handlers return string error codes without exitCode.
@@ -118,39 +116,12 @@ export async function dispatchFromCli(
   params?: Record<string, unknown>,
   outputOpts?: CliOutputOptions,
 ): Promise<void> {
-  const fieldCtx = getFieldContext();
-  const mergedParams: Record<string, unknown> = { ...params };
-
-  // --field: plain-text extraction — dispatch raw, extract field, skip envelope
-  if (fieldCtx.field) {
-    const response = await dispatchRaw(gateway, domain, operation, mergedParams);
-    if (!response.success) {
-      handleRawError(response, { command: outputOpts?.command ?? operation, operation: `${domain}.${operation}` });
-      return;
-    }
-    const value = extractFieldFromResult(
-      response.data as import('@cleocode/lafs-protocol').LAFSEnvelope['result'],
-      fieldCtx.field,
-    );
-    if (value === undefined) {
-      cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
-      process.exit(4);
-    }
-    const out = (value !== null && typeof value === 'object') ? JSON.stringify(value) : String(value);
-    process.stdout.write(out + '\n');
-    return;
-  }
-
-  // --fields / --mvi: pass as LAFS control params — field-filter middleware handles them
-  if (fieldCtx.fields?.length) mergedParams['_fields'] = fieldCtx.fields;
-  if (fieldCtx.mvi) mergedParams['_mvi'] = fieldCtx.mvi;
-
   const dispatcher = getCliDispatcher();
   const response = await dispatcher.dispatch({
     gateway,
     domain,
     operation,
-    params: mergedParams,
+    params,
     source: 'cli',
     requestId: randomUUID(),
   });
