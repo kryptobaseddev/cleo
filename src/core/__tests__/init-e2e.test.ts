@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, access } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, access, mkdir, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { constants as fsConstants, existsSync } from 'node:fs';
@@ -163,5 +163,49 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     // project-context.json should be created when detection succeeds
     const created = result.created.join(',');
     expect(created).toContain('project-context.json');
+  });
+
+  it('installs git hooks when .git/ exists', async () => {
+    // Create a .git directory to simulate a git repo
+    await mkdir(join(testDir, '.git'), { recursive: true });
+
+    const result = await initProject({ name: 'test-project' });
+
+    const commitMsgHook = join(testDir, '.git', 'hooks', 'commit-msg');
+    const preCommitHook = join(testDir, '.git', 'hooks', 'pre-commit');
+
+    expect(existsSync(commitMsgHook)).toBe(true);
+    expect(existsSync(preCommitHook)).toBe(true);
+
+    // Verify hooks are executable (mode includes 0o111)
+    const commitMsgStat = await stat(commitMsgHook);
+    expect(commitMsgStat.mode & 0o111).toBeGreaterThan(0);
+
+    const preCommitStat = await stat(preCommitHook);
+    expect(preCommitStat.mode & 0o111).toBeGreaterThan(0);
+
+    // Verify reported in created
+    expect(result.created.join(',')).toContain('git hooks');
+  });
+
+  it('skips git hooks when .git/ does not exist', async () => {
+    // No .git directory — should warn but not crash
+    const result = await initProject({ name: 'test-project' });
+
+    expect(result.initialized).toBe(true);
+    expect(result.warnings.join(',')).toContain('No .git/ directory');
+    expect(existsSync(join(testDir, '.git', 'hooks', 'commit-msg'))).toBe(false);
+  });
+
+  it('does not overwrite existing hooks without force', async () => {
+    await mkdir(join(testDir, '.git', 'hooks'), { recursive: true });
+    const existingContent = '#!/bin/sh\n# my custom hook\n';
+    await writeFile(join(testDir, '.git', 'hooks', 'commit-msg'), existingContent);
+
+    await initProject({ name: 'test-project' });
+
+    // Existing hook should be preserved
+    const content = await readFile(join(testDir, '.git', 'hooks', 'commit-msg'), 'utf-8');
+    expect(content).toBe(existingContent);
   });
 });

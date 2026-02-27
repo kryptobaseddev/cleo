@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GradeResult",
+  "description": "Agent behavioral grade result from session audit analysis",
+  "_meta": {
+    "schemaVersion": "1.0.0"
+  },
+  "type": "object",
+  "required": ["sessionId", "totalScore", "maxScore", "dimensions", "flags", "timestamp", "entryCount"],
+  "properties": {
+    "sessionId": { "type": "string", "description": "Session ID that was graded" },
+    "taskId": { "type": "string", "description": "Optional associated task ID" },
+    "totalScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "maxScore": { "type": "number", "minimum": 0, "maximum": 100, "default": 100 },
+    "dimensions": {
+      "type": "object",
+      "properties": {
+        "sessionDiscipline": { "$ref": "#/definitions/dimensionScore" },
+        "discoveryEfficiency": { "$ref": "#/definitions/dimensionScore" },
+        "taskHygiene": { "$ref": "#/definitions/dimensionScore" },
+        "errorProtocol": { "$ref": "#/definitions/dimensionScore" },
+        "disclosureUse": { "$ref": "#/definitions/dimensionScore" }
+      }
+    },
+    "flags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Specific violations or improvement suggestions"
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "entryCount": { "type": "number", "minimum": 0 },
+    "evaluator": { "type": "string", "enum": ["auto", "manual"] }
+  },
+  "definitions": {
+    "dimensionScore": {
+      "type": "object",
+      "required": ["score", "max", "evidence"],
+      "properties": {
+        "score": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Specific observations contributing to this score"
+        }
+      }
+    }
+  }
+}
