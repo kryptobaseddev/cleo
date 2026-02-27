@@ -35,7 +35,7 @@ import { tmpdir } from 'node:os';
 describe('Import Graph Verification (T4796)', () => {
   const ENGINE_FILES = [
     'task-engine.ts',
-    'session-engine.ts',
+    // session-engine.ts deleted — moved to src/dispatch/engines/session-engine.ts
     // lifecycle-engine.ts deleted — moved to src/dispatch/engines/lifecycle-engine.ts
     'system-engine.ts',
     'orchestrate-engine.ts',
@@ -113,9 +113,10 @@ describe('Import Graph Verification (T4796)', () => {
     expect(content).toContain("from '../../core/tasks/archive.js'");
   });
 
-  it('session-engine.ts imports from core/sessions/ and core/task-work/', async () => {
+  it('dispatch session-engine.ts imports from core/sessions/ and core/task-work/', async () => {
+    const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(
-      join(ENGINE_DIR, 'session-engine.ts'),
+      join(dispatchEngineDir, 'session-engine.ts'),
       'utf-8',
     );
 
@@ -474,7 +475,7 @@ describe('Session Engine Delegation (T4796)', () => {
 
   it('sessionStatus returns valid EngineResult', async () => {
     const { sessionStatus } = await import(
-      '../../mcp/engine/session-engine.js'
+      '../../dispatch/engines/session-engine.js'
     );
 
     const result = await sessionStatus(testDir);
@@ -487,7 +488,7 @@ describe('Session Engine Delegation (T4796)', () => {
 
   it('sessionList returns valid EngineResult with array', async () => {
     const { sessionList } = await import(
-      '../../mcp/engine/session-engine.js'
+      '../../dispatch/engines/session-engine.js'
     );
 
     const result = await sessionList(testDir);
@@ -499,7 +500,7 @@ describe('Session Engine Delegation (T4796)', () => {
 
   it('sessionStart creates session and returns EngineResult', async () => {
     const { sessionStart } = await import(
-      '../../mcp/engine/session-engine.js'
+      '../../dispatch/engines/session-engine.js'
     );
 
     const result = await sessionStart(testDir, {
@@ -510,14 +511,14 @@ describe('Session Engine Delegation (T4796)', () => {
 
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
-    expect(result.data!.id).toMatch(/^session_/);
+    expect(result.data!.id).toMatch(/^ses_/);
     expect(result.data!.status).toBe('active');
     expect(result.data!.scope.rootTaskId).toBe('T010');
   });
 
   it('sessionStart then sessionEnd round-trip works', async () => {
     const { sessionStart, sessionEnd, sessionStatus } = await import(
-      '../../mcp/engine/session-engine.js'
+      '../../dispatch/engines/session-engine.js'
     );
 
     // Start session
@@ -540,7 +541,7 @@ describe('Session Engine Delegation (T4796)', () => {
 
   it('taskStart and taskStop delegate to core/task-work/', async () => {
     const { taskStart, taskStop, taskCurrentGet } = await import(
-      '../../mcp/engine/session-engine.js'
+      '../../dispatch/engines/session-engine.js'
     );
 
     // Start working on a task
@@ -750,7 +751,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
 
   it('session engine error results have E_ prefixed codes', async () => {
     const { sessionStatus } = await import(
-      '../../mcp/engine/session-engine.js'
+      '../../dispatch/engines/session-engine.js'
     );
 
     const result = await sessionStatus('/nonexistent');
