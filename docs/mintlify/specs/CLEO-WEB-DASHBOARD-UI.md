@@ -7,6 +7,9 @@
 
 **Companion Document**: [CLEO-WEB-DASHBOARD-SPEC.md](./CLEO-WEB-DASHBOARD-SPEC.md) -- Architecture, API, data sources
 
+> **Architecture Reference**: This document covers UI/UX design. For API architecture,
+> server lifecycle, and technical stack decisions, see [CLEO-WEB-API-SPEC.md](../../specs/CLEO-WEB-API-SPEC.md).
+
 ---
 
 ## 1. Design Philosophy
@@ -151,13 +154,13 @@ Usage:
 | 56px  |                                                      |
 | wide  |                                                      |
 |       +------------------------------------------------------+
-|       |  Status Bar: CLEO v0.96.0 | 566 tasks | ws:connected |
+|       |  Status Bar: CLEO v0.96.0 | 566 tasks | poll:active  |
 +-------+------------------------------------------------------+
 ```
 
 - **Left nav**: 56px collapsed (icons only), 240px expanded (icons + labels)
 - **Top bar**: 48px tall. Logo, breadcrumb, global search, settings
-- **Status bar**: 28px tall. Version, task count, WebSocket status, last sync time
+- **Status bar**: 28px tall. Version, task count, poll status, last sync time
 - **Main content**: Fills remaining space. Scrollable. Content depends on active view.
 
 ### 4.2 Navigation Items
@@ -181,6 +184,7 @@ Icon    Label           View               Phase
 [*]     Settings        /settings          Phase 1
 ```
 
+Routing: lightweight Svelte router (hash-based for SPA).
 Active nav item: left cyan border + bg-elevated + cyan text.
 Hover: bg-elevated.
 
@@ -734,7 +738,7 @@ Results grouped by type. Keyboard-navigable. Enter opens selected result.
 
 ### 7.3 Real-Time Updates
 
-When WebSocket receives a change event:
+When poll detects changes (via ETag mismatch):
 1. Flash the affected row/card with a subtle highlight animation (200ms)
 2. Update the data in-place (no full page reload)
 3. Show a toast notification for significant events (release shipped, session started)
@@ -826,7 +830,7 @@ Status change:     row flashes with status color, 200ms
 Hover effects:     bg-color transition, 150ms
 Chart updates:     data point animation, 300ms
 Toast:             slide in from top-right, auto-dismiss 4s
-WebSocket connect: green dot pulse animation (2s loop)
+Poll active:       green dot pulse animation (2s loop)
 ```
 
 ---
@@ -843,7 +847,44 @@ WebSocket connect: green dot pulse animation (2s loop)
 
 ---
 
-## 11. Related Documents
+## 11. Technical Implementation
 
-- **Architecture & Features**: [CLEO-WEB-DASHBOARD-SPEC.md](./CLEO-WEB-DASHBOARD-SPEC.md)
+### 11.1 Frontend Approach
+
+Svelte 5 standalone SPA with Vite. No SvelteKit (SSR unnecessary for localhost). D3.js for graph visualization, Chart.js for statistical charts.
+
+### 11.2 Data Access Pattern
+
+The frontend communicates with the CLEO API via the `/dispatch` pattern:
+
+```typescript
+// Generated typed client
+import { cleoClient } from './generated/cleo-client';
+
+const tasks = await cleoClient.query('tasks', 'find', { query: 'bug' });
+```
+
+For time-series metrics (JSONL files), a dedicated `MetricsService` parses and aggregates server-side, returning chart-ready data to the client.
+
+### 11.3 Real-Time Strategy
+
+Smart polling with ETag-based conditional GETs.
+Poll intervals: Dashboard 10s, Task list 5s, Active views 5s.
+No chokidar, no file watching (SQLite WAL mode incompatible).
+See [CLEO-WEB-API-SPEC.md](../../specs/CLEO-WEB-API-SPEC.md) Section 9 for details.
+
+### 11.4 Security
+
+- Bind to `127.0.0.1` only (never `0.0.0.0`)
+- No authentication for local access (MVP)
+- CORS restricted to localhost origins
+- Path validation prevents directory traversal
+- All writes go through Dispatcher middleware pipeline (sanitizer, field-filter, rate-limiter, verification-gates, protocol-enforcement, audit)
+
+---
+
+## 12. Related Documents
+
+- **API Architecture (canonical)**: [CLEO-WEB-API-SPEC.md](../../specs/CLEO-WEB-API-SPEC.md)
+- **Legacy Architecture (superseded)**: [CLEO-WEB-DASHBOARD-SPEC.md](./CLEO-WEB-DASHBOARD-SPEC.md)
 - **Epic**: T4284 (CLEO Nexus Command Center WebUI)

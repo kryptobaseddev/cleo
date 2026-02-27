@@ -188,6 +188,20 @@ cleo/
 └── installer/         # Channel-aware installer
 ```
 
+## Versioning
+
+CLEO uses **Calendar Versioning (CalVer)** with the format `YYYY.MM.PATCH`:
+
+| Segment | Meaning | Example |
+|---------|---------|---------|
+| `YYYY` | Calendar year | `2026` |
+| `MM` | Calendar month (no zero-padding) | `2` |
+| `PATCH` | Sequential patch number within the month | `6` |
+
+Example: `2026.2.6` = 6th release in February 2026.
+
+When a new month starts, the patch resets to `1`. Version bumps are managed via `cleo release ship <version> --bump-version` or direct `package.json` edits.
+
 ## Making Changes
 
 ### Branch Naming
