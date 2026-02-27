@@ -190,22 +190,14 @@ export async function cleanupMigrationArtifacts(backupPath: string): Promise<boo
  */
 export async function validateSqliteDatabase(dbPath: string): Promise<boolean> {
   try {
-    const initSqlJs = (await import('sql.js')).default;
-    const { readFileSync } = await import('node:fs');
-
-    const SQL = await initSqlJs();
-    const buffer = readFileSync(dbPath);
-    const db = new SQL.Database(buffer);
-
-    // Try to run a simple query to verify integrity
-    db.run('PRAGMA integrity_check;');
-
-    // Check for basic tables
-    const result = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';");
-    const hasTasksTable = result.length > 0 && result[0].values.length > 0;
-
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const integrityRow = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string } | undefined;
+    const isOk = integrityRow?.integrity_check === 'ok';
+    const tableRow = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").get();
+    const hasTasksTable = !!tableRow;
     db.close();
-    return hasTasksTable;
+    return isOk && hasTasksTable;
   } catch {
     return false;
   }
