@@ -33,6 +33,14 @@ function rowToSession(row: SessionRow): Session {
     notes: parseJson<string[]>(row.notesJson),
     tasksCompleted: parseJson<string[]>(row.tasksCompletedJson),
     tasksCreated: parseJson<string[]>(row.tasksCreatedJson),
+    handoffJson: row.handoffJson ?? null,
+    // Session chain fields (T4959)
+    previousSessionId: row.previousSessionId ?? null,
+    nextSessionId: row.nextSessionId ?? null,
+    agentIdentifier: row.agentIdentifier ?? null,
+    handoffConsumedAt: row.handoffConsumedAt ?? null,
+    handoffConsumedBy: row.handoffConsumedBy ?? null,
+    debriefJson: row.debriefJson ?? null,
   };
 }
 
@@ -102,6 +110,14 @@ export async function updateSession(
   if (updates.notes !== undefined) updateRow.notesJson = JSON.stringify(updates.notes);
   if (updates.tasksCompleted !== undefined) updateRow.tasksCompletedJson = JSON.stringify(updates.tasksCompleted);
   if (updates.tasksCreated !== undefined) updateRow.tasksCreatedJson = JSON.stringify(updates.tasksCreated);
+  // Session chain fields (T4959)
+  if (updates.previousSessionId !== undefined) updateRow.previousSessionId = updates.previousSessionId;
+  if (updates.nextSessionId !== undefined) updateRow.nextSessionId = updates.nextSessionId;
+  if (updates.agentIdentifier !== undefined) updateRow.agentIdentifier = updates.agentIdentifier;
+  if (updates.handoffConsumedAt !== undefined) updateRow.handoffConsumedAt = updates.handoffConsumedAt;
+  if (updates.handoffConsumedBy !== undefined) updateRow.handoffConsumedBy = updates.handoffConsumedBy;
+  if (updates.debriefJson !== undefined) updateRow.debriefJson = updates.debriefJson;
+  if (updates.handoffJson !== undefined) updateRow.handoffJson = updates.handoffJson;
 
   db.update(schema.sessions).set(updateRow).where(eq(schema.sessions.id, sessionId)).run();
 

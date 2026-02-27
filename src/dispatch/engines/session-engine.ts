@@ -27,7 +27,9 @@ import {
   getLastHandoff,
   computeBriefing,
 } from '../../core/sessions/index.js';
+import { generateSessionId } from '../../core/sessions/session-id.js';
 import type { HandoffData } from '../../core/sessions/handoff.js';
+import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
 import type { SessionBriefing } from '../../core/sessions/briefing.js';
 import type {
   SessionRecord,
@@ -295,11 +297,36 @@ export async function sessionStart(
     }
 
     const now = new Date().toISOString();
-    const { randomBytes } = await import('node:crypto');
-    const date = now.replace(/[-:T]/g, '').substring(0, 8);
-    const time = now.replace(/[-:T]/g, '').substring(8, 14);
-    const hex = randomBytes(3).toString('hex');
-    const sessionId = `session_${date}_${time}_${hex}`;
+    const sessionId = generateSessionId();
+
+    // T4959: Chain linking — find most recent ended session for same scope
+    let previousSessionId: string | null = null;
+    {
+      const sessionsData = await accessor.loadSessions();
+      const sessions = sessionsData as unknown as SessionsFileExt;
+      const allSessions = [
+        ...(sessions?.sessions || []),
+        ...(sessions?.sessionHistory || []),
+      ];
+      const sameScope = allSessions
+        .filter((s) =>
+          s.status === 'ended' &&
+          s.endedAt &&
+          s.scope?.rootTaskId === rootTaskId &&
+          s.scope?.type === scopeType,
+        )
+        .sort((a, b) =>
+          new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime(),
+        );
+      if (sameScope.length > 0) {
+        previousSessionId = sameScope[0].id;
+      }
+    }
+
+    // Resolve agent identifier from params or env
+    const agentIdentifier = (params as Record<string, unknown>).agentIdentifier as string | undefined
+      ?? process.env.CLEO_AGENT_ID
+      ?? null;
 
     const newSession: SessionRecord = {
       id: sessionId,
@@ -366,6 +393,26 @@ export async function sessionStart(
       const sessions = sessionsData as unknown as SessionsFileExt;
 
       if (!sessions.sessions) sessions.sessions = [];
+
+      // T4959: Set chain fields on new session
+      if (previousSessionId) {
+        newSession.previousSessionId = previousSessionId;
+
+        // Update predecessor's nextSessionId
+        const allSessionArrays = [sessions.sessions, sessions.sessionHistory || []];
+        for (const arr of allSessionArrays) {
+          const pred = arr.find((s) => s.id === previousSessionId);
+          if (pred) {
+            pred.nextSessionId = sessionId;
+            break;
+          }
+        }
+      }
+
+      if (agentIdentifier) {
+        newSession.agentIdentifier = agentIdentifier;
+      }
+
       sessions.sessions.push(newSession);
       if (sessions._meta) {
         sessions._meta.lastModified = now;
@@ -383,7 +430,44 @@ export async function sessionStart(
       process.env.CLEO_SESSION_ID = sessionId;
     }
 
-    return { success: true, data: newSession };
+    // T4959: Auto-briefing — enrich response with briefing + predecessor debrief
+    let briefing: SessionBriefing | null = null;
+    let previousDebrief: DebriefData | null = null;
+    try {
+      briefing = await computeBriefing(projectRoot, { scope: params.scope });
+    } catch {
+      // Best-effort — briefing failure should not fail session start
+    }
+
+    // 5B: Load predecessor debrief and mark handoff consumed
+    if (previousSessionId) {
+      try {
+        const sessionsData2 = await accessor.loadSessions();
+        const sessions2 = sessionsData2 as unknown as SessionsFileExt;
+        const allSessions2 = [
+          ...(sessions2?.sessions || []),
+          ...(sessions2?.sessionHistory || []),
+        ];
+        const pred = allSessions2.find((s) => s.id === previousSessionId);
+        if (pred?.debriefJson) {
+          previousDebrief = JSON.parse(pred.debriefJson as string) as DebriefData;
+          // Mark handoff consumed
+          pred.handoffConsumedAt = new Date().toISOString();
+          pred.handoffConsumedBy = sessionId;
+          await accessor.saveSessions(sessionsData2);
+        }
+      } catch {
+        // Best-effort
+      }
+    }
+
+    const enrichedSession = {
+      ...newSession,
+      ...(briefing && { briefing }),
+      ...(previousDebrief && { previousDebrief }),
+    };
+
+    return { success: true, data: enrichedSession as SessionRecord };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
@@ -964,5 +1048,182 @@ export async function sessionBriefing(
       message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
       message,
     );
+  }
+}
+
+// =============================================================================
+// RICH DEBRIEF + CHAIN OPERATIONS (T4959)
+// =============================================================================
+
+/**
+ * Compute and persist rich debrief data for a session.
+ * Persists as both handoffJson (backward compat) and debriefJson (rich data).
+ * @epic T4959
+ */
+export async function sessionComputeDebrief(
+  projectRoot: string,
+  sessionId: string,
+  options?: { note?: string; nextAction?: string },
+): Promise<EngineResult<DebriefData>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFileExt;
+    const allSessions = [
+      ...(sessions?.sessions || []),
+      ...(sessions?.sessionHistory || []),
+    ];
+    const session = allSessions.find((s) => s.id === sessionId);
+
+    const debrief = await computeDebrief(projectRoot, {
+      sessionId,
+      note: options?.note,
+      nextAction: options?.nextAction,
+      agentIdentifier: session?.agentIdentifier ?? null,
+      startedAt: session?.startedAt,
+      endedAt: session?.endedAt ?? new Date().toISOString(),
+    });
+
+    // Persist both handoffJson and debriefJson
+    const { persistHandoff: corePersistHandoff } = await import('../../core/sessions/handoff.js');
+    await corePersistHandoff(projectRoot, sessionId, debrief.handoff);
+
+    // Persist debriefJson via session update
+    if (session) {
+      session.debriefJson = JSON.stringify(debrief);
+      await accessor.saveSessions(sessionsData);
+    }
+
+    return { success: true, data: debrief };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    return engineError(
+      message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
+      message,
+    );
+  }
+}
+
+/**
+ * Read a session's debrief data.
+ * Falls back to handoff data if no debrief is available.
+ * @epic T4959
+ */
+export async function sessionDebriefShow(
+  projectRoot: string,
+  sessionId: string,
+): Promise<EngineResult<DebriefData | { handoff: unknown; fallback: true } | null>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFileExt;
+    const allSessions = [
+      ...(sessions?.sessions || []),
+      ...(sessions?.sessionHistory || []),
+    ];
+    const session = allSessions.find((s) => s.id === sessionId);
+    if (!session) {
+      return engineError('E_NOT_FOUND', `Session '${sessionId}' not found`);
+    }
+
+    // Try debriefJson first
+    if (session.debriefJson) {
+      try {
+        const debrief = JSON.parse(session.debriefJson as string) as DebriefData;
+        return { success: true, data: debrief };
+      } catch {
+        // Fall through to handoff
+      }
+    }
+
+    // Fall back to handoffJson
+    if (typeof (session as unknown as Record<string, unknown>).handoffJson === 'string') {
+      try {
+        const handoff = JSON.parse(
+          (session as unknown as Record<string, unknown>).handoffJson as string,
+        );
+        return { success: true, data: { handoff, fallback: true } };
+      } catch {
+        // No data available
+      }
+    }
+
+    return { success: true, data: null };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    return engineError(
+      message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
+      message,
+    );
+  }
+}
+
+/**
+ * Show the session chain for a given session.
+ * Returns ordered list of sessions linked via previousSessionId/nextSessionId.
+ * @epic T4959
+ */
+export async function sessionChainShow(
+  projectRoot: string,
+  sessionId: string,
+): Promise<EngineResult<Array<{
+  id: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  agentIdentifier: string | null;
+  position: number;
+}>>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const sessionsData = await accessor.loadSessions();
+    const sessions = sessionsData as unknown as SessionsFileExt;
+    const allSessions = [
+      ...(sessions?.sessions || []),
+      ...(sessions?.sessionHistory || []),
+    ];
+    const sessionMap = new Map(allSessions.map((s) => [s.id, s]));
+
+    const target = sessionMap.get(sessionId);
+    if (!target) {
+      return engineError('E_NOT_FOUND', `Session '${sessionId}' not found`);
+    }
+
+    // Walk backward to chain start
+    const chain: string[] = [sessionId];
+    const visited = new Set<string>([sessionId]);
+    let current = target.previousSessionId;
+    while (current && !visited.has(current)) {
+      chain.unshift(current);
+      visited.add(current);
+      const s = sessionMap.get(current);
+      current = s?.previousSessionId ?? undefined;
+    }
+
+    // Walk forward from target
+    current = target.nextSessionId;
+    while (current && !visited.has(current)) {
+      chain.push(current);
+      visited.add(current);
+      const s = sessionMap.get(current);
+      current = s?.nextSessionId ?? undefined;
+    }
+
+    const result = chain.map((id, idx) => {
+      const s = sessionMap.get(id);
+      return {
+        id,
+        status: s?.status ?? 'unknown',
+        startedAt: s?.startedAt ?? '',
+        endedAt: s?.endedAt ?? null,
+        agentIdentifier: s?.agentIdentifier ?? null,
+        position: idx + 1,
+      };
+    });
+
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    return engineError('E_INTERNAL', message);
   }
 }

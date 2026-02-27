@@ -99,6 +99,11 @@ export class Dispatcher {
     response._meta.requestId = request.requestId;
     response._meta.source = request.source;
 
+    // 6. Stamp session identity (T4959)
+    if (request.sessionId) {
+      response._meta.sessionId = request.sessionId;
+    }
+
     return response;
   }
 }

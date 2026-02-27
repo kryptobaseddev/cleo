@@ -14,6 +14,7 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
+import { bindSession, unbindSession } from '../context/session-context.js';
 
 const logger = getLogger('domain:session');
 import {
@@ -33,6 +34,9 @@ import {
   sessionHandoff,
   sessionComputeHandoff,
   sessionBriefing,
+  sessionComputeDebrief,
+  sessionDebriefShow,
+  sessionChainShow,
 } from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
@@ -117,6 +121,25 @@ export class SessionHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
+        // T4959: Rich debrief + chain operations
+        case 'debrief.show': {
+          const debriefSessionId = params?.sessionId as string;
+          if (!debriefSessionId) {
+            return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+          }
+          const result = await sessionDebriefShow(this.projectRoot, debriefSessionId);
+          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+        }
+
+        case 'chain.show': {
+          const chainSessionId = params?.sessionId as string;
+          if (!chainSessionId) {
+            return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+          }
+          const result = await sessionChainShow(this.projectRoot, chainSessionId);
+          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'session', operation, startTime);
       }
@@ -153,6 +176,22 @@ export class SessionHandler implements DomainHandler {
           if (result.success && result.data) {
             const session = result.data as unknown as Record<string, unknown>;
             result.data = { ...session, sessionId: session.id } as unknown as typeof result.data;
+
+            // T4959: Bind session to process-scoped context (MCP path)
+            try {
+              const scopeParts = scope.split(':');
+              bindSession({
+                sessionId: session.id as string,
+                scope: {
+                  type: scopeParts[0] ?? 'global',
+                  epicId: scopeParts[1],
+                },
+                gradeMode: (params?.grade as boolean) ?? false,
+              });
+            } catch {
+              // Already bound — log and continue (session was still created)
+              logger.warn({ sessionId: session.id }, 'Session context already bound, skipping bindSession');
+            }
           }
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
         }
@@ -160,23 +199,34 @@ export class SessionHandler implements DomainHandler {
         case 'end': {
           // End the session first
           const endResult = await sessionEnd(this.projectRoot, params?.note as string | undefined);
-          
-          // If session ended successfully, compute and persist handoff data
+
+          // If session ended successfully, compute and persist debrief + handoff data
           if (endResult.success && endResult.data) {
             const sessionId = (endResult.data as { sessionId: string }).sessionId;
             if (sessionId) {
+              // T4959: Compute rich debrief (superset of handoff)
               try {
-                await sessionComputeHandoff(this.projectRoot, sessionId, {
+                await sessionComputeDebrief(this.projectRoot, sessionId, {
                   note: params?.note as string | undefined,
                   nextAction: params?.nextAction as string | undefined,
                 });
               } catch {
-                // Handoff computation failure should not fail the end operation
-                // Just log and continue
+                // Debrief failure — fall back to handoff only
+                try {
+                  await sessionComputeHandoff(this.projectRoot, sessionId, {
+                    note: params?.note as string | undefined,
+                    nextAction: params?.nextAction as string | undefined,
+                  });
+                } catch {
+                  // Handoff computation failure should not fail the end operation
+                }
               }
             }
+
+            // T4959: Unbind session from process-scoped context
+            unbindSession();
           }
-          
+
           return this.wrapEngineResult(endResult, 'mutate', 'session', operation, startTime);
         }
 
@@ -238,7 +288,7 @@ export class SessionHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'history', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show'],
+      query: ['status', 'list', 'show', 'history', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show', 'debrief.show', 'chain.show'],
       mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
     };
   }

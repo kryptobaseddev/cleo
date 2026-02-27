@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import type { Gateway, DispatchRequest, DispatchResponse } from '../types.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
+import { createSessionResolver } from '../middleware/session-resolver.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
 import { createRateLimiter } from '../middleware/rate-limiter.js';
@@ -40,6 +41,7 @@ export function initMcpDispatcher(config: McpDispatcherConfig = {}): Dispatcher 
   _dispatcher = new Dispatcher({
     handlers,
     middlewares: [
+      createSessionResolver(),  // T4959: session identity first
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
       createRateLimiter(config.rateLimiting),

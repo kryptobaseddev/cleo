@@ -213,6 +213,8 @@ export interface DispatchResponse {
     source: Source;
     requestId: string;
     rateLimit?: RateLimitMeta;
+    /** Session ID that processed this request (T4959). */
+    sessionId?: string;
     /** Preserves MCP-level version for backward compat. */
     version?: string;
     /** Extensible metadata (verification gate info, etc.). */

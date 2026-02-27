@@ -113,5 +113,13 @@ export function rowToSession(row: SessionRow): Session {
     notes: safeParseJsonArray(row.notesJson),
     tasksCompleted: safeParseJsonArray(row.tasksCompletedJson),
     tasksCreated: safeParseJsonArray(row.tasksCreatedJson),
+    handoffJson: row.handoffJson ?? null,
+    // Session chain fields (T4959)
+    previousSessionId: row.previousSessionId ?? null,
+    nextSessionId: row.nextSessionId ?? null,
+    agentIdentifier: row.agentIdentifier ?? null,
+    handoffConsumedAt: row.handoffConsumedAt ?? null,
+    handoffConsumedBy: row.handoffConsumedBy ?? null,
+    debriefJson: row.debriefJson ?? null,
   };
 }

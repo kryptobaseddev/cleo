@@ -53,6 +53,19 @@ export interface SessionRecord {
     totalActiveMinutes: number;
     suspendCount: number;
   };
+  // Session chain fields (T4959)
+  /** Soft FK to predecessor session. */
+  previousSessionId?: string | null;
+  /** Soft FK to successor session. */
+  nextSessionId?: string | null;
+  /** LLM agent/conversation identifier. */
+  agentIdentifier?: string | null;
+  /** When the successor read this session's handoff/debrief. */
+  handoffConsumedAt?: string | null;
+  /** Who consumed the handoff. */
+  handoffConsumedBy?: string | null;
+  /** Rich debrief data (superset of handoffJson). */
+  debriefJson?: string | null;
 }
 
 /**
@@ -136,3 +149,14 @@ export interface AssumptionRecord {
   validatedAt: string | null;
   timestamp: string;
 }
+
+// =============================================================================
+// TYPE UNIFICATION NOTES (T4959)
+// =============================================================================
+//
+// SessionRecord (above) is the engine-layer type used by sessions.json.
+// Session (in types/session.ts) is the domain type used by core/ and store/.
+// Both now have the chain fields (T4959). Full SessionRecord -> Session
+// unification is a follow-up epic — new code should prefer Session where
+// possible, and SessionRecord only for engine/dispatch-layer code.
+//
