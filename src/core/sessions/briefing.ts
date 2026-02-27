@@ -21,6 +21,7 @@ import { getAccessor } from '../../store/data-accessor.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
 import type { Session } from '../../types/session.js';
 import type { TaskFileExt } from './types.js';
+import { depsReady } from '../tasks/deps-ready.js';
 
 /**
  * Task summary for briefing output.
@@ -350,17 +351,6 @@ function calculateLeverage(taskId: string, taskMap: Map<string, unknown>): numbe
 }
 
 /**
- * Check if task dependencies are satisfied.
- */
-function depsReady(task: { depends?: string[] }, taskMap: Map<string, unknown>): boolean {
-  if (!task.depends || task.depends.length === 0) return true;
-  return task.depends.every((depId) => {
-    const dep = taskMap.get(depId) as { status?: string } | undefined;
-    return dep && (dep.status === 'done' || dep.status === 'cancelled');
-  });
-}
-
-/**
  * Compute next tasks sorted by leverage and score.
  */
 function computeNextTasks(
@@ -388,7 +378,7 @@ function computeNextTasks(
       depends?: string[];
     };
 
-    if (!depsReady(t, taskMap)) continue;
+    if (!depsReady(t.depends, taskMap)) continue;
 
     const leverage = calculateLeverage(t.id, taskMap);
     let score = PRIORITY_SCORE[t.priority || 'medium'] ?? 50;

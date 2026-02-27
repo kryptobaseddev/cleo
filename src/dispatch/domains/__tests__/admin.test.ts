@@ -190,18 +190,18 @@ describe('AdminHandler', () => {
       expect(systemSequence).not.toHaveBeenCalled();
     });
 
-    it('should return E_NOT_IMPLEMENTED for job.status', async () => {
-      const res = await handler.query('job.status');
+    it('should return E_NOT_AVAILABLE for job.status when no job manager', async () => {
+      const res = await handler.query('job.status', { jobId: 'job-1' });
 
       expect(res.success).toBe(false);
-      expect(res.error?.code).toBe('E_NOT_IMPLEMENTED');
+      expect(res.error?.code).toBe('E_NOT_AVAILABLE');
     });
 
-    it('should return E_NOT_IMPLEMENTED for job.list', async () => {
+    it('should return E_NOT_AVAILABLE for job.list when no job manager', async () => {
       const res = await handler.query('job.list');
 
       expect(res.success).toBe(false);
-      expect(res.error?.code).toBe('E_NOT_IMPLEMENTED');
+      expect(res.error?.code).toBe('E_NOT_AVAILABLE');
     });
 
     it('should return E_INVALID_OPERATION for unknown query', async () => {
@@ -335,11 +335,11 @@ describe('AdminHandler', () => {
       expect(systemCleanup).not.toHaveBeenCalled();
     });
 
-    it('should return E_NOT_IMPLEMENTED for job.cancel', async () => {
-      const res = await handler.mutate('job.cancel');
+    it('should return E_NOT_AVAILABLE for job.cancel when no job manager', async () => {
+      const res = await handler.mutate('job.cancel', { jobId: 'job-1' });
 
       expect(res.success).toBe(false);
-      expect(res.error?.code).toBe('E_NOT_IMPLEMENTED');
+      expect(res.error?.code).toBe('E_NOT_AVAILABLE');
     });
 
     it('should call systemSafestop for safestop', async () => {

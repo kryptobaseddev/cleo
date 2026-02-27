@@ -4,8 +4,8 @@
  * Handles all read-only operations for discovery, status, analysis,
  * and validation checks. Never modifies state.
  *
- * Canonical domains (9): tasks, session, memory, check, pipeline,
- *   orchestrate, tools, admin, nexus
+ * Canonical domains (10): tasks, session, memory, check, pipeline,
+ *   orchestrate, tools, admin, nexus, sharing
  * Legacy aliases (backward compat): research, lifecycle, validate,
  *   release, system, issues, skills, providers
  *
@@ -60,7 +60,7 @@ export interface DomainResponse {
 type QueryDomain =
   // Canonical domains
   | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin' | 'nexus'
+  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sharing'
   // Legacy aliases (backward compat)
   | 'research' | 'lifecycle' | 'validate'
   | 'system' | 'issues' | 'skills' | 'providers';
@@ -127,7 +127,6 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'bootstrap',  // Brain state bootstrap
     'unblock.opportunities', // Unblocking opportunities analysis
     'critical.path', // Longest dependency chain analysis
-    'skill.list', // List available skills for dispatch
   ],
 
   // ── Canonical: memory (research alias) ─────────────────────────────
@@ -214,6 +213,13 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'provider.list',           // List all registered providers
     'provider.detect',         // Detect installed providers
     'provider.inject.status',  // Check injection status
+  ],
+
+  // ── Canonical: sharing (multi-contributor operations) ──────────────
+  sharing: [
+    'status',
+    'remotes',
+    'sync.status',
   ],
 
   // ── Canonical: nexus (BRAIN Network placeholder) ───────────────────

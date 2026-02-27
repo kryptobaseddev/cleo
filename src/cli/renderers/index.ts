@@ -111,11 +111,28 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const ctx = getFormatContext();
   const fieldCtx = getFieldContext();
 
-  // --human wins over all field flags.
-  // --field, --fields, and --mvi are JSON-envelope / scripting concepts.
-  // When a human is reading the output, render the full data without manipulation.
   if (ctx.format === 'human') {
-    const normalized = normalizeForHuman(opts.command, data as Record<string, unknown>);
+    let dataToRender = data as Record<string, unknown>;
+
+    // §5.4.1 filter-then-render: apply --field extraction BEFORE human rendering
+    if (fieldCtx.field) {
+      const extracted = extractFieldFromResult(
+        data as LAFSEnvelope['result'],
+        fieldCtx.field,
+      );
+      if (extracted === undefined) {
+        cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
+        process.exit(4);
+      }
+      // If extracted is a primitive, render directly
+      if (typeof extracted !== 'object' || extracted === null) {
+        console.log(String(extracted));
+        return;
+      }
+      dataToRender = extracted as Record<string, unknown>;
+    }
+
+    const normalized = normalizeForHuman(opts.command, dataToRender);
     const renderer = renderers[opts.command] ?? renderGeneric;
     const text = renderer(normalized, ctx.quiet);
     if (text) {

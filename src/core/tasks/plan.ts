@@ -4,25 +4,19 @@
  * @epic T4454
  */
 
+import type { TaskRow } from '../../store/schema.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { readJsonFile, getDataPath } from '../../mcp/engine/store.js';
+import { depsReady } from './deps-ready.js';
 
-// Task record shape for internal use
-interface TaskRecord {
-  id: string;
-  title: string;
-  status: string;
-  priority: string;
-  type?: string;
-  phase?: string;
-  parentId?: string | null;
+// Internal task record — subset of Drizzle TaskRow for plan computation
+type TaskRecord = Pick<TaskRow, 'id' | 'title' | 'status' | 'priority' | 'type' | 'phase' | 'parentId' | 'createdAt'> & {
   labels?: string[];
   origin?: string;
   depends?: string[];
   blockedBy?: string;
-  createdAt: string;
   [key: string]: unknown;
-}
+};
 
 /** In-progress epic entry. */
 export interface InProgressEpic {
@@ -33,9 +27,7 @@ export interface InProgressEpic {
 }
 
 /** Ready task entry with leverage analysis. */
-export interface ReadyTask {
-  id: string;
-  title: string;
+export interface ReadyTask extends Pick<TaskRow, 'id' | 'title' | 'priority'> {
   epicId: string;
   leverage: number;
   score: number;
@@ -43,18 +35,13 @@ export interface ReadyTask {
 }
 
 /** Blocked task entry. */
-export interface BlockedTask {
-  id: string;
-  title: string;
+export interface BlockedTask extends Pick<TaskRow, 'id' | 'title'> {
   blockedBy: string[];
   blocksCount: number;
 }
 
 /** Open bug entry. */
-export interface OpenBug {
-  id: string;
-  title: string;
-  priority: string;
+export interface OpenBug extends Pick<TaskRow, 'id' | 'title' | 'priority'> {
   epicId: string;
 }
 
@@ -89,14 +76,6 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getAccessor(projectRoot);
   const data = await accessor.loadTaskFile();
   return data.tasks as unknown as TaskRecord[];
-}
-
-function depsReady(task: TaskRecord, taskMap: Map<string, TaskRecord>): boolean {
-  if (!task.depends || task.depends.length === 0) return true;
-  return task.depends.every((depId) => {
-    const dep = taskMap.get(depId);
-    return dep && (dep.status === 'done' || dep.status === 'cancelled');
-  });
 }
 
 /**
@@ -215,7 +194,7 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   const pendingTasks = allTasks.filter((t) => t.status === 'pending');
 
   for (const task of pendingTasks) {
-    if (depsReady(task, taskMap)) {
+    if (depsReady(task.depends, taskMap)) {
       const leverage = calculateLeverage(task.id, taskMap);
       const epicId = findEpicId(task, taskMap);
 
@@ -253,6 +232,7 @@ export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
       readyTasks.push({
         id: task.id,
         title: task.title,
+        priority: task.priority,
         epicId,
         leverage,
         score,

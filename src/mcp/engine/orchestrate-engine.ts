@@ -27,7 +27,7 @@ import { computeWaves, getEnrichedWaves } from '../../core/orchestration/waves.j
 import { getCriticalPath } from '../../core/orchestration/critical-path.js';
 import { getUnblockOpportunities } from '../../core/orchestration/unblock.js';
 import { startParallelExecution, endParallelExecution, getParallelStatus } from '../../core/orchestration/parallel.js';
-import { listSkills, getSkillContent } from '../../core/orchestration/skill-ops.js';
+import { getSkillContent } from '../../core/orchestration/skill-ops.js';
 import { validateSpawnReadiness } from '../../core/orchestration/validate-spawn.js';
 import { buildBrainState } from '../../core/orchestration/bootstrap.js';
 
@@ -361,29 +361,6 @@ export async function orchestrateContext(
     };
   } catch (err: unknown) {
     return { success: false, error: { code: 'E_CONTEXT_FAILED', message: (err as Error).message } };
-  }
-}
-
-/**
- * orchestrate.skill.list - Available skills
- * @task T4478
- */
-export function orchestrateSkillList(
-  projectRoot?: string,
-): EngineResult {
-  try {
-    const root = projectRoot || resolveProjectRoot();
-    const result = listSkills(root);
-    return {
-      success: true,
-      data: {
-        skills: result.skills,
-        total: result.total,
-        ...(result.total === 0 ? { message: 'No skills directory found' } : {}),
-      },
-    };
-  } catch (err: unknown) {
-    return { success: false, error: { code: 'E_SKILL_LIST_FAILED', message: (err as Error).message } };
   }
 }
 

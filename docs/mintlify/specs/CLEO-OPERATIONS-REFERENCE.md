@@ -1,8 +1,8 @@
 # CLEO Operations Reference
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: CANONICAL
-**Date**: 2026-02-20
+**Date**: 2026-02-27
 **Task**: T4732
 **Supersedes**: docs/commands/COMMANDS-INDEX.json
 
@@ -22,11 +22,12 @@ Implementation source files:
 
 | Gateway | Operations | Domains |
 |---------|-----------|---------|
-| cleo_query | 78 | 10 |
-| cleo_mutate | 65 | 11 |
-| **Total** | **143** | **11** |
+| cleo_query | 93 | 10 |
+| cleo_mutate | 71 | 10 |
+| **Total** | **164** | **10** |
 
-Domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers
+Canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing
+Legacy aliases (backward compat): research, lifecycle, validate, release, system, issues, skills, providers
 
 ## Naming Conventions (T4732)
 
@@ -116,7 +117,7 @@ Work session lifecycle and decision tracking.
 
 Multi-agent coordination and parallel execution.
 
-### Query Operations (10)
+### Query Operations (9)
 
 | Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
 |-----------|---------------|-------------|------------|-----------------|
@@ -126,7 +127,6 @@ Multi-agent coordination and parallel execution.
 | `analyze` | `cleo orchestrate analyze` | Dependency analysis | `epicId` | 3 |
 | `context` | `cleo context` | Context budget | `tokens?` | 2 |
 | `waves` | `cleo orchestrate waves` | Wave computation | `epicId` | 3 |
-| `skill.list` | `cleo skills list` | Available skills | `filter?` | 2 |
 | `bootstrap` | N/A | Brain state bootstrap | `epicId?` | 3 |
 | `unblock.opportunities` | N/A | Unblock analysis | `epicId?` | 3 |
 | `critical.path` | N/A | Critical path | `epicId` | 3 |
@@ -356,6 +356,32 @@ Agent provider management (CAAMP integration).
 
 ---
 
+## Domain: sharing
+
+Multi-contributor operations for task database sharing and synchronization.
+
+### Query Operations (3)
+
+| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
+|-----------|---------------|-------------|------------|-----------------|
+| `status` | N/A | Sharing status | - | 2 |
+| `remotes` | N/A | List remotes | - | 2 |
+| `sync.status` | N/A | Sync status | - | 2 |
+
+### Mutate Operations (7)
+
+| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
+|-----------|---------------|-------------|------------|-----------------|
+| `snapshot.export` | N/A | Export snapshot | - | 2 |
+| `snapshot.import` | N/A | Import snapshot | - | 2 |
+| `sync.gitignore` | N/A | Sync gitignore | - | 2 |
+| `remote.add` | N/A | Add remote | `name`, `url` | 2 |
+| `remote.remove` | N/A | Remove remote | `name` | 2 |
+| `push` | N/A | Push to remote | `remote?` | 2 |
+| `pull` | N/A | Pull from remote | `remote?` | 2 |
+
+---
+
 ## Progressive Disclosure Levels
 
 ### Level 0: Minimal Entry (~200 tokens, always injected)
@@ -421,6 +447,12 @@ Complete protocol stack including RCSD-IVTR lifecycle, orchestration waves, mani
 ---
 
 ## Changelog
+
+### v1.1.0 (2026-02-27)
+
+- Reconciled with actual registry: 164 operations (93 query + 71 mutate)
+- Updated to 10 canonical domains (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing)
+- Legacy domain aliases documented for backward compatibility
 
 ### v1.0.0 (2026-02-20)
 

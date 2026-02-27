@@ -183,7 +183,6 @@ export {
   orchestrateNext,
   orchestrateWaves,
   orchestrateContext,
-  orchestrateSkillList,
   orchestrateValidate,
   orchestrateSpawn,
   orchestrateStartup,

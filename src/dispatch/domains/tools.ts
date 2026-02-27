@@ -25,6 +25,8 @@ import {
   generateTemplateConfig,
   validateLabels,
 } from '../engines/template-parser.js';
+import { collectDiagnostics } from '../../core/issue/diagnostics.js';
+import { createIssue } from '../../core/issue/create.js';
 import {
   catalog,
   discoverSkill,
@@ -155,10 +157,14 @@ export class ToolsHandler implements DomainHandler {
     startTime: number,
   ): DispatchResponse {
     switch (sub) {
-      case 'diagnostics':
-        // TODO: delegate to core diagnostics when available
-        return this.errorResponse('query', 'tools', 'issue.diagnostics',
-          'E_NOT_IMPLEMENTED', 'Diagnostics not yet available in dispatch layer', startTime);
+      case 'diagnostics': {
+        const diag = collectDiagnostics();
+        return {
+          _meta: dispatchMeta('query', 'tools', 'issue.diagnostics', startTime),
+          success: true,
+          data: diag,
+        };
+      }
 
       case 'templates': {
         const subcommand = params?.subcommand as string | undefined;
@@ -195,7 +201,7 @@ export class ToolsHandler implements DomainHandler {
 
   private async mutateIssue(
     sub: string,
-    _params: Record<string, unknown> | undefined,
+    params: Record<string, unknown> | undefined,
     startTime: number,
   ): Promise<DispatchResponse> {
     switch (sub) {
@@ -204,10 +210,29 @@ export class ToolsHandler implements DomainHandler {
       case 'add.help':
       case 'create.bug':
       case 'create.feature':
-      case 'create.help':
-        // TODO: delegate to core issue creation when available
-        return this.errorResponse('mutate', 'tools', `issue.${sub}`,
-          'E_NOT_IMPLEMENTED', 'Issue creation not yet available in dispatch layer', startTime);
+      case 'create.help': {
+        const title = params?.title as string;
+        const body = params?.body as string;
+        if (!title || !body) {
+          return this.errorResponse('mutate', 'tools', `issue.${sub}`,
+            'E_INVALID_INPUT', 'title and body are required', startTime);
+        }
+        // Extract issue type from sub (e.g. "add.bug" -> "bug")
+        const issueType = sub.split('.').pop()!;
+        const result = createIssue({
+          issueType,
+          title,
+          body,
+          severity: params?.severity as string | undefined,
+          area: params?.area as string | undefined,
+          dryRun: params?.dryRun as boolean | undefined,
+        });
+        return {
+          _meta: dispatchMeta('mutate', 'tools', `issue.${sub}`, startTime),
+          success: true,
+          data: result,
+        };
+      }
 
       case 'generate.config': {
         const result = await generateTemplateConfig(this.projectRoot);
