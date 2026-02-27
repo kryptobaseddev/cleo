@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/brain-learning.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO BRAIN Learning Memory Schema",
+  "description": "Schema for learning memory entries. Runtime store is SQLite (brain_learnings table). JSONL format is used for export/import portability. See ADR-009 Section 3.2.",
+  "type": "object",
+  "required": ["id", "insight", "source", "confidence", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^L\\d+$",
+      "description": "Learning identifier (e.g., 'L001')."
+    },
+    "insight": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The learned insight."
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Source of the insight (e.g., task completion analysis, blocker patterns)."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence score (0.0-1.0) in the insight."
+    },
+    "actionable": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this insight has a concrete actionable recommendation."
+    },
+    "application": {
+      "type": ["string", "null"],
+      "description": "How to apply this insight in future work."
+    },
+    "applicableTypes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Task types this insight applies to."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the learning was recorded."
+    },
+    "updatedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last update."
+    }
+  }
+}

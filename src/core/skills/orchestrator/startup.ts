@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   getCleoDirAbsolute,
-  getTodoPath,
+  getTaskPath,
   getSessionsPath,
 } from '../../paths.js';
 import type { Task } from '../../../types/task.js';
@@ -278,9 +278,9 @@ export async function analyzeDependencies(
   epicId: string,
   cwd?: string,
 ): Promise<DependencyAnalysis> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
 
-  if (!existsSync(todoPath)) {
+  if (!existsSync(taskPath)) {
     return {
       epicId,
       totalTasks: 0,
@@ -293,7 +293,7 @@ export async function analyzeDependencies(
     };
   }
 
-  const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
   const epicTasks = tasks.filter(t => t.parentId === epicId);
   const doneIds = new Set(tasks.filter(t => t.status === 'done').map(t => t.id));
@@ -393,8 +393,8 @@ export async function getNextTask(
   }
 
   // Load full task details for the first ready task
-  const todoPath = getTodoPath(cwd);
-  const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  const taskPath = getTaskPath(cwd);
+  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
   const nextId = analysis.readyToSpawn[0].id;
   const task = tasks.find(t => t.id === nextId) ?? null;
@@ -414,10 +414,10 @@ export async function getReadyTasks(
   const readyIds = new Set(analysis.readyToSpawn.map(t => t.id));
 
   // Filter out tasks that depend on other ready tasks
-  const todoPath = getTodoPath(cwd);
-  if (!existsSync(todoPath)) return [];
+  const taskPath = getTaskPath(cwd);
+  if (!existsSync(taskPath)) return [];
 
-  const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
 
   return analysis.readyToSpawn.filter(ready => {
@@ -442,7 +442,7 @@ export async function generateHitlSummary(
   stopReason: string = 'context-limit',
   cwd?: string,
 ): Promise<HitlSummary> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const cleoDirAbs = getCleoDirAbsolute(cwd);
 
   // Session info
@@ -472,8 +472,8 @@ export async function generateHitlSummary(
   let remainingTasks: Array<{ id: string; title: string; status: string; priority?: string }> = [];
   let readyToSpawn: Array<{ id: string; title: string; priority?: string }> = [];
 
-  if (existsSync(todoPath) && epicId) {
-    const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  if (existsSync(taskPath) && epicId) {
+    const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
     const tasks: Task[] = (data.tasks ?? []).filter((t: Task) => t.parentId === epicId);
 
     completed = tasks.filter(t => t.status === 'done').length;

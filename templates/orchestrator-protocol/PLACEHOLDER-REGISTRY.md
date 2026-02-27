@@ -14,7 +14,7 @@ Canonical registry for all template placeholders used in orchestrator protocol t
 |-------------|------|---------|-------------|
 | `{TASK_ID}` | string | T1234 | CLEO task ID |
 | `{DATE}` | string | 2026-01-19 | ISO date (YYYY-MM-DD) |
-| `{OUTPUT_DIR}` | path | claudedocs/agent-outputs | Output directory path |
+| `{OUTPUT_DIR}` | path | .cleo/agent-outputs | Output directory path |
 | `{SESSION_ID}` | string | session_20260119_143500_abc123 | Current CLEO session ID |
 | `{EPIC_ID}` | string | T1000 | Parent epic ID |
 | `{EPIC_TITLE}` | string | Authentication System | Parent epic title |
@@ -125,7 +125,7 @@ cleo show $(cleo show T1586 --format json | jq -r '.parentId') --format json
 | Placeholder | Default |
 |-------------|---------|
 | `{DATE}` | Current date |
-| `{OUTPUT_DIR}` | `claudedocs/agent-outputs` |
+| `{OUTPUT_DIR}` | `.cleo/agent-outputs` |
 | `{MANIFEST_STATUS}` | `complete` |
 | `{NEEDS_FOLLOWUP}` | `[]` (empty array) |
 

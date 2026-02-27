@@ -5,6 +5,7 @@
  * @epic T4545
  */
 
+// TODO T4894: admin.sync exists in registry but sync.ts has different subcommand structure\n// (status/clear/inject/extract aliases). Migrate when handler supports status subcommand.
 import { Command } from 'commander';
 import { rm, rmdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';

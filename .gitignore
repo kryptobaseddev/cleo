@@ -180,3 +180,16 @@ installed-skills.json
 .mcp.json
 opencode.json
 /package-lock.json
+
+# ============================================================
+# SQLite Runtime Files — MUST NEVER be tracked in git
+# ============================================================
+# Tracking these files causes git reset --hard to overwrite the
+# WAL with a stale copy, silently corrupting the database on next
+# open (data loss root cause 2026-02-25, T4894).
+# The .cleo/.gitignore covers the nested cleo git repo but NOT
+# the project-level git — these exclusions are required here.
+.cleo/tasks.db
+.cleo/tasks.db-shm
+.cleo/tasks.db-wal
+.cleo/tasks.db-journal

@@ -7,9 +7,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHOULD", "SHOULD NOT", "
 ## Configuration
 
 ```yaml
-output_dir: claudedocs/agent-outputs
+output_dir: .cleo/agent-outputs
 manifest_file: MANIFEST.jsonl
-archive_dir: claudedocs/agent-outputs/archive
+archive_dir: .cleo/agent-outputs/archive
 ```
 
 Projects MUST set `output_dir` to their preferred location. All paths below reference this configuration.

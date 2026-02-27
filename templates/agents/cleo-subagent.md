@@ -116,7 +116,7 @@ Return ONLY one of these messages:
 | Token | Default | Description |
 |-------|---------|-------------|
 | `{{EPIC_ID}}` | `""` | Parent epic ID |
-| `{{OUTPUT_DIR}}` | `claudedocs/agent-outputs` | Output directory |
+| `{{OUTPUT_DIR}}` | `.cleo/agent-outputs` | Output directory |
 | `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` | Manifest location |
 
 ---

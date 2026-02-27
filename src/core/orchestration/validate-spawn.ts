@@ -4,8 +4,8 @@
  */
 
 import { readJson } from '../../store/json.js';
-import { getTodoPath } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 export interface ValidationIssue {
@@ -28,8 +28,8 @@ export async function validateSpawnReadiness(
   accessor?: DataAccessor,
 ): Promise<SpawnValidationResult> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(cwd));
 
   const tasks = data?.tasks ?? [];
   const task = tasks.find(t => t.id === taskId);

@@ -13,6 +13,9 @@
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { getLogger } from '../../core/logger.js';
+
+const logger = getLogger('domain:session');
 import {
   sessionStatus,
   sessionList,
@@ -27,6 +30,9 @@ import {
   sessionDecisionLog,
   sessionContextDrift,
   sessionRecordAssumption,
+  sessionHandoff,
+  sessionComputeHandoff,
+  sessionBriefing,
 } from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +92,31 @@ export class SessionHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
+        case 'handoff.show': {
+          const scope = params?.scope as string | undefined;
+          let scopeFilter: { type: string; epicId?: string } | undefined;
+          if (scope) {
+            if (scope === 'global') {
+              scopeFilter = { type: 'global' };
+            } else if (scope.startsWith('epic:')) {
+              scopeFilter = { type: 'epic', epicId: scope.replace('epic:', '') };
+            }
+          }
+          const result = await sessionHandoff(this.projectRoot, scopeFilter);
+          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+        }
+
+        case 'briefing.show': {
+          const result = await sessionBriefing(this.projectRoot, {
+            maxNextTasks: params?.maxNextTasks as number | undefined,
+            maxBugs: params?.maxBugs as number | undefined,
+            maxBlocked: params?.maxBlocked as number | undefined,
+            maxEpics: params?.maxEpics as number | undefined,
+            scope: params?.scope as string | undefined,
+          });
+          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'session', operation, startTime);
       }
@@ -116,6 +147,7 @@ export class SessionHandler implements DomainHandler {
             name: params?.name as string | undefined,
             autoStart: params?.autoStart as boolean | undefined,
             focus: params?.focus as string | undefined,
+            grade: params?.grade as boolean | undefined,
           });
           // Enrich successful result with top-level sessionId for easy extraction
           if (result.success && result.data) {
@@ -126,8 +158,26 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'end': {
-          const result = await sessionEnd(this.projectRoot, params?.note as string | undefined);
-          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+          // End the session first
+          const endResult = await sessionEnd(this.projectRoot, params?.note as string | undefined);
+          
+          // If session ended successfully, compute and persist handoff data
+          if (endResult.success && endResult.data) {
+            const sessionId = (endResult.data as { sessionId: string }).sessionId;
+            if (sessionId) {
+              try {
+                await sessionComputeHandoff(this.projectRoot, sessionId, {
+                  note: params?.note as string | undefined,
+                  nextAction: params?.nextAction as string | undefined,
+                });
+              } catch {
+                // Handoff computation failure should not fail the end operation
+                // Just log and continue
+              }
+            }
+          }
+          
+          return this.wrapEngineResult(endResult, 'mutate', 'session', operation, startTime);
         }
 
         case 'resume': {
@@ -188,7 +238,7 @@ export class SessionHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'history', 'decision.log', 'context.drift'],
+      query: ['status', 'list', 'show', 'history', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show'],
       mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
     };
   }
@@ -237,6 +287,7 @@ export class SessionHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
+    logger.error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,

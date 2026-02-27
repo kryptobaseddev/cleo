@@ -112,14 +112,6 @@ export function getTaskPath(cwd?: string): string {
 }
 
 /**
- * Get the path to the project's todo.json file.
- * @deprecated Use getTaskPath() instead.
- */
-export function getTodoPath(cwd?: string): string {
-  return getTaskPath(cwd);
-}
-
-/**
  * Get the path to the project's config.json file.
  */
 export function getConfigPath(cwd?: string): string {

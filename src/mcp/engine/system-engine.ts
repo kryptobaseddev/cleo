@@ -32,6 +32,8 @@ import { getMigrationStatus } from '../../core/system/migrate.js';
 import { cleanupSystem } from '../../core/system/cleanup.js';
 import { auditData } from '../../core/system/audit.js';
 import { safestop, uncancelTask } from '../../core/system/safestop.js';
+import { showSequence, checkSequence, repairSequence } from '../../core/sequence/index.js';
+import { getRuntimeDiagnostics, type RuntimeDiagnostics } from '../../core/system/runtime.js';
 
 // Re-export types for downstream consumers
 export type { LabelsResult as LabelsData } from '../../core/system/labels.js';
@@ -60,7 +62,7 @@ export interface DashboardData {
     cancelled: number;
     total: number;
   };
-  focus: {
+  taskWork: {
     currentTask: string | null;
     task: TaskRecord | null;
   };
@@ -140,6 +142,9 @@ export interface ContextData {
     timestamp: string;
   }>;
 }
+
+// ===== Runtime Data type =====
+export type RuntimeData = RuntimeDiagnostics;
 
 // ===== Sequence Data type =====
 export interface SequenceData {
@@ -280,7 +285,7 @@ export async function systemDash(
           cancelled: (summary as Record<string, number>).cancelled ?? 0,
           total: summary.total,
         },
-        focus: data.focus as DashboardData['focus'],
+        taskWork: (data.focus ?? data.taskWork) as DashboardData['taskWork'],
         activeSession: (data as Record<string, unknown>).activeSession as string | null ?? null,
         highPriority: data.highPriority as DashboardData['highPriority'],
         blockedTasks: data.blockedTasks as DashboardData['blockedTasks'],
@@ -307,8 +312,8 @@ export async function systemStats(
     const accessor = await getAccessor(projectRoot);
     const result = await getProjectStats({ period: String(params?.period ?? 30), cwd: projectRoot }, accessor);
     // Core stats lacks byPriority, byType, byPhase, cycleTimes — fill from accessor
-    const todoData = await accessor.loadTodoFile();
-    const tasks = (todoData as { tasks: TaskRecord[] })?.tasks ?? [];
+    const taskData = await accessor.loadTaskFile();
+    const tasks = (taskData as { tasks: TaskRecord[] })?.tasks ?? [];
 
     const byPriority: Record<string, number> = {};
     for (const t of tasks) {
@@ -717,38 +722,76 @@ export function systemContext(
   }
 }
 
+// ===== Runtime =====
+
+/**
+ * Runtime/channel diagnostics for CLI/MCP installation mode checks.
+ */
+export async function systemRuntime(
+  _projectRoot: string,
+  params?: { detailed?: boolean },
+): Promise<EngineResult<RuntimeData>> {
+  try {
+    const data = await getRuntimeDiagnostics({ detailed: params?.detailed ?? false });
+    return { success: true, data };
+  } catch (err: unknown) {
+    return { success: false, error: { code: 'E_RUNTIME_ERROR', message: (err as Error).message } };
+  }
+}
+
 // ===== Sequence =====
 
 /**
- * Read the .sequence.json file and return current sequence state.
+ * Read task ID sequence state from canonical SQLite metadata.
  */
-export function systemSequence(
+export async function systemSequence(
   projectRoot: string,
-): EngineResult<SequenceData> {
+  params?: { action?: 'show' | 'check' },
+): Promise<EngineResult<Record<string, unknown>>> {
   try {
-    const seqPath = join(projectRoot, '.cleo', '.sequence.json');
-
-    if (!existsSync(seqPath)) {
-      return {
-        success: false,
-        error: { code: 'E_NOT_FOUND', message: 'Sequence file not found (.cleo/.sequence.json)' },
-      };
+    const action = params?.action ?? 'show';
+    if (action === 'check') {
+      const check = await checkSequence(projectRoot);
+      return { success: true, data: check };
     }
 
-    const seq = JSON.parse(readFileSync(seqPath, 'utf-8'));
+    const seq = await showSequence(projectRoot);
     return {
       success: true,
       data: {
-        counter: seq.counter,
-        lastId: seq.lastId,
-        checksum: seq.checksum,
-        nextId: `T${seq.counter + 1}`,
+        counter: Number(seq.counter ?? 0),
+        lastId: String(seq.lastId ?? ''),
+        checksum: String(seq.checksum ?? ''),
+        nextId: String(seq.nextId ?? ''),
       },
     };
-  } catch {
+  } catch (err: unknown) {
     return {
       success: false,
-      error: { code: 'E_PARSE_ERROR', message: 'Failed to parse sequence file' },
+      error: { code: 'E_NOT_FOUND', message: (err as Error).message },
+    };
+  }
+}
+
+export async function systemSequenceRepair(
+  projectRoot: string,
+): Promise<EngineResult<Record<string, unknown>>> {
+  try {
+    const repair = await repairSequence(projectRoot);
+    return {
+      success: true,
+      data: {
+        repaired: repair.repaired,
+        message: repair.message,
+        counter: repair.counter,
+        oldCounter: repair.oldCounter,
+        newCounter: repair.newCounter,
+      },
+    };
+  } catch (err: unknown) {
+    return {
+      success: false,
+      error: { code: 'E_SEQUENCE_REPAIR_FAILED', message: (err as Error).message },
     };
   }
 }

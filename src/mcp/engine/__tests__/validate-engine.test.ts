@@ -58,7 +58,7 @@ describe('Validate Engine', () => {
   describe('validateManifest', () => {
     it('should validate well-formed manifest', () => {
       writeManifest([
-        { id: 'T001-test', file: 'out.md', title: 'Test', date: '2026-01-01', status: 'complete', agent_type: 'research', topics: ['test'], actionable: true },
+        { id: 'T001-test', file: 'out.md', title: 'Test', date: '2026-01-01', status: 'completed', agent_type: 'research', topics: ['test'], actionable: true },
       ]);
 
       const result = validateManifestOp(TEST_ROOT);

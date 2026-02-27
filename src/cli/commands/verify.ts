@@ -3,6 +3,7 @@
  * @task T4454
  */
 
+// TODO T4894: operation 'verify' not yet in registry — no dispatch equivalent.\n// Leave bypass until check domain exposes verification gate operations.
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';

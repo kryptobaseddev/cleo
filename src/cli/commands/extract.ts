@@ -5,6 +5,7 @@
  * @epic T4545
  */
 
+// TODO T4894: operation 'extract' not yet in registry — no dispatch equivalent.\n// Leave bypass; extract implements TodoWrite state merge logic not yet in dispatch.
 import { Command } from 'commander';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -137,7 +138,7 @@ export function registerExtractCommand(program: Command): void {
 
         // Load todo data
         const accessor = await getAccessor();
-        const todoData = await accessor.loadTaskFile();
+        const taskData = await accessor.loadTaskFile();
 
         // Load sync session state
         const cleoDir = getCleoDir();
@@ -174,7 +175,7 @@ export function registerExtractCommand(program: Command): void {
         if (!dryRun) {
           // Apply completed tasks
           for (const taskId of changes.completed) {
-            const task = todoData.tasks.find((t) => t.id === taskId);
+            const task = taskData.tasks.find((t) => t.id === taskId);
             if (!task) continue;
             if (task.status === 'done') continue;
 
@@ -188,7 +189,7 @@ export function registerExtractCommand(program: Command): void {
 
           // Apply progressed tasks
           for (const taskId of changes.progressed) {
-            const task = todoData.tasks.find((t) => t.id === taskId);
+            const task = taskData.tasks.find((t) => t.id === taskId);
             if (!task) continue;
             if (task.status !== 'pending' && task.status !== 'blocked') continue;
 
@@ -201,7 +202,7 @@ export function registerExtractCommand(program: Command): void {
 
           // Create new tasks
           for (const title of changes.newTasks) {
-            const maxNum = todoData.tasks.reduce((max, t) => {
+            const maxNum = taskData.tasks.reduce((max, t) => {
               const num = parseInt(t.id.replace('T', ''), 10);
               return isNaN(num) ? max : Math.max(max, num);
             }, 0);
@@ -218,14 +219,14 @@ export function registerExtractCommand(program: Command): void {
               ...(defaultPhase ? { phase: defaultPhase } : {}),
             };
 
-            todoData.tasks.push(newTask);
+            taskData.tasks.push(newTask);
             appliedCount++;
           }
 
           // Save changes
-          todoData._meta.checksum = computeChecksum(todoData.tasks);
-          todoData.lastUpdated = new Date().toISOString();
-          await accessor.saveTaskFile(todoData);
+          taskData._meta.checksum = computeChecksum(taskData.tasks);
+          taskData.lastUpdated = new Date().toISOString();
+          await accessor.saveTaskFile(taskData);
 
           // Clean up session state
           try {

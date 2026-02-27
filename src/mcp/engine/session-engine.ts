@@ -22,12 +22,17 @@ import {
   recordDecision,
   getDecisionLog,
   recordAssumption,
+  computeHandoff,
+  persistHandoff,
+  getLastHandoff,
+  computeBriefing,
 } from '../../core/sessions/index.js';
+import type { HandoffData } from '../../core/sessions/handoff.js';
+import type { SessionBriefing } from '../../core/sessions/briefing.js';
 import type {
   SessionRecord,
-  FocusState,
   SessionsFileExt,
-  TodoFileExt,
+  TaskFileExt,
   DecisionRecord,
 } from '../../core/sessions/types.js';
 import {
@@ -73,15 +78,15 @@ export async function sessionStatus(
     hasActiveSession: boolean;
     multiSessionEnabled: boolean;
     session?: SessionRecord | null;
-    focus?: FocusState | null;
+    taskWork?: Record<string, unknown> | null;
   }>
 > {
   try {
     const accessor = await getAccessor(projectRoot);
-    const todoData = await accessor.loadTodoFile();
-    const todo = todoData as unknown as TodoFileExt;
+    const taskData = await accessor.loadTaskFile();
+    const current = taskData as unknown as TaskFileExt;
 
-    const multiSession = todo._meta?.multiSessionEnabled === true;
+    const multiSession = current._meta?.multiSessionEnabled === true;
 
     if (multiSession) {
       const sessionsData = await accessor.loadSessions();
@@ -94,7 +99,7 @@ export async function sessionStatus(
           hasActiveSession: !!active,
           multiSessionEnabled: true,
           session: active || null,
-          focus: null,
+          taskWork: null,
         },
       };
     }
@@ -102,10 +107,10 @@ export async function sessionStatus(
     return {
       success: true,
       data: {
-        hasActiveSession: !!todo.focus?.currentTask,
+        hasActiveSession: !!current.focus?.currentTask,
         multiSessionEnabled: false,
         session: null,
-        focus: todo.focus || null,
+        taskWork: (current.focus as Record<string, unknown> | undefined) || null,
       },
     };
   } catch {
@@ -128,21 +133,21 @@ export async function sessionList(
 ): Promise<EngineResult<SessionRecord[]>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const todoData = await accessor.loadTodoFile();
-    const todo = todoData as unknown as TodoFileExt;
+    const taskData = await accessor.loadTaskFile();
+    const current = taskData as unknown as TaskFileExt;
 
-    const multiSession = todo._meta?.multiSessionEnabled === true;
+    const multiSession = current._meta?.multiSessionEnabled === true;
 
     if (!multiSession) {
       // Single-session mode: return synthetic session if focus is set
-      if (todo.focus?.currentTask) {
+      if (current.focus?.currentTask) {
         const syntheticSession: SessionRecord = {
-          id: todo._meta?.activeSession || 'default',
+          id: current._meta?.activeSession || 'default',
           status: 'active',
-          scope: { type: 'task', rootTaskId: todo.focus.currentTask },
+          scope: { type: 'task', rootTaskId: current.focus.currentTask },
           focus: {
-            currentTask: todo.focus.currentTask,
-            currentPhase: todo.focus.currentPhase,
+            currentTask: current.focus.currentTask,
+            currentPhase: current.focus.currentPhase,
           },
           startedAt: new Date().toISOString(),
           lastActivity: new Date().toISOString(),
@@ -272,7 +277,7 @@ export async function taskStop(
 
 /**
  * Start a new session.
- * Note: This function has engine-specific logic for todo.json focus management
+ * Note: This function has engine-specific logic for task file focus management
  * and multi-session session file updates, so it remains in the engine layer.
  * @task T4782
  */
@@ -283,12 +288,14 @@ export async function sessionStart(
     name?: string;
     autoStart?: boolean;
     focus?: string;
+    /** Enable full query+mutation audit logging for behavioral grading. */
+    grade?: boolean;
   },
 ): Promise<EngineResult<SessionRecord>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const todoData = await accessor.loadTodoFile();
-    const current = todoData as unknown as TodoFileExt;
+    const taskData = await accessor.loadTaskFile();
+    const current = taskData as unknown as TaskFileExt;
 
     // Parse scope (e.g., "epic:T001" -> { type: 'epic', rootTaskId: 'T001' })
     const scopeParts = params.scope.split(':');
@@ -341,6 +348,7 @@ export async function sessionStart(
       startedAt: now,
       lastActivity: now,
       resumeCount: 0,
+      ...(params.grade ? { gradeMode: true } : {}),
       stats: {
         tasksCompleted: 0,
         tasksCreated: 0,
@@ -351,7 +359,7 @@ export async function sessionStart(
       },
     };
 
-    // Update focus in todo.json
+    // Update focus in task file
     if (!current.focus) {
       current.focus = {
         currentTask: null,
@@ -377,7 +385,7 @@ export async function sessionStart(
     }
 
     (current as Record<string, unknown>).lastUpdated = now;
-    await accessor.saveTodoFile(todoData);
+    await accessor.saveTaskFile(taskData);
 
     // Always write to sessions.json so resume/suspend can find the session.
     // Previously only written when multi-session enabled, but session resume
@@ -398,6 +406,15 @@ export async function sessionStart(
       await accessor.saveSessions(sessionsData);
     }
 
+    // Enable grade mode: set env vars so audit middleware logs queries too.
+    // CLEO_SESSION_GRADE_ID is the stable grade attribution var — immune to
+    // subagent session.start calls that overwrite CLEO_SESSION_ID.
+    if (params.grade) {
+      process.env.CLEO_SESSION_GRADE = 'true';
+      process.env.CLEO_SESSION_GRADE_ID = sessionId;
+      process.env.CLEO_SESSION_ID = sessionId;
+    }
+
     return { success: true, data: newSession };
   } catch {
     return {
@@ -412,7 +429,7 @@ export async function sessionStart(
 
 /**
  * End the current session.
- * Note: This function has engine-specific logic for todo.json focus management
+ * Note: This function has engine-specific logic for task file focus management
  * and session history management, so it remains in the engine layer.
  * @task T4782
  */
@@ -422,11 +439,18 @@ export async function sessionEnd(
 ): Promise<EngineResult<{ sessionId: string; ended: boolean }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const todoData = await accessor.loadTodoFile();
-    const current = todoData as unknown as TodoFileExt;
+    const taskData = await accessor.loadTaskFile();
+    const current = taskData as unknown as TaskFileExt;
 
     const sessionId = current._meta?.activeSession || 'default';
     const now = new Date().toISOString();
+
+    // Clear grade mode env vars when session ends
+    if (process.env.CLEO_SESSION_GRADE === 'true') {
+      delete process.env.CLEO_SESSION_GRADE;
+      delete process.env.CLEO_SESSION_GRADE_ID;
+      delete process.env.CLEO_SESSION_ID;
+    }
 
     // Clear focus
     if (current.focus) {
@@ -443,7 +467,7 @@ export async function sessionEnd(
     }
 
     (current as Record<string, unknown>).lastUpdated = now;
-    await accessor.saveTodoFile(todoData);
+    await accessor.saveTaskFile(taskData);
 
     // Update sessions.json if multi-session
     if (current._meta?.multiSessionEnabled && sessionId !== 'default') {
@@ -488,7 +512,7 @@ export async function sessionEnd(
 /**
  * Resume an ended or suspended session.
  * Note: This function has engine-specific logic for session history management
- * and todo.json focus sync, so it remains in the engine layer.
+ * and task file focus sync, so it remains in the engine layer.
  * @task T4782
  */
 export async function sessionResume(
@@ -497,8 +521,8 @@ export async function sessionResume(
 ): Promise<EngineResult<SessionRecord>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const todoData = await accessor.loadTodoFile();
-    const current = todoData as unknown as TodoFileExt;
+    const taskData = await accessor.loadTaskFile();
+    const current = taskData as unknown as TaskFileExt;
 
     // Sessions are always written to sessions.json (even without multi-session mode),
     // so resume can always look them up there.
@@ -567,7 +591,7 @@ export async function sessionResume(
       sessions.sessions.push(session);
     }
 
-    // Update todo.json to reflect active session
+    // Update task file to reflect active session
     if (current._meta) {
       current._meta.activeSession = sessionId;
       current._meta.generation = (current._meta.generation || 0) + 1;
@@ -583,7 +607,7 @@ export async function sessionResume(
       sessions._meta.lastModified = now;
     }
 
-    await accessor.saveTodoFile(todoData);
+    await accessor.saveTaskFile(taskData);
     await accessor.saveSessions(sessionsData);
 
     return { success: true, data: session };
@@ -607,8 +631,8 @@ export async function sessionGc(
 ): Promise<EngineResult<{ orphaned: string[]; removed: string[] }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const todoData = await accessor.loadTodoFile();
-    const current = todoData as unknown as TodoFileExt;
+    const taskData = await accessor.loadTaskFile();
+    const current = taskData as unknown as TaskFileExt;
 
     const multiSession = current._meta?.multiSessionEnabled === true;
     if (!multiSession) {
@@ -945,6 +969,84 @@ export async function sessionArchive(
     return {
       success: false,
       error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' },
+    };
+  }
+}
+
+/**
+ * Get handoff data for the most recent ended session.
+ * @task T4915
+ */
+export async function sessionHandoff(
+  projectRoot: string,
+  scope?: { type: string; epicId?: string },
+): Promise<
+  EngineResult<{ sessionId: string; handoff: HandoffData } | null>
+> {
+  try {
+    const result = await getLastHandoff(projectRoot, scope);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
+    return {
+      success: false,
+      error: { code, message },
+    };
+  }
+}
+
+/**
+ * Compute and persist handoff data for a session.
+ * @task T4915
+ */
+export async function sessionComputeHandoff(
+  projectRoot: string,
+  sessionId: string,
+  options?: { note?: string; nextAction?: string },
+): Promise<EngineResult<HandoffData>> {
+  try {
+    const handoff = await computeHandoff(projectRoot, {
+      sessionId,
+      note: options?.note,
+      nextAction: options?.nextAction,
+    });
+    await persistHandoff(projectRoot, sessionId, handoff);
+    return { success: true, data: handoff };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL';
+    return {
+      success: false,
+      error: { code, message },
+    };
+  }
+}
+
+/**
+ * Compute session briefing - composite view for session start.
+ * Aggregates data from handoff, current focus, next tasks, bugs, blockers, and epics.
+ * @task T4916
+ */
+export async function sessionBriefing(
+  projectRoot: string,
+  options?: {
+    maxNextTasks?: number;
+    maxBugs?: number;
+    maxBlocked?: number;
+    maxEpics?: number;
+    scope?: string;
+  },
+): Promise<EngineResult<SessionBriefing>> {
+  try {
+    const briefing = await computeBriefing(projectRoot, options);
+    return { success: true, data: briefing };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL';
+    return {
+      success: false,
+      error: { code, message },
     };
   }
 }

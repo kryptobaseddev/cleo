@@ -5,8 +5,8 @@
  */
 
 import { readJsonRequired } from '../../store/json.js';
-import { getTodoPath } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -20,8 +20,8 @@ interface LabelInfo {
 /** List all labels with task counts. */
 export async function listLabels(cwd?: string, accessor?: DataAccessor): Promise<LabelInfo[]> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const labelMap: Record<string, LabelInfo> = {};
 
   for (const task of data.tasks) {
@@ -45,8 +45,8 @@ export async function showLabelTasks(
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const tasks = data.tasks.filter(t => (t.labels ?? []).includes(label));
 
   if (tasks.length === 0) {

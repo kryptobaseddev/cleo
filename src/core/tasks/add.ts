@@ -9,6 +9,7 @@ import { readJsonRequired } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TaskFile } from '../../types/task.js';
+import { TASK_STATUSES } from '../../store/status-registry.js';
 import { getTaskPath, getLogPath, getArchivePath, getBackupDir } from '../paths.js';
 import { saveJson, appendJsonl, computeChecksum } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -62,11 +63,10 @@ export function validateTitle(title: string): void {
  * @task T4460
  */
 export function validateStatus(status: string): asserts status is TaskStatus {
-  const valid: TaskStatus[] = ['pending', 'active', 'blocked', 'done', 'cancelled'];
-  if (!valid.includes(status as TaskStatus)) {
+  if (!(TASK_STATUSES as readonly string[]).includes(status)) {
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
-      `Invalid status: ${status} (must be ${valid.join('|')})`,
+      `Invalid status: ${status} (must be ${TASK_STATUSES.join('|')})`,
     );
   }
 }
@@ -399,7 +399,7 @@ export function findRecentDuplicate(
  * @task T4460
  */
 export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<AddTaskResult> {
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const logPath = getLogPath(cwd);
   const archivePath = getArchivePath(cwd);
   const backupDir = getBackupDir(cwd);
@@ -410,7 +410,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
   // Read current data
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
 
   // Read archive for ID generation
   let archivedTasks: Array<{ id: string }> = [];
@@ -670,7 +670,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     data._meta.checksum = checksum;
     data.lastUpdated = now;
 
-    await saveJson(todoPath, data, { backupDir });
+    await saveJson(taskPath, data, { backupDir });
     await logOperation(logPath, 'task_created', taskId, {
       title: options.title,
       status,

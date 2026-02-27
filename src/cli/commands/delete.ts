@@ -5,8 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { dispatchRaw } from '../../dispatch/adapters/cli.js';
-import { cliOutput, cliError } from '../renderers/index.js';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the delete command.
@@ -27,9 +27,7 @@ export function registerDeleteCommand(program: Command): void {
       });
 
       if (!response.success) {
-        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
-        process.exit(response.error?.exitCode ?? 1);
-        return;
+        handleRawError(response, { command: 'delete', operation: 'tasks.delete' });
       }
 
       const data = response.data as Record<string, unknown>;

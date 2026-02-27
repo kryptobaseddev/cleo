@@ -21,7 +21,7 @@ interface TodoMeta {
 export async function isMultiSession(projectRoot: string): Promise<boolean> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const data = await accessor.loadTodoFile();
+    const data = await accessor.loadTaskFile();
     return (data as unknown as TodoMeta)?._meta?.multiSessionEnabled === true;
   } catch {
     return false;

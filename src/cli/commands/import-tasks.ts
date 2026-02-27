@@ -4,6 +4,7 @@
  * @task T4551
  * @epic T4545
  */
+// TODO T4894: operation not yet in registry — no tasks.import dispatch route
 
 import { Command } from 'commander';
 import { readFile, access } from 'node:fs/promises';
@@ -111,7 +112,7 @@ export function registerImportTasksCommand(program: Command): void {
 
         // Load existing data
         const accessor = await getAccessor();
-        const todoData = await accessor.loadTaskFile();
+        const taskData = await accessor.loadTaskFile();
 
         const onConflict = (opts['onConflict'] as OnConflict) ?? 'fail';
         const onMissingDep = (opts['onMissingDep'] as OnMissingDep) ?? 'strip';
@@ -125,7 +126,7 @@ export function registerImportTasksCommand(program: Command): void {
 
         // Validate parent exists if specified
         if (parentId) {
-          const parentExists = todoData.tasks.some((t) => t.id === parentId);
+          const parentExists = taskData.tasks.some((t) => t.id === parentId);
           if (!parentExists) {
             throw new CleoError(ExitCode.PARENT_NOT_FOUND, `Parent task not found: ${parentId}`);
           }
@@ -133,11 +134,11 @@ export function registerImportTasksCommand(program: Command): void {
 
         // Generate remap table
         const sourceIds = exportPkg.tasks.map((t) => t.id);
-        const remapTable = generateRemapTable(sourceIds, todoData.tasks);
+        const remapTable = generateRemapTable(sourceIds, taskData.tasks);
 
         // Detect conflicts
         if (!force && onConflict === 'fail') {
-          const duplicates = detectDuplicateTitles(exportPkg.tasks, todoData.tasks);
+          const duplicates = detectDuplicateTitles(exportPkg.tasks, taskData.tasks);
           if (duplicates.length > 0) {
             throw new CleoError(ExitCode.VALIDATION_ERROR,
               `${duplicates.length} duplicate title(s) detected. Use --on-conflict to resolve.`);
@@ -148,8 +149,8 @@ export function registerImportTasksCommand(program: Command): void {
         const sortedTasks = topologicalSort(exportPkg.tasks);
 
         // Transform tasks
-        const existingIds = new Set(todoData.tasks.map((t) => t.id));
-        const existingTitles = new Set(todoData.tasks.map((t) => t.title.toLowerCase()));
+        const existingIds = new Set(taskData.tasks.map((t) => t.id));
+        const existingTitles = new Set(taskData.tasks.map((t) => t.title.toLowerCase()));
         const transformed: Task[] = [];
         const skipped: string[] = [];
         const idRemapJson: Record<string, string> = {};
@@ -230,10 +231,10 @@ export function registerImportTasksCommand(program: Command): void {
         }
 
         // Write to todo.json
-        todoData.tasks.push(...transformed);
-        todoData._meta.checksum = computeChecksum(todoData.tasks);
-        todoData.lastUpdated = new Date().toISOString();
-        await accessor.saveTaskFile(todoData);
+        taskData.tasks.push(...transformed);
+        taskData._meta.checksum = computeChecksum(taskData.tasks);
+        taskData.lastUpdated = new Date().toISOString();
+        await accessor.saveTaskFile(taskData);
 
         cliOutput({
           summary: {

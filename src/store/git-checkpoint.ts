@@ -25,7 +25,7 @@ const execFileAsync = promisify(execFile);
  * Build environment variables that point git at the isolated .cleo/.git repo.
  * @task T4872
  */
-function makeCleoGitEnv(cleoDir: string): NodeJS.ProcessEnv {
+export function makeCleoGitEnv(cleoDir: string): NodeJS.ProcessEnv {
   // resolve() ensures GIT_DIR and GIT_WORK_TREE are absolute even when cleoDir
   // is a relative path (e.g. '.cleo' returned by getCleoDir() with no cwd arg)
   const abs = resolve(cleoDir);
@@ -40,7 +40,7 @@ function makeCleoGitEnv(cleoDir: string): NodeJS.ProcessEnv {
  * Run a git command against the isolated .cleo/.git repo, suppressing errors.
  * @task T4872
  */
-async function cleoGitCommand(args: string[], cleoDir: string): Promise<{ stdout: string; success: boolean }> {
+export async function cleoGitCommand(args: string[], cleoDir: string): Promise<{ stdout: string; success: boolean }> {
   try {
     const result = await execFileAsync('git', args, {
       cwd: resolve(cleoDir), // absolute cwd so relative paths in args resolve correctly

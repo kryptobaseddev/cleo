@@ -80,7 +80,7 @@ describe('TasksHandler', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
         'show', 'list', 'find', 'exists', 'tree', 'blockers',
-        'depends', 'analyze', 'next', 'relates', 'complexity.estimate', 'current',
+        'depends', 'analyze', 'next', 'plan', 'relates', 'complexity.estimate', 'current',
       ]);
     });
 
@@ -133,16 +133,7 @@ describe('TasksHandler', () => {
       const result = await handler.query('find', { query: 'test', limit: 10 });
 
       expect(result.success).toBe(true);
-      expect(taskFind).toHaveBeenCalledWith('/mock/project', {
-        query: 'test',
-        id: undefined,
-        exact: undefined,
-        status: undefined,
-        field: undefined,
-        includeArchive: undefined,
-        limit: 10,
-        offset: undefined,
-      });
+      expect(taskFind).toHaveBeenCalledWith('/mock/project', 'test', 10);
     });
 
     it('exists - delegates to taskExists', async () => {

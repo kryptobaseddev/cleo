@@ -34,10 +34,10 @@ export async function analyzeTaskPriority(opts: {
   autoStart?: boolean;
   cwd?: string;
 }, accessor?: DataAccessor): Promise<AnalysisResult> {
-  const todoPath = getTaskPath(opts.cwd);
+  const taskPath = getTaskPath(opts.cwd);
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
   const tasks = data.tasks;
 
   // Build dependency graph
@@ -107,7 +107,7 @@ export async function analyzeTaskPriority(opts: {
     if (accessor) {
       await safeSaveTaskFile(accessor, data, opts.cwd);
     } else {
-      await saveJson(todoPath, data, { backupDir: getBackupDir(opts.cwd) });
+      await saveJson(taskPath, data, { backupDir: getBackupDir(opts.cwd) });
     }
     autoStarted = true;
   }

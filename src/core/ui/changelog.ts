@@ -63,14 +63,14 @@ export async function discoverReleaseTasks(
   const dataSources: Array<{ tasks: Array<Record<string, unknown>> }> = [];
 
   if (accessor) {
-    const todoData = await accessor.loadTodoFile();
-    if (todoData?.tasks) dataSources.push({ tasks: todoData.tasks as unknown as Array<Record<string, unknown>> });
+    const taskData = await accessor.loadTaskFile();
+    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
     const archiveData = await accessor.loadArchive();
     if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>> });
   } else {
-    const todoPath = join(getCleoDir(cwd), 'todo.json');
+    const taskPath = join(getCleoDir(cwd), 'todo.json');
     const archivePath = join(getCleoDir(cwd), 'todo-archive.json');
-    for (const path of [todoPath, archivePath]) {
+    for (const path of [taskPath, archivePath]) {
       if (!existsSync(path)) continue;
       const data = await readJson<{ tasks: Array<Record<string, unknown>> }>(path);
       if (data?.tasks) dataSources.push(data);

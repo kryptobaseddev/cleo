@@ -714,7 +714,7 @@ describe('Gate Validators', () => {
       expect(VALIDATION_RULES.MANIFEST_ID_PATTERN).toEqual(/^T\d{3,}-[a-z0-9-]+$/);
       expect(VALIDATION_RULES.DATE_FORMAT_PATTERN).toEqual(/^\d{4}-\d{2}-\d{2}$/);
       expect(VALIDATION_RULES.DESCRIPTION_MAX_LENGTH).toBe(1000);
-      expect(VALIDATION_RULES.VALID_MANIFEST_STATUSES).toEqual(['complete', 'partial', 'blocked']);
+      expect(VALIDATION_RULES.VALID_MANIFEST_STATUSES).toEqual(['completed', 'partial', 'blocked', 'archived']);
       expect(VALIDATION_RULES.VALID_AGENT_TYPES).toContain('research');
       expect(VALIDATION_RULES.VALID_AGENT_TYPES).toContain('implementation');
       expect(VALIDATION_RULES.VALID_AGENT_TYPES).toContain('testing');

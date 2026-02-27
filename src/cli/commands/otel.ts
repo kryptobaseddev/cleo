@@ -4,6 +4,7 @@
  * @epic T4454
  */
 
+// TODO T4894: operation 'otel' not yet in registry — no otel domain in dispatch.\n// Leave bypass until admin.context or dedicated otel domain is created.
 import { Command } from 'commander';
 import {
   getOtelStatus,

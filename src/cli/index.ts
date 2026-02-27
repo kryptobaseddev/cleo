@@ -111,6 +111,9 @@ import { registerGradeCommand } from './commands/grade.js';
 // ADR-017: ADR validation, listing, and sync
 import { registerAdrCommand } from './commands/adr.js';
 
+// T4770: BRAIN memory commands (patterns, learnings)
+import { registerMemoryBrainCommand } from './commands/memory-brain.js';
+
 // Core: pre-flight migration check (@task T4699)
 import { checkStorageMigration } from '../core/migration/preflight.js';
 
@@ -306,6 +309,9 @@ registerGradeCommand(program);
 
 // ADR-017: ADR validation, listing, and sync
 registerAdrCommand(program);
+
+// T4770: BRAIN memory commands
+registerMemoryBrainCommand(program);
 
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).

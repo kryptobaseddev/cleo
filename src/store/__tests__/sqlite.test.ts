@@ -52,17 +52,15 @@ describe('SQLite store', () => {
   });
 
   it('creates all required tables', async () => {
-    const { getDb, closeDb: close } = await import('../sqlite.js');
+    const { getDb, getNativeDb, closeDb: close } = await import('../sqlite.js');
     close();
-    const db = await getDb();
+    await getDb();
+    const nativeDb = getNativeDb();
+    expect(nativeDb).toBeTruthy();
 
-    // Query sqlite_master for table names
-    const tables = db.all<{ name: string }>(
-      // Using raw sql template from drizzle
-      await import('drizzle-orm').then(m =>
-        m.sql`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`
-      )
-    );
+    const tables = nativeDb!.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+    ).all() as Array<{ name: string }>;
 
     const tableNames = tables.map(t => t.name).sort();
 
@@ -75,14 +73,15 @@ describe('SQLite store', () => {
   });
 
   it('creates expected indexes', async () => {
-    const { getDb, closeDb: close } = await import('../sqlite.js');
+    const { getDb, getNativeDb, closeDb: close } = await import('../sqlite.js');
     close();
-    const db = await getDb();
-    const { sql } = await import('drizzle-orm');
+    await getDb();
+    const nativeDb = getNativeDb();
+    expect(nativeDb).toBeTruthy();
 
-    const indexes = db.all<{ name: string }>(
-      sql`SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name`
-    );
+    const indexes = nativeDb!.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    ).all() as Array<{ name: string }>;
 
     const indexNames = indexes.map(i => i.name).sort();
 
@@ -104,7 +103,7 @@ describe('SQLite store', () => {
   });
 
   it('closeDb saves and releases resources', async () => {
-    const { getDb, closeDb: close, getDbPath } = await import('../sqlite.js');
+    const { getDb, closeDb: close, getDbPath, getNativeDb } = await import('../sqlite.js');
     close();
     await getDb();
     const dbPath = getDbPath();
@@ -138,42 +137,36 @@ describe('SQLite store', () => {
     expect(dbExists()).toBe(true);
   });
 
-  it('uses journal mode (not WAL) since sql.js is in-memory WASM', async () => {
-    // sql.js operates in-memory with explicit save; journal_mode should
-    // be 'memory' or 'delete' (not 'wal'), per sqlite.ts documentation.
-    const { getDb, closeDb: close } = await import('../sqlite.js');
+  it('uses WAL journal mode for node:sqlite file-backed storage', async () => {
+    const { getDb, getNativeDb, closeDb: close } = await import('../sqlite.js');
     close();
-    const db = await getDb();
-    const { sql } = await import('drizzle-orm');
+    await getDb();
+    const nativeDb = getNativeDb();
+    expect(nativeDb).toBeTruthy();
 
-    const result = db.all<{ journal_mode: string }>(
-      sql`PRAGMA journal_mode`
-    );
+    const result = nativeDb!.prepare('PRAGMA journal_mode').get() as { journal_mode?: string };
 
-    // sql.js typically uses 'memory' journal mode
-    expect(result[0]?.journal_mode).not.toBe('wal');
+    expect(result.journal_mode?.toLowerCase()).toBe('wal');
   });
 
   it('reopens database from persisted file after close', async () => {
-    const { getDb, closeDb: close, getDbPath } = await import('../sqlite.js');
+    const { getDb, closeDb: close, getNativeDb } = await import('../sqlite.js');
     close();
 
     // Create database and insert data
     const db1 = await getDb();
     const { sql } = await import('drizzle-orm');
-    db1.run(sql`INSERT INTO tasks (id, title, status, priority, created_at)
+    await db1.run(sql`INSERT INTO tasks (id, title, status, priority, created_at)
       VALUES ('T001', 'Test task', 'pending', 'medium', datetime('now'))`);
 
-    // Save and close
-    const { saveToFile } = await import('../sqlite.js');
-    saveToFile();
+    // Close and reopen. node:sqlite persists directly to disk.
     close();
 
     // Reopen - should have persisted data
-    const db2 = await getDb();
-    const rows = db2.all<{ id: string }>(
-      sql`SELECT id FROM tasks WHERE id = 'T001'`
-    );
+    await getDb();
+    const rows = getNativeDb()!.prepare(
+      "SELECT id FROM tasks WHERE id = 'T001'",
+    ).all() as Array<{ id: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe('T001');
   });
@@ -206,26 +199,25 @@ describe('SQLite store', () => {
       expect(() => resetDbState()).not.toThrow();
     });
 
-    it('resetDbState does not save data (unlike closeDb)', async () => {
+    it('resetDbState persists data for file-backed node:sqlite', async () => {
       const { getDb, resetDbState, closeDb: close } = await import('../sqlite.js');
-      const { getDbPath } = await import('../sqlite.js');
       close();
       
       // Initialize and insert data
       const db = await getDb();
       const { sql } = await import('drizzle-orm');
-      db.run(sql`INSERT INTO tasks (id, title, status, priority, created_at)
+      await db.run(sql`INSERT INTO tasks (id, title, status, priority, created_at)
         VALUES ('T002', 'Test task', 'pending', 'medium', datetime('now'))`);
       
       // Reset without saving
       resetDbState();
       
-      // Reopen database - data should not exist since we didn't save
+      // Reopen database - data should still exist (node:sqlite writes to file)
       const db2 = await getDb();
-      const rows = db2.all<{ id: string }>(
+      const rows = await db2.all<{ id: string }>(
         sql`SELECT id FROM tasks WHERE id = 'T002'`
       );
-      expect(rows).toHaveLength(0);
+      expect(rows).toHaveLength(1);
     });
   });
 

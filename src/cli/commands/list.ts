@@ -6,8 +6,8 @@
  */
 
 import { Command } from 'commander';
-import { dispatchRaw } from '../../dispatch/adapters/cli.js';
-import { cliOutput, cliError } from '../renderers/index.js';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { createPage } from '../../core/pagination.js';
 
@@ -48,9 +48,7 @@ export function registerListCommand(program: Command): void {
       const response = await dispatchRaw('query', 'tasks', 'list', params);
 
       if (!response.success) {
-        cliError(response.error?.message ?? 'Unknown error', response.error?.exitCode ?? 1);
-        process.exit(response.error?.exitCode ?? 1);
-        return;
+        handleRawError(response, { command: 'list', operation: 'tasks.list' });
       }
 
       const rawData = response.data;

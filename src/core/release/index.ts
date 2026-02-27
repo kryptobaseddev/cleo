@@ -88,10 +88,10 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string,
   validateVersion(options.version);
   const version = normalizeVersion(options.version);
 
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
 
   // Ensure releases array exists
   if (!data.project.releases) {
@@ -127,7 +127,7 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string,
   if (accessor) {
     await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
   await logOperation(getLogPath(cwd), 'release_created', version, {
     tasks: taskIds,
@@ -142,10 +142,10 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string,
  */
 export async function planRelease(options: PlanReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<Release> {
   const version = normalizeVersion(options.version);
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
 
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === version);
@@ -186,7 +186,7 @@ export async function planRelease(options: PlanReleaseOptions, cwd?: string, acc
   if (accessor) {
     await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
 
   return release;
@@ -210,11 +210,11 @@ export interface ShipReleaseResult {
  */
 export async function shipRelease(options: ShipReleaseOptions, cwd?: string, accessor?: DataAccessor): Promise<ShipReleaseResult> {
   const version = normalizeVersion(options.version);
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const projectRoot = getProjectRoot(cwd);
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
 
   const releases = data.project.releases ?? [];
   const release = releases.find(r => normalizeVersion(r.version) === version);
@@ -279,7 +279,7 @@ export async function shipRelease(options: ShipReleaseOptions, cwd?: string, acc
   if (accessor) {
     await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
 
   const result: ShipReleaseResult = { release, changelog, dryRun: false };

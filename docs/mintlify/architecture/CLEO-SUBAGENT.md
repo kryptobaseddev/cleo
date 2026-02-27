@@ -323,7 +323,7 @@ All cleo-subagent instances MUST:
 
 ### 1. Write Output File
 
-Location: `claudedocs/agent-outputs/{{DATE}}_{{TOPIC_SLUG}}.md`
+Location: `.cleo/agent-outputs/{{DATE}}_{{TOPIC_SLUG}}.md`
 
 ```markdown
 # {{TITLE}}
@@ -344,7 +344,7 @@ Location: `claudedocs/agent-outputs/{{DATE}}_{{TOPIC_SLUG}}.md`
 
 ### 2. Append Manifest Entry
 
-Single line to `claudedocs/agent-outputs/MANIFEST.jsonl`:
+Single line to `.cleo/agent-outputs/MANIFEST.jsonl`:
 
 ```json
 {"id":"topic-2026-01-26","file":"2026-01-26_topic.md","title":"Title","date":"2026-01-26","status":"complete","topics":["t1"],"key_findings":["Finding 1","Finding 2"],"actionable":true,"needs_followup":[],"linked_tasks":["T1000","T1234"]}

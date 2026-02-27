@@ -51,10 +51,10 @@ const PROTOCOL_EXIT_CODES: Record<ProtocolType, ExitCode> = {
 const LIFECYCLE_GATES: Record<string, string[]> = {
   research: [],
   consensus: ['research'],
-    architecture_decision: ['research', 'consensus'],
-    specification: ['research', 'consensus', 'architecture_decision'],
-    decomposition: ['research', 'specification', 'architecture_decision'],
-    implementation: ['research', 'specification', 'decomposition', 'architecture_decision'],
+  architecture_decision: ['research', 'consensus'],
+  specification: ['research', 'consensus', 'architecture_decision'],
+  decomposition: ['research', 'specification', 'architecture_decision'],
+  implementation: ['research', 'specification', 'decomposition', 'architecture_decision'],
   contribution: [], // Cross-cutting: no strict prerequisites
   validation: ['implementation'],
   testing: ['implementation', 'validation'],
@@ -175,7 +175,7 @@ export class ProtocolEnforcer {
       return {
         passed: true,
         missingPrerequisites: [],
-        message: 'No RCASD manifest found (legacy RCSD path) - skipping gate check',
+        message: 'No RCASD manifest found - gate check skipped',
       };
     }
 

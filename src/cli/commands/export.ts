@@ -2,6 +2,7 @@
  * CLI export command - export tasks to various formats.
  * @task T4454
  */
+// TODO T4894: operation not yet in registry — no admin.export or tasks.export dispatch route
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';

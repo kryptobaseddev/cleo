@@ -1,9 +1,9 @@
 # ADR-009: CLEO BRAIN Cognitive Architecture — Unified Reference
 
 **Date**: 2026-02-22
-**Status**: proposed
+**Status**: accepted
 **Related ADRs**: ADR-006 (storage), ADR-007 (domain consolidation), ADR-008 (canonical architecture)
-**Related Tasks**: T2971, T2996, T4797
+**Related Tasks**: T2971, T2996, T4797, T4911, T4912, T4913, T4914, T4915, T4916
 **Summary**: Unifies the BRAIN cognitive architecture across scattered documents. Establishes SQLite as the runtime store for BRAIN memory (decisions, patterns, learnings), defines Vectorless RAG as the primary retrieval method, and maps the 5 BRAIN dimensions to CLEO's 9 canonical domains.
 **Keywords**: brain, cognitive, memory, rag, vectorless, sqlite, retrieval, embeddings, dimensions
 **Topics**: memory, storage, orchestrate, nexus
@@ -20,7 +20,7 @@ CLEO's BRAIN cognitive architecture is defined across **6+ scattered documents**
 
 - **Storage contradictions**: BRAIN Spec defines JSONL memory files; ADR-006 mandates SQLite for all operational data
 - **Retrieval strategy conflict**: cognitive-architecture.mdx defines "Vectorless RAG"; BRAIN Spec and Strategic Roadmap plan SQLite-vec vector embeddings
-- **Pipeline stage mismatch**: ADR-006 schema lists 9 stages with "adr" as a stage; ADR-007 mandates 8 stages with ADR as a protocol
+- **Pipeline stage mismatch (resolved)**: ADR-006 schema listed 9 stages with "adr" as a stage; now resolved to 9 pipeline stages + contribution cross-cutting, with `architecture_decision` replacing "adr" (see ADR-014, T4863)
 - **Incomplete domain mapping**: ADR-007 Section 4.2 lists 10 future operations across 5 BRAIN dimensions; the BRAIN Spec defines 30+ operations
 - **Undefined framework relationship**: The 5 Canonical Pillars (vision.mdx) and 5 BRAIN Dimensions (BRAIN Spec) are never formally related
 - **Reasoning domain placement unresolved**: The BRAIN Spec defines `cleo reason *` commands, but no domain in ADR-007 naturally owns reasoning as a cross-cutting capability
@@ -289,15 +289,21 @@ This section provides the comprehensive mapping of all BRAIN capabilities to the
 | **ADR memory store** | `admin.adr.sync` | Current | **Shipped (T4792)** |
 | **ADR memory search** | `admin.adr.find` | Current | **Shipped (T4942)** |
 | **ADR task linking** | `adr_task_links` DB table | Current | **Shipped (T4942)** |
+| **Session handoff** | `session.handoff.show` | Current | **Shipped (T4915)** |
+| **Session briefing** | `session.briefing.show` | Current | **Shipped (T4916)** |
+| **Composite planning view** | `tasks.plan` | Current | **Shipped (T4914)** |
+| **Pipeline validation (SQLite)** | `pipeline.*` (init, advance, complete, cancel, list, stats) | Current | **Shipped (T4912)** |
 | Context persistence | `session.context.*` | 1 | Planned |
 | Decision memory store | `memory.decision.store` | 2 | Planned |
 | Decision memory recall | `memory.decision.recall` | 2 | Planned |
 | Decision memory search | `memory.decision.search` | 2 | Planned |
-| Pattern memory store | `memory.pattern.store` | 2 | Planned |
+| Pattern memory store | `memory.pattern.store` | 2 | **Shipped (T4768)** |
 | Pattern memory extract | `memory.pattern.extract` | 2 | Planned |
-| Pattern memory search | `memory.pattern.search` | 2 | Planned |
-| Learning memory store | `memory.learning.store` | 3 | Planned |
-| Learning memory search | `memory.learning.search` | 3 | Planned |
+| Pattern memory search | `memory.pattern.search` | 2 | **Shipped (T4768)** |
+| Pattern memory stats | `memory.pattern.stats` | 2 | **Shipped (T4768)** |
+| Learning memory store | `memory.learning.store` | 3 | **Shipped (T4769)** |
+| Learning memory search | `memory.learning.search` | 3 | **Shipped (T4769)** |
+| Learning memory stats | `memory.learning.stats` | 3 | **Shipped (T4769)** |
 | Memory consolidation | `memory.consolidate` | 3 | Planned |
 | Temporal queries | `memory.search` (with date filters) | 2 | Planned |
 | Memory export (JSONL) | `memory.export` | 2 | Planned |
@@ -386,31 +392,34 @@ This section provides the comprehensive mapping of all BRAIN capabilities to the
 
 ## 6. Pipeline Stage Correction
 
-### 6.1 Canonical 8-Stage Pipeline
+### 6.1 Canonical 9-Stage Pipeline (RCASD)
 
-Per ADR-007, the lifecycle pipeline is **8 stages** with ADR as a cross-cutting protocol, not a stage:
+Per ADR-014, the lifecycle pipeline is **9 stages** — the original 8-stage RCSD model was extended with `architecture_decision` as a formal stage:
 
 ```
-RCSD Phase (4 stages):
-  research → consensus → specification → decomposition
+RCASD Phase (5 stages, per ADR-014):
+  research → consensus → architecture_decision → specification → decomposition
 
 IVTR Phase (4 stages):
   implementation → validation → testing → release
 ```
 
-### 6.2 ADR-006 Schema Correction Required
+**Note**: Per ADR-014, the pipeline was renamed from RCSD to RCASD with `architecture_decision` added as a formal stage (not just a cross-cutting protocol). Pipeline validation tests (T4912) confirm all 9 stages work in SQLite.
 
-The `lifecycle_stages` table CHECK constraint in ADR-006 MUST be updated:
+### 6.2 ADR-006 Schema Correction — Applied
 
-**Current** (incorrect):
+The `lifecycle_stages` table CHECK constraint in ADR-006 has been corrected to match the 9-stage RCASD model:
+
+**Original** (ADR-006, incorrect):
 ```sql
 CHECK(stage_name IN ('research', 'consensus', 'adr', 'spec', 'decompose',
                       'implement', 'verify', 'test', 'release'))
 ```
 
-**Corrected**:
+**Current** (per ADR-014, implemented in schema and validated by T4912):
 ```sql
-CHECK(stage_name IN ('research', 'consensus', 'specification', 'decomposition',
+CHECK(stage_name IN ('research', 'consensus', 'architecture_decision',
+                      'specification', 'decomposition',
                       'implementation', 'validation', 'testing', 'release'))
 ```
 
@@ -418,10 +427,9 @@ CHECK(stage_name IN ('research', 'consensus', 'specification', 'decomposition',
 
 | Protocol | Type | Triggered During | Produces |
 |----------|------|-----------------|----------|
-| **ADR Protocol** | Decision capture | After Consensus stage | ADR documents in `.cleo/adrs/` |
 | **Contribution Protocol** | Collaborative work | Any stage | Contribution records, agent outputs |
 
-These are NOT pipeline stages. They are protocols that produce artifacts alongside the pipeline.
+**Note**: `architecture_decision` was promoted from a cross-cutting protocol to a formal pipeline stage in ADR-014. The Contribution Protocol remains cross-cutting.
 
 ---
 
@@ -450,7 +458,7 @@ These are NOT pipeline stages. They are protocols that produce artifacts alongsi
 |---|--------------|------------|-----------|
 | 1 | BRAIN Spec says JSONL memory files; ADR-006 says SQLite only | SQLite is runtime store. JSONL is export/import format for portability. | ADR-006 (accepted) |
 | 2 | cognitive-architecture.mdx says "Vectorless RAG"; BRAIN Spec says SQLite-vec | Both coexist. Vectorless RAG is primary (structural). Vectors augment for semantic queries in Phase 2+. | This ADR |
-| 3 | ADR-006 schema has 9 stages with "adr"; ADR-007 says 8 stages | 8 stages. ADR is a protocol, not a stage. ADR-006 schema requires correction. | ADR-007 |
+| 3 | ADR-006 schema has 9 stages with "adr"; ADR-007 says 8 stages | **Resolved (T4863)**: 9 pipeline stages + contribution cross-cutting. `architecture_decision` replaced "adr" as a formal stage. DB schema updated. | ADR-007, ADR-014 |
 | 4 | Nexus storage: ADR-006 says ~/.cleo/cleo-nexus.db; others say JSON files | SQLite (cleo-nexus.db) is canonical per ADR-006. JSON references are pre-SQLite. | ADR-006 (accepted) |
 | 5 | BRAIN Spec defines `cleo reason *` commands; ADR-007 maps to `memory.reason.*` | Reasoning domain placement deferred to R&C cycle. Namespace reserved. | This ADR |
 | 6 | 5 Pillars and 5 BRAIN Dimensions never formally related | Orthogonal frameworks: Pillars = product contract (WHAT), BRAIN = capability model (HOW). Crosswalk in Section 2.2. | This ADR |
@@ -473,15 +481,88 @@ ADR-009 (this)
     └── ENABLES: Unified BRAIN capability tracking across domains
 ```
 
-### 9.1 Required Follow-Up Tasks
+### 9.1 BRAIN Phase 1: Working Memory Loop — Shipped (T4911)
 
-| Task | Description | Priority |
-|------|-------------|----------|
-| **BRAIN memory schema** | Implement brain_decisions, brain_patterns, brain_learnings SQLite tables | P1 |
-| **Reasoning R&C** | Research how LLM agents would use reasoning operations; consensus on domain placement | P2 |
-| **Pipeline stage fix** | Update lifecycle_stages CHECK constraint from 9 to 8 stages | P1 |
-| **BRAIN Spec update** | Align CLEO-BRAIN-SPECIFICATION.md storage references with ADR-006/ADR-009 hybrid model | P2 |
-| **cognitive-architecture.mdx update** | Add note about future vector augmentation alongside vectorless RAG | P3 |
+The first concrete BRAIN implementation is the **working memory loop** — a set of operations that give agents continuous situational awareness across the full task lifecycle. These were shipped as part of epic T4911 (BRAIN Foundation).
+
+**The Working Memory Loop**:
+
+```
+Session Start                    Session End
+     │                                │
+     ▼                                ▼
+session.briefing.show ──────► tasks.plan ──────► session.handoff.show
+  (what happened last)     (what to work on)    (what to tell next agent)
+     │                          │                       │
+     └── reads from ◄──────────┘                       │
+         handoff_json                                   │
+         (previous session's                            │
+          handoff output)                               │
+                                                        ▼
+                                              Persisted to handoff_json
+                                              column in sessions table
+                                              (auto-computed on session.end)
+```
+
+**Shipped Operations (T4911)**:
+
+| Operation | Task | What It Does |
+|-----------|------|-------------|
+| `session.briefing.show` | T4916 | Aggregates 6 data sources (last handoff, in-progress tasks, open bugs, recent completions, active session, pipeline status) into a single briefing for the incoming agent |
+| `tasks.plan` | T4914 | Composite planning view: in-progress epics with completion %, ready tasks ranked by leverage, blocked tasks with blocker chains, open bugs by severity |
+| `session.handoff.show` | T4915 | Computes and returns handoff data (completed tasks, decisions, blockers, next actions); auto-persisted to `handoff_json` column on `session.end` |
+| `ct bug` | T4913 | Quick bug creation with P0-P3 severity mapping, supporting the planning view's bug aggregation |
+
+**Pipeline Foundation (T4912)**:
+26 integration tests validate the full SQLite pipeline lifecycle: init → advance through RCASD stages → complete/cancel, with gate results, evidence recording, and statistics queries. This proves the lifecycle tables work end-to-end and unblocks T4785 (lifecycle engine → core migration).
+
+**Verb Standard Note**: `tasks.plan` uses the `plan` verb (37th canonical verb, added to VERB-STANDARDS.md v2026.2.27). This is a composite read operation — it does not compute a derived value (`compute`) or schedule future work (`schedule`). See VERB-STANDARDS.md §33 for rationale.
+
+### 9.2 BRAIN Phase 2: Pattern and Learning Memory — Shipped (T4763)
+
+The second BRAIN implementation phase delivers the **pattern memory** and **learning memory** systems, along with formal JSON schemas and CLI/MCP integration.
+
+**Implemented Components**:
+
+| Component | Task | Files |
+|-----------|------|-------|
+| Memory layer design | T4766 | `schemas/brain-decision.schema.json`, `schemas/brain-pattern.schema.json`, `schemas/brain-learning.schema.json` |
+| Pattern Memory system | T4768 | `src/core/memory/patterns.ts` |
+| Learning Memory system | T4769 | `src/core/memory/learnings.ts` |
+| Memory CLI commands | T4770 | `src/cli/commands/memory-brain.ts` |
+| MCP dispatch wiring | T4770 | `src/dispatch/domains/memory.ts`, `src/core/memory/engine-compat.ts` |
+| Graph systems audit | T4767 | `.cleo/rcsd/T4767_graph-systems-audit.md` |
+| Bootstrap/decision refactor verification | T4764, T4765 | Already completed by T4784, T4782 |
+
+**Storage Model** (interim):
+- Runtime store: JSONL files at `.cleo/memory/patterns.jsonl` and `.cleo/memory/learnings.jsonl`
+- Export format: Same JSONL, validated against `schemas/brain-*.schema.json`
+- Future: SQLite `brain_patterns` and `brain_learnings` tables per ADR-009 Section 3.2
+
+**MCP Operations Added**:
+- `memory.pattern.store` (mutate) — Store or increment a pattern entry
+- `memory.pattern.search` (query) — Search patterns by type, impact, query, frequency
+- `memory.pattern.stats` (query) — Aggregate pattern statistics
+- `memory.learning.store` (mutate) — Store or merge a learning entry
+- `memory.learning.search` (query) — Search learnings by confidence, actionability, query
+- `memory.learning.stats` (query) — Aggregate learning statistics
+
+### 9.3 Required Follow-Up Tasks
+
+| Task | Description | Priority | Status |
+|------|-------------|----------|--------|
+| **BRAIN working memory loop** | session.briefing, session.handoff, tasks.plan, ct bug, pipeline validation | P0 | **Done (T4911)** |
+| **Lifecycle engine → core** | Refactor lifecycle-engine.ts into src/core/lifecycle/, wire to SQLite tables | P1 | **Done (T4785)** |
+| **RCASD Phase 2 path rename** | .cleo/rcsd/ → .cleo/rcasd/ disk paths | P2 | **Done (T4917)** |
+| **BRAIN memory schema** | JSON schemas for decisions, patterns, learnings (JSONL export format) | P1 | **Done (T4766)** |
+| **Pattern Memory system** | `memory.pattern.store/search/stats` via JSONL + MCP + CLI | P1 | **Done (T4768)** |
+| **Learning Memory system** | `memory.learning.store/search/stats` via JSONL + MCP + CLI | P1 | **Done (T4769)** |
+| **Memory CLI commands** | `cleo memory store/recall/stats` CLI + MCP dispatch wiring | P1 | **Done (T4770)** |
+| **BRAIN SQLite tables** | Migrate brain_decisions/patterns/learnings from JSONL to SQLite | P2 | Pending |
+| **Reasoning R&C** | Research how LLM agents would use reasoning operations; consensus on domain placement | P2 | Pending |
+| **Pipeline stage fix** | Verify ADR-006 lifecycle_stages CHECK constraint matches 9-stage RCASD model | P1 | **Done (T4863)** |
+| **BRAIN Spec update** | Align CLEO-BRAIN-SPECIFICATION.md storage references with ADR-006/ADR-009 hybrid model | P2 | Pending |
+| **cognitive-architecture.mdx update** | Add note about future vector augmentation alongside vectorless RAG | P3 | Pending |
 
 ---
 
@@ -491,7 +572,7 @@ This decision is compliant when:
 
 1. All BRAIN memory stores (decisions, patterns, learnings) use SQLite tables at runtime
 2. JSONL export/import operations exist for BRAIN memory portability
-3. ADR-006 `lifecycle_stages` schema corrected to 8 stages without "adr"
+3. ADR-006 `lifecycle_stages` schema corrected to 9 RCASD stages (per ADR-014)
 4. ADR-007 Section 4.2 updated with comprehensive BRAIN dimension coverage (per Section 5 of this ADR)
 5. Reasoning domain placement R&C task created and tracked
 6. No document in the codebase contradicts the authority hierarchy in Section 7

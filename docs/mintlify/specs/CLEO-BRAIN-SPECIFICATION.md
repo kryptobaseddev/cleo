@@ -74,7 +74,7 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 ├── config.json            # Human-editable configuration (JSON — ADR-006 exception)
 └── todo-log.jsonl         # Immutable audit trail (append-only)
 
-claudedocs/agent-outputs/
+.cleo/agent-outputs/
 └── MANIFEST.jsonl         # Research artifacts (append-only)
 ```
 

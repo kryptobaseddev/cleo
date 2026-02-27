@@ -35,14 +35,14 @@ export interface DeleteTaskResult {
  * @task T4461
  */
 export async function deleteTask(options: DeleteTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<DeleteTaskResult> {
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
 
   const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -158,7 +158,7 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
       after: { title: task.title, cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined },
     }, cwd);
   } else {
-    await saveJson(todoPath, data, { backupDir });
+    await saveJson(taskPath, data, { backupDir });
     await saveJson(archivePath, archive, { backupDir });
     await logOperation(logPath, 'task_deleted', options.taskId, {
       title: task.title,

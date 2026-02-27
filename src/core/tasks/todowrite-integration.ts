@@ -60,6 +60,7 @@ const STATUS_TO_TODOWRITE: Record<TaskStatus, TodoWriteStatus> = {
   blocked: 'pending',
   done: 'completed',
   cancelled: 'completed',
+  archived: 'completed',
 };
 
 const STATUS_FROM_TODOWRITE: Record<TodoWriteStatus, TaskStatus> = {

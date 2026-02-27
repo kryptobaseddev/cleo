@@ -4,6 +4,7 @@
  * @epic T4454
  */
 
+// TODO T4894: operation 'specification.validate' not yet in registry — pipeline.stage.record\n// is for stage lifecycle, not protocol validation. Leave bypass.
 import { Command } from 'commander';
 import {
   validateSpecificationTask,

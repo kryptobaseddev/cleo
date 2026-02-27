@@ -1,7 +1,7 @@
 /**
  * SQLite-based implementation of the DataAccessor interface.
  *
- * Materializes TodoFile/ArchiveFile/SessionsFile from SQLite tables,
+ * Materializes TaskFile/ArchiveFile/SessionsFile from SQLite tables,
  * allowing core modules to continue using whole-file data structures
  * while storage is backed by the relational database.
  *
@@ -13,7 +13,7 @@
 
 import { eq, ne } from 'drizzle-orm';
 import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
-import type { TaskFile, Task, ProjectMeta, FocusState as TaskWorkState, FileMeta } from '../types/task.js';
+import type { TaskFile, Task, ProjectMeta, TaskWorkState, FileMeta } from '../types/task.js';
 import type { Session } from '../types/session.js';
 import { getDb, closeDb } from './sqlite.js';
 import * as schema from './schema.js';
@@ -371,14 +371,6 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       return meta?.schemaVersion ?? null;
     },
 
-    // Deprecated aliases
-    async loadTodoFile(): Promise<TaskFile> {
-      return accessor.loadTaskFile();
-    },
-
-    async saveTodoFile(data: TaskFile): Promise<void> {
-      return accessor.saveTaskFile(data);
-    },
   };
 
   return accessor;

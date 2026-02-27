@@ -33,7 +33,7 @@ This specification defines the protocol stack for CLEO subagents using RFC 2119 
 
 **MUST** write findings to designated output file:
 ```
-claudedocs/agent-outputs/{{DATE}}_{{TOPIC_SLUG}}.md
+.cleo/agent-outputs/{{DATE}}_{{TOPIC_SLUG}}.md
 ```
 
 **MUST NOT** write to any other location without explicit instruction.
@@ -42,7 +42,7 @@ claudedocs/agent-outputs/{{DATE}}_{{TOPIC_SLUG}}.md
 
 **MUST** append exactly ONE line to manifest:
 ```
-claudedocs/agent-outputs/MANIFEST.jsonl
+.cleo/agent-outputs/MANIFEST.jsonl
 ```
 
 **MUST** use single-line JSON (no pretty-printing).

@@ -19,6 +19,22 @@ import {
   type SupersededDetail,
 } from './index.js';
 
+// BRAIN memory imports (T4770)
+import {
+  storePattern,
+  searchPatterns,
+  patternStats,
+  type StorePatternParams,
+  type SearchPatternParams,
+} from './patterns.js';
+import {
+  storeLearning,
+  searchLearnings,
+  learningStats,
+  type StoreLearningParams,
+  type SearchLearningParams,
+} from './learnings.js';
+
 // Re-export types for consumers
 export type ManifestEntry = ExtendedManifestEntry;
 export type { ResearchFilter, ContradictionDetail, SupersededDetail };
@@ -576,6 +592,92 @@ export function memoryCompact(
   }
 }
 
+// ============================================================================
+// BRAIN Memory Operations (T4770)
+// ============================================================================
+
+/** memory.pattern.store - Store a pattern to BRAIN memory */
+export function memoryPatternStore(
+  params: StorePatternParams,
+  projectRoot?: string,
+): EngineResult {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = storePattern(root, params);
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_PATTERN_STORE', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.pattern.search - Search patterns in BRAIN memory */
+export function memoryPatternSearch(
+  params: SearchPatternParams,
+  projectRoot?: string,
+): EngineResult {
+  try {
+    const root = resolveRoot(projectRoot);
+    const results = searchPatterns(root, params);
+    return { success: true, data: { patterns: results, total: results.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_PATTERN_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.pattern.stats - Get pattern memory statistics */
+export function memoryPatternStats(
+  projectRoot?: string,
+): EngineResult {
+  try {
+    const root = resolveRoot(projectRoot);
+    const stats = patternStats(root);
+    return { success: true, data: stats };
+  } catch (error) {
+    return { success: false, error: { code: 'E_PATTERN_STATS', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.learning.store - Store a learning to BRAIN memory */
+export function memoryLearningStore(
+  params: StoreLearningParams,
+  projectRoot?: string,
+): EngineResult {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = storeLearning(root, params);
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_LEARNING_STORE', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.learning.search - Search learnings in BRAIN memory */
+export function memoryLearningSearch(
+  params: SearchLearningParams,
+  projectRoot?: string,
+): EngineResult {
+  try {
+    const root = resolveRoot(projectRoot);
+    const results = searchLearnings(root, params);
+    return { success: true, data: { learnings: results, total: results.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_LEARNING_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.learning.stats - Get learning memory statistics */
+export function memoryLearningStats(
+  projectRoot?: string,
+): EngineResult {
+  try {
+    const root = resolveRoot(projectRoot);
+    const stats = learningStats(root);
+    return { success: true, data: stats };
+  } catch (error) {
+    return { success: false, error: { code: 'E_LEARNING_STATS', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
 /** memory.validate - Validate research entries for a task */
 export function memoryValidate(
   taskId: string,
@@ -607,7 +709,7 @@ export function memoryValidate(
     if (!entry.status) issues.push({ entryId: entry.id, issue: 'Missing status', severity: 'error' });
     if (!entry.agent_type) issues.push({ entryId: entry.id, issue: 'Missing agent_type', severity: 'error' });
 
-    if (entry.status && !['complete', 'partial', 'blocked'].includes(entry.status)) {
+    if (entry.status && !['completed', 'partial', 'blocked'].includes(entry.status)) {
       issues.push({ entryId: entry.id, issue: `Invalid status: ${entry.status}`, severity: 'error' });
     }
 

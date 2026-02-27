@@ -1,6 +1,7 @@
-<!-- CLEO:START -->
-@.cleo/templates/AGENT-INJECTION.md
-<!-- CLEO:END -->
+<!-- CAAMP:START -->
+@~/.cleo/templates/CLEO-INJECTION.md
+@.cleo/project-context.json
+<!-- CAAMP:END -->
 # Agent Documentation
 
 For comprehensive repository guidelines, see @CLAUDE.md for project overview, architecture principles, critical rules, and detailed workflow expectations.

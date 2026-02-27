@@ -4,9 +4,18 @@
  * Respects NO_COLOR (https://no-color.org) and FORCE_COLOR env vars.
  * Falls back to plain ASCII when color is not supported.
  *
+ * Status symbols are sourced from the registry (TASK_STATUS_SYMBOLS_UNICODE /
+ * TASK_STATUS_SYMBOLS_ASCII) to keep icon definitions co-located with the
+ * status values they describe.
+ *
  * @task T4666
  * @epic T4663
  */
+import {
+  TASK_STATUS_SYMBOLS_UNICODE,
+  TASK_STATUS_SYMBOLS_ASCII,
+  type TaskStatus,
+} from '../../store/status-registry.js';
 
 /** Whether ANSI color escape codes should be used. */
 const colorsEnabled: boolean = (() => {
@@ -44,36 +53,21 @@ export const CYAN = ansi('\x1b[0;36m');
 // Status symbols and colors
 // ---------------------------------------------------------------------------
 
-/** Map task status to a display symbol. */
+/** Map task status to a display symbol. Falls back to '?' for unknown values. */
 export function statusSymbol(status: string): string {
-  if (unicodeEnabled) {
-    switch (status) {
-      case 'pending': return '\u25CB';    // ○
-      case 'active': return '\u25C9';     // ◉
-      case 'blocked': return '\u2297';    // ⊗
-      case 'done': return '\u2713';       // ✓
-      case 'cancelled': return '\u2717';  // ✗
-      default: return '?';
-    }
-  }
-  switch (status) {
-    case 'pending': return '-';
-    case 'active': return '*';
-    case 'blocked': return 'x';
-    case 'done': return '+';
-    case 'cancelled': return '~';
-    default: return '?';
-  }
+  const map = unicodeEnabled ? TASK_STATUS_SYMBOLS_UNICODE : TASK_STATUS_SYMBOLS_ASCII;
+  return map[status as TaskStatus] ?? '?';
 }
 
 /** Map task status to a color escape. */
 export function statusColor(status: string): string {
-  switch (status) {
-    case 'pending': return CYAN;
-    case 'active': return GREEN;
-    case 'blocked': return RED;
-    case 'done': return DIM;
+  switch (status as TaskStatus) {
+    case 'pending':   return CYAN;
+    case 'active':    return GREEN;
+    case 'blocked':   return RED;
+    case 'done':      return DIM;
     case 'cancelled': return DIM;
+    case 'archived':  return DIM;
     default: return '';
   }
 }

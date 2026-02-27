@@ -141,11 +141,15 @@ async function isCleoProject(projectPath: string): Promise<boolean> {
   }
 }
 
-/** Read task metadata from a project's todo.json. */
+/** Read task metadata from a project's task file. */
 async function readProjectMeta(projectPath: string): Promise<{ taskCount: number; labels: string[] }> {
   try {
-    const todoPath = join(projectPath, '.cleo', 'todo.json');
-    const raw = await readFile(todoPath, 'utf-8');
+    let raw: string;
+    try {
+      raw = await readFile(join(projectPath, '.cleo', 'tasks.json'), 'utf-8');
+    } catch {
+      raw = await readFile(join(projectPath, '.cleo', 'todo.json'), 'utf-8');
+    }
     const data = JSON.parse(raw) as { tasks: Array<{ labels?: string[] }> };
     const tasks = data.tasks ?? [];
     const allLabels = tasks.flatMap(t => t.labels ?? []);

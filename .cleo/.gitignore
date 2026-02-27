@@ -1,8 +1,2 @@
 # CLEO Project Data - Selective Git Tracking
-# agent-outputs/ is intentionally tracked (research outputs, ADR evidence)
-logs/
-audit-log*.json
-tasks.db
-tasks.db-shm
-tasks.db-wal
-.git/
+agent-outputs/

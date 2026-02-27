@@ -7,8 +7,8 @@
 import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { PhaseStatus, PhaseTransition, TodoFile } from '../../types/task.js';
-import { getTodoPath, getBackupDir, getLogPath } from '../paths.js';
+import type { PhaseStatus, PhaseTransition, TaskFile } from '../../types/task.js';
+import { getTaskPath, getBackupDir, getLogPath } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
@@ -91,8 +91,8 @@ export interface DeletePhaseResult {
  */
 export async function listPhases(cwd?: string, accessor?: DataAccessor): Promise<ListPhasesResult> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const phases = data.project?.phases ?? {};
   const currentPhase = data.project?.currentPhase ?? null;
 
@@ -126,8 +126,8 @@ export async function listPhases(cwd?: string, accessor?: DataAccessor): Promise
  */
 export async function showPhase(slug?: string, cwd?: string, accessor?: DataAccessor): Promise<ShowPhaseResult> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const targetSlug = slug ?? data.project?.currentPhase ?? null;
 
   if (!targetSlug) {
@@ -159,10 +159,10 @@ export async function showPhase(slug?: string, cwd?: string, accessor?: DataAcce
  * @task T4464
  */
 export async function setPhase(options: SetPhaseOptions, cwd?: string, accessor?: DataAccessor): Promise<SetPhaseResult> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
   const phases = data.project?.phases ?? {};
 
   // Validate phase exists
@@ -224,9 +224,9 @@ export async function setPhase(options: SetPhaseOptions, cwd?: string, accessor?
   }
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
   await logOperation(getLogPath(cwd), 'phase_set', options.slug, {
     previousPhase: oldPhase,
@@ -250,10 +250,10 @@ export async function setPhase(options: SetPhaseOptions, cwd?: string, accessor?
  * @task T4464
  */
 export async function startPhase(slug: string, cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; startedAt: string }> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
   const phase = data.project?.phases?.[slug];
 
   if (!phase) {
@@ -276,9 +276,9 @@ export async function startPhase(slug: string, cwd?: string, accessor?: DataAcce
   addPhaseHistoryEntry(data, slug, 'started', null, 'Phase started');
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
   await logOperation(getLogPath(cwd), 'phase_started', slug, {}, accessor);
 
@@ -290,10 +290,10 @@ export async function startPhase(slug: string, cwd?: string, accessor?: DataAcce
  * @task T4464
  */
 export async function completePhase(slug: string, cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; completedAt: string }> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
   const phase = data.project?.phases?.[slug];
 
   if (!phase) {
@@ -325,9 +325,9 @@ export async function completePhase(slug: string, cwd?: string, accessor?: DataA
   addPhaseHistoryEntry(data, slug, 'completed', null, 'Phase completed');
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
   await logOperation(getLogPath(cwd), 'phase_completed', slug, {}, accessor);
 
@@ -339,10 +339,10 @@ export async function completePhase(slug: string, cwd?: string, accessor?: DataA
  * @task T4464
  */
 export async function advancePhase(force: boolean = false, cwd?: string, accessor?: DataAccessor): Promise<AdvancePhaseResult> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
   const currentSlug = data.project?.currentPhase ?? null;
 
   if (!currentSlug) {
@@ -413,9 +413,9 @@ export async function advancePhase(force: boolean = false, cwd?: string, accesso
   addPhaseHistoryEntry(data, nextSlug, 'started', currentSlug, `Phase started via advance from ${currentSlug}`);
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
 
   return {
@@ -430,10 +430,10 @@ export async function advancePhase(force: boolean = false, cwd?: string, accesso
  * @task T4464
  */
 export async function renamePhase(oldName: string, newName: string, cwd?: string, accessor?: DataAccessor): Promise<RenamePhaseResult> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
   const phases = data.project?.phases ?? {};
 
   if (!phases[oldName]) {
@@ -475,9 +475,9 @@ export async function renamePhase(oldName: string, newName: string, cwd?: string
   data._meta.checksum = computeChecksum(data.tasks);
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
 
   return { oldName, newName, tasksUpdated, currentPhaseUpdated };
@@ -493,10 +493,10 @@ export async function deletePhase(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<DeletePhaseResult> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
   const phases = data.project?.phases ?? {};
 
   if (!phases[slug]) {
@@ -547,9 +547,9 @@ export async function deletePhase(
   data._meta.checksum = computeChecksum(data.tasks);
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
 
   return {
@@ -564,7 +564,7 @@ export async function deletePhase(
  * @task T4464
  */
 function addPhaseHistoryEntry(
-  data: TodoFile,
+  data: TaskFile,
   phase: string,
   transitionType: PhaseTransition['transitionType'],
   fromPhase: string | null,

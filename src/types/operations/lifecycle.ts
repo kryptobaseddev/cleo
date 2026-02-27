@@ -5,20 +5,22 @@
  * Mutate operations: 5
  */
 
+import type { StageStatus } from '../../store/status-registry.js';
+export type { StageStatus };
+
 /**
  * Common lifecycle types
  */
 export type LifecycleStage =
   | 'research'
   | 'consensus'
+  | 'architecture_decision'
   | 'specification'
   | 'decomposition'
   | 'implementation'
   | 'validation'
   | 'testing'
   | 'release';
-
-export type StageStatus = 'pending' | 'active' | 'completed' | 'skipped' | 'failed';
 
 export type GateStatus = 'passed' | 'failed' | 'blocked' | null;
 

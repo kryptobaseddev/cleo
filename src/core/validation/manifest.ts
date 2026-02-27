@@ -23,7 +23,7 @@ export interface ManifestEntry {
   file: string;
   title: string;
   date: string;
-  status: 'complete' | 'partial' | 'blocked';
+  status: 'completed' | 'partial' | 'blocked';
   agent_type: string;
   topics?: string[];
   key_findings?: string[];

@@ -24,15 +24,15 @@ import { tmpdir } from 'node:os';
 // State machine (fully implemented)
 import {
   createInitialContext,
-  executeTransition,
-  validateTransition,
-  checkPrerequisites,
+  executeTransition as executeTransitionRaw,
+  validateTransition as validateTransitionRaw,
+  checkPrerequisites as checkPrerequisitesRaw,
   getCurrentStageState,
   isTerminalState,
   isBlocked,
   getValidNextStages,
-  setStageStatus,
-  skipStage,
+  setStageStatus as setStageStatusRaw,
+  skipStage as skipStageRaw,
   type StateMachineContext,
   type StateTransition,
 } from '../state-machine.js';
@@ -52,10 +52,10 @@ import {
 // Stage definitions
 import {
   PIPELINE_STAGES,
-  STAGE_DEFINITIONS,
-  STAGE_ORDER,
-  getPrerequisites,
-  checkTransition,
+  STAGE_DEFINITIONS as STAGE_DEFINITIONS_RAW,
+  STAGE_ORDER as STAGE_ORDER_RAW,
+  getPrerequisites as getPrerequisitesRaw,
+  checkTransition as checkTransitionRaw,
   type Stage,
   type StageDefinition,
 } from '../stages.js';
@@ -72,12 +72,119 @@ import {
 let testDir: string;
 let cleoDir: string;
 
+async function ensureTaskExists(taskId: string): Promise<void> {
+  const { getDb, getNativeDb } = await import('../../../store/sqlite.js');
+  await getDb();
+  getNativeDb()!.prepare(
+    `INSERT OR IGNORE INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
+  ).run(taskId, `Task ${taskId}`);
+}
+
+const LEGACY_TO_CANONICAL: Record<string, Stage> = {
+  adr: 'architecture_decision',
+  spec: 'specification',
+  decompose: 'decomposition',
+  implement: 'implementation',
+  verify: 'validation',
+  test: 'testing',
+};
+
+const CANONICAL_TO_LEGACY: Record<string, string> = {
+  architecture_decision: 'adr',
+  specification: 'spec',
+  decomposition: 'decompose',
+  implementation: 'implement',
+  validation: 'verify',
+  testing: 'test',
+};
+
+function toCanonical(stage: string): Stage {
+  return (LEGACY_TO_CANONICAL[stage] ?? stage) as Stage;
+}
+
+function toLegacy(stage: string): string {
+  return CANONICAL_TO_LEGACY[stage] ?? stage;
+}
+
+function addLegacyAliases(context: StateMachineContext): StateMachineContext {
+  const stages = context.stages as Record<string, unknown>;
+  for (const [legacy, canonical] of Object.entries(LEGACY_TO_CANONICAL)) {
+    stages[legacy] = stages[canonical];
+  }
+
+  return {
+    ...context,
+    stages: stages as StateMachineContext['stages'],
+  };
+}
+
+function executeTransition(transition: StateTransition, context: StateMachineContext) {
+  return executeTransitionRaw(
+    {
+      ...transition,
+      from: toCanonical(transition.from),
+      to: toCanonical(transition.to),
+    },
+    context,
+  ).then(result => ({
+    ...result,
+    context: addLegacyAliases(result.context),
+  }));
+}
+
+function validateTransition(transition: StateTransition, context: StateMachineContext) {
+  return validateTransitionRaw(
+    {
+      ...transition,
+      from: toCanonical(transition.from),
+      to: toCanonical(transition.to),
+    },
+    context,
+  );
+}
+
+function checkPrerequisites(stage: string, stages: Record<string, unknown>) {
+  return checkPrerequisitesRaw(toCanonical(stage), stages as never);
+}
+
+function setStageStatus(stage: string, status: Parameters<typeof setStageStatusRaw>[1], context: StateMachineContext) {
+  const canonical = toCanonical(stage);
+  const next = setStageStatusRaw(canonical, status, context);
+  (context.stages as Record<string, unknown>)[canonical] = next;
+  (context.stages as Record<string, unknown>)[stage] = next;
+  return next;
+}
+
+function skipStage(stage: string, reason: string, context: StateMachineContext) {
+  return skipStageRaw(toCanonical(stage), reason, context);
+}
+
+const STAGE_ORDER = new Proxy(STAGE_ORDER_RAW as Record<string, number>, {
+  get(target, prop: string) {
+    return target[toCanonical(prop)];
+  },
+});
+
+const STAGE_DEFINITIONS = new Proxy(STAGE_DEFINITIONS_RAW as Record<string, StageDefinition>, {
+  get(target, prop: string) {
+    return target[toCanonical(prop)];
+  },
+});
+
+function getPrerequisites(stage: string): string[] {
+  return getPrerequisitesRaw(toCanonical(stage));
+}
+
+function checkTransition(from: string, to: string, force?: boolean) {
+  return checkTransitionRaw(toCanonical(from), toCanonical(to), force);
+}
+
 describe('RCSD Pipeline Integration', () => {
   beforeEach(async () => {
     testDir = await mkdtemp(join(tmpdir(), 'cleo-pipeline-test-'));
     cleoDir = join(testDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    await mkdir(join(cleoDir, 'rcsd'), { recursive: true });
+    await mkdir(join(cleoDir, 'rcasd'), { recursive: true });
     await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
     process.env['CLEO_DIR'] = cleoDir;
     process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'off';
@@ -128,7 +235,7 @@ describe('RCSD Pipeline Integration', () => {
       result = await executeTransition(consensusTransition, context);
       expect(result.success).toBe(true);
       context = result.context;
-      expect(context.currentStage).toBe('adr');
+      expect(context.currentStage).toBe('architecture_decision');
 
       // Stage 3: ADR - mark as completed and transition to spec
       context.stages['adr'] = setStageStatus('adr', 'completed', context);
@@ -140,7 +247,7 @@ describe('RCSD Pipeline Integration', () => {
       result = await executeTransition(adrTransition, context);
       expect(result.success).toBe(true);
       context = result.context;
-      expect(context.currentStage).toBe('spec');
+      expect(context.currentStage).toBe('specification');
 
       // Stage 4: Spec - mark as completed and transition to decompose
       context.stages['spec'] = setStageStatus('spec', 'completed', context);
@@ -152,7 +259,7 @@ describe('RCSD Pipeline Integration', () => {
       result = await executeTransition(specTransition, context);
       expect(result.success).toBe(true);
       context = result.context;
-      expect(context.currentStage).toBe('decompose');
+      expect(context.currentStage).toBe('decomposition');
 
       // Stage 5: Decompose - mark as completed and transition to implement
       context.stages['decompose'] = setStageStatus('decompose', 'completed', context);
@@ -164,7 +271,7 @@ describe('RCSD Pipeline Integration', () => {
       result = await executeTransition(decomposeTransition, context);
       expect(result.success).toBe(true);
       context = result.context;
-      expect(context.currentStage).toBe('implement');
+      expect(context.currentStage).toBe('implementation');
 
       // Stage 6: Implement - mark as completed and transition to verify
       context.stages['implement'] = setStageStatus('implement', 'completed', context);
@@ -176,7 +283,7 @@ describe('RCSD Pipeline Integration', () => {
       result = await executeTransition(implementTransition, context);
       expect(result.success).toBe(true);
       context = result.context;
-      expect(context.currentStage).toBe('verify');
+      expect(context.currentStage).toBe('validation');
 
       // Stage 7: Verify - mark as completed and transition to test
       context.stages['verify'] = setStageStatus('verify', 'completed', context);
@@ -188,7 +295,7 @@ describe('RCSD Pipeline Integration', () => {
       result = await executeTransition(verifyTransition, context);
       expect(result.success).toBe(true);
       context = result.context;
-      expect(context.currentStage).toBe('test');
+      expect(context.currentStage).toBe('testing');
 
       // Stage 8: Test - mark as completed and transition to release
       context.stages['test'] = setStageStatus('test', 'completed', context);
@@ -326,13 +433,13 @@ describe('RCSD Pipeline Integration', () => {
       const specPrereqs = getPrerequisites('spec');
       expect(specPrereqs).toContain('research');
       expect(specPrereqs).toContain('consensus');
-      expect(specPrereqs).toContain('adr');
+      expect(specPrereqs).toContain('architecture_decision');
 
       // Implement requires research, spec, decompose
       const implementPrereqs = getPrerequisites('implement');
       expect(implementPrereqs).toContain('research');
-      expect(implementPrereqs).toContain('spec');
-      expect(implementPrereqs).toContain('decompose');
+      expect(implementPrereqs).toContain('specification');
+      expect(implementPrereqs).toContain('decomposition');
     });
   });
 
@@ -596,13 +703,9 @@ describe('RCSD Pipeline Integration', () => {
         const from = stages[i]!;
         const to = stages[i + 1]!;
 
-        // Mark from stage as completed (bypass transition validation for testing)
-        const now = new Date();
-        context.stages[from] = {
-          ...context.stages[from],
-          status: 'completed',
-          completedAt: now,
-        };
+        // Mark source stage as in-progress then completed before transitioning
+        context.stages[from] = setStageStatus(from, 'in_progress', context);
+        context.stages[from] = setStageStatus(from, 'completed', context);
 
         const transition: StateTransition = {
           from,
@@ -619,11 +722,8 @@ describe('RCSD Pipeline Integration', () => {
 
       // Mark test stage as completed and transition to release
       const now = new Date();
-      context.stages['test'] = {
-        ...context.stages['test'],
-        status: 'completed',
-        completedAt: now,
-      };
+      context.stages['test'] = setStageStatus('test', 'in_progress', context);
+      context.stages['test'] = setStageStatus('test', 'completed', context);
 
       const finalTransition: StateTransition = {
         from: 'test',
@@ -638,11 +738,7 @@ describe('RCSD Pipeline Integration', () => {
       context = finalResult.context;
 
       // Stage 9: Release - complete it (bypass transition validation)
-      context.stages['release'] = {
-        ...context.stages['release'],
-        status: 'completed',
-        completedAt: now,
-      };
+      context.stages['release'] = setStageStatus('release', 'completed', context);
 
       // Verify all stages completed
       expect(context.stages['research'].status).toBe('completed');
@@ -673,7 +769,8 @@ describe('RCSD Pipeline Integration', () => {
         const from = stages[i]!;
         const to = stages[i + 1]!;
 
-        // Mark from stage as completed before transitioning
+        // Mark from stage as in-progress then completed before transitioning
+        context.stages[from] = setStageStatus(from, 'in_progress', context);
         context.stages[from] = setStageStatus(from, 'completed', context);
 
         const transition: StateTransition = {
@@ -687,8 +784,7 @@ describe('RCSD Pipeline Integration', () => {
       }
 
       // Complete release
-      context.stages['release'].status = 'completed';
-      context.stages['release'].completedAt = new Date();
+      context.stages['release'] = setStageStatus('release', 'completed', context);
 
       expect(isTerminalState(context)).toBe(true);
     });
@@ -708,7 +804,8 @@ describe('RCSD Pipeline Integration', () => {
       ];
 
       for (const [from, to] of transitions) {
-        // Mark from stage as completed before transitioning
+        // Mark from stage as in-progress then completed before transitioning
+        context.stages[from] = setStageStatus(from, 'in_progress', context);
         context.stages[from] = setStageStatus(from, 'completed', context);
 
         const transition: StateTransition = {
@@ -735,7 +832,8 @@ describe('RCSD Pipeline Integration', () => {
         const from = stages[i]!;
         const to = stages[i + 1]!;
 
-        // Mark from stage as completed before transitioning
+        // Mark from stage as in-progress then completed before transitioning
+        context.stages[from] = setStageStatus(from, 'in_progress', context);
         context.stages[from] = setStageStatus(from, 'completed', context);
 
         const transition: StateTransition = {
@@ -748,8 +846,7 @@ describe('RCSD Pipeline Integration', () => {
         context = result.context;
       }
 
-      context.stages['release'].status = 'completed';
-      context.stages['release'].completedAt = new Date();
+      context.stages['release'] = setStageStatus('release', 'completed', context);
 
       // Verify final state
       expect(context.pipelineId).toBe(pipelineId);
@@ -770,6 +867,7 @@ describe('RCSD Pipeline Integration', () => {
 
   describe('pipeline stub implementations (T4800)', () => {
     it('initializePipeline should return valid pipeline structure', async () => {
+      await ensureTaskExists('T4806');
       const pipeline = await initializePipeline('T4806', {
         startStage: 'research',
         assignedAgent: 'test-agent',
@@ -784,6 +882,7 @@ describe('RCSD Pipeline Integration', () => {
     });
 
     it('initializePipeline should accept custom start stage', async () => {
+      await ensureTaskExists('T4806');
       const pipeline = await initializePipeline('T4806', {
         startStage: 'spec',
       });
@@ -816,13 +915,13 @@ describe('RCSD Pipeline Integration', () => {
     it('completePipeline should validate input (stub)', async () => {
       await expect(
         completePipeline('T4806', 'All stages completed')
-      ).rejects.toThrow('not yet implemented');
+      ).rejects.toThrow('No pipeline found');
     });
 
     it('cancelPipeline should validate input (stub)', async () => {
       await expect(
         cancelPipeline('T4806', 'Cancelled for testing')
-      ).rejects.toThrow('not yet implemented');
+      ).rejects.toThrow('No pipeline found');
     });
   });
 
@@ -1005,7 +1104,7 @@ describe('T4798 Epic Completion Validation', () => {
     testDir = await mkdtemp(join(tmpdir(), 'cleo-epic-completion-'));
     cleoDir = join(testDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    await mkdir(join(cleoDir, 'rcsd'), { recursive: true });
+    await mkdir(join(cleoDir, 'rcasd'), { recursive: true });
     process.env['CLEO_DIR'] = cleoDir;
     process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'off';
   });
@@ -1042,7 +1141,7 @@ describe('T4798 Epic Completion Validation', () => {
 
   it('confirms pipeline integration is complete', () => {
     // Verify all 9 stages are present
-    const expectedStages = ['research', 'consensus', 'adr', 'spec', 'decompose', 'implement', 'verify', 'test', 'release'];
+    const expectedStages = ['research', 'consensus', 'architecture_decision', 'specification', 'decomposition', 'implementation', 'validation', 'testing', 'release'];
     expect(PIPELINE_STAGES).toEqual(expectedStages);
 
     // Verify state machine is functional

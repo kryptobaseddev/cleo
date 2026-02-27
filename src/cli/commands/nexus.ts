@@ -11,6 +11,7 @@
  * @epic T4545
  */
 
+// TODO T4894: operation 'nexus' not yet in registry — no nexus domain in dispatch.\n// Leave bypass until nexus domain handler is created.
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -355,8 +356,12 @@ async function discoverRelatedTasks(
   for (const project of Object.values(registry.projects)) {
     let tasks: Array<{ id: string; title: string; description?: string; labels?: string[]; status: string }>;
     try {
-      const todoPath = join(project.path, '.cleo', 'todo.json');
-      const raw = await readFile(todoPath, 'utf-8');
+      let raw: string;
+      try {
+        raw = await readFile(join(project.path, '.cleo', 'tasks.json'), 'utf-8');
+      } catch {
+        raw = await readFile(join(project.path, '.cleo', 'todo.json'), 'utf-8');
+      }
       const data = JSON.parse(raw) as { tasks: typeof tasks };
       tasks = data.tasks ?? [];
     } catch {
@@ -507,8 +512,12 @@ async function searchAcrossProjects(
   for (const project of projectEntries) {
     let tasks: Array<{ id: string; title: string; description?: string; status: string; priority?: string }>;
     try {
-      const todoPath = join(project.path, '.cleo', 'todo.json');
-      const raw = await readFile(todoPath, 'utf-8');
+      let raw: string;
+      try {
+        raw = await readFile(join(project.path, '.cleo', 'tasks.json'), 'utf-8');
+      } catch {
+        raw = await readFile(join(project.path, '.cleo', 'todo.json'), 'utf-8');
+      }
       const data = JSON.parse(raw) as { tasks: typeof tasks };
       tasks = data.tasks ?? [];
     } catch {

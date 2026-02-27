@@ -74,7 +74,13 @@ export async function vacuumIntoBackup(opts: VacuumOptions = {}): Promise<void> 
 
     const dest = join(backupDir, `tasks-${formatTimestamp(new Date())}.db`);
 
-    // WAL checkpoint first for consistency
+    // TRUNCATE checkpoint: flushes all WAL frames to the main DB and truncates
+    // the WAL file to zero bytes, ensuring a consistent DB state before the
+    // VACUUM INTO snapshot (ADR-013, section 3 point 7). This is safe because
+    // tasks.db* files are excluded from project git tracking (.gitignore +
+    // git rm --cached), so git operations cannot restore a stale WAL.
+    // The root cause of the 2026-02-25 data loss was that WAL files were
+    // still tracked in the project git index; that has been resolved (T4894).
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 
     rotateSnapshots(backupDir);

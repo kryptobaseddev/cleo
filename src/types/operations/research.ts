@@ -14,7 +14,7 @@ export interface ResearchEntry {
   title: string;
   file: string;
   date: string;
-  status: 'complete' | 'partial' | 'blocked';
+  status: 'completed' | 'partial' | 'blocked';
   agentType: string;
   topics: string[];
   keyFindings: string[];
@@ -29,7 +29,7 @@ export interface ManifestEntry {
   file: string;
   title: string;
   date: string;
-  status: 'complete' | 'partial' | 'blocked';
+  status: 'completed' | 'partial' | 'blocked';
   agent_type: string;
   topics: string[];
   key_findings: string[];
@@ -51,7 +51,7 @@ export type ResearchShowResult = ResearchEntry;
 // research.list
 export interface ResearchListParams {
   epicId?: string;
-  status?: 'complete' | 'partial' | 'blocked';
+  status?: 'completed' | 'partial' | 'blocked';
 }
 export type ResearchListResult = ResearchEntry[];
 
