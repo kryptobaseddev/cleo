@@ -8,7 +8,7 @@
  */
 
 import { eq, and, desc, isNull } from 'drizzle-orm';
-import { getDb, saveToFile } from './sqlite.js';
+import { getDb } from './sqlite.js';
 import * as schema from './schema.js';
 import type { SessionRow } from './schema.js';
 import type { Session, SessionScope, SessionStatus } from '../types/session.js';
@@ -68,14 +68,13 @@ export async function createSession(session: Session, cwd?: string): Promise<Ses
     endedAt: session.endedAt,
   }).run();
 
-  saveToFile();
   return session;
 }
 
 /** Get a session by ID. */
 export async function getSession(sessionId: string, cwd?: string): Promise<Session | null> {
   const db = await getDb(cwd);
-  const rows = db.select().from(schema.sessions)
+  const rows = await db.select().from(schema.sessions)
     .where(eq(schema.sessions.id, sessionId))
     .all();
 
@@ -105,7 +104,6 @@ export async function updateSession(
   if (updates.tasksCreated !== undefined) updateRow.tasksCreatedJson = JSON.stringify(updates.tasksCreated);
 
   db.update(schema.sessions).set(updateRow).where(eq(schema.sessions.id, sessionId)).run();
-  saveToFile();
 
   return getSession(sessionId, cwd);
 }
@@ -129,7 +127,7 @@ export async function listSessions(
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.sessions.startedAt));
 
-  const rows = filters?.limit ? query.limit(filters.limit).all() : query.all();
+  const rows = filters?.limit ? await query.limit(filters.limit).all() : await query.all();
   return rows.map(rowToSession);
 }
 
@@ -187,7 +185,6 @@ export async function startTask(
     .where(eq(schema.sessions.id, sessionId))
     .run();
 
-  saveToFile();
 }
 
 /** Get current task for a session. */
@@ -196,7 +193,7 @@ export async function getCurrentTask(
   cwd?: string,
 ): Promise<{ taskId: string | null; since: string | null }> {
   const db = await getDb(cwd);
-  const rows = db.select({
+  const rows = await db.select({
     currentTask: schema.sessions.currentTask,
     taskStartedAt: schema.sessions.taskStartedAt,
   }).from(schema.sessions)
@@ -227,7 +224,6 @@ export async function stopTask(sessionId: string, cwd?: string): Promise<void> {
     .where(eq(schema.sessions.id, sessionId))
     .run();
 
-  saveToFile();
 }
 
 /** Get work history for a session. */
@@ -237,7 +233,7 @@ export async function workHistory(
   cwd?: string,
 ): Promise<Array<{ taskId: string; setAt: string; clearedAt: string | null }>> {
   const db = await getDb(cwd);
-  const rows = db.select().from(schema.taskWorkHistory)
+  const rows = await db.select().from(schema.taskWorkHistory)
     .where(eq(schema.taskWorkHistory.sessionId, sessionId))
     .orderBy(desc(schema.taskWorkHistory.setAt))
     .limit(limit)
@@ -262,7 +258,7 @@ export async function gcSessions(
   threshold.setDate(threshold.getDate() - maxAgeDays);
 
   // Count how many will be affected
-  const before = db.select({ id: schema.sessions.id }).from(schema.sessions)
+  const before = await db.select({ id: schema.sessions.id }).from(schema.sessions)
     .where(and(
       eq(schema.sessions.status, 'ended'),
     ))
@@ -275,7 +271,6 @@ export async function gcSessions(
       .set({ status: 'orphaned' })
       .where(eq(schema.sessions.status, 'ended'))
       .run();
-    saveToFile();
   }
 
   return toUpdate.length;
@@ -284,7 +279,7 @@ export async function gcSessions(
 /** Get the currently active session (if any). */
 export async function getActiveSession(cwd?: string): Promise<Session | null> {
   const db = await getDb(cwd);
-  const rows = db.select().from(schema.sessions)
+  const rows = await db.select().from(schema.sessions)
     .where(eq(schema.sessions.status, 'active'))
     .orderBy(desc(schema.sessions.startedAt))
     .limit(1)
