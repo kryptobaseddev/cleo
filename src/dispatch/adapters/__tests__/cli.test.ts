@@ -99,7 +99,6 @@ vi.mock('../../lib/engine.js', () => ({
   orchestrateNext: vi.fn(() => ({ success: true, data: {} })),
   orchestrateWaves: vi.fn(() => ({ success: true, data: {} })),
   orchestrateContext: vi.fn(() => ({ success: true, data: {} })),
-  orchestrateSkillList: vi.fn(() => ({ success: true, data: [] })),
   orchestrateValidate: vi.fn(() => ({ success: true, data: {} })),
   orchestrateSpawn: vi.fn(() => ({ success: true, data: {} })),
   orchestrateStartup: vi.fn(() => ({ success: true, data: {} })),

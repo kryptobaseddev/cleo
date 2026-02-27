@@ -63,7 +63,7 @@
   ],
   "dependencies": {
     "@cleocode/caamp": "^1.1.3",
-    "@cleocode/lafs-protocol": "^1.5.0",
+    "@cleocode/lafs-protocol": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",

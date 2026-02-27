@@ -28,12 +28,12 @@ As of v0.98.2 deployment (T4492), implementation expected counts are:
 
 The original core contract matrix (96 operations) remains the baseline model; implementation includes documented parity extensions and new domains (issues, skills, providers).
 
-> **Note**: The capability matrix (`capability-matrix.ts`) tracks 138 entries including routing metadata. The gateway registries (75+65=140) are the canonical count for deployed operations.
+> **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries (93+71=164) are the canonical count for deployed operations.
 
 ### 1.1 Design Goals
 
 1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 80+ tools (~32,500 tokens) = 94% reduction
-2. **Full Capability Access**: All 140 operations accessible through domain routing across 11 domains
+2. **Full Capability Access**: All 164 operations accessible through domain routing across 10 canonical domains
 3. **Safety by Design**: Read operations cannot mutate state
 4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)

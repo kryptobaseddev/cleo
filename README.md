@@ -161,7 +161,7 @@ cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes"
 cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
 ```
 
-11 domains, 140 operations (75 query + 65 mutate) across tasks, sessions, issues, orchestration, research, lifecycle, validation, releases, skills, providers, and system management. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+10 canonical domains, 164 operations (93 query + 71 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
 
 ### Source of Truth Hierarchy
 

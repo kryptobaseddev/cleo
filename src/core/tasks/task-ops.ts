@@ -16,6 +16,7 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../mcp/engine/store.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
+import { depsReady } from './deps-ready.js';
 
 // ============================================================================
 // Types (shared)
@@ -79,14 +80,6 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getAccessor(projectRoot);
   const data = await accessor.loadTaskFile();
   return data.tasks as unknown as TaskRecord[];
-}
-
-function depsReady(task: TaskRecord, taskMap: Map<string, TaskRecord>): boolean {
-  if (!task.depends || task.depends.length === 0) return true;
-  return task.depends.every((depId) => {
-    const dep = taskMap.get(depId);
-    return dep && (dep.status === 'done' || dep.status === 'cancelled');
-  });
 }
 
 function buildBlockingChain(
@@ -202,7 +195,7 @@ export async function coreTaskNext(
   const currentPhase = todoMeta?.project?.currentPhase;
 
   const candidates = allTasks.filter((t) =>
-    t.status === 'pending' && depsReady(t, taskMap),
+    t.status === 'pending' && depsReady(t.depends, taskMap),
   );
 
   if (candidates.length === 0) {
@@ -221,7 +214,7 @@ export async function coreTaskNext(
       reasons.push(`phase alignment: ${currentPhase} (+20)`);
     }
 
-    if (depsReady(task, taskMap)) {
+    if (depsReady(task.depends, taskMap)) {
       score += 10;
       reasons.push('all dependencies satisfied (+10)');
     }

@@ -4,8 +4,8 @@
  * Handles all state-modifying operations with strict validation,
  * audit logging, and rollback support.
  *
- * Canonical domains (9): tasks, session, memory, check, pipeline,
- *   orchestrate, tools, admin, nexus
+ * Canonical domains (10): tasks, session, memory, check, pipeline,
+ *   orchestrate, tools, admin, nexus, sharing
  * Legacy aliases (backward compat): research, lifecycle, validate,
  *   release, system, issues, skills, providers
  *
@@ -60,7 +60,7 @@ export interface DomainResponse {
 type MutateDomain =
   // Canonical domains
   | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin' | 'nexus'
+  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sharing'
   // Legacy aliases (backward compat)
   | 'research' | 'lifecycle' | 'validate' | 'release'
   | 'system' | 'issues' | 'skills' | 'providers';
@@ -192,6 +192,17 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'issue.generate.config', // Generate issue template config
     // provider.* operations
     'provider.inject',      // Inject content into provider instruction files
+  ],
+
+  // ── Canonical: sharing (multi-contributor operations) ──────────────
+  sharing: [
+    'snapshot.export',
+    'snapshot.import',
+    'sync.gitignore',
+    'remote.add',
+    'remote.remove',
+    'push',
+    'pull',
   ],
 
   // ── Canonical: nexus (BRAIN Network placeholder) ───────────────────
