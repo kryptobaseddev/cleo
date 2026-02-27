@@ -65,6 +65,8 @@ export interface FormatOptions {
   operation?: string;
   page?: LAFSPage;
   extensions?: Record<string, unknown>;
+  /** MVI level to embed in the envelope _meta. Defaults to 'standard'. @task T4957 */
+  mvi?: import('@cleocode/lafs-protocol').MVILevel;
 }
 
 /**
@@ -75,7 +77,7 @@ export interface FormatOptions {
  * @task T4702
  * @epic T4663
  */
-function createCliMeta(operation: string): LAFSMeta {
+function createCliMeta(operation: string, mvi: import('@cleocode/lafs-protocol').MVILevel = 'standard'): LAFSMeta {
   const warnings = drainWarnings();
   const meta: LAFSMeta = {
     specVersion: '1.2.3',
@@ -85,7 +87,7 @@ function createCliMeta(operation: string): LAFSMeta {
     requestId: randomUUID(),
     transport: 'cli',
     strict: true,
-    mvi: 'standard',
+    mvi,
     contextVersion: 1,
     ...(warnings && { warnings }),
   };
@@ -115,7 +117,7 @@ export function formatSuccess<T>(data: T, message?: string, operationOrOpts?: st
 
   const envelope: Record<string, unknown> = {
     $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
-    _meta: createCliMeta(opts.operation ?? 'cli.output'),
+    _meta: createCliMeta(opts.operation ?? 'cli.output', opts.mvi),
     success: true as const,
     result: data as Record<string, unknown> | Record<string, unknown>[] | null,
     ...(message && { message }),

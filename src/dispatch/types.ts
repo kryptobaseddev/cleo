@@ -26,6 +26,103 @@ export type Source = 'cli' | 'mcp';
  */
 export type Tier = 0 | 1 | 2;
 
+// ---------------------------------------------------------------------------
+// ParamDef — per-operation parameter descriptor
+// ---------------------------------------------------------------------------
+
+/**
+ * The concrete value types a parameter can carry at runtime.
+ * Drives JSON Schema `type` and Commander argument/option parsing.
+ */
+export type ParamType = 'string' | 'number' | 'boolean' | 'array';
+
+/**
+ * CLI-specific decoration for a parameter.
+ * All fields are optional — omit the entire `cli` key for MCP-only params.
+ */
+export interface ParamCliDef {
+  /**
+   * When true, registers as `.argument('<name>')` (positional).
+   * When false or omitted, registers as `.option('--name <value>')`.
+   * @default false
+   */
+  positional?: boolean;
+
+  /**
+   * Short flag alias, e.g. `'-t'` for `--type`, `'-s'` for `--status`.
+   * Only meaningful when `positional` is false/omitted.
+   */
+  short?: string;
+
+  /**
+   * Override the CLI flag name when it differs from the param's `name`.
+   * e.g. `name: 'includeArchive'` but `flag: 'include-archive'`
+   * Defaults to kebab-case of `name`.
+   */
+  flag?: string;
+
+  /**
+   * For array-type params on the CLI: when true the option can be repeated.
+   * When false/omitted, the CLI accepts a single comma-separated string.
+   * @default false
+   */
+  variadic?: boolean;
+
+  /**
+   * Custom parse function applied by Commander (e.g. `parseInt`).
+   */
+  parse?: (value: string) => unknown;
+}
+
+/**
+ * MCP-specific decoration for a parameter.
+ * All fields are optional — omit the entire `mcp` key for CLI-only params.
+ */
+export interface ParamMcpDef {
+  /**
+   * When true, the parameter is excluded from the generated MCP `input_schema`.
+   * Use for CLI-only params (e.g. `--dry-run`, `--offset`).
+   * @default false
+   */
+  hidden?: boolean;
+
+  /**
+   * JSON Schema `enum` constraint for this parameter.
+   */
+  enum?: readonly string[];
+}
+
+/**
+ * A fully-described parameter definition.
+ *
+ * One `ParamDef` entry drives:
+ *  - Commander: `.argument()` (positional) or `.option()` (flag)
+ *  - MCP: a JSON Schema property with `type`, `description`, and optionally `enum`
+ */
+export interface ParamDef {
+  /** Canonical camelCase parameter name (matches the key in `params` dict). */
+  name: string;
+
+  /** Runtime value type. Drives JSON Schema `type` and Commander parsing. */
+  type: ParamType;
+
+  /**
+   * When true:
+   *  - Commander: positional argument (`<name>` or `[name]`)
+   *  - MCP: included in `required[]` array of the input_schema
+   */
+  required: boolean;
+
+  /** Human-readable description used in Commander help text and MCP tool docs. */
+  description: string;
+
+  /** CLI-specific metadata. Omit entire key if this param has no CLI surface. */
+  cli?: ParamCliDef;
+
+  /** MCP-specific metadata. Omit entire key if this param has no MCP surface. */
+  mcp?: ParamMcpDef;
+}
+
 /**
  * The 9 canonical domain names.
  */
@@ -61,6 +158,10 @@ export interface DispatchRequest {
   requestId: string;
   /** Bound session ID, if any. */
   sessionId?: string;
+  /** LAFS field selection: filter response data to these fields only. */
+  _fields?: string[];
+  /** LAFS envelope verbosity. Defaults to 'standard'. 'custom' is server-set via _fields. */
+  _mvi?: import('@cleocode/lafs-protocol').MVILevel;
 }
 
 // ---------------------------------------------------------------------------

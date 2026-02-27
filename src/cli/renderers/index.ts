@@ -15,6 +15,7 @@
  */
 
 import { getFormatContext } from '../format-context.js';
+import { getFieldContext } from '../field-context.js';
 import { formatSuccess, type FormatOptions } from '../../core/output.js';
 import { normalizeForHuman } from './normalizer.js';
 
@@ -28,7 +29,7 @@ import {
 import {
   renderDoctor, renderStats, renderNext, renderBlockers,
   renderTree, renderStart, renderStop, renderCurrent,
-  renderSession, renderVersion, renderGeneric,
+  renderSession, renderVersion, renderPlan, renderGeneric,
 } from './system.js';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +63,7 @@ const renderers: Record<string, HumanRenderer> = {
   'doctor': renderDoctor,
   'stats': renderStats,
   'next': renderNext,
+  'plan': renderPlan,
   'blockers': renderBlockers,
   'tree': renderTree,
   'depends': renderTree,
@@ -117,10 +119,15 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   }
 
   // JSON format (default)
+  const fieldCtx = getFieldContext();
+
+  // Per LAFS §9.1 (v1.5.0 clarification): _meta MUST always be present.
+  // --mvi minimal governs result contents only; mvi level is reflected in _meta.mvi.
   const formatOpts: FormatOptions = {};
   if (opts.operation) formatOpts.operation = opts.operation;
   if (opts.page) formatOpts.page = opts.page;
   if (opts.extensions) formatOpts.extensions = opts.extensions;
+  if (fieldCtx.mvi) formatOpts.mvi = fieldCtx.mvi;
 
   console.log(formatSuccess(data, opts.message, Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation));
 }
