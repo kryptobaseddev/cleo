@@ -250,6 +250,31 @@ describe('TasksHandler', () => {
       expect(taskCreate).toHaveBeenCalledWith('/mock/project', expect.objectContaining({ title: 'New Task' }));
     });
 
+    it('add - forwards parentId param as parent to engine', async () => {
+      const mockTask = { id: 'T002', title: 'Child Task' };
+      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+
+      const result = await handler.mutate('add', { title: 'Child Task', description: 'Desc', parentId: 'T001' });
+
+      expect(result.success).toBe(true);
+      expect(taskCreate).toHaveBeenCalledWith('/mock/project', expect.objectContaining({
+        title: 'Child Task',
+        parent: 'T001',
+      }));
+    });
+
+    it('add - prefers parent over parentId when both provided', async () => {
+      const mockTask = { id: 'T002', title: 'Child Task' };
+      vi.mocked(taskCreate).mockResolvedValue({ success: true, data: mockTask });
+
+      const result = await handler.mutate('add', { title: 'Child Task', parent: 'T100', parentId: 'T200' });
+
+      expect(result.success).toBe(true);
+      expect(taskCreate).toHaveBeenCalledWith('/mock/project', expect.objectContaining({
+        parent: 'T100',
+      }));
+    });
+
     it('add - returns error when title missing', async () => {
       const result = await handler.mutate('add', {});
       expect(result.success).toBe(false);
@@ -263,6 +288,17 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(true);
       expect(taskUpdate).toHaveBeenCalledWith('/mock/project', 'T001', expect.objectContaining({ title: 'Updated' }));
+    });
+
+    it('update - forwards parentId param as parent to engine', async () => {
+      vi.mocked(taskUpdate).mockResolvedValue({ success: true, data: { id: 'T001' } });
+
+      const result = await handler.mutate('update', { taskId: 'T001', parentId: 'T002' });
+
+      expect(result.success).toBe(true);
+      expect(taskUpdate).toHaveBeenCalledWith('/mock/project', 'T001', expect.objectContaining({
+        parent: 'T002',
+      }));
     });
 
     it('complete - delegates to taskComplete', async () => {
