@@ -3,10 +3,10 @@
 </p>
 
 <h1 align="center">CLEO</h1>
-<h3 align="center">Command Line Entity Orchestrator</h3>
+<h3 align="center">The Portable Brain and Memory System for AI Software Development</h3>
 
 <p align="center">
-  <strong>The task management system designed for AI coding agents and solo developers</strong>
+  <strong>The contract between you and your AI coding agent</strong>
 </p>
 
 <p align="center">
@@ -67,30 +67,39 @@
 
 ## One Developer. One Agent. One Source of Truth.
 
-**CLEO** (Command Line Entity Orchestrator) is a vendor-neutral Brain and Memory system for AI software development. It's the **contract between you and your AI coding agent**—not just a task tracker, but a structured protocol for portable memory, provenance, and deterministic agent execution.
+**CLEO** is a vendor-neutral **Brain and Memory system** for AI software development. It provides portable project memory, verifiable provenance, and agent-safe orchestration across any repository, model provider, or coding tool.
 
-- **Agents hallucinate**. CLEO validates every operation before execution.
-- **Agents lose context**. CLEO persists state across sessions with immutable audit trails.
-- **Agents need structure**. CLEO outputs JSON by default, with human-readable formatting opt-in.
+> CLEO originated as "Command Line Entity Orchestrator" but has evolved beyond that acronym. CLEO is the proper name for the complete platform.
+
+- **Agents hallucinate**. CLEO validates every operation with four-layer anti-hallucination.
+- **Agents lose context**. CLEO persists state in SQLite with immutable audit trails.
+- **Agents need structure**. CLEO outputs JSON by default via the LAFS protocol.
 
 Optimized for [Claude Code](https://claude.ai/claude-code), and intentionally portable across model providers, agent runtimes, and coding tools.
 
-### Canonical Product Identity
+### Four Systems
 
-CLEO provides:
+CLEO is composed of four interdependent systems:
 
-- **Portable Memory**: Project -> Epic -> Task hierarchy, research manifests, and agent outputs
-- **Provenance by Default**: Every artifact traceable to task, decision, agent, and operation
-- **Interoperable Interfaces**: CLI + MCP + provider/tool adapters without vendor lock-in
-- **Deterministic Safety**: Validation layers, lifecycle gates, atomic writes, immutable audit logs
-- **Cognitive Retrieval**: Page index + graph/vector/RAG for Tier M/L contextual reasoning
+- **BRAIN — Memory & Cognition**: Persistent memory backend storing observations, patterns, learnings, and decisions. Provides FTS5 search, vector similarity, and graph-based retrieval.
+- **RCASD-IVTR+C — Structured Lifecycle**: Ten-stage pipeline from Research through Release, plus cross-cutting Contribution protocol. Deterministic gates and manifest-based provenance.
+- **NEXUS — Cross-Project Network**: Connective layer between registered CLEO projects. Global graphs, shared patterns, and federated queries while preserving per-project isolation.
+- **LAFS — Agent Communication Contract**: The [LLM-Agent-First Specification](https://github.com/kryptobaseddev/lafs-protocol) protocol. JSON envelopes, MVI progressive disclosure, field filtering, and deterministic exit codes.
+
+### Five Pillars
+
+1. **Portable Memory (BRAIN)** — Per-project `.cleo/` directory with `tasks.db` (project work) and `brain.db` (memory/cognition). Move the directory, the brain moves with it.
+2. **Agent Communication Contract (LAFS)** — Provider-neutral protocol: JSON envelopes, MVI-tiered progressive disclosure, field filtering, deterministic exit codes.
+3. **Structured Lifecycle (RCASD-IVTR+C)** — Research → Consensus → Architecture Decision → Specification → Decomposition → Implementation → Validation → Testing → Release + Contribution.
+4. **Deterministic Safety** — Four-layer validation (schema, semantic, referential, state machine), atomic writes, immutable audit logs, lifecycle gate enforcement.
+5. **Cognitive Retrieval (BRAIN + NEXUS)** — Three-tier retrieval: FTS5 keyword search, vector similarity, graph-based discovery. NEXUS extends retrieval across project boundaries.
 
 ### Current State vs Strategic Direction
 
 | State | What It Means |
 |------|----------------|
-| **Current (Shipped)** | Bash-native CLI is production baseline with atomic operations, anti-hallucination validation, lifecycle enforcement, and persistent project memory |
-| **Strategic (Gated)** | Nexus validation, memory/reasoning expansion, and Tier M/L multi-agent intelligence are roadmap-driven and evidence-gated |
+| **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, vectorless RAG (5 discovery methods), LAFS envelopes |
+| **Gated** | Dedicated `brain.db` (FTS5, vector, PageIndex), `nexus.db` (cross-project graph), knowledge graph with version chains, agent profiles, federated queries |
 
 ### MCP Server
 
@@ -156,7 +165,7 @@ cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": ".
 
 ### Source of Truth Hierarchy
 
-1. [`docs/concepts/vision.mdx`](docs/concepts/vision.mdx) - immutable product vision
+1. [`docs/concepts/vision.md`](docs/concepts/vision.md) - immutable product vision
 2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
 3. [`README.md`](README.md) - operational public contract
 4. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
@@ -176,7 +185,7 @@ Traditional task management assumes human users. But when your primary "user" is
 | Trust | Validation |
 | Memory | Persistence |
 
-**CLEO is built for agents first.** The `--human` flag is for you—the developer reviewing what your agent sees.
+**CLEO is built for agents first.** The `--human` flag is for you — the developer reviewing what your agent sees.
 
 ---
 
@@ -212,7 +221,7 @@ Four layers of validation prevent AI-generated errors:
 Before any write operation:
 ```bash
 ✓ ID exists (prevent hallucinated references)
-✓ ID unique (across todo.json AND archive)
+✓ ID unique (across active and archived tasks)
 ✓ Status valid (pending|active|blocked|done)
 ✓ Timestamps sane (not future, completedAt > createdAt)
 ✓ Dependencies acyclic (no circular references)
@@ -790,10 +799,10 @@ esac
 Every file modification follows this exact sequence:
 
 ```
-1. Write to temp file (.todo.json.tmp)
-2. Validate temp (schema + anti-hallucination)
-3. IF INVALID: Delete temp → Abort → Exit with error
-4. IF VALID: Backup original → Atomic rename → Rotate backups
+1. Prepare write operation
+2. Validate (schema + anti-hallucination)
+3. IF INVALID: Abort → Exit with error
+4. IF VALID: Backup → Execute write → Log to audit trail
 ```
 
 **No partial writes. No corruption.** The OS guarantees atomic rename.
@@ -811,7 +820,7 @@ Checksums detect corruption but don't block multi-writer scenarios (CLI + TodoWr
 ### Backup System
 
 - **Automatic**: Safety backup before every write
-- **Rotation**: 10 versioned backups (`.backups/todo.json.1` through `.10`)
+- **Rotation**: Versioned backups in `.cleo/.backups/`
 - **Recovery**: `cleo restore` or `cleo backup --list`
 
 ---
@@ -900,9 +909,8 @@ CLEO_FORMAT=json              # Force output format
 
 ```
 ~/.cleo/                     # Global installation
-├── scripts/                 # Command implementations (56 scripts)
-├── lib/                     # Shared libraries (58 files)
-├── schemas/                 # JSON Schema definitions
+├── nexus.db                 # Cross-project network: registry, graph, permissions (gated)
+├── config.json              # Global CLEO configuration
 ├── skills/                  # Modular agent skills (14 skills)
 │   ├── manifest.json        # Skill registry with versions
 │   ├── ct-epic-architect/   # Epic creation skill
@@ -912,10 +920,11 @@ CLEO_FORMAT=json              # Force output format
 └── docs/                    # Documentation
 
 your-project/.cleo/          # Per-project instance
-├── todo.json                # Active tasks (source of truth)
-├── todo-archive.json        # Completed tasks (immutable)
-├── todo-log.jsonl           # Audit trail (append-only)
-├── config.json              # Project configuration
+├── tasks.db                 # Project work: tasks, sessions, lifecycle, audit (SQLite)
+├── brain.db                 # Memory & cognition: observations, patterns, learnings (gated)
+├── config.json              # Runtime settings: policies, validation, session behavior
+├── project-info.json        # Project identity: projectHash, schema versions, health
+├── project-context.json     # LLM agent metadata: language, framework, conventions
 └── .backups/                # Automatic versioned backups
 ```
 
@@ -1170,7 +1179,7 @@ See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
 | `command not found` | Check `~/.local/bin` in PATH, run `source ~/.bashrc` |
 | `Permission denied` | `chmod 755 ~/.cleo/scripts/*.sh` |
 | `Invalid JSON` | `cleo validate --fix` or `cleo restore` |
-| `Duplicate ID` | `cleo restore .cleo/.backups/todo.json.1` |
+| `Duplicate ID` | `cleo validate --fix` or `cleo restore` |
 | `Checksum mismatch` | `cleo validate --fix` |
 | `Multiple active tasks` | `cleo start <correct-id>` (resets others) |
 | `Schema outdated` | `cleo migrate run` |
@@ -1221,18 +1230,24 @@ Target metrics (optimized for 1000+ tasks):
 
 ## The Philosophy
 
-CLEO is built on three pillars:
+CLEO is built on five pillars:
 
-### 1. Agent-First, Human-Accessible
-JSON output by default. Exit codes for branching. Structured errors. The `--human` flag is opt-in for developer visibility.
+### 1. Portable Memory (BRAIN)
+Every project carries its own `.cleo/` directory with SQLite databases. Move the directory, and the entire brain moves with it. No cloud dependencies, no vendor lock-in.
 
-### 2. Validate Everything
-LLMs hallucinate. Every operation validates before execution. Schema enforcement, semantic checks, state machine rules. If it fails validation, it doesn't happen.
+### 2. Agent Communication Contract (LAFS)
+JSON output by default. MVI progressive disclosure. Deterministic exit codes. Field filtering for token efficiency. The `--human` flag is opt-in for developer visibility.
 
-### 3. Persist Everything
-Agents lose context. Immutable audit trails, automatic backups, session checkpoints. Pick up exactly where you left off.
+### 3. Structured Lifecycle (RCASD-IVTR+C)
+Every significant piece of work follows a ten-stage pipeline from Research through Release, with gate enforcement and manifest-based provenance.
 
-**One developer. One agent. One source of truth.**
+### 4. Deterministic Safety
+LLMs hallucinate. Four-layer validation (schema, semantic, referential, state machine) prevents every operation from corrupting state. Atomic writes. Immutable audit logs.
+
+### 5. Cognitive Retrieval (BRAIN + NEXUS)
+Three-tier retrieval for token-efficient context loading. FTS5 keyword search, vector similarity, and graph-based discovery — with NEXUS extending across project boundaries.
+
+**One developer. One AI agent. One source of truth.**
 
 ---
 

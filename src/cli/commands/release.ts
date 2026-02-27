@@ -43,6 +43,22 @@ export function registerReleaseCommand(program: Command): void {
       }, { command: 'release' });
     });
 
+  /**
+   * Safe-defaults design decision (T4275):
+   *
+   * All ship flags are explicit opt-in. Running `release ship <version>`
+   * with no flags performs only the metadata commit (marking the release
+   * as "committed" in releases.json). Side-effects require flags:
+   *
+   *   --bump-version  Update VERSION file and other configured version targets
+   *   --create-tag    Create a git tag for the release
+   *   --push          Push commits and tags to the remote
+   *   --dry-run       Preview all actions without writing anything
+   *
+   * This ensures agents cannot accidentally trigger irreversible actions
+   * (git push, tag creation) without explicit intent. The push operation
+   * additionally respects config.release.push policy when present.
+   */
   release
     .command('ship <version>')
     .description('Ship a release')
