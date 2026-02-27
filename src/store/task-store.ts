@@ -9,7 +9,7 @@
  */
 
 import { eq, and, sql, inArray, asc, isNull, ne } from 'drizzle-orm';
-import { getDb, saveToFile } from './sqlite.js';
+import { getDb } from './sqlite.js';
 import * as schema from './schema.js';
 import type { TaskRow, NewTaskRow } from './schema.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
@@ -120,20 +120,19 @@ export async function createTask(task: Task, cwd?: string): Promise<Task> {
     }
   }
 
-  saveToFile();
   return task;
 }
 
 /** Get a task by ID, including its dependencies. */
 export async function getTask(taskId: string, cwd?: string): Promise<Task | null> {
   const db = await getDb(cwd);
-  const rows = db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
+  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).all();
   if (rows.length === 0) return null;
 
   const task = rowToTask(rows[0]!);
 
   // Load dependencies
-  const deps = db.select().from(schema.taskDependencies)
+  const deps = await db.select().from(schema.taskDependencies)
     .where(eq(schema.taskDependencies.taskId, taskId)).all();
   if (deps.length > 0) {
     task.depends = deps.map(d => d.dependsOn);
@@ -190,19 +189,17 @@ export async function updateTask(
     }
   }
 
-  saveToFile();
   return getTask(taskId, cwd);
 }
 
 /** Delete a task by ID. */
 export async function deleteTask(taskId: string, cwd?: string): Promise<boolean> {
   const db = await getDb(cwd);
-  const existing = db.select({ id: schema.tasks.id }).from(schema.tasks)
+  const existing = await db.select({ id: schema.tasks.id }).from(schema.tasks)
     .where(eq(schema.tasks.id, taskId)).all();
   if (existing.length === 0) return false;
 
   db.delete(schema.tasks).where(eq(schema.tasks.id, taskId)).run();
-  saveToFile();
   return true;
 }
 
@@ -239,8 +236,8 @@ export async function listTasks(
     .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt));
 
   const rows = filters?.limit
-    ? query.limit(filters.limit).all()
-    : query.all();
+    ? await query.limit(filters.limit).all()
+    : await query.all();
 
   // Load dependencies for all tasks
   const tasks = rows.map(rowToTask);
@@ -257,7 +254,7 @@ export async function findTasks(
   const db = await getDb(cwd);
   const pattern = `%${query}%`;
 
-  const rows = db.select().from(schema.tasks)
+  const rows = await db.select().from(schema.tasks)
     .where(
       and(
         ne(schema.tasks.status, 'archived'),
@@ -293,7 +290,6 @@ export async function archiveTask(
     updatedAt: now,
   }).where(eq(schema.tasks.id, taskId)).run();
 
-  saveToFile();
   return true;
 }
 
@@ -305,7 +301,7 @@ async function loadDependencies(tasks: Task[], cwd?: string): Promise<void> {
   const db = await getDb(cwd);
   const taskIds = tasks.map(t => t.id);
 
-  const deps = db.select().from(schema.taskDependencies)
+  const deps = await db.select().from(schema.taskDependencies)
     .where(inArray(schema.taskDependencies.taskId, taskIds))
     .all();
 
@@ -330,7 +326,6 @@ export async function addDependency(taskId: string, dependsOn: string, cwd?: str
     .values({ taskId, dependsOn })
     .onConflictDoNothing()
     .run();
-  saveToFile();
 }
 
 /** Remove a dependency. */
@@ -342,7 +337,6 @@ export async function removeDependency(taskId: string, dependsOn: string, cwd?: 
       eq(schema.taskDependencies.dependsOn, dependsOn),
     ))
     .run();
-  saveToFile();
 }
 
 /** Add a relation between tasks. */
@@ -357,13 +351,12 @@ export async function addRelation(
     .values({ taskId, relatedTo, relationType })
     .onConflictDoNothing()
     .run();
-  saveToFile();
 }
 
 /** Get relations for a task. */
 export async function getRelations(taskId: string, cwd?: string): Promise<Array<{ relatedTo: string; type: string }>> {
   const db = await getDb(cwd);
-  const rows = db.select().from(schema.taskRelations)
+  const rows = await db.select().from(schema.taskRelations)
     .where(eq(schema.taskRelations.taskId, taskId))
     .all();
   return rows.map(r => ({ relatedTo: r.relatedTo, type: r.relationType }));
@@ -374,7 +367,7 @@ export async function getRelations(taskId: string, cwd?: string): Promise<Array<
 /** Get the dependency chain (blockers) for a task using recursive CTE. */
 export async function getBlockerChain(taskId: string, cwd?: string): Promise<string[]> {
   const db = await getDb(cwd);
-  const result = db.all<{ id: string }>(sql`
+  const result = await db.all<{ id: string }>(sql`
     WITH RECURSIVE blocker_chain(id) AS (
       SELECT depends_on FROM task_dependencies WHERE task_id = ${taskId}
       UNION
@@ -383,13 +376,13 @@ export async function getBlockerChain(taskId: string, cwd?: string): Promise<str
     )
     SELECT id FROM blocker_chain
   `);
-  return result.map(r => r.id);
+  return result.map((r: { id: string }) => r.id);
 }
 
 /** Get children of a task (hierarchy). */
 export async function getChildren(parentId: string, cwd?: string): Promise<Task[]> {
   const db = await getDb(cwd);
-  const rows = db.select().from(schema.tasks)
+  const rows = await db.select().from(schema.tasks)
     .where(eq(schema.tasks.parentId, parentId))
     .orderBy(asc(schema.tasks.position), asc(schema.tasks.createdAt))
     .all();
@@ -399,7 +392,7 @@ export async function getChildren(parentId: string, cwd?: string): Promise<Task[
 /** Build a tree from a root task using recursive CTE. */
 export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> {
   const db = await getDb(cwd);
-  const rows = db.all<TaskRow>(sql`
+  const rows = await db.all<TaskRow>(sql`
     WITH RECURSIVE subtree AS (
       SELECT * FROM tasks WHERE id = ${rootId}
       UNION ALL
@@ -414,7 +407,7 @@ export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> 
 /** Count tasks by status. */
 export async function countByStatus(cwd?: string): Promise<Record<string, number>> {
   const db = await getDb(cwd);
-  const rows = db.all<{ status: string; count: number }>(sql`
+  const rows = await db.all<{ status: string; count: number }>(sql`
     SELECT status, COUNT(*) as count FROM tasks
     WHERE status != 'archived'
     GROUP BY status
@@ -430,7 +423,7 @@ export async function countByStatus(cwd?: string): Promise<Record<string, number
 /** Get total task count (excluding archived). */
 export async function countTasks(cwd?: string): Promise<number> {
   const db = await getDb(cwd);
-  const result = db.all<{ count: number }>(sql`
+  const result = await db.all<{ count: number }>(sql`
     SELECT COUNT(*) as count FROM tasks WHERE status != 'archived'
   `);
   return result[0]?.count ?? 0;
