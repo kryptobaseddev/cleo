@@ -4,7 +4,7 @@
 **Status**: accepted
 **Accepted**: 2026-02-21
 **Supersedes**: ADR-001, ADR-002
-**Amended By**: ADR-010, ADR-011, ADR-017
+**Amended By**: ADR-010, ADR-011, ADR-017, ADR-020
 **Summary**: Establishes SQLite as the canonical runtime store for all CLEO operational data, replacing scattered JSON files. Defines the schema for tasks, sessions, lifecycle pipelines, and ADR tracking. All MCP and CLI operations must read/write through SQLite.
 **Keywords**: sqlite, storage, schema, canonical, json, tasks, sessions, lifecycle, architecture_decisions
 **Topics**: storage, tasks, session, pipeline, admin
@@ -170,3 +170,40 @@ CREATE TABLE project_registry (
 - **ADR-001** (archived): Original storage architecture decision. Superseded by this ADR.
 - **ADR-002** (archived): Hybrid storage strategy that originally selected `sql.js`. Superseded by this ADR.
 - **Compliance Review**: `.cleo/agent-outputs/2026-02-23_T4820-adr006-compliance-review.md` -- clause-by-clause compliance traceability for the engine migration.
+
+---
+
+## Amendment: Session Storage Fully SQLite-Native (2026-02-27, ADR-020)
+
+All session JSON artifacts have been eliminated. Sessions are now exclusively stored in the SQLite `sessions` table within `.cleo/tasks.db`.
+
+### What was removed
+
+| Artifact | Replacement |
+|----------|------------|
+| `sessions.json` file | SQLite `sessions` table (26 columns) |
+| `SessionsFile` wrapper type | `Session[]` returned directly from `loadSessions()` |
+| `sessionHistory[]` array | Status-based queries on the single `sessions` table (`WHERE status = 'ended'`) |
+| `SessionRecord` hand-maintained interface | `Session` type derived from Drizzle schema via Zod (`src/store/validation-schemas.ts`) |
+| `._meta.lastModified` on sessions wrapper | Not needed; SQLite provides transactional consistency |
+
+### Drizzle-First Session Types
+
+Session types follow the Drizzle-first pattern mandated by this ADR:
+
+1. `src/store/schema.ts` defines the `sessions` table via Drizzle ORM
+2. `src/store/validation-schemas.ts` defines Zod sub-schemas for JSON column shapes (`sessionScopeSchema`, `sessionStatsSchema`, `sessionTaskWorkSchema`) and the domain `sessionSchema`
+3. `type Session = z.infer<typeof sessionSchema>` is the canonical domain type
+4. `src/store/converters.ts:rowToSession()` converts database rows to domain objects
+5. `src/store/db-helpers.ts:upsertSession()` converts domain objects to database rows
+
+### DataAccessor Contract
+
+The `DataAccessor` interface now defines session operations as:
+
+```typescript
+loadSessions(): Promise<Session[]>      // Returns Session[] directly, no wrapper
+saveSessions(sessions: Session[]): Promise<void>
+```
+
+This aligns with the ADR-006 mandate that all operational data be stored in SQLite with strict type safety via Drizzle ORM.
