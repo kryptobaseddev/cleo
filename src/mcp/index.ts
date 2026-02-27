@@ -26,6 +26,7 @@ import { BackgroundJobManager } from './lib/background-jobs.js';
 import { enforceBudget } from './lib/budget.js';
 import { loadConfig } from './lib/config.js';
 import { initMcpDispatcher, handleMcpToolCall } from '../dispatch/adapters/mcp.js';
+import { setJobManager } from './lib/job-manager-accessor.js';
 
 /**
  * Server state for cleanup
@@ -75,6 +76,7 @@ async function main(): Promise<void> {
 
     // Initialize background job manager
     const jobManager = new BackgroundJobManager({ maxJobs: 10, retentionMs: 3600000 });
+    setJobManager(jobManager);
     console.error('[CLEO MCP] Background job manager initialized (max: 10, retention: 1h)');
 
     // Initialize query cache

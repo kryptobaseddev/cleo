@@ -17,10 +17,11 @@ import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
 import { ToolsHandler } from './tools.js';
 import { NexusHandler } from './nexus.js';
+import { SharingHandler } from './sharing.js';
 
 export {
   TasksHandler, SessionHandler, CheckHandler, AdminHandler, MemoryHandler,
-  OrchestrateHandler, PipelineHandler, ToolsHandler, NexusHandler,
+  OrchestrateHandler, PipelineHandler, ToolsHandler, NexusHandler, SharingHandler,
 };
 
 /**
@@ -37,5 +38,6 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('tools', new ToolsHandler());
   handlers.set('admin', new AdminHandler());
   handlers.set('nexus', new NexusHandler());
+  handlers.set('sharing', new SharingHandler());
   return handlers;
 }

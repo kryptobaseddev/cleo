@@ -1,7 +1,7 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 147 operations mapped to 9 canonical domains.
+ * Single source of truth for all 164 operations mapped to 9 canonical domains.
  * Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
@@ -339,16 +339,6 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'orchestrate',
     operation: 'waves',
     description: 'orchestrate.waves (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'orchestrate',
-    operation: 'skill.list',
-    description: 'orchestrate.skill.list (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,

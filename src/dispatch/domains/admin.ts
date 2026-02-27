@@ -97,13 +97,31 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'job.status': {
-          // TODO: Implement job status tracking when job system is available
-          return this.errorResponse('query', 'admin', operation, 'E_NOT_IMPLEMENTED', 'Job status not yet available in dispatch layer', startTime);
+          const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+          const manager = getJobManager();
+          if (!manager) {
+            return this.errorResponse('query', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
+          }
+          const jobId = params?.jobId as string;
+          if (!jobId) {
+            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'jobId is required', startTime);
+          }
+          const job = manager.getJob(jobId);
+          if (!job) {
+            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Job ${jobId} not found`, startTime);
+          }
+          return this.wrapEngineResult({ success: true, data: job }, 'query', 'admin', operation, startTime);
         }
 
         case 'job.list': {
-          // TODO: Implement job listing when job system is available
-          return this.errorResponse('query', 'admin', operation, 'E_NOT_IMPLEMENTED', 'Job list not yet available in dispatch layer', startTime);
+          const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+          const mgr = getJobManager();
+          if (!mgr) {
+            return this.errorResponse('query', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
+          }
+          const statusFilter = params?.status as string | undefined;
+          const jobs = mgr.listJobs(statusFilter);
+          return this.wrapEngineResult({ success: true, data: { jobs, count: jobs.length } }, 'query', 'admin', operation, startTime);
         }
 
         case 'dash': {
@@ -301,8 +319,20 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'job.cancel': {
-          // TODO: Implement job cancellation when job system is available
-          return this.errorResponse('mutate', 'admin', operation, 'E_NOT_IMPLEMENTED', 'Job cancel not yet available in dispatch layer', startTime);
+          const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+          const mgr = getJobManager();
+          if (!mgr) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
+          }
+          const jobId = params?.jobId as string;
+          if (!jobId) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'jobId is required', startTime);
+          }
+          const cancelled = mgr.cancelJob(jobId);
+          if (!cancelled) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_NOT_FOUND', `Job ${jobId} not found or not running`, startTime);
+          }
+          return this.wrapEngineResult({ success: true, data: { jobId, cancelled: true } }, 'mutate', 'admin', operation, startTime);
         }
 
         case 'safestop': {

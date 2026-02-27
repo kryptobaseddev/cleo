@@ -124,11 +124,11 @@ export interface ParamDef {
 }
 
 /**
- * The 9 canonical domain names.
+ * The 10 canonical domain names.
  */
 export const CANONICAL_DOMAINS = [
   'tasks', 'session', 'memory', 'check', 'pipeline',
-  'orchestrate', 'tools', 'admin', 'nexus',
+  'orchestrate', 'tools', 'admin', 'nexus', 'sharing',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];

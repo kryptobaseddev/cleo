@@ -83,11 +83,11 @@ CLEO uses a **shared-core** architecture where both MCP and CLI are thin wrapper
 
 ```
 MCP Gateway (2 tools) ──► src/mcp/domains/ ──► src/mcp/engine/ ──► src/core/ ◄── src/cli/commands/
-     cleo_query (75 ops)                                                              (80+ commands)
-     cleo_mutate (65 ops)
+     cleo_query (93 ops)                                                              (80+ commands)
+     cleo_mutate (71 ops)
 ```
 
-- **MCP is PRIMARY**: 2 tools, 140 operations across 11 domains (~1,800 tokens)
+- **MCP is PRIMARY**: 2 tools, 164 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 80+ commands for human use and fallback
 - **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
 - **Canonical operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
@@ -308,9 +308,9 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/gateways/query.ts` - 75 query operations (CANONICAL operation registry)
-- `src/mcp/gateways/mutate.ts` - 65 mutate operations (CANONICAL operation registry)
-- `src/mcp/domains/` - 11 domain handlers (tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers)
+- `src/mcp/gateways/query.ts` - 93 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 71 mutate operations (CANONICAL operation registry)
+- `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing)
 - `src/mcp/engine/` - Engine adapters (MCP params → core calls)
 - `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing matrix
 
@@ -343,7 +343,7 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/store/lock.ts` - File locking
 
 ### Canonical Specifications
-- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 140 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 164 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
 - `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns

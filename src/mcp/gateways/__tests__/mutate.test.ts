@@ -25,7 +25,7 @@ describe('MUTATE_OPERATIONS', () => {
     expect(totalCount).toBeGreaterThan(0);
   });
 
-  it('should have all 17 domains (9 canonical + 8 legacy)', () => {
+  it('should have all 18 domains (10 canonical + 8 legacy)', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
     expect(domains).toEqual([
       // Canonical domains
@@ -37,6 +37,7 @@ describe('MUTATE_OPERATIONS', () => {
       'pipeline',
       'admin',
       'tools',
+      'sharing',
       'nexus',
       // Legacy aliases (backward compat)
       'research',
@@ -556,6 +557,7 @@ describe('getMutateDomains', () => {
       'pipeline',
       'admin',
       'tools',
+      'sharing',
       'nexus',
       // Legacy aliases (backward compat)
       'research',
@@ -602,6 +604,7 @@ describe('registerMutateTool', () => {
       'pipeline',
       'admin',
       'tools',
+      'sharing',
       'nexus',
       // Legacy aliases (backward compat)
       'research',

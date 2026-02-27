@@ -127,7 +127,6 @@ vi.mock('../../dispatch/engines/orchestrate-engine.js', () => ({
   orchestrateNext: vi.fn(),
   orchestrateWaves: vi.fn(),
   orchestrateContext: vi.fn(),
-  orchestrateSkillList: vi.fn(),
   orchestrateValidate: vi.fn(),
   orchestrateSpawn: vi.fn(),
   orchestrateStartup: vi.fn(),

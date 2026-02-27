@@ -128,10 +128,6 @@ function resolveOperationAlias(
     return 'config.show';
   }
 
-  if (domain === 'tasks' && operation === 'reopen') {
-    return 'restore';
-  }
-
   if ((domain === 'tools' || domain === 'issues' || domain === 'issue') && operation === 'issue.create.bug') {
     return 'issue.add.bug';
   }

@@ -6,153 +6,20 @@
  * @epic T4545
  */
 
-// TODO T4894: tools.issue.diagnostics returns E_NOT_IMPLEMENTED; tools.issue.add.bug/feature/help
-// require gh CLI execution logic that cannot be dispatched through the current handler.
-// Leave bypass until issue domain handler supports full workflow.
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
-import { ExitCode } from '../../types/exit-codes.js';
 import {
   getTemplateForSubcommand,
+  collectDiagnostics,
+  buildIssueBody,
+  checkGhCli,
+  createGhIssue,
 } from '../../core/issue/index.js';
 import { execFileSync } from 'node:child_process';
-import { platform, release, arch } from 'node:os';
 
 const CLEO_REPO = 'kryptobaseddev/cleo';
-
-/**
- * Collect system diagnostics for bug reports.
- * @task T4555
- */
-function collectDiagnostics(): Record<string, string> {
-  const getVersion = (cmd: string, args: string[]): string => {
-    try {
-      return execFileSync(cmd, args, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
-    } catch {
-      return 'not installed';
-    }
-  };
-
-  const cleoLocation = getVersion('which', ['cleo']);
-  const ghVersion = getVersion('gh', ['--version']).split('\n')[0] ?? 'not installed';
-
-  return {
-    cleoVersion: '2026.2.1',
-    nodeVersion: process.version,
-    os: `${platform()} ${release()} ${arch()}`,
-    shell: process.env['SHELL'] ?? 'unknown',
-    cleoHome: process.env['CLEO_HOME'] ?? `${process.env['HOME']}/.cleo`,
-    ghVersion,
-    installLocation: cleoLocation || 'not found',
-  };
-}
-
-/**
- * Format diagnostics as markdown table.
- * @task T4555
- */
-function formatDiagnosticsTable(diag: Record<string, string>): string {
-  const rows = [
-    '## Environment',
-    '| Component | Version |',
-    '|-----------|---------|',
-    `| CLEO | ${diag.cleoVersion} |`,
-    `| Node.js | ${diag.nodeVersion} |`,
-    `| OS | ${diag.os} |`,
-    `| Shell | ${diag.shell} |`,
-    `| gh CLI | ${diag.ghVersion} |`,
-    `| Install | ${diag.installLocation} |`,
-  ];
-  return rows.join('\n');
-}
-
-/**
- * Build structured issue body with template sections.
- * @task T4555
- */
-function buildIssueBody(
-  subcommand: string,
-  rawBody: string,
-  severity?: string,
-  area?: string,
-): string {
-  const template = getTemplateForSubcommand(subcommand);
-  const sectionLabel = template?.name ?? 'Description';
-
-  const parts: string[] = [];
-  parts.push(`### ${sectionLabel}`);
-  parts.push('');
-  parts.push(rawBody);
-
-  if (severity) parts.push(`\n**Severity**: ${severity}`);
-  if (area) parts.push(`**Area**: ${area}`);
-
-  parts.push('\n### Are you using an AI agent?\n');
-  parts.push('Yes - AI agent filed this issue');
-
-  // Auto-append diagnostics
-  parts.push('\n---\n');
-  parts.push(formatDiagnosticsTable(collectDiagnostics()));
-
-  return parts.join('\n');
-}
-
-/**
- * Check that gh CLI is installed and authenticated.
- * @task T4555
- */
-function checkGhCli(): void {
-  try {
-    execFileSync('gh', ['--version'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    throw new CleoError(ExitCode.DEPENDENCY_ERROR, 'GitHub CLI (gh) is not installed', {
-      fix: 'Install gh: https://cli.github.com/ or brew install gh',
-    });
-  }
-
-  try {
-    execFileSync('gh', ['auth', 'status', '--hostname', 'github.com'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    throw new CleoError(ExitCode.DEPENDENCY_ERROR, 'GitHub CLI is not authenticated', {
-      fix: "Run 'gh auth login' to authenticate",
-    });
-  }
-}
-
-/**
- * Create a GitHub issue via gh CLI.
- * @task T4555
- */
-function createGhIssue(title: string, body: string, labels: string): string {
-  try {
-    const result = execFileSync('gh', [
-      'issue', 'create',
-      '--repo', CLEO_REPO,
-      '--title', title,
-      '--body', body,
-      '--label', labels,
-    ], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return result.trim();
-  } catch (err) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, `Failed to create issue: ${(err as Error).message}`, {
-      fix: 'Check gh auth status and network connectivity',
-    });
-  }
-}
 
 /**
  * Register the issue command with all subcommands.
