@@ -69,7 +69,7 @@ describe('AdminHandler', () => {
       expect(ops.query).toEqual([
         'version', 'health', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
-        'adr.list', 'adr.show',
+        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list',
       ]);
     });
 
