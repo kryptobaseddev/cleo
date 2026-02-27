@@ -496,27 +496,97 @@ export async function rollbackRelease(
   };
 }
 
+/** Push policy configuration from config.release.push. */
+export interface PushPolicy {
+  enabled?: boolean;
+  remote?: string;
+  requireCleanTree?: boolean;
+  allowedBranches?: string[];
+}
+
+/**
+ * Read push policy from project config.
+ * Returns undefined if no push config exists.
+ */
+async function readPushPolicy(cwd?: string): Promise<PushPolicy | undefined> {
+  const configPath = join(getCleoDirAbsolute(cwd), 'config.json');
+  const config = await readJson<Record<string, unknown>>(configPath);
+  if (!config) return undefined;
+  const release = config.release as Record<string, unknown> | undefined;
+  if (!release) return undefined;
+  return release.push as PushPolicy | undefined;
+}
+
 /**
  * Push release to remote via git.
+ *
+ * Respects config.release.push policy:
+ * - remote: override default remote (fallback to 'origin')
+ * - requireCleanTree: verify git working tree is clean before push
+ * - allowedBranches: verify current branch is in the allowed list
+ * - enabled: if false and no explicit push flag, caller should skip
+ *
  * @task T4788
+ * @task T4276
  */
-export function pushRelease(
+export async function pushRelease(
   version: string,
   remote?: string,
   cwd?: string,
-): {
+  opts?: { explicitPush?: boolean },
+): Promise<{
   version: string;
   status: string;
   remote: string;
   pushedAt: string;
-} {
+}> {
   if (!version) {
     throw new Error('version is required');
   }
 
   const normalizedVersion = normalizeVersion(version);
   const projectRoot = getProjectRoot(cwd);
-  const targetRemote = remote ?? 'origin';
+  const pushPolicy = await readPushPolicy(cwd);
+
+  // If push policy says disabled and caller didn't explicitly pass --push, skip
+  if (pushPolicy && pushPolicy.enabled === false && !opts?.explicitPush) {
+    throw new Error(
+      'Push is disabled by config (release.push.enabled=false). Use --push to override.'
+    );
+  }
+
+  // Determine remote: explicit param > config > 'origin'
+  const targetRemote = remote ?? pushPolicy?.remote ?? 'origin';
+
+  // Check requireCleanTree
+  if (pushPolicy?.requireCleanTree) {
+    const statusOutput = execFileSync('git', ['status', '--porcelain'], {
+      cwd: projectRoot,
+      timeout: 10000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (statusOutput.trim().length > 0) {
+      throw new Error(
+        'Git working tree is not clean. Commit or stash changes before pushing (config: release.push.requireCleanTree=true).'
+      );
+    }
+  }
+
+  // Check allowedBranches
+  if (pushPolicy?.allowedBranches && pushPolicy.allowedBranches.length > 0) {
+    const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: projectRoot,
+      timeout: 10000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (!pushPolicy.allowedBranches.includes(currentBranch)) {
+      throw new Error(
+        `Current branch '${currentBranch}' is not in allowed branches: ${pushPolicy.allowedBranches.join(', ')} (config: release.push.allowedBranches).`
+      );
+    }
+  }
 
   // Note: We don't update releases.json here synchronously since the
   // caller (engine) can handle status update after this returns.

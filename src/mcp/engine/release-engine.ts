@@ -237,7 +237,7 @@ export async function releasePush(
   projectRoot?: string
 ): Promise<EngineResult> {
   try {
-    const result = pushRelease(version, remote, projectRoot);
+    const result = await pushRelease(version, remote, projectRoot);
     // Update the manifest to record pushed status
     await markReleasePushed(result.version, result.pushedAt, projectRoot);
     return { success: true, data: result };

@@ -29,6 +29,30 @@ import {
 import { engineError, type EngineResult } from './_error.js';
 
 /**
+ * Detect whether the current execution context is an AI agent.
+ * Checks for CLEO_SESSION_ID or CLAUDE_AGENT_TYPE environment variables.
+ * @task T4279
+ */
+function isAgentContext(): boolean {
+  return !!(process.env['CLEO_SESSION_ID'] || process.env['CLAUDE_AGENT_TYPE']);
+}
+
+/**
+ * Verify that a release manifest entry exists for the given version.
+ * Used as a protocol guard to ensure agents go through the proper
+ * release.ship workflow rather than calling release.push directly.
+ * @task T4279
+ */
+async function hasManifestEntry(version: string, projectRoot?: string): Promise<boolean> {
+  try {
+    await showManifestRelease(version, projectRoot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Load tasks via DataAccessor (SQLite or JSON depending on engine config).
  * When projectRoot is explicitly provided (e.g., in tests), uses direct
  * JSON read to avoid requiring full CLEO initialization.
@@ -219,21 +243,56 @@ export async function releaseRollback(
 /**
  * release.push - Push release to remote via git
  * Uses execFileSync (no shell) for safety.
+ * Respects config.release.push policy.
+ *
+ * Agent protocol guard (T4279): When running in agent context
+ * (detected via CLEO_SESSION_ID or CLAUDE_AGENT_TYPE env vars),
+ * requires a release manifest entry for the version. This ensures
+ * agents go through the proper release.ship workflow rather than
+ * calling release.push directly, maintaining provenance tracking.
+ *
  * @task T4788
+ * @task T4276
+ * @task T4279
  */
 export async function releasePush(
   version: string,
   remote?: string,
-  projectRoot?: string
+  projectRoot?: string,
+  opts?: { explicitPush?: boolean },
 ): Promise<EngineResult> {
+  // Agent protocol guard: require manifest entry when in agent context
+  if (isAgentContext()) {
+    const hasEntry = await hasManifestEntry(version, projectRoot);
+    if (!hasEntry) {
+      return engineError('E_PROTOCOL_RELEASE',
+        `Agent protocol violation: no release manifest entry for '${version}'. ` +
+        'Use the full release.ship workflow (release.prepare -> release.commit -> release.tag -> release.push) ' +
+        'to ensure provenance tracking. Direct release.push is not allowed in agent context without a manifest entry.',
+        {
+          fix: `ct release add ${version} && ct release ship ${version} --push`,
+          alternatives: [
+            { action: 'Prepare release first', command: `ct release add ${version}` },
+            { action: 'Use full ship workflow', command: `ct release ship ${version} --push` },
+          ],
+        },
+      );
+    }
+  }
+
   try {
-    const result = pushRelease(version, remote, projectRoot);
+    const result = await pushRelease(version, remote, projectRoot, opts);
     // Update the manifest to record pushed status
     await markReleasePushed(result.version, result.pushedAt, projectRoot);
     return { success: true, data: result };
   } catch (err: unknown) {
     const execError = err as { status?: number; stderr?: string; message?: string };
-    return engineError('E_GENERAL', `Git push failed: ${(execError.stderr ?? execError.message ?? '').slice(0, 500)}`, {
+    const message = (execError.stderr ?? execError.message ?? '').slice(0, 500);
+    // Distinguish config policy errors from git errors
+    if (execError.message?.includes('disabled by config') || execError.message?.includes('not in allowed branches') || execError.message?.includes('not clean')) {
+      return engineError('E_VALIDATION', message);
+    }
+    return engineError('E_GENERAL', `Git push failed: ${message}`, {
       details: { exitCode: execError.status },
     });
   }
