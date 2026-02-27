@@ -31,11 +31,12 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm install
+      - run: npm ci
 
       - run: npm run build
 
-      - run: npm test
+      - name: Type check
+        run: npx tsc --noEmit
 
       - name: Determine dist-tag
         id: tag

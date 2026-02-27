@@ -30,7 +30,7 @@ jobs:
           echo "Building release for version: $VERSION"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build TypeScript
         run: npm run build
