@@ -118,6 +118,9 @@ import { checkStorageMigration } from '../core/migration/preflight.js';
 import { resolveFormat } from './middleware/output-format.js';
 import { setFormatContext } from './format-context.js';
 
+// T4953: Universal field extraction context
+import { resolveFieldContext, setFieldContext } from './field-context.js';
+
 // Centralized pino logger
 import { initLogger } from '../core/logger.js';
 import { loadConfig as loadCoreConfig } from '../core/config.js';
@@ -158,7 +161,11 @@ program
   .version(CLI_VERSION)
   .option('--json', 'Output in JSON format (default)')
   .option('--human', 'Output in human-readable format')
-  .option('--quiet', 'Suppress non-essential output for scripting');
+  .option('--quiet', 'Suppress non-essential output for scripting')
+  // T4953: Universal field extraction — applies to all commands
+  .option('--field <name>', 'Extract single field as plain text (no JSON envelope)')
+  .option('--fields <names>', 'Filter to comma-separated fields (keeps JSON envelope)')
+  .option('--mvi <level>', 'Envelope verbosity: minimal|standard|full');
 
 program
   .command('version')
@@ -318,12 +325,20 @@ program.hook('preAction', async () => {
 // Uses LAFS resolveOutputFormat() with TTY auto-detection fallback.
 // Sets the format context singleton so cliOutput() can dispatch accordingly.
 program.hook('preAction', (thisCommand) => {
+  const opts = thisCommand.optsWithGlobals?.() ?? thisCommand.opts?.() ?? {};
   try {
-    const opts = thisCommand.optsWithGlobals?.() ?? thisCommand.opts?.() ?? {};
     const resolution = resolveFormat(opts);
     setFormatContext(resolution);
   } catch {
     // Fallback: leave default (json) format if resolution fails
+  }
+  // T4953: Field extraction context — let LAFSFlagError surface (e.g. --field + --fields conflict)
+  try {
+    setFieldContext(resolveFieldContext(opts));
+  } catch (err) {
+    const e = err as { message?: string; code?: string };
+    process.stderr.write(`Error: ${e.message ?? String(err)}\n`);
+    process.exit(2);
   }
 });
 
