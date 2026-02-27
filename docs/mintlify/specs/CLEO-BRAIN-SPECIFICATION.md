@@ -1574,7 +1574,7 @@ All 5 dimensions MUST meet certification criteria:
 - **T2975**: EPIC: CLEO Consolidation Sprint
 - **T2996**: Research: BRAIN Vision Alignment - Strategic Roadmap Review
 - **T2973**: Specification: CLEO Strategic Roadmap
-- **T2971**: Research: BRAIN Vision Requirements
+- **T2971**: Research: BRAIN Vision Requirements *(archived — pre-SQLite migration)*
 - **T2968**: EPIC: CLEO Strategic Inflection Point Review
 
 ### 7.2 Specifications

@@ -2,9 +2,10 @@
 
 **Date**: 2026-02-26
 **Status**: accepted
+**Accepted**: 2026-02-26
 **Amends**: ADR-006 (§4 Lifecycle Pipeline/Stage enums)
 **Related ADRs**: ADR-006, ADR-009, ADR-014, ADR-017
-**Related Tasks**: TBD
+**Related Tasks**: T4792
 **Gate**: HITL
 **Gate Status**: passed
 **Summary**: Consolidates all status enumerations into a single source of truth at src/store/status-registry.ts. Eliminates scattered hardcoded strings for task, session, lifecycle pipeline/stage, ADR, gate, and manifest statuses.
