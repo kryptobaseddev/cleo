@@ -490,7 +490,12 @@ export async function coreTaskRelatesAdd(
   });
 
   fromTask.updatedAt = new Date().toISOString();
-  await accessor.saveTaskFile(current);
+  const fromTaskRef = current.tasks.find((t) => t.id === taskId)!;
+  if (accessor.upsertSingleTask) {
+    await accessor.upsertSingleTask(fromTaskRef);
+  } else {
+    await accessor.saveTaskFile(current);
+  }
 
   return { from: taskId, to: relatedId, type, added: true };
 }
@@ -656,7 +661,14 @@ export async function coreTaskRestore(
     restored.push(t.id);
   }
 
-  await accessor.saveTaskFile(current);
+  if (accessor.upsertSingleTask) {
+    for (const t of tasksToRestore) {
+      const taskRef = current.tasks.find((ct) => ct.id === t.id)!;
+      await accessor.upsertSingleTask(taskRef);
+    }
+  } else {
+    await accessor.saveTaskFile(current);
+  }
 
   return { task: taskId, restored, count: restored.length };
 }
@@ -711,8 +723,14 @@ export async function coreTaskUnarchive(
   (taskFile.tasks as unknown as TaskRecord[]).push(task);
   archive.archivedTasks.splice(taskIndex, 1);
 
-  await accessor.saveTaskFile(taskFile);
-  await accessor.saveArchive(archive);
+  if (accessor.upsertSingleTask && accessor.removeSingleTask) {
+    // Fine-grained: upsert the restored task (now active), remove from archive
+    const restoredTaskRef = taskFile.tasks.find((t) => t.id === taskId)!;
+    await accessor.upsertSingleTask(restoredTaskRef);
+  } else {
+    await accessor.saveTaskFile(taskFile);
+    await accessor.saveArchive(archive);
+  }
 
   return { task: taskId, unarchived: true, title: task.title, status: task.status };
 }
@@ -752,16 +770,25 @@ export async function coreTaskReorder(
   allSiblings.splice(newIndex, 0, task);
 
   const now = new Date().toISOString();
+  const modifiedSiblings: string[] = [];
   for (let i = 0; i < allSiblings.length; i++) {
     const sibling = current.tasks.find((t) => t.id === allSiblings[i]!.id);
     if (sibling) {
       sibling.position = i + 1;
       sibling.positionVersion = ((sibling.positionVersion as number | undefined) ?? 0) + 1;
       sibling.updatedAt = now;
+      modifiedSiblings.push(sibling.id);
     }
   }
 
-  await accessor.saveTaskFile(current);
+  if (accessor.upsertSingleTask) {
+    for (const sibId of modifiedSiblings) {
+      const sibRef = current.tasks.find((t) => t.id === sibId)!;
+      await accessor.upsertSingleTask(sibRef);
+    }
+  } else {
+    await accessor.saveTaskFile(current);
+  }
 
   return { task: taskId, reordered: true, newPosition: newIndex + 1, totalSiblings: allSiblings.length };
 }
@@ -805,7 +832,12 @@ export async function coreTaskReparent(
     if (task.type === 'subtask') task.type = 'task';
     task.updatedAt = new Date().toISOString();
 
-    await accessor.saveTaskFile(current);
+    const taskRef = current.tasks.find((t) => t.id === taskId)!;
+    if (accessor.upsertSingleTask) {
+      await accessor.upsertSingleTask(taskRef);
+    } else {
+      await accessor.saveTaskFile(current);
+    }
 
     return { task: taskId, reparented: true, oldParent, newParent: null, newType: task.type };
   }
@@ -858,7 +890,12 @@ export async function coreTaskReparent(
 
   task.updatedAt = new Date().toISOString();
 
-  await accessor.saveTaskFile(current);
+  const reparentRef = current.tasks.find((t) => t.id === taskId)!;
+  if (accessor.upsertSingleTask) {
+    await accessor.upsertSingleTask(reparentRef);
+  } else {
+    await accessor.saveTaskFile(current);
+  }
 
   return { task: taskId, reparented: true, oldParent, newParent: effectiveParentId, newType: task.type };
 }
@@ -900,7 +937,12 @@ export async function coreTaskPromote(
     typeChanged = true;
   }
 
-  await accessor.saveTaskFile(current);
+  const promoteRef = current.tasks.find((t) => t.id === taskId)!;
+  if (accessor.upsertSingleTask) {
+    await accessor.upsertSingleTask(promoteRef);
+  } else {
+    await accessor.saveTaskFile(current);
+  }
 
   return { task: taskId, promoted: true, previousParent: oldParent, typeChanged };
 }
@@ -947,7 +989,12 @@ export async function coreTaskReopen(
   const reason = params?.reason;
   task.notes.push(`[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`);
 
-  await accessor.saveTaskFile(current);
+  const reopenRef = current.tasks.find((t) => t.id === taskId)!;
+  if (accessor.upsertSingleTask) {
+    await accessor.upsertSingleTask(reopenRef);
+  } else {
+    await accessor.saveTaskFile(current);
+  }
 
   return { task: taskId, reopened: true, previousStatus, newStatus: targetStatus };
 }

@@ -131,10 +131,13 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
     archive.archivedTasks.push(t);
   }
 
-  // Clean up dependency references
+  // Clean up dependency references — track which tasks were modified
+  const depsModifiedIds = new Set<string>();
   for (const t of remainingTasks) {
     if (t.depends) {
+      const before = t.depends.length;
       t.depends = t.depends.filter(d => !idsToDelete.has(d));
+      if (t.depends.length !== before) depsModifiedIds.add(t.id);
       if (t.depends.length === 0) delete t.depends;
     }
   }
@@ -145,8 +148,32 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
   data.lastUpdated = now;
 
   if (accessor) {
-    await safeSaveTaskFile(accessor, data, cwd);
-    await safeSaveArchive(accessor, archive, cwd);
+    if (accessor.removeSingleTask && accessor.archiveSingleTask) {
+      // Fine-grained path: archive each deleted task
+      for (const t of tasksToArchive) {
+        await accessor.archiveSingleTask(t.id, {
+          archivedAt: now,
+          archiveReason: 'deleted',
+        });
+      }
+      // If force-orphaning children, upsert each orphaned child
+      if (options.force && !options.cascade && children.length > 0 && accessor.upsertSingleTask) {
+        for (const child of children) {
+          await accessor.upsertSingleTask(child);
+        }
+      }
+      // Clean up dependency references on remaining tasks that were modified
+      if (depsModifiedIds.size > 0 && accessor.upsertSingleTask) {
+        for (const t of remainingTasks) {
+          if (depsModifiedIds.has(t.id)) {
+            await accessor.upsertSingleTask(t);
+          }
+        }
+      }
+    } else {
+      await safeSaveTaskFile(accessor, data, cwd);
+      await safeSaveArchive(accessor, archive, cwd);
+    }
     await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),

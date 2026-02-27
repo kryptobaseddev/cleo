@@ -27,13 +27,28 @@ export interface ArchiveFields {
 /**
  * Upsert a single task row into the tasks table.
  * Handles both active task upsert and archived task upsert via optional archiveFields.
+ *
+ * Defensively nulls out parentId if it references a non-existent task,
+ * preventing orphaned FK violations from blocking bulk operations (T5034).
  */
 export async function upsertTask(
   db: DrizzleDb,
   row: NewTaskRow,
   archiveFields?: ArchiveFields,
 ): Promise<void> {
-  const values = archiveFields ? { ...row, ...archiveFields } : row;
+  // Defensive: null out parentId if it references a non-existent task (T5034)
+  if (row.parentId) {
+    const parent = await db.select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, row.parentId))
+      .limit(1)
+      .all();
+    if (parent.length === 0) {
+      row = { ...row, parentId: null };
+    }
+  }
+
+  const values = archiveFields ? { ...row, ...archiveFields, status: 'archived' as const } : row;
   const set: Record<string, unknown> = {
     title: row.title,
     description: row.description,
@@ -62,10 +77,11 @@ export async function upsertTask(
     createdBy: row.createdBy,
     modifiedBy: row.modifiedBy,
     sessionId: row.sessionId,
+    // Always include archive metadata so unarchive clears stale values (T5034)
+    archivedAt: archiveFields?.archivedAt ?? null,
+    archiveReason: archiveFields?.archiveReason ?? null,
+    cycleTimeDays: archiveFields?.cycleTimeDays ?? null,
   };
-  if (archiveFields) {
-    Object.assign(set, archiveFields);
-  }
   await db.insert(schema.tasks)
     .values(values)
     .onConflictDoUpdate({ target: schema.tasks.id, set })

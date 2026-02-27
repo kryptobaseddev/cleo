@@ -14,6 +14,7 @@ import {
   integer,
   index,
   primaryKey,
+  type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import {
@@ -86,7 +87,7 @@ export const tasks = sqliteTable('tasks', {
     enum: TASK_PRIORITIES,
   }).notNull().default('medium'),
   type: text('type', { enum: TASK_TYPES }),
-  parentId: text('parent_id'),
+  parentId: text('parent_id').references((): AnySQLiteColumn => tasks.id, { onDelete: 'set null' }),
   phase: text('phase'),
   size: text('size', { enum: TASK_SIZES }),
   position: integer('position'),
