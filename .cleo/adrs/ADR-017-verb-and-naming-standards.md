@@ -259,6 +259,21 @@ cleo_query({
 
 **RCASD Pipeline auto-linking**: When `advanceStage()` transitions FROM `architecture_decision`, `linkPipelineAdr()` scans `.cleo/adrs/` for ADRs referencing the pipeline's task ID in `Related Tasks`, upserts them in DB, and creates `adr_task_links` with `link_type='implements'`. Non-fatal: pipeline progression is never blocked by ADR linking failure.
 
+### §5.5 DB vs MANIFEST.jsonl — Two-Tier Storage (per ADR-009 §3.1)
+
+The ADR system uses the same hybrid model as all BRAIN memory: **SQLite is the runtime store, JSONL is the portable export format**.
+
+| | `architecture_decisions` (DB) | `.cleo/adrs/MANIFEST.jsonl` |
+|---|---|---|
+| **Written by** | `admin.adr.sync` (`ct adr sync`) | `npm run adr:manifest` |
+| **Read by** | `admin.adr.find/list/show` | `npm run adr:validate`, offline tooling |
+| **Fields** | Full — includes summary, keywords, topics, content, task links | Summary — metadata only, no full content |
+| **Searchable** | ✅ score-weighted fuzzy via `admin.adr.find` | ❌ read-only JSONL |
+| **Includes archive/** | ❌ active ADRs only | ✅ all ADRs including superseded |
+| **Requires DB** | ✅ yes | ❌ no — works on any filesystem |
+
+**Rule**: The DB is the canonical source for runtime queries. The MANIFEST is a portable snapshot for dev tooling and offline use. Both MUST be kept in sync: run `ct adr sync` after editing ADR frontmatter (runtime), and `npm run adr:manifest` before committing (MANIFEST).
+
 ---
 
 ## 3. Authority Hierarchy

@@ -32,6 +32,10 @@ interface AdrManifestEntry {
   relatedTasks?: string[];
   gate?: string;
   gateStatus?: string;
+  // ADR-017 §5.4 cognitive search fields (T4942)
+  summary?: string;
+  keywords?: string[];
+  topics?: string[];
 }
 
 /** Extract ADR ID from filename */
@@ -106,6 +110,9 @@ function main(): void {
     }
     if (fm['Gate']) entry.gate = fm['Gate'];
     if (fm['Gate Status']) entry.gateStatus = fm['Gate Status'];
+    if (fm['Summary']) entry.summary = fm['Summary'];
+    if (fm['Keywords']) entry.keywords = fm['Keywords'].split(',').map(s => s.trim()).filter(Boolean);
+    if (fm['Topics']) entry.topics = fm['Topics'].split(',').map(s => s.trim()).filter(Boolean);
 
     entries.push(entry);
     console.log(`  ${id}: ${title} [${entry.status}]`);
