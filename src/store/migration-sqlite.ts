@@ -10,16 +10,18 @@
  * @task T4721 - Added atomic migration support with custom db path
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { getCleoDirAbsolute } from '../core/paths.js';
-import { getDb, saveToFile, dbExists } from './sqlite.js';
+import { getDb, dbExists, resolveMigrationsFolder } from './sqlite.js';
 import * as schema from './schema.js';
 import type { Task } from '../types/task.js';
 import type { Session, SessionsFile } from '../types/session.js';
-import initSqlJs from 'sql.js';
-import { drizzle } from 'drizzle-orm/sql-js';
+import { drizzle } from 'drizzle-orm/sqlite-proxy';
+import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
+import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
+import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
 
 /** Migration result. */
 export interface MigrationResult {
@@ -129,33 +131,39 @@ export async function migrateJsonToSqliteAtomic(
   closeDb();
 
   try {
-    logger?.info('import', 'init', 'Initializing SQL.js for migration');
+    logger?.info('import', 'init', 'Initializing node:sqlite for migration');
 
-    // Initialize sql.js and create new database at temp path
-    const SQL = await initSqlJs();
-    const nativeDb = new SQL.Database();
+    // Create temp directory and open file-backed database at temp path
+    mkdirSync(dirname(tempDbPath), { recursive: true });
+    const nativeDb = openNativeDatabase(tempDbPath, { enableWal: true });
+    const drizzleCallback = createDrizzleCallback(nativeDb);
+    const batchCallback = createBatchCallback(nativeDb);
+    const db = drizzle(drizzleCallback, batchCallback, { schema });
 
-    // Create tables
-    logger?.info('import', 'create-tables', 'Creating database tables');
-    await createMigrationTables(nativeDb);
-
-    // Create drizzle wrapper
-    const db = drizzle(nativeDb, { schema });
+    // Run migrations to create tables
+    logger?.info('import', 'create-tables', 'Running drizzle migrations to create tables');
+    const migrationsFolder = resolveMigrationsFolder();
+    await migrate(db, async (queries: string[]) => {
+      nativeDb.prepare('BEGIN').run();
+      try {
+        for (const query of queries) {
+          nativeDb.prepare(query).run();
+        }
+        nativeDb.prepare('COMMIT').run();
+      } catch (err) {
+        nativeDb.prepare('ROLLBACK').run();
+        throw err;
+      }
+    }, { migrationsFolder });
 
     // Run the actual migration
     logger?.info('import', 'data-import', 'Starting data import from JSON files');
     await runMigrationDataImport(db, cleoDir, result, logger);
 
-    // Save to temp file
-    logger?.info('import', 'save-temp', 'Saving to temporary database file', {
+    // Get file size for logging (data already written to disk)
+    logger?.info('import', 'save-temp', 'Database written to temporary file', {
       tempPath: tempDbPath.replace(cleoDir, '.'),
     });
-    mkdirSync(dirname(tempDbPath), { recursive: true });
-    const data = nativeDb.export();
-    const buffer = Buffer.from(data);
-    writeFileSync(tempDbPath, buffer);
-
-    // Get file size for logging
     const { statSync } = await import('node:fs');
     const fileStats = statSync(tempDbPath);
     logger?.info('import', 'temp-saved', 'Temporary database saved', {
@@ -189,121 +197,10 @@ export async function migrateJsonToSqliteAtomic(
 }
 
 /**
- * Create tables for migration (standalone version without singleton state).
- */
-async function createMigrationTables(nativeDb: import('sql.js').Database): Promise<void> {
-  nativeDb.run(`
-    CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'pending'
-        CHECK(status IN ('pending','active','blocked','done','cancelled','archived')),
-      priority TEXT NOT NULL DEFAULT 'medium'
-        CHECK(priority IN ('critical','high','medium','low')),
-      type TEXT CHECK(type IN ('epic','task','subtask')),
-      parent_id TEXT REFERENCES tasks(id),
-      phase TEXT,
-      size TEXT CHECK(size IN ('small','medium','large')),
-      position INTEGER,
-      position_version INTEGER DEFAULT 0,
-      labels_json TEXT DEFAULT '[]',
-      notes_json TEXT DEFAULT '[]',
-      acceptance_json TEXT DEFAULT '[]',
-      files_json TEXT DEFAULT '[]',
-      origin TEXT,
-      blocked_by TEXT,
-      epic_lifecycle TEXT,
-      no_auto_complete INTEGER,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT,
-      completed_at TEXT,
-      cancelled_at TEXT,
-      cancellation_reason TEXT,
-      archived_at TEXT,
-      archive_reason TEXT,
-      cycle_time_days INTEGER,
-      verification_json TEXT,
-      created_by TEXT,
-      modified_by TEXT,
-      session_id TEXT
-    );
-  `);
-
-  nativeDb.run(`
-    CREATE TABLE IF NOT EXISTS task_dependencies (
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      depends_on TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      PRIMARY KEY (task_id, depends_on)
-    );
-  `);
-
-  nativeDb.run(`
-    CREATE TABLE IF NOT EXISTS task_relations (
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      related_to TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-      relation_type TEXT NOT NULL DEFAULT 'related'
-        CHECK(relation_type IN ('related','blocks','duplicates')),
-      PRIMARY KEY (task_id, related_to)
-    );
-  `);
-
-  nativeDb.run(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active'
-        CHECK(status IN ('active','ended','orphaned','suspended')),
-      scope_json TEXT NOT NULL DEFAULT '{}',
-      current_task TEXT,
-      task_started_at TEXT,
-      agent TEXT,
-      notes_json TEXT DEFAULT '[]',
-      tasks_completed_json TEXT DEFAULT '[]',
-      tasks_created_json TEXT DEFAULT '[]',
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      ended_at TEXT
-    );
-  `);
-
-  nativeDb.run(`
-    CREATE TABLE IF NOT EXISTS task_work_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      task_id TEXT NOT NULL,
-      set_at TEXT NOT NULL DEFAULT (datetime('now')),
-      cleared_at TEXT
-    );
-  `);
-
-  nativeDb.run(`
-    CREATE TABLE IF NOT EXISTS schema_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
-
-  // Create indexes
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON task_dependencies(depends_on);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);');
-  nativeDb.run('CREATE INDEX IF NOT EXISTS idx_work_history_session ON task_work_history(session_id);');
-
-  // Set schema version
-  nativeDb.run(
-    `INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('schemaVersion', '1.0.0')`,
-  );
-}
-
-/**
  * Run the actual data import for migration.
  */
 async function runMigrationDataImport(
-  db: import('drizzle-orm/sql-js').SQLJsDatabase<typeof schema>,
+  db: SqliteRemoteDatabase<typeof schema>,
   cleoDir: string,
   result: MigrationResult,
   logger?: import('../core/migration/logger.js').MigrationLogger,
@@ -327,7 +224,7 @@ async function runMigrationDataImport(
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i];
         try {
-          db.insert(schema.tasks).values({
+          await db.insert(schema.tasks).values({
             id: task.id,
             title: task.title,
             description: task.description,
@@ -360,7 +257,7 @@ async function runMigrationDataImport(
           // Insert dependencies
           if (task.depends) {
             for (const depId of task.depends) {
-              db.insert(schema.taskDependencies)
+              await db.insert(schema.taskDependencies)
                 .values({ taskId: task.id, dependsOn: depId })
                 .onConflictDoNothing()
                 .run();
@@ -417,7 +314,7 @@ async function runMigrationDataImport(
       for (let i = 0; i < archivedTasks.length; i++) {
         const task = archivedTasks[i];
         try {
-          db.insert(schema.tasks).values({
+          await db.insert(schema.tasks).values({
             id: task.id,
             title: task.title,
             description: task.description,
@@ -493,7 +390,7 @@ async function runMigrationDataImport(
           // Provide default name for sessions with null/undefined names
           const normalizedName = session.name || `session-${session.id}`;
 
-          db.insert(schema.sessions).values({
+          await db.insert(schema.sessions).values({
             id: session.id,
             name: normalizedName,
             status: normalizedStatus,
@@ -561,17 +458,17 @@ export async function migrateJsonToSqlite(
     const db = await getDb(cwd);
 
     // Count existing rows in SQLite
-    const tasksResult = db
+    const tasksResult = await db
       .select({ count: count() })
       .from(schema.tasks)
       .where(ne(schema.tasks.status, 'archived'))
       .get();
-    const archivedResult = db
+    const archivedResult = await db
       .select({ count: count() })
       .from(schema.tasks)
       .where(eq(schema.tasks.status, 'archived'))
       .get();
-    const sessionsResult = db
+    const sessionsResult = await db
       .select({ count: count() })
       .from(schema.sessions)
       .get();
@@ -841,7 +738,6 @@ export async function migrateJsonToSqlite(
   }
 
   // Save database to disk
-  saveToFile();
 
   result.success = result.errors.length === 0;
   return result;
@@ -863,12 +759,12 @@ export async function exportToJson(cwd?: string): Promise<{
 
   // Get archived tasks separately
   const db = await getDb(cwd);
-  const archivedRows = db.select().from(schema.tasks)
+  const archivedRows = await db.select().from(schema.tasks)
     .where(eq(schema.tasks.status, 'archived'))
     .all();
 
   // Convert rows to Task format
-  const archived: Task[] = archivedRows.map(row => ({
+  const archived: Task[] = archivedRows.map((row: typeof archivedRows[number]) => ({
     id: row.id,
     title: row.title,
     status: 'done' as const,
