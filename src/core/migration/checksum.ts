@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import initSqlJs from 'sql.js';
+import { DatabaseSync } from 'node:sqlite';
 
 /**
  * Result of a backup verification operation.
@@ -72,14 +72,8 @@ export async function verifyBackup(
   // Verify backup can be opened as a valid SQLite database
   // This catches cases where the file is intact but not a valid SQLite file
   try {
-    const SQL = await initSqlJs();
-    const buffer = readFileSync(backupPath);
-    const db = new SQL.Database(buffer);
-
-    // Run a simple query to verify the database is functional
-    db.run('SELECT 1');
-
-    // Clean up
+    const db = new DatabaseSync(backupPath, { readOnly: true });
+    db.prepare('SELECT 1').get();
     db.close();
   } catch (err) {
     return {
