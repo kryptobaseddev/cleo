@@ -6,7 +6,7 @@ Template files used by `init.sh` to initialize new projects with the CLEO task m
 
 | File | Target File | Description |
 |------|-------------|-------------|
-| `todo.template.json` | `.cleo/todo.json` | Active tasks storage with focus management and metadata |
+| `todo.template.json` | `.cleo/todo.json` | Active tasks storage with active task tracking and metadata |
 | `archive.template.json` | `.cleo/todo-archive.json` | Completed tasks archive (immutable after archival) |
 | `log.template.json` | `.cleo/todo-log.json` | Append-only change log for audit trail |
 | `config.template.json` | `.cleo/config.json` | Project configuration (archive, validation, display settings) |
@@ -51,7 +51,7 @@ ajv validate -s "$TODO_DIR/schemas/todo.schema.json" -d "$TODO_DIR/todo.json"
 ## Template Structure Examples
 
 ### todo.template.json
-- Contains: empty tasks array, focus management, phases, labels, version 2.1.0
+- Contains: empty tasks array, active task tracking, phases, labels, version 2.1.0
 - Placeholders: `{{PROJECT_NAME}}`, `{{TIMESTAMP}}`, `{{CHECKSUM}}`
 - Schema: `../schemas/todo.schema.json` (rewritten to `./schemas/` during init)
 

@@ -236,7 +236,7 @@ The parity gap analysis confirms the shared-core architecture is working correct
 - **Alternative**: Manual file moves or `cleo init` for fresh projects
 
 ### `focus` (backward-compat aliases)
-- **Current**: `focus show` -> `current`, `focus set` -> `start`, `focus clear` -> `stop`
+- **Current**: `current` -> `current`, `start` -> `start`, `stop` -> `stop`
 - **Action**: Already marked as deprecated in command descriptions (T4756)
 - **Timeline**: Remove in next major version
 - **Alternative**: Use `start`, `stop`, `current` commands directly

@@ -147,7 +147,7 @@ You are a [role description]. Your role is to [primary function].
 ### Execution Sequence
 
 1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
-2. Set focus (if not pre-set): `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+2. Set focus (if not pre-set): `{{TASK_START_CMD}} {{TASK_ID}}`
 3. Do skill-specific work
 4. Write output: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 5. Append manifest: `{{MANIFEST_PATH}}`
@@ -189,7 +189,7 @@ You are a [role description]. Your role is to [primary function].
 
 ## Completion Checklist
 
-- [ ] Task focus set
+- [ ] Task start
 - [ ] Work completed
 - [ ] Output file written
 - [ ] Manifest entry appended
@@ -306,7 +306,7 @@ Portable commands that work with CLEO (or other task systems):
 | Token | CLEO Default |
 |-------|--------------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_START_CMD}}` | `cleo start` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 

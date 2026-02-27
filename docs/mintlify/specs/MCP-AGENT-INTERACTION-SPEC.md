@@ -67,7 +67,7 @@ When an AI agent needs to interact with CLEO, it SHOULD prefer MCP tools (`cleo_
 Agents SHOULD use MCP tools for:
 
 - All task CRUD operations (show, list, find, add, update, complete, delete)
-- Session management (start, end, status, focus)
+- Session management (start, end, status, current)
 - Schema validation
 - System queries (version, config, health)
 - Any operation where structured JSON response is sufficient
@@ -439,7 +439,7 @@ Every MCP error code maps to a CLI exit code for equivalence:
 | E_PARENT_NOT_FOUND | 10 | Parent task missing |
 | E_DEPTH_EXCEEDED | 11 | Hierarchy too deep |
 | E_SIBLING_LIMIT | 12 | Too many siblings |
-| E_FOCUS_REQUIRED | 38 | No focus set |
+| E_ACTIVE_TASK_REQUIRED | 38 | No start |
 | E_PROTOCOL | 60-67 | Protocol violations |
 | E_LIFECYCLE_GATE | 75 | Lifecycle gate failed |
 

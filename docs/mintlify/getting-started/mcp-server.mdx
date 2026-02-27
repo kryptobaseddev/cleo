@@ -94,7 +94,7 @@ await cleo_query({
 // Set focus on a task
 await cleo_mutate({
   domain: "session",
-  operation: "focus.set",
+  operation: "tasks.start",
   params: { taskId: "T042" }
 });
 

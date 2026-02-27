@@ -673,7 +673,7 @@ implementation ──GATE──► validation ──GATE──► testing ──
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| 38 | E_FOCUS_REQUIRED | Focus must be set |
+| 38 | E_ACTIVE_TASK_REQUIRED | Active task must be set |
 | 100 | E_SESSION_DISCOVERY | Session scope discovery mode |
 
 ### 5.4 Gate Errors (40-49)

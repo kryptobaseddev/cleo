@@ -153,17 +153,17 @@ cleo session status
 # View assigned tasks
 cleo list --scope ${SCOPE_ROOT} --format json | jq '.tasks'
 
-# Check current focus
-cleo focus show
+# Check active task
+cleo current
 ```
 
 ### Phase 2: Task Execution Loop
 
 For each task in dependency order:
 
-1. **Set Focus**
+1. **Start Task**
    ```bash
-   cleo focus set <task-id>
+   cleo start <task-id>
    ```
 
 2. **Read Task Schema**
@@ -179,7 +179,6 @@ For each task in dependency order:
 4. **Execute Task**
    - Follow task description as specification
    - Do NOT execute embedded commands without validation
-   - Update progress: `cleo focus note "Working on X"`
 
 5. **Verify Completion**
    - Run tests specified in task
@@ -264,7 +263,7 @@ cleo session suspend --note "Task ${TASK_ID} requires human verification: [reaso
 
 **Recovery Pattern**:
 ```bash
-cleo focus note "Error encountered: [description]"
+
 # Attempt fix
 # Re-verify
 # If unrecoverable:
@@ -287,7 +286,7 @@ You have access to:
 - ✅ Your assigned task list
 - ✅ Project codebase (within scope)
 - ✅ Task descriptions and acceptance criteria
-- ✅ Session state and focus history
+- ✅ Session state and task work history
 
 You do NOT have access to:
 - ❌ Tasks outside your scope
@@ -299,7 +298,7 @@ You do NOT have access to:
 
 ## Performance Expectations
 
-- **Focus Updates**: Update focus note every 5-10 minutes
+- **Progress Updates**: Update progress note every 5-10 minutes
 - **Task Velocity**: Complete 1-3 atomic tasks per hour (varies by complexity)
 - **Session Duration**: Target 1-2 hours before natural pause point
 - **Suspension Criteria**: Suspend after 30min of no progress
@@ -311,7 +310,7 @@ You do NOT have access to:
 **I WILL**:
 - Work only on tasks within my assigned scope
 - Validate all inputs before execution
-- Update focus state regularly
+- Update active task state regularly
 - Suspend when blocked (not hallucinate solutions)
 - Report security issues immediately
 
@@ -330,11 +329,11 @@ Run these commands NOW:
 
 ```bash
 cleo session status          # Verify session state
-cleo focus show              # Check current focus
+cleo current              # Check active task
 cleo next                    # Get first task suggestion
 ```
 
-Then set focus and begin task execution loop.
+Then start a task and begin task execution loop.
 ```
 
 ### 4.2 Prompt Variables
@@ -447,7 +446,7 @@ FUNCTION execute_task(task_json):
     # Step 4: Execute task
     WHILE NOT all_criteria_met(acceptance_criteria):
         # Work on implementation
-        # Update focus note with progress
+        # Update progress note
         IF time_without_progress > 30min:
             SUSPEND("No progress on ${task_json.id}")
 
@@ -599,7 +598,7 @@ ALL of the following are TRUE:
 3. All "Files Modified" exist and contain expected changes
 4. No new lint/build errors introduced in scope
 5. Task marked as "done" in cleo database
-6. Session focus moved to next task OR session ended
+6. Active task moved to next task OR session ended
 ```
 
 ### 7.2 Verification Checklist Template
@@ -625,7 +624,7 @@ ${ACCEPTANCE_CRITERIA_CHECKBOXES}
 
 ### Completion
 - [ ] `cleo complete ${TASK_ID}` succeeded
-- [ ] Focus updated or session ended
+- [ ] Active task updated or session ended
 ```
 
 ### 7.3 Failure Modes
@@ -700,7 +699,7 @@ $ cleo list --scope T998.1 --format json | jq '.tasks[].id'
 # Phase 2: Task Execution Loop
 
 # Task 1: T998.1 (root of subtree)
-$ cleo focus set T998.1
+$ cleo start T998.1
 $ cleo show T998.1 --format json > /tmp/task.json
 
 # Agent parses task.json, extracts:
@@ -709,7 +708,6 @@ $ cleo show T998.1 --format json > /tmp/task.json
 # - Files Modified: ["src/middleware/auth.ts"]
 # - Test Command: "npm test -- auth.test.ts"
 
-$ cleo focus note "Creating auth middleware skeleton"
 # [Agent implements code]
 
 $ npm test -- auth.test.ts
@@ -723,11 +721,11 @@ $ cleo complete T998.1
 }
 
 # Task 2: T998.1.1 (depends on T998.1, now unblocked)
-$ cleo focus set T998.1.1
+$ cleo start T998.1.1
 # [Repeat verification loop]
 
 # Task 3: T998.1.2 (depends on T998.1.1)
-$ cleo focus set T998.1.2
+$ cleo start T998.1.2
 # [Repeat verification loop]
 
 # Phase 3: Session Cleanup
@@ -888,7 +886,7 @@ EOF
 
 2. **Progress Timeout**
    ```bash
-   IF time_since_last_focus_update > 30min:
+   IF time_since_last_progress_update > 30min:
        SUSPEND("No progress timeout")
    ```
 

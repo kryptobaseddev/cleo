@@ -199,7 +199,7 @@ A validation task might combine:
 │ - Return message format                 │
 ├─────────────────────────────────────────┤
 │ + TASK LIFECYCLE PROTOCOL               │
-│ - cleo focus set                        │
+│ - cleo start                        │
 │ - cleo complete                         │
 ├─────────────────────────────────────────┤
 │ + VERIFICATION GATES PROTOCOL           │
@@ -241,7 +241,7 @@ All tokens are resolved BEFORE spawning via `ti_set_full_context()`:
 | Token | Default Value |
 |-------|---------------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_START_CMD}}` | `cleo start` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 

@@ -54,7 +54,7 @@ This document defines all exit codes used by cleo CLI and the retry protocol for
 | 35 | `EXIT_TASK_CLAIMED` | Task is already claimed by another agent | **Yes** |
 | 36 | `EXIT_SESSION_REQUIRED` | Operation requires an active session | **Yes** |
 | 37 | `EXIT_SESSION_CLOSE_BLOCKED` | Cannot close session with incomplete tasks | No |
-| 38 | `EXIT_FOCUS_REQUIRED` | Operation requires a focused task | **Yes** |
+| 38 | `EXIT_ACTIVE_TASK_REQUIRED` | Operation requires an active task | **Yes** |
 | 39 | `EXIT_NOTES_REQUIRED` | Session notes required for operation | **Yes** |
 
 ### Special Codes (100+)
@@ -210,7 +210,7 @@ All errors return structured JSON with actionable recovery information:
 | `E_SESSION_*` | Session operations | `E_SESSION_EXISTS`, `E_SCOPE_CONFLICT` |
 | `E_SCOPE_*` | Scope validation | `E_SCOPE_INVALID`, `E_SCOPE_CONFLICT` |
 | `E_TASK_*` (session) | Task-session ops | `E_TASK_NOT_IN_SCOPE`, `E_TASK_CLAIMED` |
-| `E_FOCUS_*` | Focus operations | `E_FOCUS_REQUIRED` |
+| `E_ACTIVE_TASK_*` | Active task operations | `E_ACTIVE_TASK_REQUIRED` |
 | `E_NOTES_*` | Notes requirements | `E_NOTES_REQUIRED` |
 | `E_CHECKSUM_*` | Concurrency | `E_CHECKSUM_MISMATCH` |
 | `E_ALREADY_*` | Already exists | `E_ALREADY_INITIALIZED` |

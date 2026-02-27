@@ -154,9 +154,9 @@ Valid status transitions:
 ```mermaid
 stateDiagram-v2
     [*] --> pending: create
-    pending --> active: focus set
+    pending --> active: start
     pending --> blocked: blocked-by
-    active --> pending: focus clear
+    active --> pending: stop
     active --> blocked: blocked-by
     active --> done: complete
     blocked --> pending: unblock

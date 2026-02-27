@@ -21,7 +21,7 @@ Use `ct` (alias for `cleo`) for task operations. Global architecture: `~/.cleo/t
 | 10 | `E_PARENT_NOT_FOUND` | Verify with `ct exists <parent-id>` |
 | 11 | `E_DEPTH_EXCEEDED` | Max depth 3 (epic→task→subtask) |
 | 12 | `E_SIBLING_LIMIT` | Max 7 siblings per parent |
-| 38 | `E_FOCUS_REQUIRED` | Add `--auto-focus` to session start |
+| 38 | `E_ACTIVE_TASK_REQUIRED` | Add `--auto-focus` to session start or use `cleo start <id>` |
 | 100 | `E_SESSION_DISCOVERY_MODE` | Add `--scope epic:<id>` + run `ct session list` first |
 
 **Shell escaping:**
@@ -37,7 +37,7 @@ ct find --id 142           # ID search (multiple matches)
 ct show T1234              # Full task details
 ct add "Task"              # Create task
 ct done <id>               # Complete task
-ct focus set <id>          # Set active task
+ct start <id>              # Start working on task
 ct session list            # Check sessions FIRST
 ct session status          # Current session
 ct dash                    # Project overview
@@ -63,11 +63,11 @@ ct session start --scope epic:T001 --auto-focus --name "Work"
 
 **WORK:**
 ```bash
-ct focus show                # Current focus
+ct current                   # Show active task
 ct next                      # Task suggestion
 ct add "Task" --depends T005 # Add related
 ct complete T005             # Complete task
-ct focus set T006            # Next task
+ct start T006                # Next task
 ```
 
 **END (ALWAYS when stopping):**
@@ -128,7 +128,7 @@ Tier 1: CLEO-SUBAGENT (universal executor)
 - **MUST** append ONE line to `MANIFEST.jsonl`
 - **MUST NOT** return content (summary only)
 - **MUST** complete via `ct complete`
-- **MUST** set focus before work
+- **MUST** start a task before work
 
 **Protocol Types (7)**: Research, Consensus, Specification, Decomposition, Implementation, Contribution, Release
 

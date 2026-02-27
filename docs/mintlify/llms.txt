@@ -90,9 +90,9 @@ cleo session end [--note "progress"]
 cleo session status
 cleo session list [--status active|ended]
 cleo session resume <sessionId>
-cleo focus show
-cleo focus set <taskId>
-cleo focus clear
+cleo current
+cleo start <taskId>
+cleo stop
 ```
 
 ### Analysis
@@ -228,7 +228,7 @@ cleo add "Auth endpoint" --parent T001 --depends T002
 
 # 4. Work loop
 cleo next --explain           # What to work on
-cleo focus set T003           # Set focus
+cleo start T003           # Set focus
 cleo complete T003            # Mark done
 
 # 5. End session

@@ -32,19 +32,17 @@ cleo session switch <session-id>
 
 ```bash
 # Set active task
-cleo focus set T001
+cleo start T001
 
 # View current focus
-cleo focus show
+cleo current
 
 # Add session-level progress note
-cleo focus note "Implementing validation logic"
 
 # Set suggested next action
-cleo focus next "Write unit tests"
 
 # Clear focus
-cleo focus clear
+cleo stop
 ```
 
 <Info>

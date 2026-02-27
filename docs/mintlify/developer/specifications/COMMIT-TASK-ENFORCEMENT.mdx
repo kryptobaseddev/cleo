@@ -43,7 +43,7 @@ This specification defines the **commit-msg hook** implementation for enforcing 
 | CMSG-002 | Hook MUST accept `(T####)` pattern | Preserves existing convention |
 | CMSG-003 | Hook MUST verify task ID exists via `cleo exists` | Prevents invalid references |
 | CMSG-005 | Hook MUST be bypassable via `git commit --no-verify` | Emergency escape hatch |
-| CMSG-007 | Hook MUST provide auto-suggestion from focus context | Developer UX |
+| CMSG-007 | Hook MUST provide auto-suggestion from active task context | Developer UX |
 
 ### 2.2 Hook Lifecycle
 
@@ -92,13 +92,13 @@ TASK_IDS=$(grep -oE '\(T[0-9]+\)' "$MSG_FILE" | grep -oE 'T[0-9]+')
 |----|-------------|
 | SCOPE-001 | Hook SHOULD validate task ID belongs to session scope (Phase 2) |
 | SCOPE-002 | Hook MUST read `CLEO_SESSION` environment variable |
-| SCOPE-004 | Hook SHOULD use `cleo focus show` for current focused task |
+| SCOPE-004 | Hook SHOULD use `cleo current` for current active task |
 | SCOPE-006 | Hook MUST NOT fail if no session is active |
 
 ### 4.2 Auto-suggestion Logic
 
 **Priority**:
-1. Current focused task (`cleo focus show`)
+1. Current active task (`cleo current`)
 2. Session scope tasks (if only one task)
 3. Branch name task ID (`feature/T####-*`)
 4. No suggestion (generic error)
@@ -171,14 +171,14 @@ COMMIT_MSG=$(cat "$MSG_FILE")
 TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\(T[0-9]+\)' | head -1 | grep -oE 'T[0-9]+')
 
 if [[ -z "$TASK_ID" ]]; then
-    FOCUSED_TASK=$(cleo focus show --format json 2>/dev/null | jq -r '.task.id // empty')
+    FOCUSED_TASK=$(cleo current --format json 2>/dev/null | jq -r '.task.id // empty')
 
     if [[ -n "$FOCUSED_TASK" ]]; then
         echo "ERROR: No task ID in commit message"
-        echo "Current focus: $FOCUSED_TASK"
+        echo "Active task: $FOCUSED_TASK"
         echo "Suggested format: $COMMIT_MSG ($FOCUSED_TASK)"
     else
-        echo "WARNING: No task ID and no active focus"
+        echo "WARNING: No task ID and no active task"
     fi
     exit 1
 fi

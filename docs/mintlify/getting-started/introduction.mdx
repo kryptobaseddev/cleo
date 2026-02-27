@@ -97,10 +97,9 @@ CLEO enforces **single-task discipline** through focus management:
 ```bash
 # Start your day
 cleo session start
-cleo focus set T001          # One active task at a time
+cleo start T001          # One active task at a time
 
 # Work on task...
-cleo focus note "Making progress on auth"
 
 # End your day
 cleo archive                 # Clean up completed tasks
@@ -136,7 +135,7 @@ cleo add "Implement user authentication" \
   --description "Add JWT-based auth with refresh tokens"
 
 # Set focus and start working
-cleo focus set T001
+cleo start T001
 
 # Track progress
 cleo update T001 --notes "Completed JWT signing implementation"

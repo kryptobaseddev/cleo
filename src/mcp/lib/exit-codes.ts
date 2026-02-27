@@ -55,7 +55,7 @@ export enum ExitCode {
   E_TASK_CLAIMED = 35,
   E_SESSION_REQUIRED = 36,
   E_SESSION_CLOSE_BLOCKED = 37,
-  E_FOCUS_REQUIRED = 38,
+  E_ACTIVE_TASK_REQUIRED = 38,
   E_NOTES_REQUIRED = 39,
 
   // Verification Errors (40-49)
@@ -539,17 +539,17 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     ],
   },
 
-  [ExitCode.E_FOCUS_REQUIRED]: {
-    code: 'E_FOCUS_REQUIRED',
-    name: 'Focus Required',
-    description: 'Operation requires a focused task',
+  [ExitCode.E_ACTIVE_TASK_REQUIRED]: {
+    code: 'E_ACTIVE_TASK_REQUIRED',
+    name: 'Active Task Required',
+    description: 'Operation requires an active task',
     category: ErrorCategory.SESSION,
     severity: ErrorSeverity.ERROR,
     retryable: false,
-    fixTemplate: 'Set focus first: cleo focus set {taskId}',
+    fixTemplate: 'Start a task first: cleo start {taskId}',
     alternatives: [
       { action: 'Get next task', command: 'cleo next' },
-      { action: 'Set focus', command: 'cleo focus set {taskId}' },
+      { action: 'Start task', command: 'cleo start {taskId}' },
     ],
   },
 

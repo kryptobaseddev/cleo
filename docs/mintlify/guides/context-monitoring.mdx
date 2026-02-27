@@ -83,7 +83,7 @@ When a CLEO session is active, context alerts automatically trigger after task o
   <Card title="Trigger Operations" icon="bolt">
     - `cleo complete`
     - `cleo add`
-    - `cleo focus set`
+    - `cleo start`
     - Session lifecycle commands
   </Card>
   <Card title="Alert Format" icon="bell">
@@ -163,7 +163,7 @@ cleo context --session <session-id>
     ```bash
     # Save progress
     cleo update T001 --notes "Current state: implementing JWT validation"
-    cleo focus note "Next: write unit tests"
+
     ```
   </Accordion>
 
@@ -182,7 +182,7 @@ cleo context --session <session-id>
 
     # After compaction, resume
     cleo session resume
-    cleo focus show
+    cleo current
     ```
   </Accordion>
 
@@ -196,7 +196,7 @@ cleo context --session <session-id>
 
     ```bash
     # Emergency save
-    cleo focus note "EMERGENCY: Context limit. Progress: ..."
+
     cleo session end --note "Context emergency. Resume from: ..."
     ```
   </Accordion>
@@ -227,7 +227,7 @@ cleo session start
 cleo context                   # Check initial state
 
 # During work
-cleo focus set T001
+cleo start T001
 # ... work ...
 cleo context check && echo "OK" || echo "Check usage"
 

@@ -35,11 +35,11 @@ ct session start --scope epic:T001 --auto-focus --name "Work"
 ### WORK
 
 ```bash
-ct focus show                  # Current focus
+ct current                     # Show active task
 ct next                        # Task suggestion
 ct add "Task" --depends T005   # Add related
 ct complete T005               # Complete task
-ct focus set T006              # Move focus
+ct start T006                  # Start next task
 ```
 
 ### END (ALWAYS when stopping)
@@ -111,7 +111,7 @@ Orchestrators resolve ALL tokens before spawning subagents. Subagents CANNOT res
 | Token | Default |
 |-------|---------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo start` |
+| `{{TASK_START_CMD}}` | `cleo start` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 

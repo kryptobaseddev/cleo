@@ -205,35 +205,37 @@
       ]
     },
     {
-      "id": "focus",
-      "name": "Focus System",
-      "description": "Single active task management with progress tracking",
+      "id": "active-task",
+      "name": "Active Task Management",
+      "description": "Single active task workflow with start/stop/current operations",
       "status": "stable",
       "features": [
         {
-          "id": "focus-set",
-          "name": "Focus Management",
-          "command": "cleo focus",
-          "description": "Set/show/clear active task (only ONE can be active)",
+          "id": "task-start",
+          "name": "Start Task",
+          "command": "cleo start",
+          "description": "Start working on a specific task (marks it active)",
           "status": "complete",
           "version": "0.1.0",
-          "docs": "docs/commands/focus.md"
+          "docs": "docs/commands/start.md"
         },
         {
-          "id": "focus-note",
-          "name": "Session Notes",
-          "command": "cleo focus note",
-          "description": "Add session-level progress notes",
+          "id": "task-current",
+          "name": "Current Task",
+          "command": "cleo current",
+          "description": "Show the currently active task",
           "status": "complete",
-          "version": "0.10.0"
+          "version": "0.1.0",
+          "docs": "docs/commands/current.md"
         },
         {
-          "id": "focus-next",
-          "name": "Next Action",
-          "command": "cleo focus next",
-          "description": "Set suggested next action for handoff",
+          "id": "task-stop",
+          "name": "Stop Task",
+          "command": "cleo stop",
+          "description": "Stop working on the current active task",
           "status": "complete",
-          "version": "0.10.0"
+          "version": "0.1.0",
+          "docs": "docs/commands/stop.md"
         }
       ]
     },

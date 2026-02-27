@@ -60,7 +60,7 @@ cleo next --auto-focus
 
 5. **Show focused task details:**
 ```bash
-FOCUSED=$(cleo focus show -q)
+FOCUSED=$(cleo current -q)
 cleo show $FOCUSED
 ```
 

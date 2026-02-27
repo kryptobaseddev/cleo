@@ -29,7 +29,7 @@ This specification defines the Epic-Bound Session architecture for CLEO, replaci
 |-----------|-------------|
 | **Epic-Bound** | Every session MUST be scoped to an Epic or parent task |
 | **Session-Required Writes** | Add, update, complete operations REQUIRE active session |
-| **Agent-Per-Task Focus** | One agent per focused task, session-bound locking |
+| **Agent-Per-Task Locking** | One agent per active task, session-bound locking |
 | **Informative Outputs** | All errors include context, suggestions, blockers |
 | **Registry-Based Discovery** | Agents browse available sessions before starting |
 | **4-State Lifecycle** | Active → Suspended → Ended → Closed |
@@ -49,7 +49,7 @@ This specification defines the Epic-Bound Session architecture for CLEO, replaci
 ┌─────────────────────────────────────────────────────────────┐
 │                         ACTIVE                               │
 │  - Agent working on tasks in scope                          │
-│  - Focus locks held                                         │
+│  - Task locks held                                          │
 │  - Write operations enabled                                 │
 │  - lastActivity updated on operations                       │
 └───────┬────────────────────────┬────────────────────────────┘
@@ -60,7 +60,7 @@ This specification defines the Epic-Bound Session architecture for CLEO, replaci
 ┌───────────────────┐    ┌────────────────────────────────────┐
 │    SUSPENDED      │    │              ENDED                  │
 │  - Paused work    │    │  - Full session notes required      │
-│  - Focus released │    │  - Focus released                   │
+│  - Locks released │    │  - Locks released                   │
 │  - Resumable      │    │  - Resumable                        │
 │  - Quick return   │    │  - Handoff notes for next agent     │
 └───────┬───────────┘    └─────────────────┬──────────────────┘
@@ -97,7 +97,7 @@ When ALL tasks completed:
 | From | To | Command | Requirements |
 |------|----|---------|--------------|
 | (none) | Active | `session start --epic T001` | Epic exists, no active session for scope |
-| Active | Suspended | `session suspend` | Focus tasks updated with progress |
+| Active | Suspended | `session suspend` | Active tasks updated with progress |
 | Active | Ended | `session end --note "..."` | Session notes REQUIRED |
 | Suspended | Active | `session resume <id>` | Session exists, scope valid |
 | Ended | Active | `session resume <id>` | Session exists, scope valid |
@@ -108,13 +108,13 @@ When ALL tasks completed:
 
 **ACTIVE**
 - Agent is working on tasks within session scope
-- Focus locks can be acquired
+- Task locks can be acquired
 - Write operations (add, update, complete) are enabled
 - `lastActivity` timestamp updated on every operation
 
 **SUSPENDED**
 - Work paused temporarily
-- Focus locks released (other agents can claim)
+- Task locks released (other agents can claim)
 - Session resumable with same context
 - Use case: "stepping away", "waiting for review"
 - No session notes required (quick pause)
@@ -122,7 +122,7 @@ When ALL tasks completed:
 **ENDED**
 - Work session formally concluded
 - Session notes REQUIRED (handoff to next agent)
-- Focus locks released
+- Task locks released
 - Session resumable by same or different agent
 - Use case: "end of day", "completed my portion"
 
@@ -178,7 +178,7 @@ Select session [1-3] or 'q' to quit:
 cleo session start --epic T001
 → ERROR (E_SESSION_EXISTS):
   Epic T001 already has active session: session_20251228_...
-  Agent: opus-1 | Started: 2h ago | Focus: T005
+  Agent: opus-1 | Started: 2h ago | Active: T005
 
   To continue this session: cleo session resume session_20251228_...
   To view session details:  cleo session show session_20251228_...
@@ -215,11 +215,11 @@ T001 (Epic: Auth System)
 
 ---
 
-## Part 3: Focus Locking
+## Part 3: Task Locking
 
-### 3.1 Focus Within Sessions
+### 3.1 Active Task Within Sessions
 
-Focus is session-scoped, not global:
+Active task tracking is session-scoped, not global:
 
 ```json
 {
@@ -232,24 +232,24 @@ Focus is session-scoped, not global:
 }
 ```
 
-### 3.2 Focus Lock Rules
+### 3.2 Task Lock Rules
 
 | Rule | Behavior |
 |------|----------|
-| One agent per task | If T005 focused by agent A, agent B cannot focus T005 |
+| One agent per task | If T005 active for agent A, agent B cannot start T005 |
 | Session-bound | Lock releases when session suspended/ended |
-| Blocked task check | Cannot focus task blocked by dependencies |
-| Scope validation | Cannot focus task outside session scope |
+| Blocked task check | Cannot start task blocked by dependencies |
+| Scope validation | Cannot start task outside session scope |
 
-### 3.3 Focus Attempt Outcomes
+### 3.3 Task Start Outcomes
 
 ```bash
 # Success
-cleo focus set T005
-→ [SESSION session_20251228_...] Focus set to T005: "Implement OAuth"
+cleo start T005
+→ [SESSION session_20251228_...] Started T005: "Implement OAuth"
 
-# Already focused by another agent
-cleo focus set T005
+# Already active for another agent
+cleo start T005
 → ERROR (E_TASK_CLAIMED):
   Task T005 is currently being worked by session session_20251228_other
   Agent: sonnet-3 | Since: 15m ago
@@ -257,16 +257,16 @@ cleo focus set T005
   Available tasks in scope: T006, T007, T008
 
 # Blocked by dependencies
-cleo focus set T010
+cleo start T010
 → ERROR (E_TASK_BLOCKED):
   Task T010 is blocked by incomplete dependencies:
   - T005: "Implement OAuth" (active, opus-1 working)
   - T006: "Write tests" (pending)
 
-  Complete these tasks first, or focus an unblocked task.
+  Complete these tasks first, or start an unblocked task.
 
 # Outside session scope
-cleo focus set T099
+cleo start T099
 → ERROR (E_TASK_NOT_IN_SCOPE):
   Task T099 is not in session scope (Epic T001).
   Session scope contains: T001, T002, T003, T005, T006, T007
@@ -274,20 +274,20 @@ cleo focus set T099
   To work on T099, start a new session for its Epic.
 ```
 
-### 3.4 Parallel Focus (Multiple Agents)
+### 3.4 Parallel Active Tasks (Multiple Agents)
 
-Multiple agents can work on the same Epic session, each focusing different tasks:
+Multiple agents can work on the same Epic session, each working on different tasks:
 
 ```
 Session: session_20251228_175354 (Epic: T001)
-├── Agent opus-1:   Focus T005 (active)
-├── Agent sonnet-3: Focus T006 (active)
-└── Agent haiku-1:  Focus T007 (active)
+├── Agent opus-1:   Active: T005
+├── Agent sonnet-3: Active: T006
+└── Agent haiku-1:  Active: T007
 ```
 
 Rules:
-- Each agent MUST have unique focus
-- No two agents can focus the same task
+- Each agent MUST have a unique active task
+- No two agents can work on the same task
 - All agents share session context and notes
 
 ---
@@ -360,7 +360,7 @@ Started: 2025-12-28 17:53:54 (2h ago)
 Last Activity: 15m ago
 
 Agents:
-  opus-1: Focus T005 (15m)
+  opus-1: Active: T005 (15m)
 
 Progress: 3/7 tasks completed (42%)
   ✅ T002: Design auth flow
@@ -386,8 +386,8 @@ Session Notes:
 |-----------|-----------------|--------|
 | `add` | YES | New tasks MUST belong to session scope |
 | `update` | YES | Task modifications tracked to session |
-| `complete` | YES | Completion requires focus lock |
-| `focus set` | YES | Focus is session-scoped |
+| `complete` | YES | Completion requires task lock |
+| `start` | YES | Active task is session-scoped |
 | `delete` | YES | Destructive ops need accountability |
 | `list` | NO | Read-only, but shows session context |
 | `show` | NO | Read-only, but shows session context |
@@ -420,7 +420,7 @@ Read operations show session context when available:
 cleo show T005
 →
 [INFO] Active session: session_20251228_175354 (Epic: T001)
-       Focus: T005 (you) | Other agents: sonnet-3 on T006
+       Active: T005 (you) | Other agents: sonnet-3 on T006
 
 T005: Implement OAuth
 Status: active
@@ -527,10 +527,10 @@ On session close, Epic receives:
 | 32 | `E_SCOPE_CONFLICT` | 32 | Scope overlaps with another session |
 | 33 | `E_SCOPE_INVALID` | 33 | Invalid scope (no epic, empty, etc.) |
 | 34 | `E_TASK_NOT_IN_SCOPE` | 34 | Task not in session scope |
-| 35 | `E_TASK_CLAIMED` | 35 | Task focused by another agent |
+| 35 | `E_TASK_CLAIMED` | 35 | Task active for another agent |
 | 36 | `E_SESSION_REQUIRED` | 36 | Operation requires active session |
 | 37 | `E_SESSION_CLOSE_BLOCKED` | 37 | Cannot close, tasks incomplete |
-| 38 | `E_FOCUS_REQUIRED` | 38 | Operation requires focused task |
+| 38 | `E_ACTIVE_TASK_REQUIRED` | 38 | Operation requires active task |
 | 39 | `E_NOTES_REQUIRED` | 39 | Session notes required for operation |
 
 ---
@@ -572,23 +572,22 @@ cleo session show <session-id>
 cleo session status
 ```
 
-### 8.2 Focus Commands (Session-Aware)
+### 8.2 Active Task Commands (Session-Aware)
 
 ```bash
-# Set focus (within current session)
-cleo focus set T005
+# Start working on task (within current session)
+cleo start T005
 
-# Clear focus
-cleo focus clear
+# Stop working on current task
+cleo stop
 
-# Show focus
-cleo focus show
+# Show currently active task
+cleo current
 
-# Add progress note to focused task
-cleo focus note "Completed Google OAuth"
+# Add progress note to active task
 
 # Set next action
-cleo focus next "Start GitHub OAuth integration"
+
 ```
 
 ---
@@ -644,7 +643,7 @@ For projects with existing `.cleo/` directory:
 | `requireSession` | `true` | Write ops require session |
 | `requireNotesOnEnd` | `true` | Notes required on `session end` |
 | `requireNotesOnComplete` | `true` | Notes required on task complete |
-| `warnOnNoFocus` | `true` | Warn if session started without focus |
+| `warnOnNoFocus` | `true` | Warn if session active without a task started |
 | `allowNestedSessions` | `true` | Child epics can have sub-sessions |
 | `allowParallelAgents` | `true` | Multiple agents in same session |
 | `sessionTimeoutHours` | `72` | Hours before stale session warning (was 24h, now 72h) |
@@ -680,7 +679,7 @@ cleo session status
 After `retention.autoEndActiveAfterDays` (default: 7) of inactivity:
 - Active sessions are automatically transitioned to **ended** state
 - A system note is added documenting the auto-end
-- Focus locks are released
+- Task locks are released
 - Session remains **resumable** (not closed)
 - Epic is NOT auto-completed
 
@@ -752,7 +751,7 @@ cleo config set retention.autoEndActiveAfterDays 3
 | Session Commands | Use old single-session logic | Wire to `lib/sessions.sh` |
 | Write Enforcement | Operations don't check session | Add guards to add/update/complete |
 | Auto-Complete | Immediately completes Epic | Change to prompt agent |
-| Focus Lock | Global in todo.json | Move to sessions.json per-session |
+| Task Lock | Global in todo.json | Move to sessions.json per-session |
 
 ### 11.3 Files Requiring Changes
 
@@ -828,7 +827,7 @@ cleo session status
 ```bash
 # 1. Start session
 cleo session start --epic T001 --auto-focus
-→ Session started, focus set to T005 (highest priority)
+→ Session started, started T005 (highest priority)
 
 # 2. Work on task
 cleo update T005 --notes "Starting OAuth"
@@ -838,8 +837,8 @@ cleo update T005 --notes "Starting OAuth"
 cleo complete T005 --notes "OAuth complete"
 → Next highest priority: T006
 
-# 4. Focus next
-cleo focus set T006
+# 4. Start next task
+cleo start T006
 # ... continue working ...
 
 # 5. End session (end of day)
@@ -859,17 +858,17 @@ cleo session end --note "OAuth done, tests remaining"
   To join: cleo session resume session_abc
 
 [sonnet-3]$ cleo session resume session_abc
-→ Joined session_abc, select task to focus
+→ Joined session_abc, select task to start
 
-[sonnet-3]$ cleo focus set T006
-→ Focus set to T006 (T005 is with opus-1)
+[sonnet-3]$ cleo start T006
+→ Started T006 (T005 is with opus-1)
 
 # Both agents work in parallel
 [opus-1]$ cleo complete T005 --notes "Done"
 [sonnet-3]$ cleo complete T006 --notes "Done"
 
 # Final task
-[opus-1]$ cleo focus set T007
+[opus-1]$ cleo start T007
 [opus-1]$ cleo complete T007 --notes "All done"
 → All tasks complete! Close session?
 
@@ -885,7 +884,7 @@ All errors MUST be informative, not generic:
 
 ```bash
 # BAD (generic)
-ERROR: Cannot focus task
+ERROR: Cannot start task
 
 # GOOD (informative)
 ERROR (E_TASK_CLAIMED):
@@ -900,7 +899,7 @@ Available unblocked tasks in scope:
   T006: "Write unit tests" (pending, priority: medium)
   T007: "Update documentation" (pending, priority: low)
 
-To focus an available task: cleo focus set <task-id>
+To start an available task: cleo start <task-id>
 ```
 
 ---

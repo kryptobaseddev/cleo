@@ -91,7 +91,7 @@ cleo-plugin/
 │   ├── ct.md                          # General cleo wrapper
 │   ├── ct-session.md                  # Session start/end
 │   ├── ct-add.md                      # Quick task creation
-│   ├── ct-focus.md                    # Focus management
+│   ├── ct-start.md                    # Active task management
 │   └── ct-analyze.md                  # Task analysis/triage
 │
 ├── agents/
@@ -104,7 +104,7 @@ cleo-plugin/
 │   └── scripts/
 │       ├── session-start.sh           # Auto-start cleo session
 │       ├── session-end.sh             # Auto-end cleo session
-│       └── check-focus.sh             # Validate task focus
+│       └── check-focus.sh             # Validate active task
 │
 └── README.md                          # Plugin documentation
 ```
@@ -158,7 +158,7 @@ name: CLEO Task Management
 description: >
   This skill should be used when the user asks to "create a task", "add a todo",
   "track tasks", "manage tasks", "use cleo", "use ct", "start a session",
-  "end session", "focus on task", "complete task", "list tasks", "show tasks",
+  "end session",    "start task", "complete task", "list tasks", "show tasks",
   "analyze tasks", "task triage", "what should I work on", "plan work",
   or discusses task management, project phases, or work sessions.
   Provides comprehensive guidance for the CLEO task management CLI.
@@ -215,16 +215,16 @@ ct delete <id> --reason "why"    # Cancel task
 ```bash
 ct session start                 # Begin work session
 ct session end                   # End session
-ct focus set <id>                # Set active task
-ct focus show                    # Show current focus
-ct focus clear                   # Clear focus
+ct start <id>                    # Set active task
+ct current                       # Show active task
+ct stop                          # Clear active task
 ```
 
 ### Analysis
 ```bash
 ct dash                          # Project overview
 ct analyze                       # Task triage with scoring
-ct analyze --auto-focus          # Auto-set focus to top task
+ct analyze --auto-focus          # Auto-activate top task
 ct next                          # Suggest next task
 ct blockers                      # Show blocked tasks
 ```
@@ -234,17 +234,17 @@ ct blockers                      # Show blocked tasks
 ### Starting Work
 1. `ct session start` - Begin session
 2. `ct dash` - Review project state
-3. `ct focus set <id>` - Focus on one task
-4. Work on focused task
+3. `ct start <id>` - Activate one task
+4. Work on active task
 
 ### During Work
 - `ct update <id> --notes "progress"` - Track progress
-- `ct focus note "status"` - Session-level notes
+
 - `ct add "Subtask" --parent <id>` - Break down work
 
 ### Completing Work
 1. `ct done <id>` - Complete task
-2. `ct focus clear` - Clear focus
+2. `ct stop` - Clear active task
 3. `ct session end` - End session
 
 ## Phase Discipline
@@ -341,7 +341,7 @@ Run any CLEO command:
 - `ct list` - List tasks
 - `ct add "title"` - Create task
 - `ct done <id>` - Complete task
-- `ct focus set <id>` - Set focus
+- `ct start <id>` - Set active task
 - `ct session start|end` - Session lifecycle
 
 For full command reference, consult the task-management skill.
@@ -377,8 +377,8 @@ Manage CLEO session lifecycle. Sessions track work context and enable proper aud
 3. If session already active, inform user and show status
 
 ### For `end`:
-1. Check if tasks are still in progress: `ct focus show`
-2. If task focused, ask user if they want to complete or clear focus
+1. Check if tasks are still in progress: `ct current`
+2. If task active, ask user if they want to complete or stop work
 3. Execute: `ct session end`
 4. Report session summary
 
@@ -390,7 +390,7 @@ Manage CLEO session lifecycle. Sessions track work context and enable proper aud
 
 Always start sessions before task work. This ensures:
 - Audit trail for changes
-- Focus tracking
+- Active task tracking
 - Session notes persistence
 ```
 
@@ -442,54 +442,49 @@ Create a new task in CLEO with optional metadata.
 - Use dependencies for task ordering
 ```
 
-#### 3.4 Focus Command
+#### 3.4 Active Task Commands
 
-**File:** `commands/ct-focus.md`
+**File:** `commands/ct-start.md`
 
 ```markdown
 ---
-name: ct-focus
-description: Manage task focus - set, show, or clear the active task
-argument-hint: set <id>|show|clear|note "text"
+name: ct-start
+description: Start working on a task, show active task, or stop work
+argument-hint: <id>
 allowed-tools: ["Bash"]
 ---
 
-Manage which task is currently being worked on. Only one task can be focused at a time.
+Manage which task is currently being worked on. Only one task can be active at a time.
 
 ## Usage
 
 ```
-/ct-focus set T042     # Focus on task T042
-/ct-focus show         # Show current focus
-/ct-focus clear        # Clear focus
-/ct-focus note "Working on API"  # Add session note
+/ct-start T042     # Start working on task T042
+/ct-current        # Show active task
+/ct-stop           # Stop working on active task
 ```
 
 ## Execution
 
-### For `set <id>`:
+### For `/ct-start <id>`:
 1. Verify task exists: `ct exists <id> --quiet`
 2. If not found, suggest `ct find` to locate task
-3. Execute: `ct focus set <id>`
-4. Show task details after focusing
+3. Execute: `ct start <id>`
+4. Show task details after starting
 
-### For `show`:
-1. Execute: `ct focus show`
-2. Display focused task or "No task focused"
+### For `/ct-current`:
+1. Execute: `ct current`
+2. Display active task or "No active task"
 
-### For `clear`:
-1. Execute: `ct focus clear`
-2. Confirm focus cleared
+### For `/ct-stop`:
+1. Execute: `ct stop`
+2. Confirm active task cleared
 
-### For `note "text"`:
-1. Execute: `ct focus note "text"`
-2. Confirm note added
+## Task Discipline
 
-## Focus Discipline
-
-- Focus on ONE task at a time
-- Complete or clear focus before switching
-- Use focus notes for session-level progress
+- Work on ONE task at a time
+- Complete or stop task before switching
+- Use session notes for session-level progress
 - Use `ct update --notes` for task-specific notes
 ```
 
@@ -511,7 +506,7 @@ Run CLEO task triage analysis with leverage scoring to determine optimal task or
 
 ```
 /ct-analyze              # Show task triage analysis
-/ct-analyze --auto-focus # Analyze and auto-set focus to top task
+/ct-analyze --auto-focus # Analyze and auto-activate top task
 ```
 
 ## Execution
@@ -522,7 +517,7 @@ Run CLEO task triage analysis with leverage scoring to determine optimal task or
    - Top recommended tasks with scores
    - Blocked tasks and blockers
    - Phase progress
-4. If `--auto-focus` used, confirm which task was focused
+4. If `--auto-focus` used, confirm which task was activated
 
 ## Output Interpretation
 
@@ -821,7 +816,7 @@ sessions are properly completed with all changes tracked.
 1. **Check Session State**
    ```bash
    ct session status        # Current session info
-   ct focus show           # Current focus
+   ct current              # Active task
    ```
 
 2. **Review Activity**
@@ -831,13 +826,13 @@ sessions are properly completed with all changes tracked.
    ```
 
 3. **Validate Completeness**
-   - Is focused task completed or progress noted?
+   - Is active task completed or progress noted?
    - Are there uncommitted code changes?
    - Are session notes up to date?
    - Any tasks started but not updated?
 
 4. **Prepare for End**
-   - Recommend completing or clearing focus
+   - Recommend completing or stopping active task
    - Suggest adding session notes
    - Identify any cleanup needed
 
@@ -851,7 +846,7 @@ Provide:
 
 **Quality Standards:**
 
-- Always check focus state before recommending end
+- Always check active task state before recommending end
 - Verify no tasks left in inconsistent state
 - Recommend notes for work in progress
 - Ensure clean session termination
@@ -887,7 +882,7 @@ Provide:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Before stopping, verify CLEO session state. Check: Is there an active CLEO session? Is a task focused? Should the session be ended or suspended? If work is incomplete, recommend proper session handling. Return 'approve' to stop or 'block' with session cleanup recommendations.",
+            "prompt": "Before stopping, verify CLEO session state. Check: Is there an active CLEO session? Is a task currently active? Should the session be ended or suspended? If work is incomplete, recommend proper session handling. Return 'approve' to stop or 'block' with session cleanup recommendations.",
             "timeout": 15
           }
         ]
@@ -943,13 +938,13 @@ else
 fi
 ```
 
-#### 5.3 Check Focus Hook Script
+#### 5.3 Check Active Task Hook Script
 
 **File:** `hooks/scripts/check-focus.sh`
 
 ```bash
 #!/usr/bin/env bash
-# CLEO UserPromptSubmit hook - remind about focus if working on tasks
+# CLEO UserPromptSubmit hook - remind about active task if working on tasks
 set -euo pipefail
 
 # Only run if CLEO project
@@ -962,13 +957,13 @@ user_prompt=$(echo "$input" | jq -r '.user_prompt // ""')
 
 # Check if prompt is task-related
 if echo "$user_prompt" | grep -qiE '(task|todo|work on|implement|fix|add|create|build)'; then
-    # Check focus state
-    focus_status=$(ct focus show --format json 2>/dev/null || echo '{"focused": false}')
+    # Check active task state
+    focus_status=$(ct current --format json 2>/dev/null || echo '{"focused": false}')
     has_focus=$(echo "$focus_status" | jq -r '.focused // false')
 
     if [[ "$has_focus" == "false" ]]; then
-        # No task focused, suggest setting focus
-        echo "{\"systemMessage\": \"Note: No CLEO task is currently focused. Consider using 'ct focus set <id>' to track this work.\"}"
+        # No active task, suggest starting one
+        echo "{\"systemMessage\": \"Note: No CLEO task is currently active. Consider using 'ct start <id>' to track this work.\"}"
     fi
 fi
 
@@ -1109,6 +1104,7 @@ Plugin version matches CLI version:
 - [ ] Skill loads when discussing tasks
 - [ ] `/ct-session start` works
 - [ ] `/ct-add "test"` creates task
+- [ ] `/ct-start T001` sets active task
 - [ ] SessionStart hook auto-starts session
 - [ ] Stop hook validates before stopping
 - [ ] task-planner agent triggers on feature planning
@@ -1151,7 +1147,7 @@ Plugin version matches CLI version:
 | `commands/ct.md` | Command | ~300 words |
 | `commands/ct-session.md` | Command | ~350 words |
 | `commands/ct-add.md` | Command | ~400 words |
-| `commands/ct-focus.md` | Command | ~350 words |
+| `commands/ct-start.md` | Command | ~350 words |
 | `commands/ct-analyze.md` | Command | ~300 words |
 | `agents/task-planner.md` | Agent | ~600 words |
 | `agents/task-analyzer.md` | Agent | ~500 words |

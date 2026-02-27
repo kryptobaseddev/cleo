@@ -134,11 +134,11 @@ interface UpdateTaskParams {
 | `suspend` | `sessionId?` | Suspended session | `cleo session suspend` |
 | `list` | `status?`, `scope?` | Session array | `cleo session list` |
 | `status` | `sessionId?` | Current session status | `cleo session status` |
-| `tasks.start` | `taskId` | Focus confirmation | `cleo start` |
-| `tasks.current` | - | Current focus | `cleo current` |
-| `tasks.stop` | - | Cleared confirmation | `cleo stop` |
-| `claim` | `taskId` | Claimed task | `cleo focus set` (with claim) |
-| `release` | `taskId` | Released task | Focus clear for task |
+| `tasks.start` | `taskId` | Start confirmation | `cleo start` |
+| `tasks.current` | - | Current active task | `cleo current` |
+| `tasks.stop` | - | Stop confirmation | `cleo stop` |
+| `claim` | `taskId` | Claimed task | `cleo start` (with claim) |
+| `release` | `taskId` | Released task | `cleo stop` for task |
 | `conflicts` | `scope?` | Scope conflicts | Conflict detection |
 
 ### Parameter Schemas
@@ -175,7 +175,7 @@ active → suspended → active (resume)
 | 33 | `E_SCOPE_INVALID` | Invalid scope specification |
 | 34 | `E_TASK_NOT_IN_SCOPE` | Task outside session scope |
 | 35 | `E_TASK_CLAIMED` | Task claimed by another session |
-| 38 | `E_FOCUS_REQUIRED` | Operation requires focused task |
+| 38 | `E_ACTIVE_TASK_REQUIRED` | Operation requires active task |
 
 ---
 

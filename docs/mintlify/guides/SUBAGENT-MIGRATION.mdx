@@ -199,7 +199,7 @@ Add these sections to your skill's SKILL.md body:
 ### Execution Sequence
 
 1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
-2. Set focus: `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+2. Set focus: `{{TASK_START_CMD}} {{TASK_ID}}`
 3. Do skill-specific work
 4. Write output: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 5. Append manifest: `{{MANIFEST_PATH}}`
@@ -415,7 +415,7 @@ The protocol stack combines base + conditional protocols:
 │ - Return message format                 │
 ├─────────────────────────────────────────┤
 │ + TASK LIFECYCLE PROTOCOL               │
-│ - cleo focus set                        │
+│ - cleo start                        │
 │ - cleo complete                         │
 ├─────────────────────────────────────────┤
 │ + CONDITIONAL PROTOCOLS (as needed)     │

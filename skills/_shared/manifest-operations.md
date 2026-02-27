@@ -626,7 +626,7 @@ When present, the `audit` field provides operational metadata:
 |-------|---------------|
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_START_CMD}}` | `cleo start` |
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
 
 **Note**: Orchestrators MUST pre-resolve all tokens before spawning subagents. Subagents CANNOT resolve `@` references or `{{TOKEN}}` patterns.

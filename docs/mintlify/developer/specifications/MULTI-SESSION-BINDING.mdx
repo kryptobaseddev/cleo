@@ -227,7 +227,7 @@ All commands that operate within a session MUST call `resolve_current_session_id
 
 | Command | Session Required | Behavior |
 |---------|-----------------|----------|
-| `focus set/clear/show` | Yes | Uses resolved session |
+| `start/clear/show` | Yes | Uses resolved session |
 | `session end` | Yes | Ends resolved session |
 | `session suspend` | Yes | Suspends resolved session |
 | `complete` | No | Uses session if available |
@@ -249,7 +249,7 @@ cmd_focus_set() {
         output_error_actionable "E_SESSION_REQUIRED" \
             "No session context. Start a session or set CLEO_SESSION." \
             36 true \
-            "Session required for focus operations" \
+            "Session required for task operations" \
             "cleo session start --scope epic:T001 --auto-focus" \
             '{}' \
             '[{"action":"Start session","command":"cleo session start --scope epic:T001 --auto-focus"},{"action":"List sessions","command":"cleo session list"}]'
@@ -344,9 +344,9 @@ All session errors MUST include:
 | Exit Code | Constant | Meaning | Recoverable |
 |-----------|----------|---------|-------------|
 | 31 | `E_SESSION_NOT_FOUND` | Session ID not found | Yes |
-| 35 | `E_TASK_CLAIMED` | Task focused by another session | Yes |
+| 35 | `E_TASK_CLAIMED` | Task active in another session | Yes |
 | 36 | `E_SESSION_REQUIRED` | Session context required | Yes |
-| 38 | `E_FOCUS_REQUIRED` | Focus task required for session start | Yes |
+| 38 | `E_ACTIVE_TASK_REQUIRED` | Active task required for session start | Yes |
 
 ### 4.3 Error Recovery
 
@@ -357,7 +357,7 @@ All recoverable errors MUST include `error.fix` - a copy-paste command:
 | `E_SESSION_REQUIRED` | `cleo session start --scope epic:T001 --auto-focus` |
 | `E_AMBIGUOUS_SESSION` | `cleo session list --status active` |
 | `E_TASK_CLAIMED` | `cleo session suspend --session <claiming-session>` |
-| `E_FOCUS_REQUIRED` | `cleo session start --scope <scope> --focus <task>` |
+| `E_ACTIVE_TASK_REQUIRED` | `cleo session start --scope <scope> --focus <task>` |
 
 ---
 

@@ -83,7 +83,7 @@ This architecture enables **divide-and-conquer parallelism** while maintaining *
 | Anti-Pattern | Why Prohibited | Correct Approach |
 |--------------|----------------|------------------|
 | **Implementation Work** | PRIME has no scope binding | Delegate to Session Agent |
-| **Direct Task Execution** | No `cleo focus set` by PRIME | Session Agents own tasks |
+| **Direct Task Execution** | No `cleo start` by PRIME | Session Agents own tasks |
 | **File Editing** | Wastes PRIME's orchestration context | Session Agents/Subagents execute |
 | **Detailed Code Review** | Context inefficiency | Session Agents review within scope |
 | **Responding to Subagent Errors** | Bypasses Session Agent | Session Agents handle first |
@@ -94,7 +94,7 @@ This architecture enables **divide-and-conquer parallelism** while maintaining *
 ```
 PRIME Context (100%)
 ├─ Epic Structure (30%)           # Task tree, dependencies, phase info
-├─ Session Agent State (25%)      # Status, progress, current focus
+├─ Session Agent State (25%)      # Status, progress, active task
 ├─ User Conversation (20%)        # Requirements, decisions, clarifications
 ├─ Orchestration Logic (15%)      # Assignment strategy, conflict rules
 └─ Error Escalations (10%)        # Failure reports, blocker context
@@ -128,7 +128,7 @@ cleo dash                            # Project overview
 | **Task Sequencing** | Orders tasks by dependencies, priority | Efficient execution |
 | **Subagent Spawning** | Uses Task tool for atomic task execution | Offloads simple work |
 | **Implementation Work** | Edits files, runs commands, validates | Direct code manipulation |
-| **Progress Reporting** | Updates `focus note`, task status | PRIME visibility |
+| **Progress Reporting** | Updates `progress note`, task status | PRIME visibility |
 | **Error Handling (L1)** | Retries, workarounds, local fixes | First-line resolution |
 | **Escalation** | Reports blockers to PRIME when stuck | Escalation path |
 
@@ -185,7 +185,7 @@ if is_atomic_task "T998.1.2"; then
     spawn_subagent "T998.1.2" "Implement JWT token validation"
 else
     # Handle directly
-    cleo focus set T998.1.2
+    cleo start T998.1.2
     # ... implementation work ...
     cleo complete T998.1.2
 fi
@@ -195,9 +195,8 @@ fi
 
 **Session Agent reports to PRIME via state:**
 ```bash
-# Focus updates (PRIME polls sessions.json)
-cleo focus set T998.1.2
-cleo focus note "Implementing JWT validation middleware"
+# Active task updates (PRIME polls sessions.json)
+cleo start T998.1.2
 
 # Task completion (updates todo.json)
 cleo complete T998.1.2
@@ -211,7 +210,7 @@ cleo session suspend --note "Waiting for OAuth credentials from T999"
 # Polling loop in PRIME
 while orchestration_active; do
     sessions=$(cleo session list --format json)
-    # Detect focus changes, completions, suspensions
+    # Detect active task changes, completions, suspensions
     update_dashboard "$sessions"
     sleep 5
 done
@@ -306,8 +305,8 @@ tmux send-keys -t "cleo-orch-T998:0.0" "
 **Session Agent → PRIME (Progress):**
 ```bash
 # Session Agent updates state (PRIME polls)
-cleo focus set T998.1.2              # Updates focus.json
-cleo focus note "Working on JWT"     # Updates focus.sessionNote
+cleo start T998.1.2              # Updates focus.json
+
 cleo complete T998.1.2               # Updates todo.json
 ```
 
@@ -625,19 +624,19 @@ Session Agent 1: scope subtree:T998.2
 ✗ BLOCKED: Agent 2 tries scope subtree:T998.1 (conflict)
 ```
 
-**Focus Locking:**
+**Task Locking:**
 ```
-Session Agent 0: focus T998.1.2
-Session Agent 1: focus T998.2.1
+Session Agent 0: start T998.1.2
+Session Agent 1: start T998.2.1
 
 ✓ ALLOWED: Different tasks (disjoint scopes)
-✗ BLOCKED: Agent 1 tries focus T998.1.3 (in Agent 0's scope)
+✗ BLOCKED: Agent 1 tries start T998.1.3 (in Agent 0's scope)
 ```
 
 **State Synchronization:**
 ```bash
 # PRIME polls sessions.json every 5 seconds
-# Session Agents write to sessions.json on focus/status change
+# Session Agents write to sessions.json on active task/status change
 # Subagents write to todo.json on completion
 
 # Conflict detection
@@ -712,7 +711,7 @@ handle_subagent_failure() {
     local task_id="$1"
 
     # Retry with Session Agent (no Subagent)
-    cleo focus set "$task_id"
+    cleo start "$task_id"
     # Session Agent handles task directly
     # ... implementation ...
     cleo complete "$task_id"
@@ -792,7 +791,7 @@ With Subagents:
 **Enforcement:**
 ```bash
 # Session Agent tries to access T998.2 (out of scope)
-cleo focus set T998.2
+cleo start T998.2
 # ERROR (E_SCOPE_VIOLATION): Task T998.2 not in session scope subtree:T998.1
 ```
 
@@ -828,9 +827,9 @@ Subagent:
 
 ### Phase 2: Session Agent Behavior
 - [ ] Session Agent respects scope boundaries
-- [ ] Session Agent uses `focus set` for active task
+- [ ] Session Agent uses `start` for active task
 - [ ] Session Agent spawns Subagents for atomic tasks
-- [ ] Session Agent reports progress via `focus note`
+- [ ] Session Agent reports progress via `progress note`
 - [ ] Session Agent suspends on external blockers
 
 ### Phase 3: Subagent Integration
@@ -942,7 +941,7 @@ Error occurs
    fi
 
 3. Handles complex task T998.1.3 directly:
-   cleo focus set T998.1.3
+   cleo start T998.1.3
    # ... implementation work ...
    cleo complete T998.1.3
 
@@ -994,7 +993,7 @@ echo "Session Agent agent-0 needs JWT_SECRET. Please provide or defer task."
 ├─────────────────────────────────────────────────────────────────┤
 │  SESSION AGENTS                                                 │
 │  ┌────────┬──────────┬─────────────────────┬──────────────────┐│
-│  │ Agent  │ Status   │ Current Focus       │ Progress         ││
+│  │ Agent  │ Status   │ Active Task         │ Progress         ││
 │  ├────────┼──────────┼─────────────────────┼──────────────────┤│
 │  │ agent-0│ ● ACTIVE │ T998.1.2 (JWT)      │ ██████░░ 2/3     ││
 │  │ agent-1│ ● ACTIVE │ T998.2.3 (Login)    │ ████████ 3/4     ││
@@ -1051,7 +1050,7 @@ echo "Session Agent agent-0 needs JWT_SECRET. Please provide or defer task."
 
 | Constraint | Reason | Enforcement |
 |------------|--------|-------------|
-| PRIME cannot focus tasks | No scope binding | CLI rejects `focus set` from PRIME |
+| PRIME cannot start tasks | No scope binding | CLI rejects `start` from PRIME |
 | Session Agent cannot spawn Session Agents | Orchestration authority | Only PRIME can spawn |
 | Subagent cannot access epic context | Context isolation | Task tool filters context |
 | Overlapping scopes prohibited | State consistency | Session start validates scopes |

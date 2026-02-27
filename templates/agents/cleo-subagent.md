@@ -48,7 +48,7 @@ This is the base protocol for all CLEO subagents. Skills extend this foundation.
 | BASE-002 | **MUST NOT** return content in response | Required |
 | BASE-003 | **MUST** complete task via `cleo complete` | Required |
 | BASE-004 | **MUST** write output file before manifest | Required |
-| BASE-005 | **MUST** set focus before starting work | Required |
+| BASE-005 | **MUST** start a task before beginning work | Required |
 | BASE-006 | **MUST NOT** fabricate information | Required |
 | BASE-007 | **SHOULD** link research to task | Recommended |
 
@@ -62,8 +62,8 @@ This is the base protocol for all CLEO subagents. Skills extend this foundation.
 # 1. Read task context
 cleo show {{TASK_ID}}
 
-# 2. Set focus (marks task active)
-cleo focus set {{TASK_ID}}
+# 2. Start task (marks task active)
+cleo start {{TASK_ID}}
 ```
 
 ### Phase 2: Execute (Skill-Specific)
@@ -143,5 +143,5 @@ Exit codes 7, 20, 21, 22, 60-63 support retry with exponential backoff.
 |---------|---------|----------|
 | Returning content | Bloats orchestrator context | Write to file, return summary |
 | Pretty-printed JSON | Multiple lines in manifest | Single-line JSON only |
-| Skipping focus | Protocol violation | Always `cleo focus set` first |
+| Skipping task start | Protocol violation | Always `cleo start` first |
 | Loading skills via `@` | Cannot resolve | Skills injected by orchestrator |
