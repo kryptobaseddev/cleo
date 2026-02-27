@@ -125,6 +125,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'bootstrap',  // Brain state bootstrap
     'unblock.opportunities', // Unblocking opportunities analysis
     'critical.path', // Longest dependency chain analysis
+    'skill.list', // List available skills for dispatch
   ],
 
   // ── Canonical: memory (research alias) ─────────────────────────────
@@ -175,11 +176,18 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'config.get',     // Alias (backward compat)
     'stats',          // Project statistics
     'context',        // Context window info
+    'runtime',        // Runtime environment info
     'job.status',     // Get background job status
     'job.list',       // List background jobs
     'dash',           // Project overview dashboard
     'log',            // Audit log entries
     'sequence',       // ID sequence inspection
+    'help',           // Operation list filtered by disclosure tier
+    'adr.list',       // List architecture decision records
+    'adr.show',       // Show single ADR by ID
+    'adr.find',       // Fuzzy search ADRs
+    'grade',          // Grade agent behavioral session
+    'grade.list',     // List past session grade results
   ],
 
   // ── Canonical: tools (skills + issues + providers alias) ───────────
@@ -191,8 +199,15 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'skill.dispatch',       // Simulate skill dispatch
     'skill.verify',         // Validate skill frontmatter
     'skill.dependencies',   // Skill dependency tree
+    // skill.catalog.* operations
+    'skill.catalog.protocols',  // List catalog protocols
+    'skill.catalog.profiles',   // List catalog profiles
+    'skill.catalog.resources',  // List catalog shared resources
+    'skill.catalog.info',       // Catalog metadata and availability
     // issue.* operations
     'issue.diagnostics',    // System diagnostics for bug reports
+    'issue.templates',      // List/get issue templates
+    'issue.validate.labels', // Validate issue labels
     // provider.* operations
     'provider.list',           // List all registered providers
     'provider.detect',         // Detect installed providers

@@ -168,6 +168,9 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'job.cancel',        // Cancel background job
     'safestop',          // Graceful agent shutdown
     'inject.generate',   // Generate MVI injection
+    'sequence',          // Repair ID sequence (action=repair)
+    'adr.sync',          // Sync ADRs from markdown to DB
+    'adr.validate',      // Validate ADR frontmatter
   ],
 
   // ── Canonical: tools (skills + issues + providers alias) ───────────
@@ -186,6 +189,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'issue.create.bug',     // Alias (backward compat)
     'issue.create.feature', // Alias (backward compat)
     'issue.create.help',    // Alias (backward compat)
+    'issue.generate.config', // Generate issue template config
     // provider.* operations
     'provider.inject',      // Inject content into provider instruction files
   ],
