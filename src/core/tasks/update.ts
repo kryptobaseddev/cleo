@@ -226,7 +226,11 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
   data.lastUpdated = now;
 
   if (accessor) {
-    await safeSaveTaskFile(accessor, data, cwd);
+    if (accessor.upsertSingleTask) {
+      await accessor.upsertSingleTask(task);
+    } else {
+      await safeSaveTaskFile(accessor, data, cwd);
+    }
     await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),

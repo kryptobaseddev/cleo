@@ -293,6 +293,37 @@ export async function safeSaveArchive(
 }
 
 /**
+ * Safe wrapper for single-task write operations (T5034).
+ *
+ * Performs:
+ * 1. Sequence validation
+ * 2. Write operation (caller-provided function)
+ * 3. Git checkpoint
+ *
+ * Verification is lightweight — no full-file read-back. The write
+ * itself is a targeted SQL operation that either succeeds or throws.
+ */
+export async function safeSingleTaskWrite(
+  _accessor: DataAccessor,
+  taskId: string,
+  writeFn: () => Promise<void>,
+  cwd?: string,
+  options?: Partial<SafetyOptions>,
+): Promise<void> {
+  const opts = { ...DEFAULT_SAFETY, ...options };
+
+  // 1. Validate sequence
+  await ensureSequenceValid(cwd, opts);
+
+  // 2. Perform targeted write
+  await writeFn();
+  stats.writes++;
+
+  // 3. Checkpoint (lightweight — no full-file verify)
+  await checkpoint(`single-task ${taskId}`, cwd, opts);
+}
+
+/**
  * Safe wrapper for DataAccessor.appendLog()
  * 
  * Note: Log appends are fire-and-forget (no verification)

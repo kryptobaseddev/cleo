@@ -13,8 +13,9 @@
  * @epic T4454
  */
 
-import type { TaskFile } from '../types/task.js';
+import type { Task, TaskFile } from '../types/task.js';
 import type { Session } from '../types/session.js';
+import type { ArchiveFields } from './db-helpers.js';
 
 /** Archive file structure. */
 export interface ArchiveFile {
@@ -76,6 +77,19 @@ export interface DataAccessor {
 
   /** Release any resources (close DB connections, etc.). */
   close(): Promise<void>;
+
+  // ---- Fine-grained task operations (T5034) ----
+  // Optional methods for targeted single-task writes.
+  // Callers check existence before use; absence triggers full-file fallback.
+
+  /** Upsert a single task (targeted write, no full-file reload). */
+  upsertSingleTask?(task: Task): Promise<void>;
+
+  /** Archive a single task by ID (sets status='archived' + archive metadata). */
+  archiveSingleTask?(taskId: string, fields: ArchiveFields): Promise<void>;
+
+  /** Delete a single task permanently from the tasks table. */
+  removeSingleTask?(taskId: string): Promise<void>;
 
   // ---- Metadata (schema_meta KV store) ----
 

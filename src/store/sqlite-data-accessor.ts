@@ -15,6 +15,7 @@ import { eq, ne } from 'drizzle-orm';
 import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
 import type { TaskFile, Task, ProjectMeta, TaskWorkState, FileMeta } from '../types/task.js';
 import type { Session } from '../types/session.js';
+import type { ArchiveFields } from './db-helpers.js';
 import { getDb, closeDb } from './sqlite.js';
 import * as schema from './schema.js';
 import { computeChecksum } from './json.js';
@@ -348,6 +349,49 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         beforeJson: entry.before ? JSON.stringify(entry.before) : null,
         afterJson: entry.after ? JSON.stringify(entry.after) : null,
       }).run();
+    },
+
+    // ---- Fine-grained task operations (T5034) ----
+
+    async upsertSingleTask(task: Task): Promise<void> {
+      const db = await getDb(cwd);
+      const row = taskToRow(task);
+      await upsertTask(db, row);
+      await updateDependencies(db, task.id, task.depends ?? []);
+    },
+
+    async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
+      const db = await getDb(cwd);
+      // Verify the task exists before archiving
+      const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+        .where(eq(schema.tasks.id, taskId))
+        .all();
+      if (rows.length === 0) return;
+      await db.update(schema.tasks)
+        .set({
+          status: 'archived',
+          archivedAt: fields.archivedAt ?? new Date().toISOString(),
+          archiveReason: fields.archiveReason ?? 'completed',
+          cycleTimeDays: fields.cycleTimeDays ?? null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.tasks.id, taskId))
+        .run();
+    },
+
+    async removeSingleTask(taskId: string): Promise<void> {
+      const db = await getDb(cwd);
+      // Delete dependencies first (both directions)
+      await db.delete(schema.taskDependencies)
+        .where(eq(schema.taskDependencies.taskId, taskId))
+        .run();
+      await db.delete(schema.taskDependencies)
+        .where(eq(schema.taskDependencies.dependsOn, taskId))
+        .run();
+      // Delete the task itself
+      await db.delete(schema.tasks)
+        .where(eq(schema.tasks.id, taskId))
+        .run();
     },
 
     // ---- close ----
