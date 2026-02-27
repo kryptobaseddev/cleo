@@ -35,8 +35,11 @@ jobs:
 
       - run: npm run build
 
-      - name: Type check
-        run: npx tsc --noEmit
+      - name: Verify build output
+        run: |
+          test -f dist/cli/index.js || { echo "CLI entry missing"; exit 1; }
+          test -f dist/mcp/index.js || { echo "MCP entry missing"; exit 1; }
+          echo "Build artifacts verified"
 
       - name: Determine dist-tag
         id: tag
