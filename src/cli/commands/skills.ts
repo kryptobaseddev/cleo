@@ -5,6 +5,7 @@
  * @epic T4545
  */
 
+// TODO T4894: tools.skill.list exists in registry but skills.ts implements multi-subcommand\n// logic (list/search/discover/validate/info/install) with complex core imports. Leave bypass.
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
@@ -192,7 +193,7 @@ export function registerSkillsCommand(program: Command): void {
     .option('--global', 'Install globally')
     .action(async (skillName: string) => {
       try {
-        const result = installSkill(skillName);
+        const result = await installSkill(skillName);
 
         if (!result.installed) {
           throw new CleoError(ExitCode.FILE_ERROR, result.error ?? 'Install failed', {
