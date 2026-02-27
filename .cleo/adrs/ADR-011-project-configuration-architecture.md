@@ -2,7 +2,10 @@
 
 **Date**: 2026-02-23
 **Status**: accepted
+**Accepted**: 2026-02-23
 **Amends**: ADR-006 (Section 1)
+
+---
 
 ## 1. Context and Motivation
 

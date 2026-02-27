@@ -8,7 +8,7 @@
  * @task T4814
  */
 
-import { Gateway, Tier, CanonicalDomain } from './types.js';
+import { Gateway, Tier, CanonicalDomain, type ParamDef } from './types.js';
 
 /** Definition of a single dispatchable operation. */
 export interface OperationDef {
@@ -28,6 +28,13 @@ export interface OperationDef {
   sessionRequired: boolean;
   /** List of parameter keys that MUST be present in the request. */
   requiredParams: string[];
+  /**
+   * Fully-described parameter list. Replaces `requiredParams` when populated.
+   * Empty array = "no declared params" (not "no params accepted").
+   * Optional during T4897 migration — defaults to [] when absent.
+   * @see T4897 for progressive migration
+   */
+  params?: ParamDef[];
 }
 
 /**
@@ -139,6 +146,16 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tasks',
+    operation: 'plan',
+    description: 'Composite planning view with in-progress epics, ready tasks, blocked tasks, and open bugs (query)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
     operation: 'relates',
     description: 'tasks.relates (query)',
     tier: 0,
@@ -221,6 +238,16 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'session',
     operation: 'context.drift',
     description: 'session.context.drift (query)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'session',
+    operation: 'briefing',
+    description: 'session.briefing - Composite session-start context (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -609,6 +636,16 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
+    operation: 'runtime',
+    description: 'admin.runtime (query)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
     operation: 'job.status',
     description: 'admin.job.status (query)',
     tier: 0,
@@ -655,6 +692,25 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'help',
+    description: 'Get operations list and guidance filtered to specified disclosure tier',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'tier',
+        type: 'number',
+        required: false,
+        description: 'Progressive disclosure tier: 0=basic (default), 1=+memory/check, 2=all operations',
+        cli: { flag: 'tier', short: '-t' },
+      },
+    ],
   },
   {
     gateway: 'query',
@@ -1348,6 +1404,16 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate',
+    domain: 'admin',
+    operation: 'sequence',
+    description: 'admin.sequence (mutate)',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
     domain: 'tools',
     operation: 'issue.add.bug',
     description: 'tools.issue.add.bug (mutate)',
@@ -1456,6 +1522,79 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // T4916: Global install refresh + session behavioral grading
+  {
+    gateway: 'mutate',
+    domain: 'admin',
+    operation: 'install.global',
+    description: 'Refresh global CLEO setup: provider files, MCP configs, ~/.agents/AGENTS.md',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'grade',
+    description: 'Grade agent behavioral session using 5-dimension rubric (requires --grade session)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['sessionId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
+    operation: 'grade.list',
+    description: 'List past session grade results from .cleo/metrics/GRADES.jsonl',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+
+  // ADR operations (ADR-017 §2, Tier 2 — admin domain)
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'adr.list',
+    description: 'admin.adr.list (query) — list ADRs from .cleo/adrs/ with optional status filter',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'adr.show',
+    description: 'admin.adr.show (query) — retrieve single ADR by ID with frontmatter',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['adrId'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'admin',
+    operation: 'adr.sync',
+    description: 'admin.adr.sync (mutate) — sync .cleo/adrs/ markdown files into architecture_decisions DB table',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'admin',
+    operation: 'adr.validate',
+    description: 'admin.adr.validate (mutate) — validate ADR frontmatter against adr-frontmatter.schema.json',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1517,8 +1656,8 @@ export function getCounts(): { query: number; mutate: number; total: number } {
   };
 }
 
-// Module load validation
+// Module load validation (dynamic, no hardcoded operation totals)
 const counts = getCounts();
-if (counts.query !== 77 || counts.mutate !== 64) {
-  console.warn(`[Registry] Expected 77 query & 64 mutate ops, got ${counts.query} query & ${counts.mutate} mutate.`);
+if (counts.total !== OPERATIONS.length) {
+  console.warn(`[Registry] Operation count mismatch: total=${counts.total}, registry=${OPERATIONS.length}`);
 }

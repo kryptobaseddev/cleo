@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "adr-frontmatter",
+  "title": "ADR Frontmatter Schema",
+  "description": "Canonical frontmatter schema for CLEO Architecture Decision Records. All status values must match the architecture_decisions SQLite table enum exactly.",
+  "type": "object",
+  "required": ["Date", "Status"],
+  "properties": {
+    "Date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "ADR creation date in YYYY-MM-DD format"
+    },
+    "Status": {
+      "type": "string",
+      "enum": ["proposed", "accepted", "superseded", "deprecated"],
+      "description": "Lifecycle status. Must match architecture_decisions DB enum exactly (lowercase only)."
+    },
+    "Accepted": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Date accepted in YYYY-MM-DD format. Required when Status=accepted."
+    },
+    "Supersedes": {
+      "type": "string",
+      "description": "Comma-separated ADR IDs this supersedes (e.g., 'ADR-001, ADR-002'). Required when this supersedes others."
+    },
+    "Superseded By": {
+      "type": "string",
+      "description": "ADR ID that supersedes this one (e.g., 'ADR-017'). Required when Status=superseded."
+    },
+    "Amends": {
+      "type": "string",
+      "description": "ADR ID(s) this partially amends (e.g., 'ADR-006 (§3))'). Partial amendment — scope-limited change to one section."
+    },
+    "Amended By": {
+      "type": "string",
+      "description": "Comma-separated ADR IDs that partially amend this one. Inverse of Amends."
+    },
+    "Related ADRs": {
+      "type": "string",
+      "description": "Comma-separated related ADR IDs (e.g., 'ADR-006, ADR-007')."
+    },
+    "Related Tasks": {
+      "type": "string",
+      "description": "Comma-separated related CLEO task IDs (e.g., 'T4732, T4791'). Unified replacement for: Task, Epic, References, Research, Related Epics."
+    },
+    "Gate": {
+      "type": "string",
+      "enum": ["HITL", "automated"],
+      "description": "Gate type required before implementation. Use instead of prose conditions in Status field."
+    },
+    "Gate Status": {
+      "type": "string",
+      "enum": ["pending", "passed", "waived"],
+      "description": "Current gate status."
+    }
+  },
+  "additionalProperties": false
+}

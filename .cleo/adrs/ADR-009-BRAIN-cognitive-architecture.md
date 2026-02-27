@@ -3,8 +3,7 @@
 **Date**: 2026-02-22
 **Status**: proposed
 **Related ADRs**: ADR-006 (storage), ADR-007 (domain consolidation), ADR-008 (canonical architecture)
-**Source Documents**: CLEO-BRAIN-SPECIFICATION.md, PORTABLE-BRAIN-SPEC.md, cognitive-architecture.mdx, NEXUS ARCHITECTURE.md, CLEO-STRATEGIC-ROADMAP-SPEC.md, vision.mdx
-**Research**: T2971, T2996, T4797
+**Related Tasks**: T2971, T2996, T4797
 
 ---
 
@@ -424,7 +423,7 @@ These are NOT pipeline stages. They are protocols that produce artifacts alongsi
 1. docs/concepts/vision.mdx                    (Constitutional identity — IMMUTABLE)
 2. docs/specs/PORTABLE-BRAIN-SPEC.md           (Product contract — 5 Pillars)
 3. .cleo/adrs/ADR-006-canonical-sqlite-storage.md  (Storage architecture — ACCEPTED)
-4. .cleo/adrs/ADR-007-mcp-domain-consolidation.md  (Domain model — 9 domains)
+4. .cleo/adrs/ADR-007-domain-consolidation.md  (Domain model — 9 domains)
 5. .cleo/adrs/ADR-008-CLEO-CANONICAL-ARCHITECTURE.md (Code architecture)
 6. .cleo/adrs/ADR-009-BRAIN-cognitive-architecture.md (THIS DOCUMENT — BRAIN bridge)
 7. docs/specs/CLEO-BRAIN-SPECIFICATION.md       (Capability detail — 5 dimensions)

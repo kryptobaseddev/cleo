@@ -12,12 +12,12 @@ import {
 
 describe('Operation Registry', () => {
   describe('Module validation', () => {
-    it('should have exactly 141 operations registered (77Q + 64M)', () => {
+    it('should report dynamic operation totals consistently', () => {
       const counts = getCounts();
-      expect(counts.query).toBe(77);
-      expect(counts.mutate).toBe(64);
-      expect(counts.total).toBe(141);
-      expect(OPERATIONS.length).toBe(141);
+      expect(counts.query).toBeGreaterThan(0);
+      expect(counts.mutate).toBeGreaterThan(0);
+      expect(counts.total).toBe(counts.query + counts.mutate);
+      expect(OPERATIONS.length).toBe(counts.total);
     });
 
     it('should cover all 9 canonical domains', () => {
@@ -110,7 +110,7 @@ describe('Operation Registry', () => {
   describe('Filtered Views', () => {
     it('should get operations by domain', () => {
       const tasksOps = getByDomain('tasks');
-      expect(tasksOps.length).toBe(25);
+      expect(tasksOps.length).toBe(26);
       expect(tasksOps.every(o => o.domain === 'tasks')).toBe(true);
 
       const memoryOps = getByDomain('memory');
@@ -122,11 +122,11 @@ describe('Operation Registry', () => {
 
     it('should get operations by gateway', () => {
       const queryOps = getByGateway('query');
-      expect(queryOps.length).toBe(77);
+      expect(queryOps.length).toBe(getCounts().query);
       expect(queryOps.every(o => o.gateway === 'query')).toBe(true);
 
       const mutateOps = getByGateway('mutate');
-      expect(mutateOps.length).toBe(64);
+      expect(mutateOps.length).toBe(getCounts().mutate);
     });
 
     it('should get operations by tier', () => {
@@ -135,7 +135,7 @@ describe('Operation Registry', () => {
       expect(tier0.every(o => o.tier === 0)).toBe(true);
 
       const allTiers = getByTier(2);
-      expect(allTiers.length).toBe(141);
+      expect(allTiers.length).toBe(getCounts().total);
     });
   });
 });

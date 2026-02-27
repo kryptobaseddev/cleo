@@ -1,10 +1,11 @@
 # ADR-012: Drizzle-Kit Migration System for DDL Management
 
-**Status**: Implemented
 **Date**: 2026-02-23
-**Implemented**: 2026-02-23 (T4837)
+**Status**: accepted
+**Accepted**: 2026-02-23
 **Amends**: ADR-006 Section 4 (replaces manual SQL with schema.ts-generated DDL), ADR-010 Sections 5.2/7.5 (fulfills drizzle-kit adoption recommendation)
-**References**: ADR-006 (node:sqlite canonical storage), ADR-010 (drizzle-orm beta adoption), T4817 (store layer refactor epic), T3.3 (drizzle-kit investigation), T4837 (audit log migration)
+**Related Tasks**: T4817, T4837
+**Related ADRs**: ADR-006, ADR-010
 
 ---
 

@@ -15,12 +15,19 @@
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { getLogger } from '../../core/logger.js';
+import { OPERATIONS } from '../registry.js';
+
+const logger = getLogger('domain:admin');
+import { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs } from '../../core/adrs/index.js';
 import {
   systemDash,
   systemStats,
   systemLog,
   systemContext,
+  systemRuntime,
   systemSequence,
+  systemSequenceRepair,
   systemHealth,
   systemInjectGenerate,
   systemBackup,
@@ -83,6 +90,11 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
+        case 'runtime': {
+          const result = await systemRuntime(this.projectRoot, params as { detailed?: boolean } | undefined);
+          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+        }
+
         case 'job.status': {
           // TODO: Implement job status tracking when job system is available
           return this.errorResponse('query', 'admin', operation, 'E_NOT_IMPLEMENTED', 'Job status not yet available in dispatch layer', startTime);
@@ -111,8 +123,68 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'sequence': {
-          const result = systemSequence(this.projectRoot);
+          const action = params?.action as string | undefined;
+          if (action && action !== 'show' && action !== 'check') {
+            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'action must be show or check', startTime);
+          }
+          const result = await systemSequence(this.projectRoot, { action: action as 'show' | 'check' | undefined });
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'help': {
+          const tier = typeof params?.tier === 'number' ? params.tier : 0;
+          const ops = OPERATIONS.filter(op => op.tier <= tier);
+          const tierGuidance: Record<number, string> = {
+            0: 'Tier 0: Core task and session operations (tasks, session, admin). 80% of use cases.',
+            1: 'Tier 1: + memory/research and check/validate operations. 15% of use cases.',
+            2: 'Tier 2: Full access including pipeline, orchestrate, tools, nexus. 5% of use cases.',
+          };
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: {
+              tier,
+              operationCount: ops.length,
+              operations: ops.map(op => ({
+                gateway: op.gateway,
+                domain: op.domain,
+                operation: op.operation,
+                description: op.description,
+              })),
+              guidance: tierGuidance[tier] ?? tierGuidance[0],
+              escalation: tier < 2
+                ? `For more operations: ct ops --tier ${tier + 1} or cleo_query({domain:"admin",operation:"help",params:{tier:${tier + 1}}})`
+                : 'Full operation set displayed.',
+            },
+          };
+        }
+
+        case 'adr.list': {
+          const result = await listAdrs(this.projectRoot, {
+            status: params?.status as string | undefined,
+            since: params?.since as string | undefined,
+          });
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'adr.show': {
+          const adrId = params?.adrId as string;
+          if (!adrId) {
+            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'adrId is required', startTime);
+          }
+          const adr = await showAdr(this.projectRoot, adrId);
+          if (!adr) {
+            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `ADR not found: ${adrId}`, startTime);
+          }
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: adr,
+          };
         }
 
         default:
@@ -207,6 +279,34 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
+        case 'sequence': {
+          const action = params?.action as string | undefined;
+          if (action !== 'repair') {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'action must be repair', startTime);
+          }
+          const result = await systemSequenceRepair(this.projectRoot);
+          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
+        case 'adr.sync': {
+          const result = await syncAdrsToDb(this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'adr.validate': {
+          const result = await validateAllAdrs(this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: result.valid,
+            data: result,
+            ...(result.valid ? {} : { error: { code: 'E_ADR_VALIDATION', message: `${result.errors.length} ADR validation error(s) found` } }),
+          };
+        }
+
         default:
           return this.unsupported('mutate', 'admin', operation, startTime);
       }
@@ -223,11 +323,13 @@ export class AdminHandler implements DomainHandler {
     return {
       query: [
         'version', 'health', 'config.get', 'stats', 'context',
-        'job.status', 'job.list', 'dash', 'log', 'sequence',
+        'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
+        'adr.list', 'adr.show',
       ],
       mutate: [
         'init', 'config.set', 'backup', 'restore', 'migrate',
-        'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate',
+        'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
+        'adr.sync', 'adr.validate',
       ],
     };
   }
@@ -276,6 +378,7 @@ export class AdminHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
+    logger.error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,
