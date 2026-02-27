@@ -263,6 +263,27 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // T4959: Rich debrief + chain operations
+  {
+    gateway: 'query',
+    domain: 'session',
+    operation: 'debrief.show',
+    description: 'session.debrief.show - Read a session\'s rich debrief data (query)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['sessionId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'session',
+    operation: 'chain.show',
+    description: 'session.chain.show - Show session chain linked via previous/next (query)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['sessionId'],
+  },
   {
     gateway: 'query',
     domain: 'orchestrate',

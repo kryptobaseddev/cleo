@@ -114,6 +114,8 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'context.drift',  // Session context drift analysis
     'handoff.show',   // Show handoff data
     'briefing.show',  // Composite session-start context
+    'debrief.show',   // Rich debrief data (T4959)
+    'chain.show',     // Session chain linked via previous/next (T4959)
   ],
   orchestrate: [
     'status',     // Orchestrator status

@@ -42,6 +42,21 @@ export interface Session {
   notes?: string[];
   tasksCompleted?: string[];
   tasksCreated?: string[];
+  /** Serialized handoff data (JSON string), persisted at session end. */
+  handoffJson?: string | null;
+  // Session chain fields (T4959)
+  /** Soft FK to predecessor session. */
+  previousSessionId?: string | null;
+  /** Soft FK to successor session. */
+  nextSessionId?: string | null;
+  /** LLM agent/conversation identifier (e.g., MCP process ID, agent name). */
+  agentIdentifier?: string | null;
+  /** When the successor read this session's handoff/debrief. */
+  handoffConsumedAt?: string | null;
+  /** Who consumed the handoff (session ID or agent identifier). */
+  handoffConsumedBy?: string | null;
+  /** Rich debrief data (superset of handoffJson). */
+  debriefJson?: string | null;
 }
 
 /** Sessions registry file structure. */

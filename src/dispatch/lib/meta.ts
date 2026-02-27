@@ -19,9 +19,11 @@ import type { DispatchResponse, Source } from '../types.js';
  * @param startTime - Timestamp from Date.now() at start of request
  * @param source    - Where the request originated ('cli' or 'mcp')
  * @param requestId - Optional pre-generated request ID
+ * @param sessionId - Optional session ID to include in metadata
  * @returns Metadata conforming to DispatchResponse['_meta']
  *
  * @task T4772
+ * @task T4959
  */
 export function createDispatchMeta(
   gateway: string,
@@ -30,6 +32,7 @@ export function createDispatchMeta(
   startTime: number,
   source: Source = 'mcp',
   requestId?: string,
+  sessionId?: string | null,
 ): DispatchResponse['_meta'] {
   return {
     gateway: gateway as DispatchResponse['_meta']['gateway'],
@@ -39,5 +42,6 @@ export function createDispatchMeta(
     duration_ms: Date.now() - startTime,
     source,
     requestId: requestId ?? randomUUID(),
+    ...(sessionId != null && { sessionId }),
   };
 }

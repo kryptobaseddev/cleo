@@ -44,12 +44,23 @@ export interface AuditEntry {
 }
 
 /**
+ * Check if the current context is a grade session.
+ *
+ * Now simplified: session-resolver middleware (T4959) populates request.sessionId
+ * before audit runs, so we only need to check grade mode flags.
+ */
+function isGradeMode(): boolean {
+  return process.env.CLEO_SESSION_GRADE === 'true';
+}
+
+/**
  * Get active session info from SQLite or env vars.
+ *
+ * @deprecated Session-resolver middleware (T4959) now populates request.sessionId.
+ *   This function is retained only as a fallback for edge cases where
+ *   session-resolver is not in the pipeline (e.g., tests, legacy callers).
  */
 async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean } | null> {
-  // Grade mode fast path: CLEO_SESSION_GRADE_ID is immune to subagent session.start overwrites.
-  // A subagent starting their own session sets CLEO_SESSION_ID (overwriting it), but never
-  // touches CLEO_SESSION_GRADE_ID, so grade attribution stays correct throughout the scenario.
   const gradeId = process.env.CLEO_SESSION_GRADE_ID;
   if (gradeId && process.env.CLEO_SESSION_GRADE === 'true') {
     return { id: gradeId, gradeMode: true };
@@ -57,25 +68,6 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
   const envId = process.env.CLEO_SESSION_ID;
   if (envId) {
     return { id: envId, gradeMode: false };
-  }
-  try {
-    const { getAccessor } = await import('../../store/data-accessor.js');
-    const accessor = await getAccessor(process.cwd());
-    const sessionsData = await accessor.loadSessions();
-    const sessions = (sessionsData as unknown as {
-      sessions?: Array<{ id: string; status: string; gradeMode?: boolean; startedAt?: string }>;
-    }).sessions ?? [];
-    const activeSessions = sessions.filter(s => s.status === 'active');
-    // Prefer grade sessions; otherwise pick the most recently started active session
-    const gradeSession = activeSessions.find(s => s.gradeMode === true);
-    const active = gradeSession ?? activeSessions.sort((a, b) =>
-      (b.startedAt ?? '').localeCompare(a.startedAt ?? '')
-    )[0];
-    if (active) {
-      return { id: active.id, gradeMode: active.gradeMode === true };
-    }
-  } catch {
-    // best-effort
   }
   return null;
 }
@@ -122,11 +114,12 @@ export function createAudit(): Middleware {
   return async (req: DispatchRequest, next: DispatchNext): Promise<DispatchResponse> => {
     const startTime = Date.now();
 
-    // Capture session context BEFORE calling next() — session.end clears grade vars
-    // inside next(), so reading after would lose the grade session attribution.
-    const sessionInfo = await getActiveSessionInfo();
-    const currentSessionId: string | null = req.sessionId || sessionInfo?.id || null;
-    const isGradeSession = sessionInfo?.gradeMode === true || process.env.CLEO_SESSION_GRADE === 'true';
+    // T4959: session-resolver middleware now populates req.sessionId before
+    // audit runs. Fall back to legacy lookup only if resolver missed it.
+    const currentSessionId: string | null = req.sessionId
+      ?? (await getActiveSessionInfo())?.id
+      ?? null;
+    const isGradeSession = isGradeMode();
 
     const response = await next();
 

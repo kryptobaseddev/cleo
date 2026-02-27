@@ -13,8 +13,10 @@ import { randomUUID } from 'node:crypto';
 import type { Gateway, DispatchResponse } from '../types.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
+import { createSessionResolver } from '../middleware/session-resolver.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
 import { createFieldFilter } from '../middleware/field-filter.js';
+import { createAudit } from '../middleware/audit.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { cliOutput, cliError, type CliOutputOptions } from '../../cli/renderers/index.js';
 
@@ -68,15 +70,37 @@ export function getCliDispatcher(): Dispatcher {
 }
 
 /**
- * Factory: creates a Dispatcher with all domain handlers + sanitizer middleware.
+ * Best-effort lookup of the active session ID from SQLite.
+ * Used by session-resolver middleware for CLI commands.
+ * Returns null on any failure (many CLI commands don't need a session).
+ *
+ * @epic T4959
+ */
+async function lookupCliSession(): Promise<string | null> {
+  try {
+    const { getActiveSession } = await import('../../store/session-store.js');
+    const session = await getActiveSession();
+    return session?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Factory: creates a Dispatcher with all domain handlers + session-resolver,
+ * sanitizer, field-filter, and audit middleware.
+ *
+ * @epic T4959 — added session-resolver + audit to CLI pipeline
  */
 export function createCliDispatcher(): Dispatcher {
   const handlers = createDomainHandlers();
   return new Dispatcher({
     handlers,
     middlewares: [
+      createSessionResolver(lookupCliSession),  // T4959: session identity first
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
+      createAudit(),                             // T4959: CLI now gets audit trail
     ],
   });
 }

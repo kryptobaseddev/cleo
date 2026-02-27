@@ -88,8 +88,16 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
     tasksCompletedJson: session.tasksCompleted ? JSON.stringify(session.tasksCompleted) : '[]',
     tasksCreatedJson: session.tasksCreated ? JSON.stringify(session.tasksCreated) : '[]',
+    handoffJson: session.handoffJson ?? null,
     startedAt: session.startedAt,
     endedAt: session.endedAt ?? null,
+    // Session chain fields (T4959)
+    previousSessionId: session.previousSessionId ?? null,
+    nextSessionId: session.nextSessionId ?? null,
+    agentIdentifier: session.agentIdentifier ?? null,
+    handoffConsumedAt: session.handoffConsumedAt ?? null,
+    handoffConsumedBy: session.handoffConsumedBy ?? null,
+    debriefJson: session.debriefJson ?? null,
   };
   const { id: _id, ...setFields } = values;
   await db.insert(schema.sessions)

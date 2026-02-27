@@ -4,6 +4,10 @@
  * Delegates all business logic to src/core/sessions/ and src/core/task-work/.
  * Each function catches errors from core and wraps them into EngineResult.
  *
+ * @deprecated Use src/dispatch/engines/session-engine.ts instead.
+ *   This legacy MCP engine file is retained for backward compatibility.
+ *   New callers should use the dispatch engine exclusively. (T4959)
+ *
  * @task T4782
  * @epic T4654
  */
