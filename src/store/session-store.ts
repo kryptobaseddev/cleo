@@ -263,16 +263,3 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
   return rowToSession(rows[0]!);
 }
 
-// ---- Backward-compatible focus aliases (deprecated) ----
-
-/** @deprecated Use startTask() instead. */
-export const setFocus = startTask;
-
-/** @deprecated Use getCurrentTask() instead. */
-export const getFocus = getCurrentTask;
-
-/** @deprecated Use stopTask() instead. */
-export const clearFocus = stopTask;
-
-/** @deprecated Use workHistory() instead. */
-export const focusHistory = workHistory;

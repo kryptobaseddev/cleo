@@ -169,7 +169,7 @@ export class SessionHandler implements DomainHandler {
             scope,
             name: params?.name as string | undefined,
             autoStart: params?.autoStart as boolean | undefined,
-            focus: params?.focus as string | undefined,
+            startTask: (params?.startTask ?? params?.focus) as string | undefined,
             grade: params?.grade as boolean | undefined,
           });
           // Enrich successful result with top-level sessionId for easy extraction

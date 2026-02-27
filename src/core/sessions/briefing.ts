@@ -85,17 +85,12 @@ export interface CurrentTaskInfo {
   status: string;
 }
 
-/** @deprecated Use CurrentTaskInfo instead. */
-export type CurrentFocus = CurrentTaskInfo;
-
 /**
  * Session briefing result.
  */
 export interface SessionBriefing {
   lastSession: LastSessionInfo | null;
   currentTask: CurrentTaskInfo | null;
-  /** @deprecated Use currentTask instead. */
-  currentFocus?: CurrentTaskInfo | null;
   nextTasks: BriefingTask[];
   openBugs: BriefingBug[];
   blockedTasks: BriefingBlockedTask[];
@@ -184,7 +179,6 @@ export async function computeBriefing(
   return {
     lastSession,
     currentTask: currentTaskInfo,
-    currentFocus: currentTaskInfo,
     nextTasks,
     openBugs,
     blockedTasks,

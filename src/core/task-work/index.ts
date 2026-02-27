@@ -191,20 +191,3 @@ export async function getWorkHistory(cwd?: string, accessor?: DataAccessor): Pro
   return history.reverse(); // Most recent first
 }
 
-// ---- Backward-compatible aliases (deprecated) ----
-
-/** @deprecated Use TaskCurrentResult instead. */
-export type FocusShowResult = TaskCurrentResult;
-/** @deprecated Use TaskStartResult instead. */
-export type FocusSetResult = TaskStartResult;
-/** @deprecated Use TaskWorkHistoryEntry instead. */
-export type FocusHistoryEntry = TaskWorkHistoryEntry;
-
-/** @deprecated Use currentTask() instead. */
-export const showFocus = currentTask;
-/** @deprecated Use startTask() instead. */
-export const setFocus = startTask;
-/** @deprecated Use stopTask() instead. */
-export const clearFocus = stopTask;
-/** @deprecated Use getWorkHistory() instead. */
-export const getFocusHistory = getWorkHistory;

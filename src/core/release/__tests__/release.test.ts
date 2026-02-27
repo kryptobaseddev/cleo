@@ -15,7 +15,7 @@ import {
   listReleases,
   showRelease,
   getChangelog,
-  validateSemver,
+  validateVersion,
 } from '../index.js';
 
 let testDir: string;
@@ -50,17 +50,17 @@ async function writeTodo() {
   await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile()));
 }
 
-describe('validateSemver (validateVersion)', () => {
+describe('validateVersion', () => {
   it('accepts valid version formats', () => {
-    expect(() => validateSemver('1.0.0')).not.toThrow();
-    expect(() => validateSemver('v2.3.4')).not.toThrow();
-    expect(() => validateSemver('1.0.0-alpha.1')).not.toThrow();
-    expect(() => validateSemver('2026.2.0')).not.toThrow();
+    expect(() => validateVersion('1.0.0')).not.toThrow();
+    expect(() => validateVersion('v2.3.4')).not.toThrow();
+    expect(() => validateVersion('1.0.0-alpha.1')).not.toThrow();
+    expect(() => validateVersion('2026.2.0')).not.toThrow();
   });
 
   it('rejects invalid version formats', () => {
-    expect(() => validateSemver('abc')).toThrow();
-    expect(() => validateSemver('1.0')).toThrow();
+    expect(() => validateVersion('abc')).toThrow();
+    expect(() => validateVersion('1.0')).toThrow();
   });
 });
 

@@ -206,8 +206,6 @@ export async function sessionStart(
     name?: string;
     autoStart?: boolean;
     startTask?: string;
-    /** @deprecated Use startTask instead. */
-    focus?: string;
     /** Enable full query+mutation audit logging for behavioral grading. */
     grade?: boolean;
   },
@@ -258,7 +256,7 @@ export async function sessionStart(
       ?? process.env.CLEO_AGENT_ID
       ?? null;
 
-    const startingTaskId = params.startTask || params.focus || (params.autoStart ? rootTaskId : null);
+    const startingTaskId = params.startTask || (params.autoStart ? rootTaskId : null);
 
     const newSession: Session = {
       id: sessionId,
@@ -299,7 +297,7 @@ export async function sessionStart(
       };
     }
 
-    const startingTask = params.startTask || params.focus;
+    const startingTask = params.startTask;
     if (startingTask) {
       taskData.focus.currentTask = startingTask;
     } else if (params.autoStart) {

@@ -30,8 +30,6 @@ const execFileAsync = promisify(execFile);
 export interface HandoffData {
   /** Last task being worked on */
   lastTask: string | null;
-  /** @deprecated Use lastTask instead. */
-  lastFocus?: string | null;
   /** Tasks completed in session */
   tasksCompleted: string[];
   /** Tasks created in session */
@@ -93,7 +91,6 @@ export async function computeHandoff(
   const lastTaskId = session.taskWork?.taskId ?? null;
   const handoff: HandoffData = {
     lastTask: lastTaskId,
-    lastFocus: lastTaskId,
     tasksCompleted: session.tasksCompleted ?? [],
     tasksCreated: session.tasksCreated ?? [],
     decisionsRecorded: decisions.length,
