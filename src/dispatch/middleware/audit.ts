@@ -121,12 +121,14 @@ async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<voi
 export function createAudit(): Middleware {
   return async (req: DispatchRequest, next: DispatchNext): Promise<DispatchResponse> => {
     const startTime = Date.now();
-    const response = await next();
 
-    // Determine session context
+    // Capture session context BEFORE calling next() — session.end clears grade vars
+    // inside next(), so reading after would lose the grade session attribution.
     const sessionInfo = await getActiveSessionInfo();
     const currentSessionId: string | null = req.sessionId || sessionInfo?.id || null;
     const isGradeSession = sessionInfo?.gradeMode === true || process.env.CLEO_SESSION_GRADE === 'true';
+
+    const response = await next();
 
     // Audit mutations always; audit queries only during grade sessions
     const shouldAudit = req.gateway === 'mutate' || (req.gateway === 'query' && isGradeSession);
