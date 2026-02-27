@@ -71,6 +71,10 @@ export {
   sessionHandoff,
   sessionComputeHandoff,
   sessionBriefing,
+  // T4959: Rich debrief + chain
+  sessionComputeDebrief,
+  sessionDebriefShow,
+  sessionChainShow,
   type SessionRecord,
   type DecisionRecord,
 } from '../engines/session-engine.js';

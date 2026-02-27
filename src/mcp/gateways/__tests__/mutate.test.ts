@@ -58,8 +58,8 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.memory.length).toBe(6);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(12);
-    expect(MUTATE_OPERATIONS.admin.length).toBe(10);
-    expect(MUTATE_OPERATIONS.tools.length).toBe(13);
+    expect(MUTATE_OPERATIONS.admin.length).toBe(13);
+    expect(MUTATE_OPERATIONS.tools.length).toBe(14);
     // Legacy aliases
     expect(MUTATE_OPERATIONS.research.length).toBe(4);
     expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
@@ -512,8 +512,8 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('memory')).toBe(6);
     expect(getMutateOperationCount('check')).toBe(2);
     expect(getMutateOperationCount('pipeline')).toBe(12);
-    expect(getMutateOperationCount('admin')).toBe(10);
-    expect(getMutateOperationCount('tools')).toBe(13);
+    expect(getMutateOperationCount('admin')).toBe(13);
+    expect(getMutateOperationCount('tools')).toBe(14);
     // Legacy aliases
     expect(getMutateOperationCount('research')).toBe(4);
     expect(getMutateOperationCount('lifecycle')).toBe(5);

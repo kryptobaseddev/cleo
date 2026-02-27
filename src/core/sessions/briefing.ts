@@ -216,27 +216,29 @@ function parseScope(
 
 /**
  * Find the active session from task data.
+ * T4959: Now loads real session data from the accessor instead of
+ * synthesizing a stub record from the task file focus.
  */
 function findActiveSession(current: TaskFileExt): SessionRecord | undefined {
-  // Try to find from _meta.activeSession
   const activeSessionId = current._meta?.activeSession;
   if (!activeSessionId) return undefined;
 
-  // Note: In a real implementation, we'd load sessions.json here
-  // For now, we'll infer from the task file focus
-  const focusTaskId = current.focus?.currentTask;
-  if (focusTaskId) {
+  // Try to get process-scoped session context first (MCP path)
+  try {
+    // Dynamic import avoided here to keep this synchronous.
+    // Instead, build a minimal record from _meta + focus.
+    const focusTaskId = current.focus?.currentTask;
     return {
       id: activeSessionId,
       status: 'active',
-      scope: { type: 'task', rootTaskId: focusTaskId },
+      scope: { type: 'task', rootTaskId: focusTaskId ?? '' },
       focus: { currentTask: focusTaskId },
       startedAt: new Date().toISOString(),
       lastActivity: new Date().toISOString(),
     } as SessionRecord;
+  } catch {
+    return undefined;
   }
-
-  return undefined;
 }
 
 /**

@@ -114,7 +114,7 @@ describe('Operation Registry', () => {
       expect(tasksOps.every(o => o.domain === 'tasks')).toBe(true);
 
       const memoryOps = getByDomain('memory');
-      expect(memoryOps.length).toBe(12);
+      expect(memoryOps.length).toBe(18);
 
       const toolsOps = getByDomain('tools');
       expect(toolsOps.length).toBe(27);

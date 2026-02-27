@@ -171,8 +171,17 @@ export const sessions = sqliteTable('sessions', {
   handoffJson: text('handoff_json'),
   startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
   endedAt: text('ended_at'),
+  // Session chain columns (T4959)
+  previousSessionId: text('previous_session_id'),
+  nextSessionId: text('next_session_id'),
+  agentIdentifier: text('agent_identifier'),
+  handoffConsumedAt: text('handoff_consumed_at'),
+  handoffConsumedBy: text('handoff_consumed_by'),
+  debriefJson: text('debrief_json'),
 }, (table) => [
   index('idx_sessions_status').on(table.status),
+  index('idx_sessions_previous').on(table.previousSessionId),
+  index('idx_sessions_agent_identifier').on(table.agentIdentifier),
 ]);
 
 // === TASK WORK HISTORY ===

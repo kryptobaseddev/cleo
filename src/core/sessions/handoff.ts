@@ -13,11 +13,16 @@
  * @epic T4914
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
+import type { Session } from '../../types/session.js';
+import type { TaskFileExt } from './types.js';
 import { getDecisionLog } from './decisions.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Handoff data schema - structured state for session transition.
@@ -68,11 +73,7 @@ export async function computeHandoff(
 
   // Load session data
   const sessionsData = await accessor.loadSessions();
-  const sessions = sessionsData as unknown as SessionsFileExt;
-  const allSessions: SessionRecord[] = [
-    ...(sessions?.sessions || []),
-    ...(sessions?.sessionHistory || []),
-  ];
+  const allSessions = sessionsData?.sessions || [];
 
   const session = allSessions.find((s) => s.id === options.sessionId);
   if (!session) {
@@ -90,15 +91,12 @@ export async function computeHandoff(
   const decisions = await getDecisionLog(projectRoot, { sessionId: options.sessionId });
 
   // Compute handoff data
+  const lastTaskId = session.taskWork?.taskId ?? null;
   const handoff: HandoffData = {
-    lastTask: session.focus?.currentTask ?? null,
-    lastFocus: session.focus?.currentTask ?? null,
-    tasksCompleted: session.stats?.tasksCompleted
-      ? [String(session.stats.tasksCompleted)]
-      : [],
-    tasksCreated: session.stats?.tasksCreated
-      ? [String(session.stats.tasksCreated)]
-      : [],
+    lastTask: lastTaskId,
+    lastFocus: lastTaskId,
+    tasksCompleted: session.tasksCompleted ?? [],
+    tasksCreated: session.tasksCreated ?? [],
     decisionsRecorded: decisions.length,
     nextSuggested: computeNextSuggested(session, current),
     openBlockers: findOpenBlockers(current, session),
@@ -121,7 +119,7 @@ export async function computeHandoff(
  * Prioritizes uncompleted tasks within the session scope.
  */
 function computeNextSuggested(
-  session: SessionRecord,
+  session: Session,
   current: TaskFileExt,
 ): string[] {
   const suggestions: string[] = [];
@@ -168,7 +166,7 @@ function computeNextSuggested(
  */
 function findOpenBlockers(
   current: TaskFileExt,
-  session: SessionRecord,
+  session: Session,
 ): string[] {
   const blockers: string[] = [];
 
@@ -189,7 +187,7 @@ function findOpenBlockers(
  */
 function findOpenBugs(
   current: TaskFileExt,
-  session: SessionRecord,
+  session: Session,
 ): string[] {
   const bugs: string[] = [];
 
@@ -215,20 +213,25 @@ function findOpenBugs(
  * Get set of task IDs within the session scope.
  */
 function getScopeTaskIds(
-  session: SessionRecord,
+  session: Session,
   current: TaskFileExt,
 ): Set<string> {
   const taskIds = new Set<string>();
 
   if (!current.tasks) return taskIds;
 
-  const rootTaskId = session.scope.rootTaskId;
-
   if (session.scope.type === 'global') {
     // Global scope: all tasks
     current.tasks.forEach((t) => taskIds.add(t.id));
   } else {
     // Epic/task scope: root task and descendants
+    const rootTaskId = session.scope.epicId;
+    if (!rootTaskId) {
+      // No epic ID, fall back to global
+      current.tasks.forEach((t) => taskIds.add(t.id));
+      return taskIds;
+    }
+
     const addDescendants = (taskId: string) => {
       taskIds.add(taskId);
       current.tasks?.forEach((t) => {
@@ -239,11 +242,6 @@ function getScopeTaskIds(
     };
 
     addDescendants(rootTaskId);
-
-    // Also include explicitly scoped tasks if present
-    if (session.scope.explicitTaskIds) {
-      session.scope.explicitTaskIds.forEach((id) => taskIds.add(id));
-    }
   }
 
   return taskIds;
@@ -259,21 +257,16 @@ export async function persistHandoff(
 ): Promise<void> {
   const accessor = await getAccessor(projectRoot);
   const sessionsData = await accessor.loadSessions();
-  const sessions = sessionsData as unknown as SessionsFileExt;
 
-  if (!sessions) {
+  if (!sessionsData) {
     throw new CleoError(
       ExitCode.SESSION_NOT_FOUND,
       'Sessions file not found',
     );
   }
 
-  // Find in active sessions or history
-  let session = sessions.sessions?.find((s) => s.id === sessionId);
-
-  if (!session && sessions.sessionHistory) {
-    session = sessions.sessionHistory.find((s) => s.id === sessionId);
-  }
+  // Find session in active sessions
+  const session = sessionsData.sessions?.find((s) => s.id === sessionId);
 
   if (!session) {
     throw new CleoError(
@@ -282,8 +275,8 @@ export async function persistHandoff(
     );
   }
 
-  // Store handoff data as JSON string for persistence compatibility
-  (session as unknown as Record<string, unknown>).handoffJson = JSON.stringify(handoff);
+  // Store handoff data as JSON string on the typed Session field
+  session.handoffJson = JSON.stringify(handoff);
 
   await accessor.saveSessions(sessionsData);
 }
@@ -297,24 +290,18 @@ export async function getHandoff(
 ): Promise<HandoffData | null> {
   const accessor = await getAccessor(projectRoot);
   const sessionsData = await accessor.loadSessions();
-  const sessions = sessionsData as unknown as SessionsFileExt;
 
-  if (!sessions) return null;
+  if (!sessionsData) return null;
 
-  // Find in active sessions or history
-  let session = sessions.sessions?.find((s) => s.id === sessionId);
-
-  if (!session && sessions.sessionHistory) {
-    session = sessions.sessionHistory.find((s) => s.id === sessionId);
-  }
+  // Find session in active sessions
+  const session = sessionsData.sessions?.find((s) => s.id === sessionId);
 
   if (!session) return null;
 
   // Try to get handoff from handoffJson property
-  const handoffJson = (session as unknown as Record<string, unknown>).handoffJson;
-  if (typeof handoffJson === 'string') {
+  if (typeof session.handoffJson === 'string') {
     try {
-      return JSON.parse(handoffJson) as HandoffData;
+      return JSON.parse(session.handoffJson) as HandoffData;
     } catch {
       // Fall through to null
     }
@@ -333,15 +320,11 @@ export async function getLastHandoff(
 ): Promise<{ sessionId: string; handoff: HandoffData } | null> {
   const accessor = await getAccessor(projectRoot);
   const sessionsData = await accessor.loadSessions();
-  const sessions = sessionsData as unknown as SessionsFileExt;
 
-  if (!sessions) return null;
+  if (!sessionsData) return null;
 
-  // Get all sessions including history, sorted by end time
-  const allSessions: Array<SessionRecord & { _source: 'active' | 'history' }> = [
-    ...(sessions.sessions || []).map((s) => ({ ...s, _source: 'active' as const })),
-    ...(sessions.sessionHistory || []).map((s) => ({ ...s, _source: 'history' as const })),
-  ];
+  // All sessions come from SQLite - no separate history array needed
+  const allSessions = sessionsData.sessions || [];
 
   // Filter to ended sessions
   let endedSessions = allSessions.filter((s) => s.status === 'ended' && s.endedAt);
@@ -352,7 +335,7 @@ export async function getLastHandoff(
       if (scope.type === 'global') {
         return s.scope.type === 'global';
       }
-      return s.scope.type === scope.type && s.scope.rootTaskId === scope.epicId;
+      return s.scope.type === scope.type && s.scope.epicId === scope.epicId;
     });
   }
 
@@ -364,10 +347,9 @@ export async function getLastHandoff(
 
   // Find first with handoff data
   for (const session of endedSessions) {
-    const handoffJson = (session as unknown as Record<string, unknown>).handoffJson;
-    if (typeof handoffJson === 'string') {
+    if (typeof session.handoffJson === 'string') {
       try {
-        const handoff = JSON.parse(handoffJson) as HandoffData;
+        const handoff = JSON.parse(session.handoffJson) as HandoffData;
         return { sessionId: session.id, handoff };
       } catch {
         // Skip invalid handoff data
@@ -375,6 +357,202 @@ export async function getLastHandoff(
     }
   }
 
-  // If no handoff found but we have an ended session, return null
   return null;
+}
+
+// =============================================================================
+// RICH DEBRIEF (T4959)
+// =============================================================================
+
+/**
+ * Git state snapshot captured at session end.
+ */
+export interface GitState {
+  branch: string;
+  commitCount: number;
+  lastCommitHash: string | null;
+  uncommittedChanges: boolean;
+}
+
+/**
+ * Decision summary for debrief output.
+ */
+export interface DebriefDecision {
+  id: string;
+  decision: string;
+  rationale: string;
+  taskId: string;
+}
+
+/**
+ * Rich debrief data — superset of HandoffData.
+ * Captures comprehensive session state for cross-conversation continuity.
+ *
+ * @epic T4959
+ */
+export interface DebriefData {
+  /** Standard handoff data (backward compat). */
+  handoff: HandoffData;
+  /** Session that produced this debrief. */
+  sessionId: string;
+  /** Agent/conversation identifier (if known). */
+  agentIdentifier: string | null;
+  /** Session start time. */
+  startedAt: string;
+  /** Session end time. */
+  endedAt: string;
+  /** Duration in minutes. */
+  durationMinutes: number;
+  /** Decisions made during the session. */
+  decisions: DebriefDecision[];
+  /** Git state at session end (best-effort). */
+  gitState: GitState | null;
+  /** Position in the session chain (1-based). */
+  chainPosition: number;
+  /** Total length of the session chain. */
+  chainLength: number;
+}
+
+/**
+ * Options for computing debrief data.
+ */
+export interface ComputeDebriefOptions extends ComputeHandoffOptions {
+  /** Agent/conversation identifier. */
+  agentIdentifier?: string | null;
+  /** Session start time. */
+  startedAt?: string;
+  /** Session end time. */
+  endedAt?: string;
+}
+
+/**
+ * Compute rich debrief data for a session.
+ * Builds on computeHandoff() and adds decisions, git state, chain position.
+ *
+ * @epic T4959
+ */
+export async function computeDebrief(
+  projectRoot: string,
+  options: ComputeDebriefOptions,
+): Promise<DebriefData> {
+  // Start with the standard handoff
+  const handoff = await computeHandoff(projectRoot, options);
+
+  // Load decisions
+  const decisions = await getDecisionLog(projectRoot, { sessionId: options.sessionId });
+  const debriefDecisions: DebriefDecision[] = decisions.map((d) => ({
+    id: d.id,
+    decision: d.decision,
+    rationale: d.rationale,
+    taskId: d.taskId,
+  }));
+
+  // Capture git state (best-effort)
+  const gitState = await captureGitState(projectRoot);
+
+  // Compute chain position
+  const { position, length } = await computeChainPosition(projectRoot, options.sessionId);
+
+  const now = new Date().toISOString();
+  const startedAt = options.startedAt ?? now;
+  const endedAt = options.endedAt ?? now;
+  const durationMinutes = Math.round(
+    (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 60000,
+  );
+
+  return {
+    handoff,
+    sessionId: options.sessionId,
+    agentIdentifier: options.agentIdentifier ?? null,
+    startedAt,
+    endedAt,
+    durationMinutes,
+    decisions: debriefDecisions,
+    gitState,
+    chainPosition: position,
+    chainLength: length,
+  };
+}
+
+/**
+ * Capture git state via safe shell execution.
+ * Returns null on any failure (no git, not a repo, etc.).
+ */
+async function captureGitState(projectRoot: string): Promise<GitState | null> {
+  try {
+    const execOpts = { cwd: projectRoot, timeout: 5000 };
+
+    // Get current branch
+    const { stdout: branch } = await execFileAsync(
+      'git', ['rev-parse', '--abbrev-ref', 'HEAD'], execOpts,
+    );
+
+    // Get commit count on current branch
+    const { stdout: countStr } = await execFileAsync(
+      'git', ['rev-list', '--count', 'HEAD'], execOpts,
+    );
+
+    // Get last commit hash
+    const { stdout: hash } = await execFileAsync(
+      'git', ['rev-parse', '--short', 'HEAD'], execOpts,
+    );
+
+    // Check for uncommitted changes
+    const { stdout: statusOut } = await execFileAsync(
+      'git', ['status', '--porcelain'], execOpts,
+    );
+
+    return {
+      branch: branch.trim(),
+      commitCount: parseInt(countStr.trim(), 10) || 0,
+      lastCommitHash: hash.trim() || null,
+      uncommittedChanges: statusOut.trim().length > 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute chain position by walking the previousSessionId links.
+ */
+async function computeChainPosition(
+  projectRoot: string,
+  sessionId: string,
+): Promise<{ position: number; length: number }> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const sessionsData = await accessor.loadSessions();
+    if (!sessionsData) return { position: 1, length: 1 };
+
+    const allSessions = sessionsData.sessions || [];
+    const sessionMap = new Map(allSessions.map((s) => [s.id, s]));
+
+    // Walk backward to find chain start
+    let current = sessionId;
+    let position = 1;
+    const visited = new Set<string>();
+    while (true) {
+      visited.add(current);
+      const session = sessionMap.get(current);
+      if (!session?.previousSessionId || visited.has(session.previousSessionId)) break;
+      current = session.previousSessionId;
+      position++;
+    }
+
+    // Walk forward from chain start to count total length
+    let length = position;
+    const startSession = sessionMap.get(sessionId);
+    let fwd = startSession?.nextSessionId;
+    while (fwd && !visited.has(fwd)) {
+      visited.add(fwd);
+      length++;
+      const s = sessionMap.get(fwd);
+      fwd = s?.nextSessionId ?? undefined;
+    }
+
+    return { position, length };
+  } catch {
+    return { position: 1, length: 1 };
+  }
 }
