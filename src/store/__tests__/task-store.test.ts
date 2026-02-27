@@ -421,13 +421,15 @@ describe('SQLite task-store', () => {
 
       // Task still exists but with archived status
       const { getDb } = await import('../sqlite.js');
-      const { sql } = await import('drizzle-orm');
+      const { eq } = await import('drizzle-orm');
+      const { tasks: taskSchema } = await import('../schema.js');
       const db = await getDb();
-      const rows = db.all<{ status: string; archived_at: string }>(
-        sql`SELECT status, archived_at FROM tasks WHERE id = 'T001'`
-      );
+      const rows = await db.select({ status: taskSchema.status, archivedAt: taskSchema.archivedAt })
+        .from(taskSchema)
+        .where(eq(taskSchema.id, 'T001'))
+        .all();
       expect(rows[0]!.status).toBe('archived');
-      expect(rows[0]!.archived_at).toBeDefined();
+      expect(rows[0]!.archivedAt).toBeDefined();
     });
 
     it('sets archive reason', async () => {
@@ -437,12 +439,14 @@ describe('SQLite task-store', () => {
       await archiveTask('T001', 'Manual cleanup');
 
       const { getDb } = await import('../sqlite.js');
-      const { sql } = await import('drizzle-orm');
+      const { eq } = await import('drizzle-orm');
+      const { tasks: taskSchema } = await import('../schema.js');
       const db = await getDb();
-      const rows = db.all<{ archive_reason: string }>(
-        sql`SELECT archive_reason FROM tasks WHERE id = 'T001'`
-      );
-      expect(rows[0]!.archive_reason).toBe('Manual cleanup');
+      const rows = await db.select({ archiveReason: taskSchema.archiveReason })
+        .from(taskSchema)
+        .where(eq(taskSchema.id, 'T001'))
+        .all();
+      expect(rows[0]!.archiveReason).toBe('Manual cleanup');
     });
 
     it('calculates cycle time in days', async () => {
@@ -453,13 +457,15 @@ describe('SQLite task-store', () => {
       await archiveTask('T001');
 
       const { getDb } = await import('../sqlite.js');
-      const { sql } = await import('drizzle-orm');
+      const { eq } = await import('drizzle-orm');
+      const { tasks: taskSchema } = await import('../schema.js');
       const db = await getDb();
-      const rows = db.all<{ cycle_time_days: number }>(
-        sql`SELECT cycle_time_days FROM tasks WHERE id = 'T001'`
-      );
-      expect(rows[0]!.cycle_time_days).toBeGreaterThanOrEqual(2);
-      expect(rows[0]!.cycle_time_days).toBeLessThanOrEqual(4);
+      const rows = await db.select({ cycleTimeDays: taskSchema.cycleTimeDays })
+        .from(taskSchema)
+        .where(eq(taskSchema.id, 'T001'))
+        .all();
+      expect(rows[0]!.cycleTimeDays).toBeGreaterThanOrEqual(2);
+      expect(rows[0]!.cycleTimeDays).toBeLessThanOrEqual(4);
     });
 
     it('returns false for non-existent task', async () => {
