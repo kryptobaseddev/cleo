@@ -16,6 +16,10 @@ export type SessionScopeType = 'epic' | 'global';
 export interface SessionScope {
   type: SessionScopeType;
   epicId?: string;
+  /** Root task ID (engine-layer alias for epicId). Both are kept in sync. */
+  rootTaskId?: string;
+  /** Whether to include descendant tasks in scope. */
+  includeDescendants?: boolean;
 }
 
 /** Active task work state within a session. */

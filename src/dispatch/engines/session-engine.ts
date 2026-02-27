@@ -304,6 +304,7 @@ export async function sessionStart(
     {
       const sessionsData = await accessor.loadSessions();
       const sessions = sessionsData as unknown as SessionsFileExt;
+      // Search both sessions and legacy sessionHistory for chain linking
       const allSessions = [
         ...(sessions?.sessions || []),
         ...(sessions?.sessionHistory || []),
@@ -439,7 +440,8 @@ export async function sessionStart(
       // Best-effort — briefing failure should not fail session start
     }
 
-    // 5B: Load predecessor debrief and mark handoff consumed
+    // 5B: Load predecessor debrief/handoff and mark consumed
+    let previousHandoff: HandoffData | null = null;
     if (previousSessionId) {
       try {
         const sessionsData2 = await accessor.loadSessions();
@@ -449,9 +451,14 @@ export async function sessionStart(
           ...(sessions2?.sessionHistory || []),
         ];
         const pred = allSessions2.find((s) => s.id === previousSessionId);
-        if (pred?.debriefJson) {
-          previousDebrief = JSON.parse(pred.debriefJson as string) as DebriefData;
-          // Mark handoff consumed
+        if (pred) {
+          // Try debriefJson first (rich data), then handoffJson (basic)
+          if (pred.debriefJson) {
+            previousDebrief = JSON.parse(pred.debriefJson as string) as DebriefData;
+          } else if ((pred as unknown as Record<string, unknown>).handoffJson) {
+            previousHandoff = JSON.parse((pred as unknown as Record<string, unknown>).handoffJson as string) as HandoffData;
+          }
+          // Always mark consumed regardless of debrief vs handoff
           pred.handoffConsumedAt = new Date().toISOString();
           pred.handoffConsumedBy = sessionId;
           await accessor.saveSessions(sessionsData2);
@@ -465,6 +472,7 @@ export async function sessionStart(
       ...newSession,
       ...(briefing && { briefing }),
       ...(previousDebrief && { previousDebrief }),
+      ...(previousHandoff && { previousHandoff }),
     };
 
     return { success: true, data: enrichedSession as SessionRecord };
@@ -514,24 +522,23 @@ export async function sessionEnd(
     (current as Record<string, unknown>).lastUpdated = now;
     await accessor.saveTaskFile(taskData);
 
-    // Update sessions.json if multi-session
-    if (current._meta?.multiSessionEnabled && sessionId !== 'default') {
+    // Always update sessions.json — sessionStart always writes there
+    // (see sessionStart comment: "Always write to sessions.json so resume/suspend can find the session")
+    if (sessionId !== 'default') {
       const sessionsData = await accessor.loadSessions();
       const sessions = sessionsData as unknown as SessionsFileExt;
       if (sessions) {
-        const sessionIndex = sessions.sessions.findIndex(
+        const session = sessions.sessions.find(
           (s) => s.id === sessionId,
         );
-        if (sessionIndex !== -1) {
-          const session = sessions.sessions[sessionIndex];
+        if (session) {
           session.status = 'ended';
           session.endedAt = now;
           session.lastActivity = now;
 
-          // Move to history
-          if (!sessions.sessionHistory) sessions.sessionHistory = [];
-          sessions.sessionHistory.push(session);
-          sessions.sessions.splice(sessionIndex, 1);
+          // Update in-place — do NOT splice to sessionHistory.
+          // SQLite saveSessions only persists data.sessions;
+          // splicing would delete the ended session and its handoff/debrief data.
 
           if (sessions._meta) {
             sessions._meta.lastModified = now;
@@ -572,19 +579,19 @@ export async function sessionResume(
       return engineError('E_NOT_FOUND', `Session '${sessionId}' not found`);
     }
 
-    // Look in active sessions list first
+    // Look in sessions list (all sessions live here; sessionHistory is legacy)
     let session = sessions.sessions.find((s) => s.id === sessionId);
-    let fromHistory = false;
 
-    // Check session history if not found in active list
+    // Fallback: check sessionHistory for legacy data
     if (!session && sessions.sessionHistory) {
       const histIndex = sessions.sessionHistory.findIndex(
         (s) => s.id === sessionId,
       );
       if (histIndex !== -1) {
         session = sessions.sessionHistory[histIndex];
+        // Move from legacy history back to sessions
         sessions.sessionHistory.splice(histIndex, 1);
-        fromHistory = true;
+        sessions.sessions.push(session);
       }
     }
 
@@ -607,10 +614,6 @@ export async function sessionResume(
     session.suspendedAt = null;
     session.endedAt = null;
     session.resumeCount = (session.resumeCount || 0) + 1;
-
-    if (fromHistory) {
-      sessions.sessions.push(session);
-    }
 
     // Update task file to reflect active session
     if (current._meta) {

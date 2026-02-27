@@ -46,7 +46,7 @@ export function parseScope(scopeStr: string): SessionScope {
   }
   const match = scopeStr.match(/^epic:(T\d+)$/);
   if (match) {
-    return { type: 'epic' as SessionScopeType, epicId: match[1] };
+    return { type: 'epic' as SessionScopeType, epicId: match[1], rootTaskId: match[1] };
   }
   throw new CleoError(
     ExitCode.SCOPE_INVALID,

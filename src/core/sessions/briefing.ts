@@ -144,6 +144,9 @@ export async function computeBriefing(
   // Determine scope
   const scopeFilter = parseScope(options.scope, current);
 
+  // Compute in-scope task IDs (undefined = all tasks in scope)
+  const scopeTaskIds = getScopeTaskIdSet(scopeFilter, tasks as Array<{ id: string; parentId?: string; [key: string]: unknown }>);
+
   // 1. Last session handoff
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
 
@@ -153,21 +156,25 @@ export async function computeBriefing(
   // 3. Next tasks (leverage-scored)
   const nextTasks = computeNextTasks(tasks, taskMap, current, {
     maxTasks: options.maxNextTasks ?? 5,
+    scopeTaskIds,
   });
 
   // 4. Open bugs
   const openBugs = computeOpenBugs(tasks, taskMap, {
     maxBugs: options.maxBugs ?? 10,
+    scopeTaskIds,
   });
 
   // 5. Blocked tasks
   const blockedTasks = computeBlockedTasks(tasks, taskMap, {
     maxBlocked: options.maxBlocked ?? 10,
+    scopeTaskIds,
   });
 
   // 6. Active epics
   const activeEpics = computeActiveEpics(tasks, taskMap, {
     maxEpics: options.maxEpics ?? 5,
+    scopeTaskIds,
   });
 
   // 7. Pipeline stage (optional - may not be available)
@@ -239,6 +246,34 @@ function findActiveSession(current: TaskFileExt): SessionRecord | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Compute the set of in-scope task IDs for briefing filtering.
+ * Returns undefined for global/unscoped (meaning all tasks are in scope).
+ */
+function getScopeTaskIdSet(
+  scopeFilter: { type: 'global' | 'epic'; epicId?: string } | undefined,
+  tasks: Array<{ id: string; parentId?: string; [key: string]: unknown }>,
+): Set<string> | undefined {
+  if (!scopeFilter || scopeFilter.type === 'global') {
+    return undefined; // All tasks in scope
+  }
+
+  const rootId = scopeFilter.epicId;
+  if (!rootId) return undefined;
+
+  const taskIds = new Set<string>();
+  const addDescendants = (taskId: string) => {
+    taskIds.add(taskId);
+    for (const t of tasks) {
+      if (t.parentId === taskId) {
+        addDescendants(t.id);
+      }
+    }
+  };
+  addDescendants(rootId);
+  return taskIds;
 }
 
 /**
@@ -344,11 +379,12 @@ function computeNextTasks(
   tasks: unknown[],
   taskMap: Map<string, unknown>,
   current: TaskFileExt,
-  options: { maxTasks: number },
+  options: { maxTasks: number; scopeTaskIds?: Set<string> },
 ): BriefingTask[] {
   const pendingTasks = tasks.filter((t) => {
-    const task = t as { status?: string };
-    return task.status === 'pending';
+    const task = t as { id?: string; status?: string };
+    return task.status === 'pending' &&
+      (!options.scopeTaskIds || options.scopeTaskIds.has(task.id!));
   });
 
   const scored: BriefingTask[] = [];
@@ -408,7 +444,7 @@ function computeNextTasks(
 function computeOpenBugs(
   tasks: unknown[],
   _taskMap: Map<string, unknown>,
-  options: { maxBugs: number },
+  options: { maxBugs: number; scopeTaskIds?: Set<string> },
 ): BriefingBug[] {
   const bugs: BriefingBug[] = [];
 
@@ -425,7 +461,7 @@ function computeOpenBugs(
     const isBug = t.origin === 'bug-report' || t.labels?.includes('bug');
     const isOpen = t.status !== 'done' && t.status !== 'cancelled';
 
-    if (isBug && isOpen) {
+    if (isBug && isOpen && (!options.scopeTaskIds || options.scopeTaskIds.has(t.id))) {
       bugs.push({
         id: t.id,
         title: t.title,
@@ -447,7 +483,7 @@ function computeOpenBugs(
 function computeBlockedTasks(
   tasks: unknown[],
   taskMap: Map<string, unknown>,
-  options: { maxBlocked: number },
+  options: { maxBlocked: number; scopeTaskIds?: Set<string> },
 ): BriefingBlockedTask[] {
   const blocked: BriefingBlockedTask[] = [];
 
@@ -459,6 +495,8 @@ function computeBlockedTasks(
       depends?: string[];
       blockedBy?: string;
     };
+
+    if (options.scopeTaskIds && !options.scopeTaskIds.has(t.id)) continue;
 
     const blockedBy: string[] = [];
 
@@ -497,7 +535,7 @@ function computeBlockedTasks(
 function computeActiveEpics(
   tasks: unknown[],
   taskMap: Map<string, unknown>,
-  options: { maxEpics: number },
+  options: { maxEpics: number; scopeTaskIds?: Set<string> },
 ): BriefingEpic[] {
   const epics: BriefingEpic[] = [];
 
@@ -508,6 +546,8 @@ function computeActiveEpics(
       type?: string;
       status?: string;
     };
+
+    if (options.scopeTaskIds && !options.scopeTaskIds.has(t.id)) continue;
 
     if (t.type === 'epic' && t.status === 'active') {
       const completionPercent = calculateEpicCompletion(t.id, taskMap);
