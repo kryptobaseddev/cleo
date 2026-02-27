@@ -10,7 +10,6 @@
 
 import { getAccessor } from '../../store/data-accessor.js';
 import {
-  isMultiSession as coreIsMultiSession,
   showSession,
   suspendSession,
   getSessionHistory,
@@ -49,17 +48,7 @@ export type { DecisionRecord };
 export type { EngineResult };
 
 /**
- * Check if multi-session mode is enabled.
- * @task T4782
- */
-export async function isMultiSession(projectRoot: string): Promise<boolean> {
-  return coreIsMultiSession(projectRoot);
-}
-
-/**
  * Get current session status.
- * Note: This function has engine-specific logic for combining single-session
- * and multi-session views, so it remains in the engine layer.
  * @task T4782
  */
 export async function sessionStatus(
@@ -67,7 +56,6 @@ export async function sessionStatus(
 ): Promise<
   EngineResult<{
     hasActiveSession: boolean;
-    multiSessionEnabled: boolean;
     session?: Session | null;
     taskWork?: TaskWorkState | null;
   }>
@@ -83,7 +71,6 @@ export async function sessionStatus(
       success: true,
       data: {
         hasActiveSession: !!active,
-        multiSessionEnabled: true,
         session: active || null,
         taskWork: (taskData.focus as TaskWorkState | undefined) || null,
       },
@@ -94,9 +81,7 @@ export async function sessionStatus(
 }
 
 /**
- * List sessions (multi-session mode).
- * Note: This function has engine-specific logic for synthetic single-session
- * fallback, so it remains in the engine layer.
+ * List sessions.
  * @task T4782
  */
 export async function sessionList(
@@ -211,7 +196,7 @@ export async function taskStop(
 /**
  * Start a new session.
  * Note: This function has engine-specific logic for task file focus management
- * and multi-session session file updates, so it remains in the engine layer.
+ * and session store updates, so it remains in the engine layer.
  * @task T4782
  */
 export async function sessionStart(
@@ -330,9 +315,7 @@ export async function sessionStart(
     (taskData as unknown as Record<string, unknown>).lastUpdated = now;
     await accessor.saveTaskFile(taskData);
 
-    // Always write to sessions.json so resume/suspend can find the session.
-    // Previously only written when multi-session enabled, but session resume
-    // always looks in sessions.json regardless of multi-session mode.
+    // Write to sessions store so resume/suspend can find the session.
     {
       const sessions = await accessor.loadSessions();
 
@@ -410,7 +393,7 @@ export async function sessionStart(
 /**
  * End the current session.
  * Note: This function has engine-specific logic for task file focus management
- * and session history management, so it remains in the engine layer.
+ * and session store management, so it remains in the engine layer.
  * @task T4782
  */
 export async function sessionEnd(
@@ -458,10 +441,6 @@ export async function sessionEnd(
         session.status = 'ended';
         session.endedAt = now;
 
-        // Update in-place — do NOT splice to sessionHistory.
-        // SQLite saveSessions only persists data.sessions;
-        // splicing would delete the ended session and its handoff/debrief data.
-
         await accessor.saveSessions(sessions);
       }
     }
@@ -474,8 +453,8 @@ export async function sessionEnd(
 
 /**
  * Resume an ended or suspended session.
- * Note: This function has engine-specific logic for session history management
- * and task file focus sync, so it remains in the engine layer.
+ * Note: This function has engine-specific logic for task file focus sync,
+ * so it remains in the engine layer.
  * @task T4782
  */
 export async function sessionResume(
@@ -486,8 +465,7 @@ export async function sessionResume(
     const accessor = await getAccessor(projectRoot);
     const taskData = await accessor.loadTaskFile();
 
-    // Sessions are always written to sessions.json (even without multi-session mode),
-    // so resume can always look them up there.
+    // Look up sessions from the store.
     const sessions = await accessor.loadSessions();
 
     // Look in sessions list
@@ -534,8 +512,6 @@ export async function sessionResume(
 
 /**
  * Garbage collect old sessions.
- * Note: This function has engine-specific logic for multi-session GC
- * with session history management, so it remains in the engine layer.
  * @task T4782
  */
 export async function sessionGc(
@@ -608,9 +584,7 @@ export async function sessionSuspend(
       ? 'E_NOT_FOUND'
       : message.includes('not active')
         ? 'E_INVALID_STATE'
-        : message.includes('requires multi-session')
-          ? 'E_NOT_SUPPORTED'
-          : 'E_NOT_INITIALIZED';
+        : 'E_NOT_INITIALIZED';
     return engineError(code, message);
   }
 }
@@ -650,7 +624,7 @@ export async function sessionHistory(
  */
 export async function sessionCleanup(
   projectRoot: string,
-): Promise<EngineResult<{ removed: string[]; cleaned: boolean }>> {
+): Promise<EngineResult<{ removed: string[]; autoEnded: string[]; cleaned: boolean }>> {
   try {
     const result = await cleanupSessions(projectRoot);
     return { success: true, data: result };
@@ -816,9 +790,7 @@ export async function sessionSwitch(
       ? 'E_NOT_FOUND'
       : message.includes('archived')
         ? 'E_INVALID_STATE'
-        : message.includes('requires multi-session')
-          ? 'E_NOT_SUPPORTED'
-          : 'E_NOT_INITIALIZED';
+        : 'E_NOT_INITIALIZED';
     return engineError(code, message);
   }
 }

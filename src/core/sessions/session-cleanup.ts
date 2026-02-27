@@ -2,41 +2,67 @@
  * Remove orphaned sessions and clean up stale data.
  *
  * @task T4782
+ * @task T2304
  * @epic T4654
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
+import { getRawConfigValue } from '../config.js';
 import type { TaskFileExt } from './types.js';
 
+/** Default auto-end threshold when no config is set (7 days). */
+const DEFAULT_AUTO_END_DAYS = 7;
+
 /**
- * Remove orphaned sessions and clean up stale data.
- * Removes sessions with status 'ended' or 'suspended' from the active list
- * (moves to history), and clears any orphaned references in todo.json.
+ * Remove orphaned sessions, auto-end stale active sessions, and clean up stale data.
+ *
+ * Stale active sessions (no activity beyond the configured threshold) are
+ * transitioned to 'ended' with an auto-end note. The threshold is read from
+ * `retention.autoEndActiveAfterDays` in the project config (default: 7 days).
+ *
+ * @task T2304
  */
 export async function cleanupSessions(
   projectRoot: string,
-): Promise<{ removed: string[]; cleaned: boolean }> {
+): Promise<{ removed: string[]; autoEnded: string[]; cleaned: boolean }> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
   const current = taskData as unknown as TaskFileExt;
 
-  const multiSession = current._meta?.multiSessionEnabled === true;
-  if (!multiSession) {
-    return { removed: [], cleaned: false };
-  }
-
   const sessions = await accessor.loadSessions();
 
   if (sessions.length === 0) {
-    return { removed: [], cleaned: false };
+    return { removed: [], autoEnded: [], cleaned: false };
   }
 
   const removed: string[] = [];
+  const autoEnded: string[] = [];
   let todoUpdated = false;
 
-  // Identify non-active sessions to remove
-  // In SQLite, status changes are persisted directly -- no history array needed
+  // Read auto-end threshold from config
+  const configDays = await getRawConfigValue('retention.autoEndActiveAfterDays', projectRoot);
+  const autoEndDays = typeof configDays === 'number' && configDays > 0
+    ? configDays
+    : DEFAULT_AUTO_END_DAYS;
+  const autoEndMs = autoEndDays * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
   for (const session of sessions) {
+    // Auto-end stale active sessions (T2304)
+    if (session.status === 'active') {
+      const sessionTime = new Date(session.startedAt).getTime();
+      if (now - sessionTime > autoEndMs) {
+        session.status = 'ended';
+        session.endedAt = new Date().toISOString();
+        if (!session.notes) session.notes = [];
+        session.notes.push(
+          `Auto-ended: session exceeded ${autoEndDays}-day inactivity threshold`,
+        );
+        autoEnded.push(session.id);
+      }
+    }
+
+    // Identify archived sessions to remove
     if ((session.status as string) === 'archived') {
       removed.push(session.id);
     }
@@ -55,12 +81,12 @@ export async function cleanupSessions(
     }
   }
 
-  if (removed.length > 0 || todoUpdated) {
+  if (removed.length > 0 || autoEnded.length > 0 || todoUpdated) {
     await accessor.saveSessions(sessions);
     if (todoUpdated) {
       await accessor.saveTaskFile(taskData);
     }
   }
 
-  return { removed, cleaned: removed.length > 0 || todoUpdated };
+  return { removed, autoEnded, cleaned: removed.length > 0 || autoEnded.length > 0 || todoUpdated };
 }

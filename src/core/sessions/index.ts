@@ -318,7 +318,6 @@ export async function gcSessions(maxAgeHours: number = 24, cwd?: string, accesso
 }
 
 // Re-export extended session modules (engine-compatible)
-export { isMultiSession } from './multi-session.js';
 export { showSession } from './session-show.js';
 export { suspendSession } from './session-suspend.js';
 export { getSessionHistory } from './session-history.js';

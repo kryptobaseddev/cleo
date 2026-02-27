@@ -1008,7 +1008,6 @@ describe('E2E: Brain Operations', () => {
         },
         meta: {
           schemaVersion: '2.6.0',
-          multiSessionEnabled: true,
           activeSession: SAMPLE_SESSION.id,
           sessionsFile: 'sessions.json',
         },
@@ -1072,7 +1071,6 @@ describe('E2E: Brain Operations', () => {
         focus: { currentTask: 'T102' },
         meta: {
           schemaVersion: '2.6.0',
-          multiSessionEnabled: true,
           activeSession: SAMPLE_SESSION.id,
           sessionsFile: 'sessions.json',
         },

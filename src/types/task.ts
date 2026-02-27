@@ -151,7 +151,6 @@ export interface FileMeta {
   configVersion: string;
   lastSessionId?: string | null;
   activeSession?: string | null;
-  multiSessionEnabled?: boolean;
   activeSessionCount?: number;
   sessionsFile?: string | null;
   generation?: number;
