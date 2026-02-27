@@ -5,6 +5,9 @@
 **Accepted**: 2026-02-25
 **Related ADRs**: ADR-006, ADR-008, ADR-009
 **Related Tasks**: T4772, T4820, T4813, T4894
+**Summary**: Consolidates CLEO's dispatch architecture into 9 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus. All MCP and CLI operations must use these domain namespaces with dot-notation. Admin domain owns ADR management operations (adr.list, adr.show, adr.find, adr.sync, adr.validate).
+**Keywords**: domains, dispatch, mcp, cli, operations, admin, tasks, session, pipeline, nexus, orchestrate
+**Topics**: admin, orchestrate, tasks, session, naming
 
 ---
 
@@ -94,7 +97,7 @@ The following domain models were evaluated during T4797 research:
 
 | # | Domain | Purpose | Brain Metaphor | CLEO Pillar | Tier | Ops |
 |---|--------|---------|---------------|-------------|------|-----|
-| 1 | **tasks** | Task CRUD, hierarchy, focus, analysis, labels | Neurons | Portable Memory | 0 | ~29 |
+| 1 | **tasks** | Task CRUD, hierarchy, start/stop/current, analysis, labels | Neurons | Portable Memory | 0 | ~29 |
 | 2 | **session** | Session lifecycle, decisions, assumptions, context | Working Memory | Portable Memory | 0 | 13 |
 | 3 | **memory** | Research manifests, knowledge store, retrieval | Long-term Memory | Cognitive Retrieval | 1 | 12 |
 | 4 | **check** | CLEO validation + project quality assurance | Immune System | Deterministic Safety | 1 | 12 |
@@ -194,7 +197,7 @@ The **76 CLI commands** map to the 9 canonical domains as follows:
 const DOMAIN_CLI_MAP = {
   tasks: [
     'add', 'list', 'show', 'find', 'complete', 'delete', 'restore', 
-    'archive', 'reparent', 'promote', 'reorder', 'focus', 'blockers',
+    'archive', 'reparent', 'promote', 'reorder', 'blockers',
     'deps', 'analyze', 'next', 'relates', 'labels', 'roadmap', 'archive-stats'
   ],
   
@@ -226,7 +229,9 @@ const DOMAIN_CLI_MAP = {
   admin: [
     'config', 'backup', 'restore', 'init', 'stats', 'dash', 'log',
     'sequence', 'migrate', 'sync', 'cleanup', 'safestop', 'self-update',
-    'env', 'export', 'import', 'checkpoint', 'web', 'otel'
+    'env', 'export', 'import', 'checkpoint', 'web', 'otel',
+    // ADR management (ADR-017 §5, T4792, T4942)
+    'adr', 'adr.list', 'adr.show', 'adr.find', 'adr.sync', 'adr.validate'
   ],
   
   nexus: [

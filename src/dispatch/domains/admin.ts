@@ -19,7 +19,7 @@ import { getLogger } from '../../core/logger.js';
 import { OPERATIONS } from '../registry.js';
 
 const logger = getLogger('domain:admin');
-import { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs } from '../../core/adrs/index.js';
+import { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs, findAdrs } from '../../core/adrs/index.js';
 import {
   systemDash,
   systemStats,
@@ -187,6 +187,23 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'adr.find': {
+          const query = params?.query as string;
+          if (!query) {
+            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          }
+          const result = await findAdrs(this.projectRoot, query, {
+            topics: params?.topics as string | undefined,
+            keywords: params?.keywords as string | undefined,
+            status: params?.status as string | undefined,
+          });
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         default:
           return this.unsupported('query', 'admin', operation, startTime);
       }
@@ -324,7 +341,7 @@ export class AdminHandler implements DomainHandler {
       query: [
         'version', 'health', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
-        'adr.list', 'adr.show',
+        'adr.list', 'adr.show', 'adr.find',
       ],
       mutate: [
         'init', 'config.set', 'backup', 'restore', 'migrate',

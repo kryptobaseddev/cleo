@@ -4,6 +4,9 @@
 **Status**: accepted
 **Accepted**: 2026-02-16
 **Related Tasks**: T4628, T4554
+**Summary**: Eliminates CLEO's dual-engine architecture by unifying all MCP operations to delegate to src/core/ shared logic. The standalone mcp-server/ package was merged into src/mcp/, removing ~3,000 lines of duplicated engine code.
+**Keywords**: mcp, engine, unification, shared-core, dual-engine, refactor
+**Topics**: admin, orchestrate, tools
 
 ## Context
 

@@ -5,6 +5,9 @@
 **Accepted**: 2026-02-23
 **Amends**: ADR-006
 **Related Tasks**: T4817
+**Summary**: Selects node:sqlite (Node.js built-in, v22.5+) over sql.js and better-sqlite3 as the SQLite engine, paired with drizzle-orm/sqlite-proxy as the ORM layer. Zero native dependencies, cross-platform, WAL mode enabled.
+**Keywords**: sqlite, node-sqlite, drizzle-orm, orm, sql-engine, wasm, better-sqlite3, wal
+**Topics**: storage, admin, migration
 
 ---
 

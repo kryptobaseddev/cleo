@@ -4,6 +4,9 @@
 **Status**: accepted
 **Accepted**: 2026-02-23
 **Amends**: ADR-006 (Section 1)
+**Summary**: Documents the three .cleo/ configuration files (config.json, project-context.json, global-config.json), their purposes, ownership, and how project-context.json reaches LLM agents through AGENT-INJECTION.md.
+**Keywords**: config, project-context, global-config, llm, agent-injection, configuration
+**Topics**: admin, tools
 
 ---
 

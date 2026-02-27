@@ -146,7 +146,7 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tasks',
-    operation: 'plan',
+    operation: 'compute',
     description: 'Composite planning view with in-progress epics, ready tasks, blocked tasks, and open bugs (query)',
     tier: 0,
     idempotent: true,
@@ -246,8 +246,18 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'session',
-    operation: 'briefing',
-    description: 'session.briefing - Composite session-start context (query)',
+    operation: 'handoff.show',
+    description: 'session.handoff.show - Show handoff data from the most recent ended session (query)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'session',
+    operation: 'briefing.show',
+    description: 'session.briefing.show - Composite session-start context (query)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -1594,6 +1604,16 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'adr.find',
+    description: 'admin.adr.find (query) — fuzzy search ADRs by title, summary, keywords, and topics',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['query'],
   },
 ];
 
