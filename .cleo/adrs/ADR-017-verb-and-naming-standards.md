@@ -272,7 +272,7 @@ The ADR system uses the same hybrid model as all BRAIN memory: **SQLite is the r
 | **Includes archive/** | ❌ active ADRs only | ✅ all ADRs including superseded |
 | **Requires DB** | ✅ yes | ❌ no — works on any filesystem |
 
-**Rule**: The DB is the canonical source for runtime queries. The MANIFEST is a portable snapshot for dev tooling and offline use. Both MUST be kept in sync: run `ct adr sync` after editing ADR frontmatter (runtime), and `npm run adr:manifest` before committing (MANIFEST).
+**Rule**: `ct adr sync` updates both in one pass — DB first, then MANIFEST.jsonl. Run it once after editing ADR frontmatter. `npm run adr:manifest` is a thin alias that calls the same core function.
 
 ---
 
