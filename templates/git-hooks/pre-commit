@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-commit guardrails — reject SQLite runtime files.
+#
+# SQLite WAL/SHM/journal files are runtime artifacts that must never be
+# committed. They can corrupt the database when checked out on another
+# machine. This covers tasks.db, brain.db, and any future SQLite databases.
+#
+# Installation: Automatically installed via `cleo init`
+
+set -e
+
+# ── WAL/SHM/journal files ─────────────────────────────────────────────
+BAD_FILES=$(git diff --cached --name-only | grep -E '\.(db-wal|db-shm|db-journal)$' || true)
+
+if [ -n "$BAD_FILES" ]; then
+  echo "ERROR: Refusing to commit SQLite WAL/SHM/journal files:"
+  echo "$BAD_FILES"
+  echo ""
+  echo "These are runtime files that must never be tracked in git."
+  echo "To fix: git rm --cached <file>"
+  exit 1
+fi

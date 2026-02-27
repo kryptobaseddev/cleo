@@ -17,6 +17,7 @@
  *  10. NEXUS project registration
  *  11. Project type detection (--detect)
  *  12. Injection refresh (--update-docs)
+ *  13. Git hook installation (commit-msg, pre-commit)
  *
  * @task T4681
  * @task T4682
@@ -30,7 +31,7 @@
  * @epic T4663
  */
 
-import { mkdir, access, writeFile, readFile, copyFile, symlink, lstat, unlink } from 'node:fs/promises';
+import { chmod, mkdir, access, writeFile, readFile, copyFile, symlink, lstat, unlink } from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';
 import { readJson } from '../store/json.js';
@@ -368,6 +369,62 @@ async function initSchemas(
 
   if (copiedCount > 0) {
     created.push(`schemas/ (${copiedCount} files)`);
+  }
+}
+
+/**
+ * Install git hooks from the package templates/git-hooks/ directory.
+ * Copies commit-msg and pre-commit hooks into .git/hooks/ if they don't
+ * already exist (unless force is set).
+ */
+async function initGitHooks(
+  projRoot: string,
+  force: boolean,
+  created: string[],
+  warnings: string[],
+): Promise<void> {
+  const gitHooksDir = join(projRoot, '.git', 'hooks');
+  if (!existsSync(join(projRoot, '.git'))) {
+    warnings.push('No .git/ directory found, skipping git hook installation');
+    return;
+  }
+
+  await mkdir(gitHooksDir, { recursive: true });
+
+  const packageRoot = getPackageRoot();
+  const sourceDir = join(packageRoot, 'templates', 'git-hooks');
+
+  if (!existsSync(sourceDir)) {
+    warnings.push('templates/git-hooks/ not found in package root, skipping git hook installation');
+    return;
+  }
+
+  const hooks = ['commit-msg', 'pre-commit'];
+  let installedCount = 0;
+
+  for (const hook of hooks) {
+    const sourcePath = join(sourceDir, hook);
+    const destPath = join(gitHooksDir, hook);
+
+    if (!existsSync(sourcePath)) {
+      continue;
+    }
+
+    if (existsSync(destPath) && !force) {
+      continue;
+    }
+
+    try {
+      await copyFile(sourcePath, destPath);
+      await chmod(destPath, 0o755);
+      installedCount++;
+    } catch (err) {
+      warnings.push(`Failed to install git hook ${hook}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  if (installedCount > 0) {
+    created.push(`git hooks (${installedCount} installed)`);
   }
 }
 
@@ -817,6 +874,9 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
 
   // T4681: Schema files (.cleo/schemas/)
   await initSchemas(cleoDir, force, created, warnings);
+
+  // Git hooks (commit-msg, pre-commit)
+  await initGitHooks(projRoot, force, created, warnings);
 
   // T4684: Project info (.cleo/project-info.json)
   await initProjectInfo(cleoDir, projRoot, force, created, skipped);
