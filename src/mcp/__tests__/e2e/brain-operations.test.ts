@@ -33,7 +33,7 @@ import {
   sessionDecisionLog,
   sessionRecordAssumption,
   sessionContextDrift,
-} from '../../engine/session-engine.js';
+} from '../../../dispatch/engines/session-engine.js';
 
 import {
   systemInjectGenerate,
