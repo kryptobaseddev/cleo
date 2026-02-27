@@ -60,7 +60,7 @@ export interface DomainResponse {
 type MutateDomain =
   // Canonical domains
   | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin'
+  | 'orchestrate' | 'tools' | 'admin' | 'nexus'
   // Legacy aliases (backward compat)
   | 'research' | 'lifecycle' | 'validate' | 'release'
   | 'system' | 'issues' | 'skills' | 'providers';

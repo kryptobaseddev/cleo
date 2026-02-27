@@ -60,7 +60,7 @@ export interface DomainResponse {
 type QueryDomain =
   // Canonical domains
   | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin'
+  | 'orchestrate' | 'tools' | 'admin' | 'nexus'
   // Legacy aliases (backward compat)
   | 'research' | 'lifecycle' | 'validate'
   | 'system' | 'issues' | 'skills' | 'providers';

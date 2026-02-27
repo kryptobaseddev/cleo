@@ -2,8 +2,9 @@
 
 **Date**: 2026-02-22
 **Status**: accepted
+**Accepted**: 2026-02-22
 **Related ADRs**: ADR-006 (storage), ADR-007 (domain consolidation), ADR-008 (canonical architecture)
-**Related Tasks**: T2971, T2996, T4797, T4911, T4912, T4913, T4914, T4915, T4916
+**Related Tasks**: T2996, T4797, T4911, T4912, T4913, T4914, T4915, T4916
 **Summary**: Unifies the BRAIN cognitive architecture across scattered documents. Establishes SQLite as the runtime store for BRAIN memory (decisions, patterns, learnings), defines Vectorless RAG as the primary retrieval method, and maps the 5 BRAIN dimensions to CLEO's 9 canonical domains.
 **Keywords**: brain, cognitive, memory, rag, vectorless, sqlite, retrieval, embeddings, dimensions
 **Topics**: memory, storage, orchestrate, nexus

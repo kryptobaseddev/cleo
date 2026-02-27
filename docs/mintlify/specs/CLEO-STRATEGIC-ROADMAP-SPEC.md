@@ -1155,7 +1155,7 @@ BRAIN Certification
 - **T2968**: EPIC: CLEO Strategic Inflection Point Review
 - **T2969**: Research: CLEO Current State Assessment (v0.80.0 analysis)
 - **T2970**: Research: Cognee Architecture Analysis (pattern analysis)
-- **T2971**: Research: BRAIN Vision Requirements (scale tiers, capability gaps)
+- **T2971**: Research: BRAIN Vision Requirements (scale tiers, capability gaps) *(archived — pre-SQLite migration)*
 - **T2972**: Consensus: Strategic Direction (voting matrix, confidence scores)
 
 ### 10.2 Domain Research (Phase 0 Validation)
