@@ -4,6 +4,9 @@
 **Status**: proposed
 **Related ADRs**: ADR-006 (storage), ADR-007 (domain consolidation), ADR-008 (canonical architecture)
 **Related Tasks**: T2971, T2996, T4797
+**Summary**: Unifies the BRAIN cognitive architecture across scattered documents. Establishes SQLite as the runtime store for BRAIN memory (decisions, patterns, learnings), defines Vectorless RAG as the primary retrieval method, and maps the 5 BRAIN dimensions to CLEO's 9 canonical domains.
+**Keywords**: brain, cognitive, memory, rag, vectorless, sqlite, retrieval, embeddings, dimensions
+**Topics**: memory, storage, orchestrate, nexus
 
 ---
 
@@ -49,7 +52,7 @@ They are orthogonal: a single Pillar may be served by multiple BRAIN dimensions,
 | **Provenance by Default** | Base (Memory), Intelligence | Audit trails, decision memory, compliance scoring |
 | **Interoperable Interfaces** | Agent, Network | CLI + MCP + adapters, federated agent coordination |
 | **Deterministic Safety** | Intelligence, Base (Memory) | 4-layer validation, adaptive validation, atomic writes |
-| **Cognitive Retrieval** | Reasoning, Base (Memory), Network | Graph-RAG, vectorless hierarchy search, similarity detection, cross-project search |
+| **Cognitive Retrieval** | Reasoning, Base (Memory), Network | Graph-RAG, vectorless hierarchy search, similarity detection, cross-project search; **ADR search shipped (T4942)**: `admin.adr.find` provides score-weighted fuzzy retrieval over the ADR decision store |
 
 ### 2.3 The 5 BRAIN Dimensions — Canonical Definition
 
@@ -276,13 +279,16 @@ The `relates` field on tasks provides explicit knowledge graph connections:
 
 This section provides the comprehensive mapping of all BRAIN capabilities to the 9 canonical domains, resolving the gap in ADR-007 Section 4.2.
 
-### 5.1 Base (Memory) — Domain: `memory` + `session`
+### 5.1 Base (Memory) — Domain: `memory` + `session` + `admin` (ADR store)
 
 | Capability | Domain.Operation | Phase | Status |
 |------------|-----------------|-------|--------|
 | Task persistence | `tasks.*` | Current | Shipped |
 | Session state | `session.*` | Current | Shipped |
 | Research artifacts | `memory.manifest.*` | Current | Shipped |
+| **ADR memory store** | `admin.adr.sync` | Current | **Shipped (T4792)** |
+| **ADR memory search** | `admin.adr.find` | Current | **Shipped (T4942)** |
+| **ADR task linking** | `adr_task_links` DB table | Current | **Shipped (T4942)** |
 | Context persistence | `session.context.*` | 1 | Planned |
 | Decision memory store | `memory.decision.store` | 2 | Planned |
 | Decision memory recall | `memory.decision.recall` | 2 | Planned |
@@ -297,6 +303,8 @@ This section provides the comprehensive mapping of all BRAIN capabilities to the
 | Memory export (JSONL) | `memory.export` | 2 | Planned |
 | Memory import (JSONL) | `memory.import` | 2 | Planned |
 | Contradiction detection | `memory.contradictions` | Current | Shipped |
+
+**Note on ADR Memory (T4942)**: ADRs are the first shipped implementation of the decision memory concept defined in this ADR. The `architecture_decisions` SQLite table, `adr_task_links`, and `adr_relations` junction tables form a relational decision memory store. `admin.adr.find` provides cognitive retrieval over this store using score-weighted fuzzy search across `Summary`, `Keywords`, and `Topics` fields. This is the concrete shipped precursor to the full `memory.decision.*` capability planned for Phase 2.
 
 ### 5.2 Reasoning (Inference) — Domain: DEFERRED (See Section 2.5)
 

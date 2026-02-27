@@ -5,6 +5,9 @@
 **Accepted**: 2026-02-22
 **Related Tasks**: T4797, T4781, T4813, T4863, T4800
 **Amended By**: ADR-017
+**Summary**: Defines the canonical shared-core + CQRS dispatch architecture. src/core/ is the single source of truth for all business logic. CLI and MCP are thin wrappers that parse/translate then delegate to core. Introduces the dispatch layer (cleo_query/cleo_mutate) as the uniform interface.
+**Keywords**: architecture, shared-core, cqrs, dispatch, mcp, cli, core, canonical
+**Topics**: admin, orchestrate, tools, naming
 
 ---
 
@@ -245,7 +248,7 @@ src/
 │   │
 │   ├── compliance/            # Domain: Compliance checking
 │   ├── context/               # Domain: Context management
-│   ├── focus/                 # Domain: Focus/work tracking
+│   ├── focus/                 # Domain: Deprecated shim (canonical: task-work/)
 │   ├── inject/                # Domain: Injection system
 │   ├── issue/                 # Domain: Issue creation
 │   ├── lifecycle/             # Domain: Legacy lifecycle (migrating to pipeline)

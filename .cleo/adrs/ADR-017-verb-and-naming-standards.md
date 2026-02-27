@@ -5,7 +5,10 @@
 **Accepted**: 2026-02-26
 **Amends**: ADR-006 (§3 ADR Lifecycle Tooling), ADR-008 (§14 File Naming, §15.2 Verb Standards)
 **Related ADRs**: ADR-006, ADR-007, ADR-008, ADR-009
-**Related Tasks**: T4732, T4791, T4792
+**Related Tasks**: T4732, T4791, T4792, T4942
+**Summary**: Establishes the canonical naming, verb, and frontmatter standards for CLEO ADRs. Extends architecture_decisions DB with lifecycle tracking columns and adds cognitive search fields (summary, keywords, topics) to enable agent-native ADR discovery via admin.adr.find.
+**Keywords**: naming, verbs, frontmatter, adr, schema, db, cognitive-search, dispatch
+**Topics**: admin, naming, storage, schema
 
 ---
 
@@ -152,6 +155,28 @@ This section partially amends ADR-006 §3 (ADR Lifecycle Tooling). ADR-006 §3 d
 **Retired fields** (do not use in new ADRs):
 `Task`, `Epic`, `References`, `Research`, `Related Epics`, `Related Task Epic`, `Consensus`, `Source Documents`, `Lifecycle Ratification`, `Consensus Manifest`
 
+### §5.1.1 Cognitive Search Fields (Amendment T4942)
+
+Three additional **optional** frontmatter fields enable agent-native ADR discovery without reading full content:
+
+```
+**Summary**: 1-3 sentence plain-language decision summary.
+**Keywords**: comma-separated freeform tags (e.g., 'sqlite, migration, storage')
+**Topics**: comma-separated controlled-vocabulary domain tags
+```
+
+**Summary**: Free-text, 1–3 sentences. Written for agents, not humans. Should answer "what problem does this ADR solve and what was decided?" in a single short paragraph.
+
+**Keywords**: Freeform comma-separated tags. Lower-case preferred. Used for fuzzy match scoring. Examples: `sqlite, migration, drizzle, schema, storage, validation, naming, verbstandards`.
+
+**Topics**: Controlled vocabulary from the 9 canonical CLEO domains plus cross-cutting terms:
+- Canonical domains: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`
+- Cross-cutting: `storage`, `testing`, `migration`, `naming`, `security`, `performance`, `schema`, `lifecycle`
+
+Multiple topics as comma-separated list: `storage, migration, admin`
+
+**Rationale for optional not required**: Backfill requires LLM assistance or human effort. Making these required would block new ADR creation. They are enrichment fields; the core ADR format remains Date + Status.
+
 ### §5.2 Status Enum
 
 Status values MUST match DB enum exactly:
@@ -191,6 +216,48 @@ to_adr_id TEXT NOT NULL REFERENCES architecture_decisions(id)
 relation_type TEXT CHECK(relation_type IN ('supersedes', 'amends', 'related'))
 PRIMARY KEY (from_adr_id, to_adr_id, relation_type)
 ```
+
+### §5.4 Cognitive Search DB Extension (Amendment T4942)
+
+The `architecture_decisions` table is further extended with 3 cognitive search columns:
+
+**3 new search columns** (added to existing 15 from §5.3):
+- `summary TEXT` — maps to `**Summary**` frontmatter
+- `keywords TEXT` — maps to `**Keywords**` frontmatter (comma-separated string)
+- `topics TEXT` — maps to `**Topics**` frontmatter (comma-separated string)
+
+**`admin.adr.find` dispatch operation** (Tier 1 — accessible from check/memory tier):
+
+```typescript
+cleo_query({
+  domain: 'admin',
+  operation: 'adr.find',
+  params: {
+    query: string,        // Required: search terms
+    topics?: string,      // Optional: comma-separated topic filter (AND semantics)
+    keywords?: string,    // Optional: comma-separated keyword filter (AND semantics)
+    status?: string,      // Optional: status filter
+  }
+})
+```
+
+**CLI equivalent**: `ct adr find <query> [--topics <topics>] [--keywords <keywords>] [--status <status>]`
+
+**Search algorithm**: In-memory fuzzy scoring over parsed frontmatter fields. Chosen over SQLite FTS5 because:
+- ADR set is small (<50) — in-memory is faster with no cold-start cost
+- FTS5 virtual tables require DDL outside drizzle-kit schema management
+- In-memory scoring allows field-weighted ranking without SQL complexity
+
+**Score weights**:
+| Field | Score per matched term |
+|-------|----------------------|
+| keywords (exact tag) | 40 |
+| topics (exact tag) | 30 |
+| title (contains) | 20 |
+| summary (contains) | 10 |
+| id (contains) | 5 |
+
+**RCASD Pipeline auto-linking**: When `advanceStage()` transitions FROM `architecture_decision`, `linkPipelineAdr()` scans `.cleo/adrs/` for ADRs referencing the pipeline's task ID in `Related Tasks`, upserts them in DB, and creates `adr_task_links` with `link_type='implements'`. Non-fatal: pipeline progression is never blocked by ADR linking failure.
 
 ---
 

@@ -3,6 +3,9 @@
 **Date**: 2026-02-18
 **Status**: accepted
 **Accepted**: 2026-02-18
+**Summary**: Establishes safety architecture for JSON→SQLite data migrations. Implements atomic write, checkpoint/rollback, and data loss prevention guards to protect against migration failures.
+**Keywords**: migration, safety, sqlite, json, backup, checkpoint, rollback, data-loss
+**Topics**: storage, migration, security
 
 ---
 

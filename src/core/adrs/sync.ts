@@ -69,6 +69,9 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
         amendsId,
         supersedesId,
         supersededById,
+        summary: fm.Summary ?? null,
+        keywords: fm.Keywords ?? null,
+        topics: fm.Topics ?? null,
         updatedAt: now,
       } as const;
 

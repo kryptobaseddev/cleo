@@ -7,6 +7,9 @@
 **Gate Status**: passed
 **Related Tasks**: T4880, T4881, T4882, T4883, T4884
 **Related ADRs**: ADR-013
+**Summary**: Establishes how multiple AI agents and human contributors can safely share the .cleo/ directory. Introduces contributor isolation, lock files for concurrent write safety, and per-contributor audit trails.
+**Keywords**: multi-contributor, agents, concurrent, lock, isolation, audit, cleo-dir
+**Topics**: orchestrate, session, storage, security
 
 ---
 

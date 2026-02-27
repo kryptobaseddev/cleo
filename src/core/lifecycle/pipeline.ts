@@ -12,19 +12,18 @@
  * @epic T4798 - Lifecycle persistence improvements
  * @audit T4799 - Three incompatible implementations unified
  * @depends T4801 - Schema design (lifecycle_pipelines, pipeline_stages tables)
- * 
- * NOTE: This file contains stub implementations that will be fully implemented
- * once T4801 (schema design) completes. The interfaces are stable and ready
- * for integration.
+ * @task T4912 - Pipeline Validation & Tests (SQLite wiring implementation)
  */
 
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
+import { getDb } from '../../store/sqlite.js';
+import * as schema from '../../store/schema.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Stage, StageStatus } from './stages.js';
-// TODO(T4801): Import once schema is ready
-// import { getDb } from '../../store/sqlite.js';
-// import * as schema from '../../store/schema.js';
-// import { eq, and } from 'drizzle-orm';
+import type { PipelineStatus } from '../../store/status-registry.js';
+import { getProjectRoot } from '../paths.js';
+import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -68,17 +67,8 @@ export interface Pipeline {
   version: number;
 }
 
-/**
- * Pipeline status values.
- * 
- * @task T4800
- */
-export type PipelineStatus = 
-  | 'active'      // Pipeline is in progress
-  | 'completed'   // All stages completed successfully
-  | 'blocked'     // Blocked on prerequisites
-  | 'cancelled'   // Cancelled before completion
-  | 'failed';     // Failed during execution
+// ADR-018: PipelineStatus is the canonical type from the status registry.
+export type { PipelineStatus };
 
 /**
  * Pipeline stage record linking pipeline to individual stages.
@@ -245,43 +235,79 @@ export interface PipelineQueryOptions {
  * 
  * @task T4800
  * @audit T4799 - Replaces scattered _manifest.json creation
- * @depends T4801 - Requires lifecycle_pipelines and pipeline_stages tables
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function initializePipeline(
   taskId: string,
   options: InitializePipelineOptions = {}
 ): Promise<Pipeline> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Check if pipeline already exists for taskId
-  // 2. Create pipeline record in lifecycle_pipelines table:
-  //    - id: taskId
-  //    - current_stage: options.startStage || 'research'
-  //    - status: options.initialStatus || 'active'
-  //    - is_active: true
-  //    - created_at: new Date().toISOString()
-  //    - updated_at: new Date().toISOString()
- //    - version: 1
-  // 3. Create all 9 stage records in pipeline_stages table:
-  //    - Each stage: status='not_started', order=stageOrder[stage]
-  // 4. Set initial stage status to 'in_progress'
-  // 5. Return created Pipeline object
-  //
-  // Current behavior: Simulate success for testing
-  console.warn(
-    `[T4800] initializePipeline() is a stub. ` +
-    `Waiting for T4801 (schema design). taskId=${taskId}`
-  );
-  
+  const db = await getDb();
   const now = new Date();
+  const startStage = options.startStage || 'research';
+  const initialStatus = options.initialStatus || 'active';
+  
+  // Check if pipeline already exists
+  const existing = await db
+    .select()
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .limit(1)
+    .all();
+  
+  if (existing.length > 0) {
+    throw new CleoError(
+      ExitCode.ALREADY_EXISTS,
+      `Pipeline already exists for task ${taskId}`
+    );
+  }
+  
+  // Create pipeline ID (use taskId as pipeline ID for simplicity)
+  const pipelineId = taskId;
+  
+  // Insert pipeline record - cast status to schema enum type
+  await db.insert(schema.lifecyclePipelines).values({
+    id: pipelineId,
+    taskId,
+    status: initialStatus as typeof schema.LIFECYCLE_PIPELINE_STATUSES[number],
+    currentStageId: startStage,
+    startedAt: now.toISOString(),
+  }).run();
+  
+  // Create all 9 stage records
+  const stageNames: Stage[] = [
+    'research',
+    'consensus',
+    'architecture_decision',
+    'specification',
+    'decomposition',
+    'implementation',
+    'validation',
+    'testing',
+    'release',
+  ];
+  
+  for (let i = 0; i < stageNames.length; i++) {
+    const stageName = stageNames[i];
+    const isStartStage = stageName === startStage;
+    
+    await db.insert(schema.lifecycleStages).values({
+      id: `${pipelineId}_${stageName}`,
+      pipelineId,
+      stageName,
+      status: isStartStage ? 'in_progress' : 'not_started',
+      sequence: i + 1,
+      startedAt: isStartStage ? now.toISOString() : undefined,
+    }).run();
+  }
+  
+  // Return created pipeline
   const pipeline: Pipeline = {
     id: taskId,
-    currentStage: options.startStage || 'research',
+    currentStage: startStage,
     createdAt: now,
     updatedAt: now,
-    status: options.initialStatus || 'active',
-    isActive: true,
+    status: initialStatus,
+    isActive: initialStatus === 'active',
     transitionCount: 0,
     version: 1,
   };
@@ -309,23 +335,45 @@ export async function initializePipeline(
  * 
  * @task T4800
  * @audit T4799 - Replaces JSON manifest reading
- * @depends T4801 - Requires lifecycle_pipelines table
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function getPipeline(taskId: string): Promise<Pipeline | null> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Query lifecycle_pipelines table where id = taskId
-  // 2. If found, map database row to Pipeline interface
-  // 3. Return null if not found
-  //
-  // Current behavior: Return null (no pipelines exist yet)
-  console.warn(
-    `[T4800] getPipeline() is a stub. ` +
-    `Waiting for T4801 (schema design). taskId=${taskId}`
-  );
+  const db = await getDb();
   
-  return null;
+  const result = await db
+    .select()
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .limit(1)
+    .all();
+  
+  if (result.length === 0) {
+    return null;
+  }
+  
+  const row = result[0];
+  const isActive = row.status === 'active';
+  
+  // Get transition count from transitions table using sql count
+  const transitionResult = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.lifecycleTransitions)
+    .where(eq(schema.lifecycleTransitions.pipelineId, row.id))
+    .all();
+  
+  const transitionCount = Number(transitionResult[0]?.count || 0);
+  
+  return {
+    id: taskId,
+    currentStage: row.currentStageId as Stage,
+    createdAt: new Date(row.startedAt),
+    updatedAt: new Date(row.startedAt), // TODO: Add updated_at column
+    status: row.status as PipelineStatus,
+    isActive,
+    completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
+    transitionCount,
+    version: 1, // TODO: Add version column for optimistic locking
+  };
 }
 
 /**
@@ -351,32 +399,16 @@ export async function getPipeline(taskId: string): Promise<Pipeline | null> {
  * 
  * @task T4800
  * @audit T4799 - Replaces manual manifest updates with transactional approach
- * @depends T4801 - Requires lifecycle_pipelines, pipeline_stages, pipeline_transitions tables
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function advanceStage(
   taskId: string,
   options: AdvanceStageOptions
 ): Promise<void> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Get pipeline by taskId (throw if not found)
-  // 2. If !options.skipPrerequisites:
-  //    a. Check prerequisites for target stage
-  //    b. Throw LIFECYCLE_GATE_FAILED if prerequisites not met and !options.force
-  // 3. Validate transition from current stage to target stage
-  // 4. Begin transaction:
-  //    a. Update current stage status to 'completed'
-  //    b. Set completed_at timestamp
-  //    c. Update target stage status to 'in_progress'
-  //    d. Set started_at timestamp
-  //    e. Update pipeline current_stage
-  //    f. Increment transition_count
-  //    g. Update updated_at timestamp
-  //    h. Insert transition record in pipeline_transitions
-  // 5. Commit transaction
-  //
-  // Current behavior: Validate input and throw not-implemented
+  const db = await getDb();
+  const now = new Date();
+  
+  // Validate required parameters
   if (!options.toStage) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
@@ -391,25 +423,113 @@ export async function advanceStage(
     );
   }
   
-  console.warn(
-    `[T4800] advanceStage() is a stub. ` +
-    `Waiting for T4801 (schema design). taskId=${taskId}, toStage=${options.toStage}`
-  );
+  // Get pipeline
+  const pipelineResult = await db
+    .select()
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .limit(1)
+    .all();
   
-  throw new CleoError(
-    ExitCode.GENERAL_ERROR,
-    `advanceStage() not yet implemented. Waiting for T4801 (schema design). ` +
-    `Would transition ${taskId} to ${options.toStage}.`,
-    {
-      fix: 'Complete T4801 to add lifecycle_pipelines and related tables',
-      alternatives: [
-        { 
-          action: 'Use JSON-based stage advancement', 
-          command: 'import { recordStageProgress } from "./index.js"' 
-        }
-      ]
+  if (pipelineResult.length === 0) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `No pipeline found for task ${taskId}`
+    );
+  }
+  
+  const pipeline = pipelineResult[0];
+  const fromStage = pipeline.currentStageId as Stage;
+  const toStage = options.toStage;
+  
+  // Get current stage record
+  const currentStageResult = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(and(
+      eq(schema.lifecycleStages.pipelineId, pipeline.id),
+      eq(schema.lifecycleStages.stageName, fromStage)
+    ))
+    .limit(1)
+    .all();
+  
+  if (currentStageResult.length === 0) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `Current stage ${fromStage} not found for pipeline ${pipeline.id}`
+    );
+  }
+  
+  const currentStageRecord = currentStageResult[0];
+  
+  // Get target stage record
+  const targetStageResult = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(and(
+      eq(schema.lifecycleStages.pipelineId, pipeline.id),
+      eq(schema.lifecycleStages.stageName, toStage)
+    ))
+    .limit(1)
+    .all();
+  
+  if (targetStageResult.length === 0) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `Target stage ${toStage} not found for pipeline ${pipeline.id}`
+    );
+  }
+  
+  const targetStageRecord = targetStageResult[0];
+  
+  // Mark current stage as completed
+  await db
+    .update(schema.lifecycleStages)
+    .set({
+      status: 'completed',
+      completedAt: now.toISOString(),
+    })
+    .where(eq(schema.lifecycleStages.id, currentStageRecord.id))
+    .run();
+  
+  // Mark target stage as in_progress
+  await db
+    .update(schema.lifecycleStages)
+    .set({
+      status: 'in_progress',
+      startedAt: now.toISOString(),
+    })
+    .where(eq(schema.lifecycleStages.id, targetStageRecord.id))
+    .run();
+  
+  // Update pipeline current stage
+  await db
+    .update(schema.lifecyclePipelines)
+    .set({
+      currentStageId: toStage,
+    })
+    .where(eq(schema.lifecyclePipelines.id, pipeline.id))
+    .run();
+  
+  // Record transition
+  await db.insert(schema.lifecycleTransitions).values({
+    id: `${pipeline.id}_${now.getTime()}`,
+    pipelineId: pipeline.id,
+    fromStageId: currentStageRecord.id,
+    toStageId: targetStageRecord.id,
+    transitionType: options.force ? 'forced' : 'manual',
+  }).run();
+
+  // T4947: Auto-link ADRs when architecture_decision stage completes.
+  // When a pipeline advances FROM architecture_decision, scan .cleo/adrs/ for
+  // ADRs that reference this task and create implements links in the DB.
+  if (fromStage === 'architecture_decision') {
+    try {
+      await linkPipelineAdr(getProjectRoot(), taskId);
+    } catch {
+      // Non-fatal: ADR linking failure must not block pipeline progression
     }
-  );
+  }
 }
 
 /**
@@ -424,39 +544,34 @@ export async function advanceStage(
  * @example
  * ```typescript
  * const currentStage = await getCurrentStage('T4800');
- * if (currentStage === 'verify') {
+ * if (currentStage === 'validation') {
  *   console.log('Task is in verification');
  * }
  * ```
  * 
  * @task T4800
  * @audit T4799 - Replaces JSON manifest stage lookup
- * @depends T4801 - Requires lifecycle_pipelines table
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function getCurrentStage(taskId: string): Promise<Stage> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Query lifecycle_pipelines for current_stage where id = taskId
-  // 2. Throw NOT_FOUND if pipeline doesn't exist
-  // 3. Return current_stage value
-  //
-  // Current behavior: Throw not-implemented error
-  const pipeline = await getPipeline(taskId);
+  const db = await getDb();
   
-  if (!pipeline) {
+  const result = await db
+    .select({ currentStageId: schema.lifecyclePipelines.currentStageId })
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .limit(1)
+    .all();
+  
+  if (result.length === 0) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
       `No pipeline found for task ${taskId}`
     );
   }
   
-  return pipeline.currentStage;
+  return result[0].currentStageId as Stage;
 }
-
-// =============================================================================
-// QUERY FUNCTIONS
-// =============================================================================
 
 /**
  * List pipelines with optional filtering.
@@ -474,30 +589,82 @@ export async function getCurrentStage(taskId: string): Promise<Stage> {
  * ```
  * 
  * @task T4800
- * @depends T4801 - Requires lifecycle_pipelines table
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function listPipelines(
   options: PipelineQueryOptions = {}
 ): Promise<Pipeline[]> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Build query with filters from options
-  // 2. Apply pagination (limit/offset)
-  // 3. Apply ordering
-  // 4. Return array of Pipeline objects
-  //
-  // Current behavior: Return empty array with warning
-  console.warn(
-    `[T4800] listPipelines() is a stub. ` +
-    `Waiting for T4801 (schema design).`
-  );
+  const db = await getDb();
   
-  if (Object.keys(options).length > 0) {
-    console.warn(`[T4800] Query options ignored: ${JSON.stringify(options)}`);
+  let query = db.select().from(schema.lifecyclePipelines);
+  
+  const conditions = [];
+  
+  if (options.status) {
+    conditions.push(eq(schema.lifecyclePipelines.status, options.status as typeof schema.LIFECYCLE_PIPELINE_STATUSES[number]));
   }
   
-  return [];
+  if (options.currentStage) {
+    conditions.push(eq(schema.lifecyclePipelines.currentStageId, options.currentStage));
+  }
+  
+  if (conditions.length > 0) {
+    // Build where clause manually since Drizzle types are strict
+    const whereClause = conditions.length === 1 
+      ? conditions[0] 
+      : and(...conditions);
+    query = db.select().from(schema.lifecyclePipelines).where(whereClause) as typeof query;
+  }
+  
+  // Apply ordering
+  if (options.orderBy) {
+    const order = options.order === 'asc' ? asc : desc;
+    switch (options.orderBy) {
+      case 'createdAt':
+        query = db.select().from(schema.lifecyclePipelines).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(order(schema.lifecyclePipelines.startedAt)) as typeof query;
+        break;
+      case 'currentStage':
+        query = db.select().from(schema.lifecyclePipelines).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(order(schema.lifecyclePipelines.currentStageId)) as typeof query;
+        break;
+    }
+  } else {
+    query = db.select().from(schema.lifecyclePipelines).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(desc(schema.lifecyclePipelines.startedAt)) as typeof query;
+  }
+  
+  // Apply pagination
+  if (options.limit) {
+    query = db.select().from(schema.lifecyclePipelines).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(desc(schema.lifecyclePipelines.startedAt)).limit(options.limit) as typeof query;
+  }
+  
+  if (options.offset) {
+    query = db.select().from(schema.lifecyclePipelines).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(desc(schema.lifecyclePipelines.startedAt)).limit(options.limit || 100).offset(options.offset) as typeof query;
+  }
+  
+  const results = await query.all();
+  
+  return Promise.all(results.map(async (row) => {
+    const isActive = row.status === 'active';
+    
+    const transitionResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.lifecycleTransitions)
+      .where(eq(schema.lifecycleTransitions.pipelineId, row.id))
+      .all();
+    
+    const transitionCount = Number(transitionResult[0]?.count || 0);
+    
+    return {
+      id: row.taskId,
+      currentStage: row.currentStageId as Stage,
+      createdAt: new Date(row.startedAt),
+      updatedAt: new Date(row.startedAt),
+      status: row.status as PipelineStatus,
+      isActive,
+      completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
+      transitionCount,
+      version: 1,
+    };
+  }));
 }
 
 /**
@@ -507,56 +674,69 @@ export async function listPipelines(
  * Only valid when the pipeline is in the 'release' stage.
  * 
  * @param taskId - The task ID
- * @param reason - Optional completion reason
+ * @param _reason - Optional completion reason (unused, for API compatibility)
  * @throws {CleoError} If pipeline not found or not in releasable state
  * @returns Promise resolving when complete
  * 
  * @task T4800
- * @depends T4801 - Requires lifecycle_pipelines table
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function completePipeline(
   taskId: string,
-  reason?: string
+  _reason?: string
 ): Promise<void> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Get pipeline and verify it exists
-  // 2. Verify current stage is 'release' or allow any stage with force
-  // 3. Update pipeline status to 'completed'
-  // 4. Set completed_at timestamp
-  // 5. Set is_active to false
-  //
-  // Current behavior: Validate input and throw not-implemented
-  console.warn(
-    `[T4800] completePipeline() is a stub. ` +
-    `Waiting for T4801 (schema design). taskId=${taskId}`
-  );
+  const db = await getDb();
+  const now = new Date();
   
-  if (reason) {
-    console.warn(`[T4800] Completion reason: ${reason}`);
+  const pipelineResult = await db
+    .select()
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .limit(1)
+    .all();
+  
+  if (pipelineResult.length === 0) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `No pipeline found for task ${taskId}`
+    );
   }
   
-  throw new CleoError(
-    ExitCode.GENERAL_ERROR,
-    'completePipeline() not yet implemented. Waiting for T4801 (schema design).',
-    {
-      fix: 'Complete T4801 to add lifecycle_pipelines table',
-      alternatives: [
-        { 
-          action: 'Use JSON-based completion', 
-          command: 'import { recordStageProgress } from "./index.js" with status="completed"' 
-        }
-      ]
-    }
-  );
+  const pipeline = pipelineResult[0];
+  
+  // Mark current stage (release) as completed
+  if (pipeline.currentStageId) {
+    await db
+      .update(schema.lifecycleStages)
+      .set({
+        status: 'completed',
+        completedAt: now.toISOString(),
+      })
+      .where(and(
+        eq(schema.lifecycleStages.pipelineId, pipeline.id),
+        eq(schema.lifecycleStages.stageName, pipeline.currentStageId as Stage)
+      ))
+      .run();
+  }
+  
+  // Update pipeline status
+  await db
+    .update(schema.lifecyclePipelines)
+    .set({
+      status: 'completed',
+      completedAt: now.toISOString(),
+    })
+    .where(eq(schema.lifecyclePipelines.id, pipeline.id))
+    .run();
 }
 
 /**
  * Cancel a pipeline before completion.
- * 
- * Marks the pipeline as cancelled with an optional reason. Once cancelled,
+ *
+ * Marks the pipeline as cancelled (user-initiated). Once cancelled,
  * the pipeline cannot be resumed (a new one must be created).
+ * Use this for deliberate user decisions to abandon a pipeline.
+ * System-forced terminations should use the 'aborted' status directly.
  * 
  * @param taskId - The task ID
  * @param reason - Reason for cancellation
@@ -564,41 +744,64 @@ export async function completePipeline(
  * @returns Promise resolving when cancelled
  * 
  * @task T4800
- * @depends T4801 - Requires lifecycle_pipelines table
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function cancelPipeline(
   taskId: string,
   reason: string
 ): Promise<void> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Get pipeline and verify it exists
-  // 2. Verify pipeline is not already completed
-  // 3. Update pipeline status to 'cancelled'
-  // 4. Set cancelled_reason
-  // 5. Set is_active to false
-  //
-  // Current behavior: Validate input and throw not-implemented
-  console.warn(
-    `[T4800] cancelPipeline() is a stub. ` +
-    `Waiting for T4801 (schema design). taskId=${taskId}`
-  );
+  const db = await getDb();
+  const now = new Date();
   
-  throw new CleoError(
-    ExitCode.GENERAL_ERROR,
-    `cancelPipeline() not yet implemented. Waiting for T4801 (schema design). ` +
-    `Reason: ${reason}`,
-    {
-      fix: 'Complete T4801 to add lifecycle_pipelines table',
-      alternatives: [
-        { 
-          action: 'Use JSON-based cancellation tracking', 
-          command: 'import { skipStageWithReason } from "./index.js"' 
-        }
-      ]
-    }
-  );
+  const pipelineResult = await db
+    .select()
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .limit(1)
+    .all();
+  
+  if (pipelineResult.length === 0) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `No pipeline found for task ${taskId}`
+    );
+  }
+  
+  const pipeline = pipelineResult[0];
+  
+  // Check if already completed
+  if (pipeline.status === 'completed') {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Cannot cancel completed pipeline for task ${taskId}`
+    );
+  }
+  
+  // Mark current stage as failed
+  if (pipeline.currentStageId) {
+    await db
+      .update(schema.lifecycleStages)
+      .set({
+        status: 'failed',
+        blockedAt: now.toISOString(),
+        blockReason: `Pipeline cancelled: ${reason}`,
+      })
+      .where(and(
+        eq(schema.lifecycleStages.pipelineId, pipeline.id),
+        eq(schema.lifecycleStages.stageName, pipeline.currentStageId as Stage)
+      ))
+      .run();
+  }
+  
+  // Update pipeline status to cancelled (user-initiated; 'aborted' = system-forced)
+  await db
+    .update(schema.lifecyclePipelines)
+    .set({
+      status: 'cancelled',
+      completedAt: now.toISOString(),
+    })
+    .where(eq(schema.lifecyclePipelines.id, pipeline.id))
+    .run();
 }
 
 // =============================================================================
@@ -612,11 +815,18 @@ export async function cancelPipeline(
  * @returns Promise resolving to boolean
  * 
  * @task T4800
- * @depends T4801 - Requires lifecycle_pipelines table
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function pipelineExists(taskId: string): Promise<boolean> {
-  const pipeline = await getPipeline(taskId);
-  return pipeline !== null;
+  const db = await getDb();
+  
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .all();
+  
+  return (result[0]?.count || 0) > 0;
 }
 
 /**
@@ -628,35 +838,119 @@ export async function pipelineExists(taskId: string): Promise<boolean> {
  * @returns Promise resolving to statistics object
  * 
  * @task T4800
- * @depends T4801 - Requires lifecycle_pipelines table
+ * @task T4912 - Implemented SQLite wiring
  */
 export async function getPipelineStatistics(): Promise<{
   total: number;
   byStatus: Record<PipelineStatus, number>;
   byStage: Partial<Record<Stage, number>>;
 }> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Implement once schema is available:
-  // 1. Query aggregate counts by status
-  // 2. Query aggregate counts by current_stage
-  // 3. Return structured statistics
-  //
-  // Current behavior: Return empty statistics
-  console.warn(
-    `[T4800] getPipelineStatistics() is a stub. ` +
-    `Waiting for T4801 (schema design).`
-  );
+  const db = await getDb();
+  
+  // Get total count
+  const totalResult = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.lifecyclePipelines)
+    .all();
+  
+  const total = Number(totalResult[0]?.count || 0);
+  
+  // Get counts by status
+  const byStatusResult = await db
+    .select({
+      status: schema.lifecyclePipelines.status,
+      count: sql<number>`count(*)`,
+    })
+    .from(schema.lifecyclePipelines)
+    .groupBy(schema.lifecyclePipelines.status)
+    .all();
+  
+  const byStatus: Record<PipelineStatus, number> = {
+    active: 0,
+    completed: 0,
+    blocked: 0,
+    failed: 0,
+    cancelled: 0,
+    aborted: 0,
+  };
+  
+  for (const row of byStatusResult) {
+    const status = row.status as PipelineStatus;
+    if (status in byStatus) {
+      byStatus[status] = Number(row.count || 0);
+    }
+  }
+  
+  // Get counts by stage
+  const byStageResult = await db
+    .select({
+      stage: schema.lifecyclePipelines.currentStageId,
+      count: sql<number>`count(*)`,
+    })
+    .from(schema.lifecyclePipelines)
+    .groupBy(schema.lifecyclePipelines.currentStageId)
+    .all();
+  
+  const byStage: Partial<Record<Stage, number>> = {};
+  
+  for (const row of byStageResult) {
+    if (row.stage) {
+      const stage = row.stage as Stage;
+      byStage[stage] = Number(row.count || 0);
+    }
+  }
   
   return {
-    total: 0,
-    byStatus: {
-      active: 0,
-      completed: 0,
-      blocked: 0,
-      cancelled: 0,
-      failed: 0,
-    },
-    byStage: {},
+    total,
+    byStatus,
+    byStage,
   };
+}
+
+/**
+ * Get all stages for a pipeline.
+ * 
+ * @param taskId - The task ID
+ * @returns Promise resolving to array of stage records
+ * 
+ * @task T4912
+ */
+export async function getPipelineStages(
+  taskId: string
+): Promise<PipelineStageRecord[]> {
+  const db = await getDb();
+  
+  // First get the pipeline ID
+  const pipelineResult = await db
+    .select({ id: schema.lifecyclePipelines.id })
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.taskId, taskId))
+    .limit(1)
+    .all();
+  
+  if (pipelineResult.length === 0) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `No pipeline found for task ${taskId}`
+    );
+  }
+  
+  const pipelineId = pipelineResult[0].id;
+  
+  const stages = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(eq(schema.lifecycleStages.pipelineId, pipelineId))
+    .orderBy(asc(schema.lifecycleStages.sequence))
+    .all();
+  
+  return stages.map(stage => ({
+    id: stage.id,
+    pipelineId: stage.pipelineId,
+    stage: stage.stageName as Stage,
+    status: stage.status as StageStatus,
+    startedAt: stage.startedAt ? new Date(stage.startedAt) : undefined,
+    completedAt: stage.completedAt ? new Date(stage.completedAt) : undefined,
+    order: stage.sequence,
+  }));
 }
