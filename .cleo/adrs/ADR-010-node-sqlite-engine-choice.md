@@ -1,10 +1,12 @@
 # ADR-010: SQL Engine & ORM Layer Selection
 
 **Date**: 2026-02-23
-**Updated**: 2026-02-23
 **Status**: accepted
+**Accepted**: 2026-02-23
 **Amends**: ADR-006
-**Related Task Epic**: T4817
+**Related Tasks**: T4817
+
+---
 
 ## 1. Context
 

@@ -6,7 +6,9 @@ vi.mock('../../lib/engine.js', () => ({
   systemStats: vi.fn(),
   systemLog: vi.fn(),
   systemContext: vi.fn(),
+  systemRuntime: vi.fn(),
   systemSequence: vi.fn(),
+  systemSequenceRepair: vi.fn(),
   systemHealth: vi.fn(),
   systemInjectGenerate: vi.fn(),
   systemBackup: vi.fn(),
@@ -32,7 +34,9 @@ import {
   systemStats,
   systemLog,
   systemContext,
+  systemRuntime,
   systemSequence,
+  systemSequenceRepair,
   systemHealth,
   systemInjectGenerate,
   systemBackup,
@@ -64,7 +68,8 @@ describe('AdminHandler', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
         'version', 'health', 'config.get', 'stats', 'context',
-        'job.status', 'job.list', 'dash', 'log', 'sequence',
+        'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
+        'adr.list', 'adr.show',
       ]);
     });
 
@@ -72,7 +77,8 @@ describe('AdminHandler', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
         'init', 'config.set', 'backup', 'restore', 'migrate',
-        'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate',
+        'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
+        'adr.sync', 'adr.validate',
       ]);
     });
   });
@@ -131,6 +137,15 @@ describe('AdminHandler', () => {
       expect(systemContext).toHaveBeenCalledWith('/mock/project', undefined);
     });
 
+    it('should call systemRuntime for runtime', async () => {
+      vi.mocked(systemRuntime).mockResolvedValue({ success: true, data: { channel: 'dev' } });
+
+      const res = await handler.query('runtime', { detailed: true });
+
+      expect(res.success).toBe(true);
+      expect(systemRuntime).toHaveBeenCalledWith('/mock/project', { detailed: true });
+    });
+
     it('should call systemDash for dash', async () => {
       vi.mocked(systemDash).mockResolvedValue({ success: true, data: { tasks: 5 } });
 
@@ -150,12 +165,29 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemSequence for sequence', async () => {
-      vi.mocked(systemSequence).mockReturnValue({ success: true, data: { next: 42 } });
+      vi.mocked(systemSequence).mockResolvedValue({ success: true, data: { next: 42 } });
 
       const res = await handler.query('sequence');
 
       expect(res.success).toBe(true);
-      expect(systemSequence).toHaveBeenCalledWith('/mock/project');
+      expect(systemSequence).toHaveBeenCalledWith('/mock/project', { action: undefined });
+    });
+
+    it('should call systemSequence for sequence check action', async () => {
+      vi.mocked(systemSequence).mockResolvedValue({ success: true, data: { valid: true } });
+
+      const res = await handler.query('sequence', { action: 'check' });
+
+      expect(res.success).toBe(true);
+      expect(systemSequence).toHaveBeenCalledWith('/mock/project', { action: 'check' });
+    });
+
+    it('should reject invalid sequence query action', async () => {
+      const res = await handler.query('sequence', { action: 'repair' });
+
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe('E_INVALID_INPUT');
+      expect(systemSequence).not.toHaveBeenCalled();
     });
 
     it('should return E_NOT_IMPLEMENTED for job.status', async () => {
@@ -326,6 +358,23 @@ describe('AdminHandler', () => {
 
       expect(res.success).toBe(true);
       expect(systemInjectGenerate).toHaveBeenCalledWith('/mock/project');
+    });
+
+    it('should call systemSequenceRepair for sequence repair', async () => {
+      vi.mocked(systemSequenceRepair).mockResolvedValue({ success: true, data: { repaired: true, counter: 99 } });
+
+      const res = await handler.mutate('sequence', { action: 'repair' });
+
+      expect(res.success).toBe(true);
+      expect(systemSequenceRepair).toHaveBeenCalledWith('/mock/project');
+    });
+
+    it('should reject sequence mutate without repair action', async () => {
+      const res = await handler.mutate('sequence', { action: 'check' });
+
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe('E_INVALID_INPUT');
+      expect(systemSequenceRepair).not.toHaveBeenCalled();
     });
 
     it('should return E_INVALID_OPERATION for unknown mutate', async () => {
