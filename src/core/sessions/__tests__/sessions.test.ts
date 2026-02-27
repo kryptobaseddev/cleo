@@ -24,7 +24,7 @@ describe('parseScope', () => {
   });
 
   it('parses epic scope', () => {
-    expect(parseScope('epic:T001')).toEqual({ type: 'epic', epicId: 'T001' });
+    expect(parseScope('epic:T001')).toEqual({ type: 'epic', epicId: 'T001', rootTaskId: 'T001' });
   });
 
   it('rejects invalid scope', () => {
@@ -56,7 +56,7 @@ describe('Session lifecycle', () => {
     expect(session.id).toMatch(/^session-/);
     expect(session.name).toBe('Test session');
     expect(session.status).toBe('active');
-    expect(session.scope).toEqual({ type: 'epic', epicId: 'T001' });
+    expect(session.scope).toEqual({ type: 'epic', epicId: 'T001', rootTaskId: 'T001' });
   });
 
   it('shows session status', async () => {

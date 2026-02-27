@@ -40,7 +40,7 @@ afterEach(async () => {
 
 describe('Scope parsing edge cases', () => {
   it('parses epic scope with multi-digit IDs', () => {
-    expect(parseScope('epic:T9999')).toEqual({ type: 'epic', epicId: 'T9999' });
+    expect(parseScope('epic:T9999')).toEqual({ type: 'epic', epicId: 'T9999', rootTaskId: 'T9999' });
   });
 
   it('rejects scope without colon separator', () => {
