@@ -17,13 +17,12 @@ import type { Session } from '../../types/session.js';
 let tempDir: string;
 
 function makeSession(overrides: Partial<Session> & { id: string }): Session {
-  const focus = overrides.focus ?? { taskId: null, setAt: null };
+  const taskWork = overrides.taskWork ?? { taskId: null, setAt: null };
   return {
     name: `Session ${overrides.id}`,
     status: 'active',
     scope: { type: 'global' },
-    focus,
-    taskWork: overrides.taskWork ?? focus,
+    taskWork,
     startedAt: new Date().toISOString(),
     ...overrides,
   };
@@ -88,20 +87,20 @@ describe('SQLite session-store', () => {
       expect(retrieved!.tasksCreated).toEqual(['T002', 'T003']);
     });
 
-    it('preserves focus state', async () => {
+    it('preserves taskWork state', async () => {
       const { createSession, getSession } = await import('../session-store.js');
 
       const now = new Date().toISOString();
       const session = makeSession({
         id: 'sess-003',
-        focus: { taskId: 'T001', setAt: now },
+        taskWork: { taskId: 'T001', setAt: now },
       });
 
       await createSession(session);
       const retrieved = await getSession('sess-003');
 
-      expect(retrieved!.focus!.taskId).toBe('T001');
-      expect(retrieved!.focus!.setAt).toBe(now);
+      expect(retrieved!.taskWork.taskId).toBe('T001');
+      expect(retrieved!.taskWork.setAt).toBe(now);
     });
 
     it('preserves agent field', async () => {

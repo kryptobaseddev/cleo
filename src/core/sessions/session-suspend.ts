@@ -8,7 +8,8 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
+import type { Session } from '../../types/session.js';
+import type { TaskFileExt } from './types.js';
 
 /**
  * Suspend an active session.
@@ -19,7 +20,7 @@ export async function suspendSession(
   projectRoot: string,
   sessionId: string,
   reason?: string,
-): Promise<SessionRecord> {
+): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
   const current = taskData as unknown as TaskFileExt;
@@ -33,17 +34,9 @@ export async function suspendSession(
     );
   }
 
-  const sessionsData = await accessor.loadSessions();
-  const sessions = sessionsData as unknown as SessionsFileExt;
+  const sessions = await accessor.loadSessions();
 
-  if (!sessions) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      `Session '${sessionId}' not found`,
-    );
-  }
-
-  const session = sessions.sessions.find((s) => s.id === sessionId);
+  const session = sessions.find((s) => s.id === sessionId);
 
   if (!session) {
     throw new CleoError(
@@ -62,16 +55,15 @@ export async function suspendSession(
   const now = new Date().toISOString();
 
   session.status = 'suspended';
-  session.suspendedAt = now;
-  session.lastActivity = now;
+  (session as unknown as Record<string, unknown>).suspendedAt = now;
 
   if (session.stats) {
     session.stats.suspendCount = (session.stats.suspendCount || 0) + 1;
   }
 
   if (reason) {
-    session.focus = session.focus || { currentTask: null, currentPhase: null };
-    session.focus.sessionNote = reason;
+    if (!session.notes) session.notes = [];
+    session.notes.push(reason);
   }
 
   // Clear active session in todo.json if this was the active one
@@ -82,11 +74,7 @@ export async function suspendSession(
     await accessor.saveTaskFile(taskData);
   }
 
-  if (sessions._meta) {
-    sessions._meta.lastModified = now;
-  }
-
-  await accessor.saveSessions(sessionsData);
+  await accessor.saveSessions(sessions);
 
   return session;
 }

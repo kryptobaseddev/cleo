@@ -14,8 +14,9 @@
  * @epic T4732
  */
 
-import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
+import type { DataAccessor, ArchiveFile } from './data-accessor.js';
 import type { Task, TaskFile } from '../types/task.js';
+import type { Session } from '../types/session.js';
 import type { ArchiveFields } from './db-helpers.js';
 import {
   safeSaveTaskFile,
@@ -125,8 +126,8 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.loadArchive();
   }
 
-  async loadSessions(): Promise<SessionsFile> {
-    this.logVerbose('Loading SessionsFile (pass-through)');
+  async loadSessions(): Promise<Session[]> {
+    this.logVerbose('Loading sessions (pass-through)');
     return this.inner.loadSessions();
   }
 
@@ -137,8 +138,8 @@ export class SafetyDataAccessor implements DataAccessor {
     await safeSaveTaskFile(this.inner, data, this.cwd, this.getSafetyOptions());
   }
 
-  async saveSessions(data: SessionsFile): Promise<void> {
-    this.logVerbose(`Saving SessionsFile with ${data.sessions?.length ?? 0} sessions`);
+  async saveSessions(data: Session[]): Promise<void> {
+    this.logVerbose(`Saving sessions with ${data.length} sessions`);
     await safeSaveSessions(this.inner, data, this.cwd, this.getSafetyOptions());
   }
 

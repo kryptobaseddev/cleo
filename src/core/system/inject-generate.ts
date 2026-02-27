@@ -16,12 +16,12 @@ export interface InjectGenerateResult {
   version: string;
 }
 
-interface SessionRecord {
+interface SessionLike {
   id: string;
   status: string;
   name?: string;
-  scope?: { type: string; rootTaskId: string };
-  focus?: { currentTask?: string | null };
+  scope?: { type: string; rootTaskId?: string };
+  taskWork?: { taskId?: string | null };
 }
 
 /** Generate Minimum Viable Injection (MVI) markdown. */
@@ -59,11 +59,11 @@ export async function generateInjection(
   try {
     const sessionsPath = getSessionsPath(projectRoot);
     if (existsSync(sessionsPath)) {
-      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8')) as { sessions: SessionRecord[] };
+      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8')) as { sessions: SessionLike[] };
       const active = sessionsData.sessions?.find(s => s.status === 'active');
       if (active) {
         activeSessionName = active.name || active.id;
-        focusTask = active.focus?.currentTask ?? focusTask;
+        focusTask = active.taskWork?.taskId ?? focusTask;
         sessionScope = `${active.scope?.type}:${active.scope?.rootTaskId}`;
       }
     }

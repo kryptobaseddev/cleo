@@ -12,7 +12,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDir } from '../paths.js';
 import { readJson, saveJson } from '../../store/json.js';
-import type { SessionsFile } from '../../types/session.js';
 
 /**
  * Check if migration is needed for Epic-Bound Sessions.
@@ -61,7 +60,7 @@ export async function migrateToEpicSessions(cwd?: string): Promise<{
 
   // Create sessions.json if missing
   if (!existsSync(sessionsPath)) {
-    const initialData: SessionsFile = {
+    const initialData = {
       version: '1.0.0',
       sessions: [],
       _meta: {
@@ -74,9 +73,9 @@ export async function migrateToEpicSessions(cwd?: string): Promise<{
     actions.push('Created sessions.json');
   } else {
     // Validate existing sessions.json
-    const data = await readJson<SessionsFile>(sessionsPath);
+    const data = await readJson<Record<string, unknown>>(sessionsPath);
     if (data && !data.version) {
-      const migrated: SessionsFile = {
+      const migrated = {
         version: '1.0.0',
         sessions: data.sessions ?? [],
         _meta: {

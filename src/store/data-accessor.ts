@@ -23,16 +23,6 @@ export interface ArchiveFile {
   version?: string;
 }
 
-/** Sessions file structure. Must match types/session.ts SessionsFile. */
-export interface SessionsFile {
-  sessions: Session[];
-  version: string;
-  _meta: {
-    schemaVersion: string;
-    lastUpdated: string;
-  };
-}
-
 /**
  * DataAccessor interface.
  *
@@ -62,11 +52,11 @@ export interface DataAccessor {
 
   // ---- Session data ----
 
-  /** Load the sessions file. Returns empty sessions array if file doesn't exist. */
-  loadSessions(): Promise<SessionsFile>;
+  /** Load all sessions from the store. Returns empty array if none exist. */
+  loadSessions(): Promise<Session[]>;
 
-  /** Save the sessions file atomically. */
-  saveSessions(data: SessionsFile): Promise<void>;
+  /** Save all sessions to the store atomically. */
+  saveSessions(sessions: Session[]): Promise<void>;
 
   // ---- Audit log ----
 

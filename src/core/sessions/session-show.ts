@@ -8,7 +8,7 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt } from './types.js';
+import type { Session } from '../../types/session.js';
 
 /**
  * Show a specific session.
@@ -18,27 +18,13 @@ import type { SessionRecord, SessionsFileExt } from './types.js';
 export async function showSession(
   projectRoot: string,
   sessionId: string,
-): Promise<SessionRecord> {
+): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
-  const sessionsData = await accessor.loadSessions();
-  const sessions = sessionsData as unknown as SessionsFileExt;
+  const sessions = await accessor.loadSessions();
 
-  if (!sessions) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      `Session '${sessionId}' not found`,
-    );
-  }
-
-  const session = sessions.sessions?.find((s) => s.id === sessionId);
+  const session = sessions.find((s) => s.id === sessionId);
   if (session) {
     return session;
-  }
-
-  // Check history
-  const historical = sessions.sessionHistory?.find((s) => s.id === sessionId);
-  if (historical) {
-    return historical;
   }
 
   throw new CleoError(

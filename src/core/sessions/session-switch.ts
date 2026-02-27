@@ -8,7 +8,8 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
+import type { Session } from '../../types/session.js';
+import type { TaskFileExt } from './types.js';
 
 /**
  * Switch to a different session.
@@ -18,7 +19,7 @@ import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
 export async function switchSession(
   projectRoot: string,
   sessionId: string,
-): Promise<SessionRecord> {
+): Promise<Session> {
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
   const current = taskData as unknown as TaskFileExt;
@@ -31,29 +32,10 @@ export async function switchSession(
     );
   }
 
-  const sessions = (await accessor.loadSessions()) as unknown as SessionsFileExt;
-
-  if (!sessions) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      `Session '${sessionId}' not found`,
-    );
-  }
+  const sessions = await accessor.loadSessions();
 
   // Find target session
-  let targetSession = sessions.sessions.find((s) => s.id === sessionId);
-  let fromHistory = false;
-
-  if (!targetSession && sessions.sessionHistory) {
-    const histIndex = sessions.sessionHistory.findIndex(
-      (s) => s.id === sessionId,
-    );
-    if (histIndex !== -1) {
-      targetSession = sessions.sessionHistory[histIndex];
-      sessions.sessionHistory.splice(histIndex, 1);
-      fromHistory = true;
-    }
-  }
+  const targetSession = sessions.find((s) => s.id === sessionId);
 
   if (!targetSession) {
     throw new CleoError(
@@ -62,7 +44,7 @@ export async function switchSession(
     );
   }
 
-  if (targetSession.status === 'archived') {
+  if ((targetSession.status as string) === 'archived') {
     throw new CleoError(
       ExitCode.SESSION_NOT_FOUND,
       `Session '${sessionId}' is archived and cannot be switched to`,
@@ -74,13 +56,12 @@ export async function switchSession(
   // Suspend the current active session (if different from target)
   const currentActiveId = current._meta?.activeSession;
   if (currentActiveId && currentActiveId !== sessionId) {
-    const currentSession = sessions.sessions.find(
+    const currentSession = sessions.find(
       (s) => s.id === currentActiveId,
     );
     if (currentSession && currentSession.status === 'active') {
       currentSession.status = 'suspended';
-      currentSession.suspendedAt = now;
-      currentSession.lastActivity = now;
+      (currentSession as unknown as Record<string, unknown>).suspendedAt = now;
       if (currentSession.stats) {
         currentSession.stats.suspendCount =
           (currentSession.stats.suspendCount || 0) + 1;
@@ -90,14 +71,9 @@ export async function switchSession(
 
   // Activate the target session
   targetSession.status = 'active';
-  targetSession.lastActivity = now;
-  targetSession.suspendedAt = null;
-  targetSession.endedAt = null;
+  (targetSession as unknown as Record<string, unknown>).suspendedAt = null;
+  targetSession.endedAt = undefined;
   targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
-
-  if (fromHistory) {
-    sessions.sessions.push(targetSession);
-  }
 
   // Update todo.json
   if (current._meta) {
@@ -105,18 +81,14 @@ export async function switchSession(
     current._meta.generation = (current._meta.generation || 0) + 1;
   }
 
-  if (targetSession.focus?.currentTask && current.focus) {
-    current.focus.currentTask = targetSession.focus.currentTask;
+  if (targetSession.taskWork?.taskId && current.focus) {
+    current.focus.currentTask = targetSession.taskWork.taskId;
   }
 
   current.lastUpdated = now;
 
-  if (sessions._meta) {
-    sessions._meta.lastModified = now;
-  }
-
   await accessor.saveTaskFile(taskData);
-  await accessor.saveSessions(sessions as any);
+  await accessor.saveSessions(sessions);
 
   return targetSession;
 }

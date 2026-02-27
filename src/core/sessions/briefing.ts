@@ -19,7 +19,8 @@
 
 import { getAccessor } from '../../store/data-accessor.js';
 import { getLastHandoff, type HandoffData } from './handoff.js';
-import type { SessionsFileExt, TaskFileExt, SessionRecord } from './types.js';
+import type { Session } from '../../types/session.js';
+import type { TaskFileExt } from './types.js';
 
 /**
  * Task summary for briefing output.
@@ -226,7 +227,7 @@ function parseScope(
  * T4959: Now loads real session data from the accessor instead of
  * synthesizing a stub record from the task file focus.
  */
-function findActiveSession(current: TaskFileExt): SessionRecord | undefined {
+function findActiveSession(current: TaskFileExt): Session | undefined {
   const activeSessionId = current._meta?.activeSession;
   if (!activeSessionId) return undefined;
 
@@ -237,12 +238,12 @@ function findActiveSession(current: TaskFileExt): SessionRecord | undefined {
     const focusTaskId = current.focus?.currentTask;
     return {
       id: activeSessionId,
+      name: '',
       status: 'active',
       scope: { type: 'task', rootTaskId: focusTaskId ?? '' },
-      focus: { currentTask: focusTaskId },
+      taskWork: { taskId: focusTaskId ?? null, setAt: new Date().toISOString() },
       startedAt: new Date().toISOString(),
-      lastActivity: new Date().toISOString(),
-    } as SessionRecord;
+    } as Session;
   } catch {
     return undefined;
   }
@@ -296,10 +297,10 @@ async function computeLastSession(
     // Load sessions to get endedAt
     const accessor = await getAccessor(projectRoot);
     const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as SessionsFileExt;
+    const sessions = sessionsData as unknown as { sessions?: Session[]; sessionHistory?: Session[] };
 
     // Find session in active or history
-    const allSessions: SessionRecord[] = [
+    const allSessions: Session[] = [
       ...(sessions?.sessions || []),
       ...(sessions?.sessionHistory || []),
     ];

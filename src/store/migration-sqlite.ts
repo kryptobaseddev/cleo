@@ -17,7 +17,8 @@ import { getCleoDirAbsolute } from '../core/paths.js';
 import { getDb, dbExists, resolveMigrationsFolder } from './sqlite.js';
 import * as schema from './schema.js';
 import type { Task } from '../types/task.js';
-import type { Session, SessionsFile } from '../types/session.js';
+import type { Session } from '../types/session.js';
+import type { SessionStatus } from './status-registry.js';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
@@ -371,7 +372,7 @@ async function runMigrationDataImport(
         path: sessionsPath.replace(cleoDir, '.'),
       });
 
-      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8')) as SessionsFile;
+      const sessionsData = JSON.parse(readFileSync(sessionsPath, 'utf-8'));
       const sessions: Session[] = sessionsData.sessions ?? [];
       const totalSessions = sessions.length;
 
@@ -384,9 +385,9 @@ async function runMigrationDataImport(
         try {
           // Normalize status: map legacy 'archived' to 'ended' for SQLite CHECK constraint
           const validStatuses = ['active', 'ended', 'orphaned', 'suspended'];
-          const normalizedStatus = validStatuses.includes(session.status)
+          const normalizedStatus = (validStatuses.includes(session.status)
             ? session.status
-            : 'ended';
+            : 'ended') as SessionStatus;
           // Provide default name for sessions with null/undefined names
           const normalizedName = session.name || `session-${session.id}`;
 
@@ -395,8 +396,8 @@ async function runMigrationDataImport(
             name: normalizedName,
             status: normalizedStatus,
             scopeJson: JSON.stringify(session.scope),
-            currentTask: session.taskWork?.taskId ?? session.focus?.taskId,
-            taskStartedAt: session.taskWork?.setAt ?? session.focus?.setAt,
+            currentTask: session.taskWork?.taskId,
+            taskStartedAt: session.taskWork?.setAt,
             agent: session.agent,
             notesJson: session.notes ? JSON.stringify(session.notes) : '[]',
             tasksCompletedJson: session.tasksCompleted ? JSON.stringify(session.tasksCompleted) : '[]',
@@ -687,7 +688,7 @@ export async function migrateJsonToSqlite(
     try {
       const sessionsData = JSON.parse(
         readFileSync(sessionsPath, 'utf-8'),
-      ) as SessionsFile;
+      );
       const sessions: Session[] = sessionsData.sessions ?? [];
 
       for (const session of sessions) {
@@ -695,9 +696,9 @@ export async function migrateJsonToSqlite(
           // Normalize status: map legacy 'archived' to 'ended' for SQLite CHECK constraint
           // @task T4658 @epic T4654
           const validStatuses = ['active', 'ended', 'orphaned', 'suspended'];
-          const normalizedStatus = validStatuses.includes(session.status)
+          const normalizedStatus = (validStatuses.includes(session.status)
             ? session.status
-            : 'ended'; // 'archived' and any other legacy statuses -> 'ended'
+            : 'ended') as SessionStatus; // 'archived' and any other legacy statuses -> 'ended'
           // Provide default name for sessions with null/undefined names
           const normalizedName = session.name || `session-${session.id}`;
 
@@ -707,8 +708,8 @@ export async function migrateJsonToSqlite(
               name: normalizedName,
               status: normalizedStatus,
               scopeJson: JSON.stringify(session.scope),
-              currentTask: session.taskWork?.taskId ?? session.focus?.taskId,
-              taskStartedAt: session.taskWork?.setAt ?? session.focus?.setAt,
+              currentTask: session.taskWork?.taskId,
+              taskStartedAt: session.taskWork?.setAt,
               agent: session.agent,
               notesJson: session.notes
                 ? JSON.stringify(session.notes)

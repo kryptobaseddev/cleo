@@ -12,7 +12,7 @@ import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import * as schema from './schema.js';
 import type { NewTaskRow } from './schema.js';
 import type { Task } from '../types/task.js';
-import type { Session } from '../types/session.js';
+import type { Session } from './validation-schemas.js';
 
 /** Drizzle database instance type. */
 type DrizzleDb = SqliteRemoteDatabase<typeof schema>;
@@ -114,6 +114,10 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     handoffConsumedAt: session.handoffConsumedAt ?? null,
     handoffConsumedBy: session.handoffConsumedBy ?? null,
     debriefJson: session.debriefJson ?? null,
+    // Session stats fields
+    statsJson: session.stats ? JSON.stringify(session.stats) : null,
+    resumeCount: session.resumeCount ?? null,
+    gradeMode: session.gradeMode ? 1 : null,
   };
   const { id: _id, ...setFields } = values;
   await db.insert(schema.sessions)
