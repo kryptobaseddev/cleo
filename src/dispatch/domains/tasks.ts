@@ -192,7 +192,7 @@ export class TasksHandler implements DomainHandler {
           const result = await taskCreate(this.projectRoot, {
             title,
             description: params?.description as string ?? title,
-            parent: params?.parent as string | undefined,
+            parent: (params?.parent ?? params?.parentId) as string | undefined,
             depends: params?.depends as string[] | undefined,
             priority: params?.priority as string | undefined,
             labels: params?.labels as string[] | undefined,
@@ -219,7 +219,7 @@ export class TasksHandler implements DomainHandler {
             addDepends: params?.addDepends as string[] | undefined,
             removeDepends: params?.removeDepends as string[] | undefined,
             acceptance: params?.acceptance as string[] | undefined,
-            parent: params?.parent as string | null | undefined,
+            parent: (params?.parent ?? params?.parentId) as string | null | undefined,
             type: params?.type as string | undefined,
             size: params?.size as string | undefined,
           });
