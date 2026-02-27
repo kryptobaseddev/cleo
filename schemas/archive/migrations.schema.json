@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/migrations.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Migration Journal Schema",
+  "description": "Audit trail of schema migration operations. Tracks applied migrations with checksums and execution metadata for data integrity verification.",
+  "type": "object",
+  "required": [
+    "_meta",
+    "appliedMigrations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "required": [
+        "schemaVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for this migrations journal (semver)."
+        },
+        "lastChecked": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Last time migration status was checked."
+        }
+      }
+    },
+    "appliedMigrations": {
+      "type": "array",
+      "description": "Chronologically ordered list of applied migrations. Append-only for audit trail.",
+      "items": {
+        "$ref": "#/definitions/migrationEntry"
+      }
+    }
+  },
+  "definitions": {
+    "migrationEntry": {
+      "type": "object",
+      "required": [
+        "version",
+        "fileType",
+        "checksum",
+        "appliedAt",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Target schema version of this migration (semver)."
+        },
+        "fileType": {
+          "type": "string",
+          "enum": [
+            "todo",
+            "config",
+            "archive",
+            "log",
+            "sessions",
+            "migrations"
+          ],
+          "description": "Type of file that was migrated."
+        },
+        "functionName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Migration function name that was executed (e.g., 'migrate_todo_to_2_3_0'). Null for version-bump-only migrations."
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA256 checksum of the migration function source code (for verification)."
+        },
+        "appliedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this migration was executed (UTC)."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "failed",
+            "skipped"
+          ],
+          "description": "Outcome of the migration operation."
+        },
+        "executionTimeMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Time taken to execute migration in milliseconds."
+        },
+        "previousVersion": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version before this migration was applied."
+        },
+        "logs": {
+          "type": "array",
+          "description": "Log messages generated during migration execution.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backupPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Path to backup created before migration (for rollback)."
+        },
+        "error": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Error details if migration failed.",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "recoverable": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

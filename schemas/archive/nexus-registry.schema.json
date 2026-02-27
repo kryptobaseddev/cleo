@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/nexus-registry.schema.json",
+  "title": "CLEO Nexus Registry Schema (DEPRECATED)",
+  "description": "DEPRECATED: This schema is superseded by projects-registry.schema.json (v2.0.0). The unified registry at ~/.cleo/projects-registry.json now serves both global project management and Nexus cross-project coordination. This file is retained for reference only.",
+  "type": "object",
+  "required": ["version", "lastUpdated", "projects"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for validation."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version (semver). MUST match semantic versioning."
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last registry modification."
+    },
+    "projects": {
+      "type": "object",
+      "description": "Map of project_hash → project metadata. Keyed by 12-character hexadecimal hash.",
+      "patternProperties": {
+        "^[a-f0-9]{12}$": {
+          "$ref": "#/definitions/project"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "definitions": {
+    "project": {
+      "type": "object",
+      "description": "A registered CLEO project with metadata and access timestamps.",
+      "required": ["hash", "path", "name", "lastAccess"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "12-character hexadecimal identifier. MUST match object key. Generated via generate_project_hash() (stable SHA256 of path)."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute filesystem path to project root. MUST contain .cleo/todo.json to be valid."
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Human-readable project identifier. MUST be unique across all registered projects. Lowercase with hyphens allowed."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Alternative names for project resolution. MUST NOT conflict with any project names."
+        },
+        "lastAccess": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last read operation. Used for pruning inactive projects."
+        },
+        "taskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of tasks in project. Cached for quick reference."
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$",
+          "description": "SHA-256 truncated hash of project's todo.json tasks array. Used for cache invalidation."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,491 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-consensus-report.schema.json",
+  "title": "RCSD Consensus Validation Report",
+  "description": "Schema for consensus phase output in the RCSD pipeline. Validates research findings through multi-agent analysis, produces verdicts, and synthesizes validated knowledge.",
+  "type": "object",
+  "required": ["$schema", "_meta", "researchRef", "agents", "claims", "synthesis", "statistics"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/rcsd-consensus-report.schema.json",
+      "description": "Self-referencing schema URI for validation"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Consensus report metadata",
+      "required": ["reportId", "taskId", "shortName", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "reportId": {
+          "type": "string",
+          "pattern": "^cons_[a-f0-9]{8}$",
+          "description": "Unique consensus report identifier"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Anchoring task ID"
+        },
+        "shortName": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{3,25}$",
+          "description": "Short identifier for this consensus report"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "default": "1.0.0",
+          "description": "Consensus report version"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When consensus process began"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When consensus was reached"
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Consensus duration in seconds"
+        }
+      }
+    },
+    "researchRef": {
+      "type": "object",
+      "description": "Reference to source research output",
+      "required": ["researchId", "file"],
+      "additionalProperties": false,
+      "properties": {
+        "researchId": {
+          "type": "string",
+          "pattern": "^res_[a-f0-9]{8}$",
+          "description": "Research output ID being validated"
+        },
+        "file": {
+          "type": "string",
+          "description": "Research output filename"
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Original research query"
+        },
+        "findingsCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of findings from research"
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/definitions/agent"
+      },
+      "description": "Agents participating in consensus validation"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/claimValidation"
+      },
+      "description": "Validation results for each research finding/claim"
+    },
+    "synthesis": {
+      "type": "object",
+      "description": "Synthesized consensus output",
+      "required": ["summary", "confidence", "consensusLevel"],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 50,
+          "maxLength": 2000,
+          "description": "Synthesized summary of validated findings"
+        },
+        "keyInsights": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["insight", "supportingClaims"],
+            "additionalProperties": false,
+            "properties": {
+              "insight": {
+                "type": "string",
+                "maxLength": 300,
+                "description": "Key validated insight"
+              },
+              "supportingClaims": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^claim_[a-f0-9]{6}$"
+                },
+                "description": "Claims supporting this insight"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Confidence in this insight"
+              }
+            }
+          },
+          "description": "Key insights derived from validated claims"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Overall confidence in synthesis"
+        },
+        "consensusLevel": {
+          "type": "string",
+          "enum": ["HIGH_CONFIDENCE", "MEDIUM_CONFIDENCE", "LOW_CONFIDENCE", "CONTESTED", "INSUFFICIENT"],
+          "description": "Overall consensus level achieved"
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["recommendation", "priority"],
+            "additionalProperties": false,
+            "properties": {
+              "recommendation": {
+                "type": "string",
+                "maxLength": 300,
+                "description": "Recommended action from consensus"
+              },
+              "priority": {
+                "type": "string",
+                "enum": ["critical", "high", "medium", "low"],
+                "description": "Recommendation priority"
+              },
+              "basedOn": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^claim_[a-f0-9]{6}$"
+                },
+                "description": "Claims supporting this recommendation"
+              }
+            }
+          },
+          "description": "Consensus-driven recommendations"
+        },
+        "unresolvedIssues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["issue", "severity"],
+            "additionalProperties": false,
+            "properties": {
+              "issue": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Unresolved issue description"
+              },
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "significant", "minor"],
+                "description": "Issue severity"
+              },
+              "suggestedResolution": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Suggested resolution approach"
+              }
+            }
+          },
+          "description": "Issues requiring further investigation"
+        }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "description": "Consensus validation statistics",
+      "required": ["totalClaims", "proven", "refuted", "contested", "insufficient"],
+      "additionalProperties": false,
+      "properties": {
+        "totalClaims": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total claims evaluated"
+        },
+        "proven": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Claims validated as PROVEN"
+        },
+        "refuted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Claims validated as REFUTED"
+        },
+        "contested": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Claims with CONTESTED verdicts"
+        },
+        "insufficient": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Claims with INSUFFICIENT evidence"
+        },
+        "averageConfidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Average confidence across proven claims"
+        },
+        "consensusRate": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Rate of agent agreement"
+        },
+        "processingTime": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total processing time in seconds"
+        }
+      }
+    },
+    "auditTrail": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/auditEntry"
+      },
+      "description": "Chronological record of consensus process"
+    }
+  },
+
+  "definitions": {
+    "agent": {
+      "type": "object",
+      "description": "Consensus validation agent",
+      "required": ["id", "role", "weight"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^agent_[a-z]+$",
+          "description": "Unique agent identifier"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["advocate", "critic", "synthesizer", "domain_expert", "technical_reviewer", "skeptic"],
+          "description": "Agent role in consensus process"
+        },
+        "specialty": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Agent specialty or domain focus"
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2.0,
+          "default": 1.0,
+          "description": "Vote weight multiplier (1.0 = normal)"
+        },
+        "perspective": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Agent's analytical perspective"
+        }
+      }
+    },
+    "claimValidation": {
+      "type": "object",
+      "description": "Validation result for a single claim",
+      "required": ["id", "originalFindingId", "claim", "verdict", "votes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^claim_[a-f0-9]{6}$",
+          "description": "Unique claim validation ID"
+        },
+        "originalFindingId": {
+          "type": "string",
+          "pattern": "^find_[a-f0-9]{6}$",
+          "description": "Original research finding ID"
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500,
+          "description": "The claim being validated"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": ["PROVEN", "REFUTED", "CONTESTED", "INSUFFICIENT"],
+          "description": "Consensus verdict: PROVEN (validated), REFUTED (disproven), CONTESTED (disagreement), INSUFFICIENT (need more evidence)"
+        },
+        "votes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/vote"
+          },
+          "description": "Individual agent votes"
+        },
+        "evidence": {
+          "type": "object",
+          "description": "Evidence summary for this claim",
+          "additionalProperties": false,
+          "properties": {
+            "supporting": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["agentId", "argument"],
+                "additionalProperties": false,
+                "properties": {
+                  "agentId": {
+                    "type": "string",
+                    "pattern": "^agent_[a-z]+$"
+                  },
+                  "argument": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "citations": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^cite_[a-f0-9]{6}$"
+                    }
+                  }
+                }
+              },
+              "description": "Arguments supporting the claim"
+            },
+            "opposing": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["agentId", "argument"],
+                "additionalProperties": false,
+                "properties": {
+                  "agentId": {
+                    "type": "string",
+                    "pattern": "^agent_[a-z]+$"
+                  },
+                  "argument": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "citations": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^cite_[a-f0-9]{6}$"
+                    }
+                  }
+                }
+              },
+              "description": "Arguments opposing the claim"
+            }
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Consensus confidence in verdict"
+        },
+        "consensusStrength": {
+          "type": "string",
+          "enum": ["unanimous", "strong", "moderate", "weak", "split"],
+          "description": "Strength of agent agreement"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Additional notes on validation"
+        },
+        "refinedClaim": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Refined/corrected version of claim (if applicable)"
+        }
+      }
+    },
+    "vote": {
+      "type": "object",
+      "description": "Individual agent vote",
+      "required": ["agentId", "position", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[a-z]+$",
+          "description": "Voting agent ID"
+        },
+        "position": {
+          "type": "string",
+          "enum": ["support", "oppose", "abstain", "insufficient_evidence"],
+          "description": "Agent's position on the claim"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Agent's confidence in their position"
+        },
+        "rationale": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Reasoning for vote"
+        },
+        "weightedScore": {
+          "type": "number",
+          "description": "Computed weighted vote score"
+        }
+      }
+    },
+    "auditEntry": {
+      "type": "object",
+      "description": "Audit trail entry",
+      "required": ["timestamp", "event", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When event occurred"
+        },
+        "event": {
+          "type": "string",
+          "enum": ["started", "agent_joined", "claim_evaluated", "vote_cast", "consensus_reached", "synthesis_complete", "completed"],
+          "description": "Event type"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_[a-z]+$",
+          "description": "Agent involved (if applicable)"
+        },
+        "claimId": {
+          "type": "string",
+          "pattern": "^claim_[a-f0-9]{6}$",
+          "description": "Claim involved (if applicable)"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Event description"
+        }
+      }
+    }
+  }
+}

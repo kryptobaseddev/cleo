@@ -1,0 +1,225 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-spec-frontmatter.schema.json",
+  "title": "RCSD Specification Frontmatter",
+  "description": "YAML frontmatter schema for generated specifications in the RCSD pipeline. Provides structured metadata for spec documents including versioning, status tracking, and pipeline provenance.",
+  "type": "object",
+  "required": ["version", "status", "taskId", "shortName", "domain", "synopsis", "created", "pipelineStage"],
+  "additionalProperties": false,
+
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version of this specification (X.Y.Z format)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["DRAFT", "APPROVED", "ACTIVE", "IMMUTABLE", "DEPRECATED"],
+      "description": "Document lifecycle status: DRAFT (initial), APPROVED (reviewed), ACTIVE (in use), IMMUTABLE (frozen), DEPRECATED (superseded)"
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "Anchoring task ID that initiated this specification"
+    },
+    "shortName": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,25}$",
+      "description": "Kebab-case short identifier for file naming and references"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 100,
+      "description": "Human-readable specification title"
+    },
+    "domain": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Primary domain this specification covers (for authority mapping)"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["core-system", "feature", "integration", "process", "enhancement"],
+      "description": "Organizational category for spec classification"
+    },
+    "synopsis": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 200,
+      "description": "One to two sentence purpose summary for quick reference"
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO date when specification was first created"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO date of last specification update"
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Author or generating agent identifier"
+    },
+    "reviewers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 100
+      },
+      "description": "List of reviewers who approved the spec"
+    },
+    "relatedFiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/relatedFile"
+      },
+      "description": "Related documents and artifacts"
+    },
+    "pipelineStage": {
+      "type": "string",
+      "enum": ["initialized", "research", "consensus", "spec", "decompose", "complete"],
+      "description": "Current RCSD pipeline stage when spec was generated"
+    },
+    "consensusVerdict": {
+      "type": "string",
+      "enum": ["HIGH_CONFIDENCE", "MEDIUM_CONFIDENCE", "LOW_CONFIDENCE", "CONTESTED", "INSUFFICIENT"],
+      "description": "Consensus validation outcome that generated this spec"
+    },
+    "consensusReportId": {
+      "type": "string",
+      "pattern": "^cons_[a-f0-9]{8}$",
+      "description": "Reference to consensus report that produced this spec"
+    },
+    "researchId": {
+      "type": "string",
+      "pattern": "^res_[a-f0-9]{8}$",
+      "description": "Reference to research output used for this spec"
+    },
+    "dependsOn": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z0-9-]+-SPEC\\.md$"
+      },
+      "description": "Specification files this spec depends on"
+    },
+    "supersedes": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]+-SPEC\\.md$",
+      "description": "Previous specification this supersedes (if any)"
+    },
+    "supersededBy": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]+-SPEC\\.md$",
+      "description": "Newer specification that supersedes this (if deprecated)"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "uniqueItems": true,
+      "description": "Tags for categorization and search"
+    },
+    "implementation": {
+      "type": "object",
+      "description": "Implementation tracking metadata",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["not_started", "in_progress", "completed", "blocked"],
+          "description": "Current implementation status"
+        },
+        "progress": {
+          "type": "string",
+          "pattern": "^(\\d{1,3}%|\\d+/\\d+|N/A)$",
+          "description": "Progress indicator (percentage or fraction)"
+        },
+        "reportFile": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-IMPLEMENTATION-REPORT\\.md$",
+          "description": "Associated implementation report filename"
+        },
+        "decomposedTasks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
+          "description": "Task IDs created from spec decomposition"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "description": "Specification validation metadata",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version used for validation"
+        },
+        "validatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last validation timestamp"
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16,64}$",
+          "description": "Content checksum for integrity verification"
+        }
+      }
+    },
+    "rfc2119": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether spec uses RFC 2119 keywords (MUST, SHOULD, MAY, etc.)"
+    },
+    "confidenceScore": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Overall confidence score from consensus validation"
+    }
+  },
+
+  "definitions": {
+    "relatedFile": {
+      "type": "object",
+      "description": "Reference to related document",
+      "required": ["type", "file"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["research", "consensus", "implementation-report", "parent-spec", "child-spec", "related-spec", "schema", "test", "example"],
+          "description": "Type of related document"
+        },
+        "file": {
+          "type": "string",
+          "description": "Filename or relative path"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Brief description of relationship"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this related file is required for spec understanding"
+        }
+      }
+    }
+  }
+}
