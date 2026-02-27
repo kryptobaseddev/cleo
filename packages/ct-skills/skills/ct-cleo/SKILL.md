@@ -6,7 +6,7 @@ category: core
 tier: 0
 protocol: null
 tags: [cleo, protocol, mcp, session, task-management]
-triggers: [cleo, session, task, focus, mcp]
+triggers: [cleo, session, task, start, mcp]
 compatibility: [claude-code, gemini-cli, codex-cli]
 dependencies: []
 sharedResources: [task-system-integration]
@@ -51,7 +51,7 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `session` | `start` | Start session (`params: { scope, name, autoStart? }`) |
 | `session` | `end` | End session (`params: { note? }`) |
 | `session` | `resume` | Resume session (`params: { sessionId }`) |
-| `tasks` | `start` | Set active focus task (`params: { taskId }`) |
+| `tasks` | `start` | Start working on a task (`params: { taskId }`) |
 | `research` | `link` | Link research to task (`params: { taskId, entryId }`) |
 | `orchestrate` | `spawn` | Generate spawn prompt for subagent (`params: { taskId }`) |
 
@@ -65,7 +65,7 @@ ct find --id 142           # Search by ID
 ct show T1234              # Full task details
 ct add "Task title"        # Create task
 ct complete T1234          # Complete task
-ct focus set T1234         # Set active focus
+ct start T1234             # Start working on task
 ct dash                    # Project overview
 ```
 
@@ -95,7 +95,7 @@ ct session start --scope epic:T001 --auto-focus --name "Work"
 #                ^^^^^^^^^^^^^^^^^ REQUIRED  ^^^^^^^^^^^^^ REQUIRED
 
 # 3. WORK
-ct focus show / ct next / ct complete T005 / ct focus set T006
+ct current / ct next / ct complete T005 / ct start T006
 
 # 4. END (ALWAYS when stopping)
 ct complete <id>

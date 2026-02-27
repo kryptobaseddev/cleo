@@ -53,11 +53,9 @@ cleo show <id> --verification      # Detailed gate status display
 # Note: ct complete auto-sets gates.implemented = true
 
 # FOCUS MANAGEMENT
-cleo focus set <id>            # Set focus to task (marks active)
-cleo focus clear               # Clear current focus
-cleo focus show                # Show current focus
-cleo focus note "text"         # Set session progress note
-cleo focus next "text"         # Set suggested next action
+cleo start <id>            # Set focus to task (marks active)
+cleo stop               # Clear current focus
+cleo current                # Show current focus
 
 # PHASE MANAGEMENT (Project-Level)
 cleo phase show                # Show current project phase
@@ -682,7 +680,7 @@ cleo add "Write tests" --phase polish
 # 4. Work within current phase
 cleo phases show setup         # See all setup tasks
 cleo next                      # Get suggested task
-cleo focus set T001            # Focus on task
+cleo start T001            # Focus on task
 
 # 5. Track progress
 cleo phases                    # Visual progress bars

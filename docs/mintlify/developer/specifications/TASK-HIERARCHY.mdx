@@ -449,7 +449,7 @@ PHASE: core
 For LLM agents and parallel workers, the system SHOULD support this execution pattern:
 
 **Workflow**:
-1. Query current phase focus
+1. Query current phase active task
 2. Get Wave 0 tasks in that phase (ready to start)
 3. Execute Wave 0 tasks in parallel
 4. When Wave 0 complete, Wave 1 becomes ready
@@ -765,23 +765,23 @@ Hierarchy operations MUST use these exit codes:
 
 ---
 
-## Part 12: Focus Integration
+## Part 12: Active Task Integration
 
-### 12.1 Focus on Hierarchy
+### 12.1 Active Task in Hierarchy
 
-When focusing on an epic, the system MUST:
+When starting an epic, the system MUST:
 - Show epic context with child summary
 - Display children status counts
 - Show visual hierarchy of children
 
-When focusing on a child task, the system MUST:
+When starting a child task, the system MUST:
 - Show parent context
 - Display sibling awareness
 
 ### 12.2 Next Task Suggestion
 
 The `next` command MUST consider hierarchy:
-- Prefer tasks in currently focused epic
+- Prefer tasks in currently active epic
 - Unblocked leaf tasks score higher
 - Respect phase and priority
 - Suggest completing siblings before starting new epic

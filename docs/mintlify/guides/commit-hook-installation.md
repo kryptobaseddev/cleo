@@ -82,7 +82,7 @@ When you commit:
 ```
 ERROR: Task T9999 does not exist
 
-Current focus: T2704
+Active task: T2704
 
 Suggested format:
   feat: Add feature (T2704)
@@ -197,8 +197,8 @@ cleo show T1234
 # If task missing, use correct ID:
 cleo find "feature name"
 
-# Or use current focus:
-cleo focus show
+# Or use current active task:
+cleo current
 ```
 
 ---
@@ -367,19 +367,19 @@ for repo in ~/projects/*; do
 done
 ```
 
-### 2. Set Focus Before Committing
+### 2. Start a Task Before Committing
 
 ```bash
-# Set focus to task you're working on
-cleo focus set T1234
+# Start the task you're working on
+cleo start T1234
 
 # Make changes
 git add .
 
-# Commit (hook suggests focused task if you forget ID)
+# Commit (hook suggests active task if you forget ID)
 git commit -m "feat: Add feature"
 # ERROR: No task ID in commit message
-# Current focus: T1234
+# Active task: T1234
 # Suggested format: feat: Add feature (T1234)
 ```
 

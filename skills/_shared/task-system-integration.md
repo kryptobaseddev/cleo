@@ -17,15 +17,15 @@ Skills and templates SHOULD reference this file instead of hardcoding CLEO comma
 
 **CLEO Default**: `cleo show {{TASK_ID}}`
 
-### Set Focus
+### Start Task
 
 ```bash
-{{TASK_FOCUS_CMD}} {{TASK_ID}}
+{{TASK_START_CMD}} {{TASK_ID}}
 ```
 
 **Purpose**: Mark task as active/in-progress.
 
-**CLEO Default**: `cleo focus set {{TASK_ID}}`
+**CLEO Default**: `cleo start {{TASK_ID}}`
 
 ### Complete Task
 
@@ -118,7 +118,7 @@ When the task system is CLEO, these additional commands are available:
 
 | Command | Purpose |
 |---------|---------|
-| `cleo focus show` | Show current focus |
+| `cleo current` | Show current active task |
 | `cleo session start` | Begin work session |
 | `cleo session end` | End work session |
 | `cleo analyze` | Task triage with scoring |
@@ -162,7 +162,7 @@ When tokens are not explicitly configured, assume CLEO defaults:
 | Token | Default Value |
 |-------|---------------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_START_CMD}}` | `cleo start` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 | `{{TASK_LIST_CMD}}` | `cleo list` |
@@ -184,7 +184,7 @@ Reference this file from SKILL.md:
 
 Execute lifecycle commands:
 1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
-2. Set focus: `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+2. Start task: `{{TASK_START_CMD}} {{TASK_ID}}`
 3. Complete: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 ```
 
@@ -198,7 +198,7 @@ Include task lifecycle section in templates:
 ### Task Lifecycle
 
 1. MUST read task details: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
-2. MUST set focus: `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+2. MUST start task: `{{TASK_START_CMD}} {{TASK_ID}}`
 3. MUST complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 4. SHOULD link research: `{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}`
 ```
@@ -211,7 +211,7 @@ Include task lifecycle section in templates:
 
 ```yaml
 TASK_SHOW_CMD: "linear issue view"
-TASK_FOCUS_CMD: "linear issue update --status in-progress"
+TASK_START_CMD: "linear issue update --status in-progress"
 TASK_COMPLETE_CMD: "linear issue update --status done"
 ```
 
@@ -219,7 +219,7 @@ TASK_COMPLETE_CMD: "linear issue update --status done"
 
 ```yaml
 TASK_SHOW_CMD: "jira issue view"
-TASK_FOCUS_CMD: "jira issue move --status 'In Progress'"
+TASK_START_CMD: "jira issue move --status 'In Progress'"
 TASK_COMPLETE_CMD: "jira issue move --status 'Done'"
 ```
 
@@ -227,6 +227,6 @@ TASK_COMPLETE_CMD: "jira issue move --status 'Done'"
 
 ```yaml
 TASK_SHOW_CMD: "gh issue view"
-TASK_FOCUS_CMD: "gh issue edit --add-label 'in-progress'"
+TASK_START_CMD: "gh issue edit --add-label 'in-progress'"
 TASK_COMPLETE_CMD: "gh issue close"
 ```

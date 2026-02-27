@@ -76,7 +76,7 @@ flowchart TB
 
     State changes must follow allowed transitions:
 
-    - `pending` -> `active` (via focus set)
+    - `pending` -> `active` (via start)
     - `active` -> `done` (via complete)
     - `done` -> `pending` (via reopen)
     - `cancelled` is terminal (no transitions out)

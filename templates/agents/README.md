@@ -66,7 +66,7 @@ Templates use `{{TOKEN}}` placeholders replaced at spawn time.
 
 ```
 {{TASK_SHOW_CMD}}     - Show task details (default: cleo show)
-{{TASK_FOCUS_CMD}}    - Set focus (default: cleo focus set)
+{{TASK_START_CMD}}    - Start task (default: cleo start)
 {{TASK_COMPLETE_CMD}} - Complete task (default: cleo complete)
 {{TASK_LINK_CMD}}     - Link research (default: cleo research link)
 ```
@@ -92,7 +92,7 @@ template="${template//\{\{TOPIC_SLUG\}\}/$TOPIC_SLUG}"
 
 # Replace task system tokens (CLEO defaults)
 template="${template//\{\{TASK_SHOW_CMD\}\}/cleo show}"
-template="${template//\{\{TASK_FOCUS_CMD\}\}/cleo focus set}"
+template="${template//\{\{TASK_START_CMD\}\}/cleo start}"
 template="${template//\{\{TASK_COMPLETE_CMD\}\}/cleo complete}"
 template="${template//\{\{TASK_LINK_CMD\}\}/cleo research link}"
 
@@ -162,7 +162,7 @@ Override task system tokens for other systems:
 
 ```bash
 template="${template//\{\{TASK_SHOW_CMD\}\}/linear issue view}"
-template="${template//\{\{TASK_FOCUS_CMD\}\}/linear issue update --status in-progress}"
+template="${template//\{\{TASK_START_CMD\}\}/linear issue update --status in-progress}"
 template="${template//\{\{TASK_COMPLETE_CMD\}\}/linear issue update --status done}"
 ```
 
@@ -170,7 +170,7 @@ template="${template//\{\{TASK_COMPLETE_CMD\}\}/linear issue update --status don
 
 ```bash
 template="${template//\{\{TASK_SHOW_CMD\}\}/jira issue view}"
-template="${template//\{\{TASK_FOCUS_CMD\}\}/jira issue move --status 'In Progress'}"
+template="${template//\{\{TASK_START_CMD\}\}/jira issue move --status 'In Progress'}"
 template="${template//\{\{TASK_COMPLETE_CMD\}\}/jira issue move --status Done}"
 ```
 

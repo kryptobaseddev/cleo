@@ -516,7 +516,7 @@ cleo research add \
 
 ### Base Protocol
 
-- Inherits task lifecycle (focus, execute, complete)
+- Inherits task lifecycle (start, execute, complete)
 - Inherits manifest append requirement
 - Inherits error handling patterns
 
@@ -555,7 +555,7 @@ cleo research add \
 
 ```
  1. Read task requirements (cleo show T####)
- 2. Set focus (cleo focus set T####)
+ 2. Set focus (cleo start T####)
  3. Compute artifact digests (SHA-256)
  4. Generate attestation (in-toto Statement v1)
  5. Sign attestation (sigstore/cosign or gpg)

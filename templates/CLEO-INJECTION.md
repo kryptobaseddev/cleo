@@ -1,113 +1,58 @@
-# CLEO Agent Protocol
+# CLEO Protocol
 
-CLEO is the task management protocol for AI coding agents. Structured task tracking, session management, and multi-agent coordination with anti-hallucination validation.
+Use `cleo_query` (reads) and `cleo_mutate` (writes) via MCP. CLI fallback: `ct`.
 
----
+## Core Operations
 
-## MCP Tools (Primary Interface)
-
-Use `cleo_query` for reads and `cleo_mutate` for writes.
-
-**Domains**: `tasks`, `session`, `orchestrate`, `research`, `validate`, `system`, `skills`
-
-### Common Read Operations (`cleo_query`)
-
-| Domain | Operation | Params |
-|--------|-----------|--------|
-| `tasks` | `find` | `{ query }` or `{ id }` |
-| `tasks` | `show` | `{ taskId }` |
-| `tasks` | `list` | `{ parent?, status? }` |
-| `session` | `status` | — |
-| `system` | `dash` | — |
-
-### Common Write Operations (`cleo_mutate`)
-
-| Domain | Operation | Params |
-|--------|-----------|--------|
-| `tasks` | `add` | `{ title, description?, parent?, depends? }` |
-| `tasks` | `complete` | `{ taskId }` |
-| `tasks` | `start` | `{ taskId }` |
-| `session` | `start` | `{ scope, name, autoStart? }` |
-| `session` | `end` | `{ note? }` |
-
----
+| Tool | Domain | Operation | Key Params | Use |
+|------|--------|-----------|------------|-----|
+| query | `tasks` | `find` | `{ query }` | Search tasks |
+| query | `tasks` | `show` | `{ taskId }` | Full task details |
+| query | `session` | `status` | — | Current session |
+| query | `admin` | `dash` | — | Project overview |
+| mutate | `tasks` | `add` | `{ title, description }` | Create task |
+| mutate | `tasks` | `complete` | `{ taskId }` | Mark done |
+| mutate | `tasks` | `start` | `{ taskId }` | Begin work |
+| mutate | `session` | `start` | `{ scope, name, autoStart }` | Start session |
+| mutate | `session` | `end` | `{ note? }` | End session |
 
 ## CLI Fallback
 
-When MCP tools are unavailable, use `ct` (alias for `cleo`):
+```bash
+ct find "query"                  # search tasks
+ct show T1234                    # full details
+ct show T1234 --field title      # single field, plain text (no JSON parsing)
+ct add "Task title"              # create task
+ct done T1234                    # complete task
+```
+
+## Session (required for multi-step work)
 
 ```bash
-ct find "query"            # Search tasks (99% less context than list)
-ct show T1234              # Full task details
-ct add "Task title"        # Create task
-ct done T1234              # Complete task
-ct dash                    # Project overview
+ct session list                                              # CHECK FIRST
+ct session resume <id>                                       # resume existing
+ct session start --scope epic:T001 --auto-focus --name "X"  # or start new
+ct session end --note "summary"                              # ALWAYS end
 ```
 
----
+## Errors
 
-## Error Handling
+Never ignore exit codes. `"success": false` = failure.
+Exit 4 = not found. Exit 6 = validation. Exit 10 = parent not found.
+Exit 11 = depth exceeded (max 3). Exit 12 = sibling limit. Escape `$` as `\$`.
 
-**NEVER ignore exit codes.** Failed commands = tasks NOT created/updated.
-
-- Exit `0` = success, `1-22` = error, `100+` = special
-- Check `"success": false` in JSON output
-- Execute `error.fix` for copy-paste-ready fixes
-- Escape `$` as `\$` in shell arguments
-
-| Exit | Code | Fix |
-|:----:|------|-----|
-| 4 | `E_NOT_FOUND` | Use `ct find` to verify |
-| 6 | `E_VALIDATION` | Check field lengths |
-| 10 | `E_PARENT_NOT_FOUND` | Verify parent exists |
-| 11 | `E_DEPTH_EXCEEDED` | Exceeds configured hierarchy.maxDepth (default: 3) |
-| 12 | `E_SIBLING_LIMIT` | Exceeds configured maxSiblings (default: unlimited) |
-
----
-
-## Session Quick-Start
+## More Operations
 
 ```bash
-# 1. CHECK first
-ct session list
-
-# 2. RESUME or START
-ct session resume <id>
-# OR:
-ct session start --scope epic:T001 --auto-focus --name "Work"
-
-# 3. WORK
-ct focus show / ct next / ct complete T005 / ct focus set T006
-
-# 4. END (ALWAYS)
-ct session end --note "Progress"
+ct ops                # Tier 0 operations (this list)
+ct ops --tier 1       # + memory and check domains
+ct ops --tier 2       # all operations
 ```
 
----
+Or via MCP: `cleo_query({ domain: "admin", operation: "help", params: { tier: 1 } })`
 
-## Task Discovery
-
-Use `find` for discovery, `show` for details. `list` is expensive (full notes arrays).
-
-```bash
-ct find "query"              # Minimal fields
-ct show T1234                # Full details
-ct list --parent T001        # Direct children only
-```
-
----
-
-## Detailed Guidance
-
-For comprehensive protocol details (session lifecycle, RCSD pipeline, orchestrator constraints, spawn pipeline, anti-patterns), load the **ct-cleo** skill:
-
-```
-cleo_query({ domain: "skills", operation: "show", params: { name: "ct-cleo" }})
-```
-
----
+For session protocol, RCSD pipeline, orchestrator patterns: load the `ct-cleo` skill.
 
 ## Time Estimates Prohibited
 
-- **MUST NOT** estimate hours, days, weeks, or temporal duration
-- **MUST** use relative sizing: `small` / `medium` / `large`
+Use `small` / `medium` / `large` sizing only. Never estimate hours, days, or weeks.

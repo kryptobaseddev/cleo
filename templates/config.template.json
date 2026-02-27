@@ -130,7 +130,7 @@
   "contextAlerts": {
     "enabled": true,
     "minThreshold": "warning",
-    "triggerCommands": ["complete", "focus", "add", "session"],
+    "triggerCommands": ["complete", "start", "stop", "add", "session"],
     "suppressDuration": 0
   },
 

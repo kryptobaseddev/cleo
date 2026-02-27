@@ -53,12 +53,12 @@ cleo session start
 
 | Action | How To |
 |--------|--------|
-| Activate task | `cleo focus set <ID>` |
+| Activate task | `cleo start <ID>` |
 | Add progress note | `cleo update <ID> --notes "Progress text"` |
 | Add new task | `cleo add "Task title" [options]` |
 | Mark blocked | `cleo update <ID> --blocked-by "Reason"` |
 | Complete task | `cleo complete <ID>` |
-| Check status | `cleo list` or `cleo focus show` |
+| Check status | `cleo list` or `cleo current` |
 
 **Focus Object** (in todo.json):
 ```json
@@ -279,8 +279,8 @@ cleo complete <ID>          # Mark complete
 cleo update <ID> [options]  # Update task
 
 # Focus & Session
-cleo focus set <ID>         # Set active task
-cleo focus show             # Show current focus
+cleo start <ID>         # Set active task
+cleo current             # Show current focus
 cleo session start          # Start session
 cleo session end            # End session
 

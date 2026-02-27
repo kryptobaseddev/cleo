@@ -155,7 +155,7 @@ OUTPUT REQUIREMENTS:
 
 CLEO INTEGRATION:
 1. MUST read task details: `cleo show <task-id>`
-2. MUST set focus: `cleo focus set <task-id>`
+2. MUST start task: `cleo start <task-id>`
 3. MUST complete task when done: `cleo complete <task-id>`
 4. SHOULD link research: `cleo research link <task-id> <research-id>`
 
@@ -175,7 +175,7 @@ SUBAGENT SPAWNED
         │
         ▼
 ┌───────────────────────────────────────┐
-│ 2. Set focus: cleo focus set <task-id>│
+│ 2. Start task: cleo start <task-id>│
 └───────────────────────────────────────┘
         │
         ▼
@@ -227,8 +227,8 @@ cleo session list --status active
 # Step 2: Check manifest for pending work
 cat claudedocs/agent-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 
-# Step 3: Check focused task
-cleo focus show
+# Step 3: Check active task
+cleo current
 
 # Step 4: Review epic status
 cleo dash --compact
@@ -240,8 +240,8 @@ Based on startup checks, orchestrator MUST take one of these actions:
 
 | Condition | Action |
 |-----------|--------|
-| Active session exists with focus | Resume session; continue from focused task |
-| Active session exists, no focus | Query manifest for needs_followup; spawn next agent |
+| Active session exists with active task | Resume session; continue from active task |
+| Active session exists, no active task | Query manifest for needs_followup; spawn next agent |
 | No active session, manifest has followup | Create session; spawn agent for first followup task |
 | No active session, no manifest followup | Ask user for direction |
 
@@ -266,12 +266,12 @@ CONVERSATION STARTS
         │
         ▼
 ┌───────────────────────────────────────┐
-│ cleo focus show                       │
+│ cleo current                       │
 └───────────────────────────────────────┘
         │
-        ├──── Focus exists ────▶ CONTINUE FOCUSED TASK
+        ├──── Active task exists ────▶ CONTINUE ACTIVE TASK
         │
-        ▼ No focus
+        ▼ No active task
 ┌───────────────────────────────────────┐
 │ Query MANIFEST.jsonl for              │
 │ needs_followup arrays                 │
@@ -411,7 +411,7 @@ cleo update <task-id> --notes "Linked research: <research-id> - <brief context>"
 
 | Event | Link Action |
 |-------|-------------|
-| Subagent starts task | Focus task; no link yet |
+| Subagent starts task | Start task; no link yet |
 | Research complete | Add task to manifest `linked_tasks` |
 | Task complete | Add research ID to task notes |
 
@@ -677,7 +677,7 @@ Human-in-the-Loop summary provides complete context for resumption:
 | Command | Purpose | When Used |
 |---------|---------|-----------|
 | `cleo session start --scope epic:T1575` | Begin orchestration | First agent spawn |
-| `cleo focus set <id>` | Mark active work | Subagent start |
+| `cleo start <id>` | Mark active work | Subagent start |
 | `cleo complete <id>` | Mark task done | Subagent finish |
 | `cleo research link <tid> <rid>` | Link research to task | After research complete |
 | `cleo analyze --parent <epic>` | Find next work | Orchestrator planning |
@@ -743,7 +743,7 @@ Human-in-the-Loop summary provides complete context for resumption:
 - [ ] Writes output file to correct path
 - [ ] Appends manifest entry with all required fields
 - [ ] Returns only completion message (no content in response)
-- [ ] Sets focus before work (`cleo focus set <id>`)
+- [ ] Starts task before work (`cleo start <id>`)
 - [ ] Completes task when done (`cleo complete <id>`)
 - [ ] Sets needs_followup for handoff
 - [ ] Sets agent_type appropriately (research|implementation|validation|documentation|analysis)

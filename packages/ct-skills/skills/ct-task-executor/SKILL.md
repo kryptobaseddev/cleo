@@ -182,7 +182,7 @@ Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
 ## Completion Checklist
 
 - [ ] Task details read via `{{TASK_SHOW_CMD}}`
-- [ ] Focus set (if not pre-set by orchestrator)
+- [ ] Task started (if not pre-set by orchestrator)
 - [ ] All instructions executed
 - [ ] All deliverables produced
 - [ ] Acceptance criteria verified

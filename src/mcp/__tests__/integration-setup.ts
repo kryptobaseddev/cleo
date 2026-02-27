@@ -62,7 +62,7 @@ const EXIT_CODE_NAMES: Record<number, string> = {
   35: 'TASK_CLAIMED',
   36: 'SESSION_REQUIRED',
   37: 'SESSION_CLOSE_BLOCKED',
-  38: 'FOCUS_REQUIRED',
+  38: 'ACTIVE_TASK_REQUIRED',
   39: 'NOTES_REQUIRED',
   50: 'CONTEXT_WARNING',
   51: 'CONTEXT_CAUTION',
@@ -939,7 +939,7 @@ export function createManifestEntry(taskId: string, overrides?: any): any {
     file: `test-output/${taskId}.md`,
     title: `Integration Test Output for ${taskId}`,
     date: new Date().toISOString().split('T')[0],
-    status: 'complete',
+    status: 'completed',
     agent_type: 'testing',
     topics: ['integration', 'testing', 'mcp'],
     key_findings: [

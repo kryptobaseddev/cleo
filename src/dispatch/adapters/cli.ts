@@ -14,6 +14,7 @@ import type { Gateway, DispatchResponse } from '../types.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
+import { createFieldFilter } from '../middleware/field-filter.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { cliOutput, cliError, type CliOutputOptions } from '../../cli/renderers/index.js';
 
@@ -30,17 +31,17 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_PARENT_NOT_FOUND: 10,
   E_DEPTH_EXCEEDED: 11,
   E_SIBLING_LIMIT: 12,
-  E_CIRCULAR_DEP: 13,
+  E_CIRCULAR_DEP: 14,
   E_INVALID_PARENT_TYPE: 13,
   E_ORPHAN_DETECTED: 15,
   E_HAS_CHILDREN: 16,
-  E_TASK_COMPLETED: 17,
+  E_TASK_COMPLETED: 104,
   E_HAS_DEPENDENTS: 19,
   E_CHECKSUM_MISMATCH: 20,
   E_SESSION_EXISTS: 30,
   E_SESSION_NOT_FOUND: 31,
   E_SCOPE_CONFLICT: 32,
-  E_FOCUS_REQUIRED: 38,
+  E_ACTIVE_TASK_REQUIRED: 38,
   E_INVALID_OPERATION: 2,
   E_MISSING_PARAMS: 2,
   E_NO_HANDLER: 1,
@@ -73,7 +74,10 @@ export function createCliDispatcher(): Dispatcher {
   const handlers = createDomainHandlers();
   return new Dispatcher({
     handlers,
-    middlewares: [createSanitizer(() => getProjectRoot())],
+    middlewares: [
+      createSanitizer(() => getProjectRoot()),
+      createFieldFilter(),
+    ],
   });
 }
 
@@ -138,6 +142,33 @@ export async function dispatchFromCli(
     );
     process.exit(exitCode);
   }
+}
+
+/**
+ * Handle an error response from dispatchRaw().
+ *
+ * Calls cliError() and process.exit() when the response indicates failure.
+ * No-op when response.success is true.
+ */
+export function handleRawError(
+  response: DispatchResponse,
+  _opts: { command: string; operation: string },
+): void {
+  if (response.success) return;
+  const errorCode = response.error?.code ?? 'E_GENERAL';
+  const exitCode = response.error?.exitCode
+    ?? ERROR_CODE_TO_EXIT[errorCode]
+    ?? 1;
+  cliError(
+    response.error?.message ?? 'Unknown error',
+    exitCode,
+    {
+      name: errorCode,
+      details: response.error?.details,
+      fix: response.error?.fix,
+    },
+  );
+  process.exit(exitCode);
 }
 
 /**

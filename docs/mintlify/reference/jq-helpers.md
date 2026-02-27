@@ -304,7 +304,7 @@ get_focus_task "$TODO_FILE"
 |----------|------|----------|-------------|
 | `todo_file` | string | Yes | Path to todo.json file |
 
-**Output**: Task ID string, empty if no focus set
+**Output**: Task ID string, empty if no start
 
 **Example**:
 ```bash
@@ -312,7 +312,7 @@ focus=$(get_focus_task "$TODO_FILE")
 if [[ -n "$focus" ]]; then
     echo "Currently focused on: $focus"
 else
-    echo "No focus set"
+    echo "No start"
 fi
 ```
 

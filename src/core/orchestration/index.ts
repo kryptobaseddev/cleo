@@ -7,8 +7,8 @@
 import { readJsonRequired } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TodoFile } from '../../types/task.js';
-import { getTodoPath } from '../paths.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
 import { getExecutionWaves } from '../phases/deps.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
@@ -65,8 +65,8 @@ export async function startOrchestration(
   accessor?: DataAccessor,
 ): Promise<OrchestratorSession> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {
@@ -98,8 +98,8 @@ export async function startOrchestration(
  */
 export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<AnalysisResult> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {
@@ -141,8 +141,8 @@ export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataA
  */
 export async function getReadyTasks(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskReadiness[]> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const childTasks = data.tasks.filter(t => t.parentId === epicId);
   const completedIds = new Set(
     data.tasks.filter(t => t.status === 'done').map(t => t.id),
@@ -184,8 +184,8 @@ export async function getNextTask(epicId: string, cwd?: string, accessor?: DataA
  */
 export async function prepareSpawn(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<SpawnContext> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -245,8 +245,8 @@ export async function getOrchestratorContext(epicId: string, cwd?: string, acces
   completionPercent: number;
 }> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {
@@ -351,7 +351,7 @@ function buildSpawnPrompt(task: Task, protocol: string): string {
     `**Date**: ${date}`,
     '',
     `### Instructions`,
-    `1. Set focus: \`cleo focus set ${task.id}\``,
+    `1. Start task: \`cleo start ${task.id}\``,
     `2. Execute the ${protocol} protocol`,
     `3. Write output file`,
     `4. Append manifest entry to MANIFEST.jsonl`,

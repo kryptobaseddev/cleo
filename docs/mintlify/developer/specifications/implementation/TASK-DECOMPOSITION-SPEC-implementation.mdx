@@ -268,16 +268,16 @@ Per Part 22:
 When starting a session for a phase:
 
 ```bash
-# 1. Start session and set focus
+# 1. Start session and activate task
 cleo session start
-cleo focus set <phase-task-id>
+cleo start <phase-task-id>
 
 # 2. Review the phase task and subtasks
 cleo show <phase-task-id>
 cleo list --parent <phase-task-id>
 
 # 3. Work on subtasks, updating notes as you go
-cleo focus set <subtask-id>
+cleo start <subtask-id>
 cleo update <subtask-id> --notes "Starting work on..."
 
 # 4. Complete subtasks when done
@@ -285,7 +285,7 @@ cleo complete <subtask-id>
 cleo update <subtask-id> --notes "COMPLETE: <deliverables>"
 
 # 5. End session with summary
-cleo focus note "Session summary: ..."
+
 cleo session end
 ```
 

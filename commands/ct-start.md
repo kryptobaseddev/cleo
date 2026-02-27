@@ -32,18 +32,18 @@ cleo session start --auto-focus
 - Add `--scope epic:T001` to scope to a specific epic
 - Add `--agent opus-1` to identify your agent
 
-## Step 3: Display Current Focus
+## Step 3: Display Current Task
 
 Show what task is now active:
 
 ```bash
-cleo focus show
+cleo current
 ```
 
-Display the focused task details:
+Display the active task details:
 
 ```bash
-cleo show $(cleo focus show -q)
+cleo show $(cleo current -q)
 ```
 
 ## Step 4: Show Dashboard
@@ -58,11 +58,11 @@ cleo dash
 
 You have successfully started a CLEO session when:
 - Session is active (shown in `session status`)
-- A task is focused (shown in `focus show`)
+- A task is active (shown in `current`)
 - You understand current project state (from `dash`)
 
 ## Next Steps
 
-- Use `/ct-focus <id>` to change focus to a different task
+- Use `/ct-start <id>` to change focus to a different task
 - Use `/ct-next` to get next task suggestions
 - Use `/ct-end` when done to end the session

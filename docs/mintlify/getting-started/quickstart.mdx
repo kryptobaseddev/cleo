@@ -83,7 +83,7 @@ cleo add "Fix login bug" --priority high --labels bug,auth
 | `cleo add` | Create a task | `cleo add "Task title"` |
 | `cleo list` | View tasks | `cleo list --status pending` |
 | `cleo complete` | Mark done | `cleo complete T001` |
-| `cleo focus set` | Set active task | `cleo focus set T001` |
+| `cleo start` | Set active task | `cleo start T001` |
 | `cleo dash` | Project overview | `cleo dash` |
 
 ## Daily Workflow
@@ -92,12 +92,12 @@ cleo add "Fix login bug" --priority high --labels bug,auth
 # Morning: Start your session
 cleo session start
 cleo list --status pending
-cleo focus set T001
+cleo start T001
 
 # During work: Track progress
 cleo update T001 --notes "Fixed validation logic"
 cleo complete T001
-cleo focus set T002
+cleo start T002
 
 # Evening: Clean up
 cleo archive

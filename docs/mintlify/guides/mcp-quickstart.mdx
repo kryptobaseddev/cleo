@@ -160,7 +160,7 @@ await cleo_mutate({
 | `tasks` | `complete` | Mark task as done |
 | `session` | `start` | Start a work session |
 | `session` | `end` | End current session |
-| `session` | `focus.set` | Set active task |
+| `session` | `tasks.start` | Set active task |
 | `orchestrate` | `startup` | Initialize orchestration for an epic |
 | `orchestrate` | `spawn` | Generate a spawn prompt for a task |
 
@@ -228,7 +228,7 @@ await cleo_mutate({
 // 3. Set focus on a specific task
 await cleo_mutate({
   domain: "session",
-  operation: "focus.set",
+  operation: "tasks.start",
   params: { taskId: "T105" }
 });
 

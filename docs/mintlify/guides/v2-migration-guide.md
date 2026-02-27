@@ -75,8 +75,8 @@ All commands remain available under the same names. The `ct` alias continues to 
 | Update task | `ct update T1234 --status active` | `ct update T1234 --status active` | Same syntax |
 | Delete task | `ct delete T1234` | `ct delete T1234` | Same syntax |
 | Archive | `ct archive` | `ct archive` | Same syntax |
-| Focus set | `ct focus set T1234` | `ct focus set T1234` | Same syntax |
-| Focus show | `ct focus show` | `ct focus show` | Same syntax |
+| Focus set | `ct start T1234` | `ct start T1234` | Same syntax |
+| Focus show | `ct current` | `ct current` | Same syntax |
 | Session start | `ct session start --scope epic:T001` | `ct session start --scope epic:T001` | Same syntax |
 | Session end | `ct session end --note "..."` | `ct session end --note "..."` | Same syntax |
 | Session list | `ct session list` | `ct session list` | Same syntax |

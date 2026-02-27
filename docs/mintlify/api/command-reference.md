@@ -14,8 +14,8 @@ Complete reference for all CLEO CLI commands, optimized for both LLM agents and 
 |----------|----------|
 | **Task CRUD** | [add](#add), [show](#show), [list](#list), [find](#find), [update](#update), [complete](#complete), [delete](#delete) |
 | **Task Ops** | [archive](#archive), [unarchive](#unarchive), [reopen](#reopen), [uncancel](#uncancel), [promote](#promote), [reparent](#reparent), [reorder](#reorder) |
-| **Session** | [session start](#session-start), [session end](#session-end), [session status](#session-status), [session list](#session-list), [session resume](#session-resume), [session gc](#session-gc) |
-| **Focus** | [focus show](#focus-show), [focus set](#focus-set), [focus clear](#focus-clear), [focus history](#focus-history) |
+| **Session** | [session start](#session-start), [session end](#session-end), [session status](#session-status), [session list](#session-list), [session resume](#session-resume), [session gc](#session-gc), [session handoff](#session-handoff) |
+| **Active Task** | [current](#current), [start](#start), [stop](#stop) |
 | **Analysis** | [next](#next), [analyze](#analyze), [blockers](#blockers), [stats](#stats), [history](#history), [dash](#dash) |
 | **Dependencies** | [deps overview](#deps-overview), [deps show](#deps-show), [deps waves](#deps-waves), [deps critical-path](#deps-critical-path), [deps impact](#deps-impact), [deps cycles](#deps-cycles), [tree](#tree) |
 | **Phases** | [phase show](#phase-show), [phase list](#phase-list), [phase set](#phase-set), [phase start](#phase-start), [phase complete](#phase-complete), [phase advance](#phase-advance), [phase rename](#phase-rename), [phase delete](#phase-delete), [phases](#phases) |
@@ -280,6 +280,40 @@ cleo complete T042 --notes "Auth module shipped"
 **Example**:
 ```bash
 cleo delete T042 --cascade
+```
+
+---
+
+### bug
+
+**Purpose**: Create a new bug report task
+
+**Usage**: `cleo bug <title> [flags]`
+
+**Arguments**:
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| title | string | yes | Bug title |
+
+**Flags**:
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| --parent | | string | | Parent task ID (e.g. T001) |
+| --description | -d | string | | Bug description |
+| --severity | | string | high | Severity (priority mapping): critical, high, medium, low |
+| --expected | | string | | Expected behavior |
+| --actual | | string | | Actual behavior |
+| --reproduction | | string | | Steps to reproduce |
+| --files | | string | | Comma-separated file paths |
+| --blocks | -B | string | | Tasks this bug blocks (comma-separated) |
+
+**MCP Equivalent**: `cleo_mutate` domain=tasks operation=add params={title, type="bug", origin="bug-report", ...}
+
+**Example**:
+```bash
+cleo bug "Login fails with 500 error" --severity critical --blocks T042
 ```
 
 ---
@@ -565,51 +599,57 @@ cleo session end --note "Completed auth tasks T042-T045"
 
 ---
 
-## Focus Management
+### session handoff
 
-### focus show
+**Purpose**: Show handoff data from the most recent ended session
 
-**Purpose**: Show current focus task
+**Usage**: `cleo session handoff [flags]`
 
-**Usage**: `cleo focus show`
+**Flags**:
+
+| Flag | Type | Description |
+|------|------|-------------|
+| --scope | string | Filter by scope (epic:T### or global) |
+
+**MCP Equivalent**: `cleo_query` domain=session operation=handoff.show params={scope}
+
+---
+
+## Active Task Management
+
+### current
+
+**Purpose**: Show current active task
+
+**Usage**: `cleo current`
 
 **MCP Equivalent**: `cleo_query` domain=tasks operation=current
 
 ---
 
-### focus set
+### start
 
-**Purpose**: Set focus to a specific task
+**Purpose**: Start work on a specific task
 
-**Usage**: `cleo focus set <taskId>`
+**Usage**: `cleo start <taskId>`
 
 **Arguments**:
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| taskId | string | yes | Task ID to focus on |
+| taskId | string | yes | Task ID to start |
 
 **MCP Equivalent**: `cleo_mutate` domain=tasks operation=start params={taskId}
 
 ---
 
-### focus clear
+### stop
 
-**Purpose**: Clear current focus
+**Purpose**: Stop the current active task
 
-**Usage**: `cleo focus clear`
+**Usage**: `cleo stop`
 
 **MCP Equivalent**: `cleo_mutate` domain=tasks operation=stop
-
----
-
-### focus history
-
-**Purpose**: Show focus history
-
-**Usage**: `cleo focus history`
-
-**MCP Equivalent**: `cleo_query` domain=session operation=history
 
 ---
 
@@ -729,6 +769,36 @@ cleo next --explain -n 3
 | --quiet | -q | boolean | false | Suppress decorative output |
 
 **MCP Equivalent**: `cleo_query` domain=system operation=dash params={compact, period}
+
+---
+
+### plan
+
+**Purpose**: Composite planning view (in-progress epics, ready tasks, blocked tasks, open bugs)
+
+**Usage**: `cleo plan`
+
+**MCP Equivalent**: `cleo_query` domain=tasks operation=compute
+
+---
+
+### briefing
+
+**Purpose**: Show composite session-start context (handoff, focus, next tasks, bugs, blockers, epics)
+
+**Usage**: `cleo briefing [flags]`
+
+**Flags**:
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| --scope | string | | Scope filter (global or epic:T###) |
+| --max-next | number | 5 | Maximum next tasks to show |
+| --max-bugs | number | 10 | Maximum bugs to show |
+| --max-blocked | number | 10 | Maximum blocked tasks to show |
+| --max-epics | number | 5 | Maximum active epics to show |
+
+**MCP Equivalent**: `cleo_query` domain=session operation=briefing.show params={scope, maxNext, maxBugs, maxBlocked, maxEpics}
 
 ---
 
@@ -1585,12 +1655,12 @@ CLEO exposes two MCP tools: `cleo_query` (read-only) and `cleo_mutate` (writes).
 |-------------|---------|-----------|------------|
 | session status | query | status | |
 | session list | query | list | status, limit |
-| focus show | query | current | |
+| current | query | current | |
 | session start | mutate | start | scope, name, autoStart |
 | session end | mutate | end | sessionId, note |
 | session resume | mutate | resume | sessionId |
-| focus set | mutate | start | taskId |
-| focus clear | mutate | stop | |
+| start | mutate | start | taskId |
+| stop | mutate | stop | |
 | session gc | mutate | gc | maxAge |
 
 ### System Domain

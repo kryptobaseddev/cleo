@@ -107,7 +107,7 @@ cleo list
 cleo show T002
 
 # Set focus
-cleo focus set T002
+cleo start T002
 
 # Update task
 cleo update T002 --notes "Added configuration files"

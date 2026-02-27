@@ -266,7 +266,7 @@ Issues use existing task `status` field with additional semantics:
                           │  (pending)  │          │ (cancelled) │          │ (cancelled) │
                           └──────┬──────┘          └─────────────┘          └─────────────┘
                                  │
-                            ct focus set
+                            ct start
                                  │
                                  ▼
                           ┌─────────────┐
@@ -465,7 +465,7 @@ ct show T998 --include-issues
 #
 # Open Issues: 2
 #   T500 [major] Session timeout too short
-#   T502 [minor] Focus not restored on resume
+#   T502 [minor] Active task not restored on resume
 #
 # Fixed Issues: 3
 #   T499 [major] Fixed in v0.41.1
@@ -654,7 +654,7 @@ ct issue create "Title" --type bug-report --severity major
 ct issue triage T500 --priority high --phase maintenance
 
 # Work
-ct focus set T500
+ct start T500
 # ... implement fix ...
 ct complete T500
 

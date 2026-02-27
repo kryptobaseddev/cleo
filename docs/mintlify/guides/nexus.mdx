@@ -398,7 +398,7 @@ done
 cleo nexus sync
 
 # Run discovery for current task
-current_task=$(cleo focus show --json | jq -r '.taskId')
+current_task=$(cleo current --json | jq -r '.taskId')
 cleo nexus discover ".:${current_task}" --limit 10
 ```
 

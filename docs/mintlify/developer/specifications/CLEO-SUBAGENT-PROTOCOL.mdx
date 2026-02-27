@@ -59,7 +59,7 @@ The subagent protocol defines mandatory and recommended rules following RFC 2119
   </Card>
 
   <Card title="BASE-005" icon="crosshairs">
-    **MUST** set focus before starting work
+    **MUST** start a task before beginning work
 
     *Required* - Signals active task for tracking
   </Card>
@@ -85,7 +85,7 @@ The subagent protocol defines mandatory and recommended rules following RFC 2119
 | **BASE-002** | Full content would bloat orchestrator context window (10K token budget) |
 | **BASE-003** | Task completion updates status, logs to audit trail, triggers hooks |
 | **BASE-004** | Prevents manifest pointing to missing/incomplete file |
-| **BASE-005** | Focus tracking enables session state and context alerts |
+| **BASE-005** | Active task tracking enables session state and context alerts |
 | **BASE-006** | Partial/blocked status preferred over fabricated content |
 | **BASE-007** | Research links create bidirectional graph for future agents |
 
@@ -113,7 +113,7 @@ The subagent follows a strict 5-phase lifecycle:
   <Step title="EXECUTE">
     Follow skill-specific instructions:
     - Read task: `cleo show {{TASK_ID}}`
-    - Set focus: `cleo focus set {{TASK_ID}}`
+    - Start task: `cleo start {{TASK_ID}}`
     - Perform work (research, implementation, specification, etc.)
   </Step>
 
@@ -139,8 +139,8 @@ The subagent follows a strict 5-phase lifecycle:
 # 1. Read task
 cleo show {{TASK_ID}}
 
-# 2. Set focus (marks task active)
-cleo focus set {{TASK_ID}}
+# 2. Start task (marks task active)
+cleo start {{TASK_ID}}
 
 # 3. Do work (skill-specific)
 # ... execute protocol requirements ...
@@ -202,7 +202,7 @@ Subagents receive fully-resolved prompts with all tokens substituted.
 | Token | CLEO Default | Purpose |
 |-------|--------------|---------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` | Read task details |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` | Set active task |
+| `{{TASK_START_CMD}}` | `cleo start` | Set active task |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` | Mark task complete |
 | `{{TASK_LINK_CMD}}` | `cleo research link` | Link research to task |
 
@@ -589,10 +589,10 @@ jq '.tokenResolution.fullyResolved' <<< "$spawn_json"  # Must be true
     Orchestrator pre-resolves and inlines skill content
   </Accordion>
 
-  <Accordion title="Skipping Focus">
+  <Accordion title="Skipping Task Start">
     **Problem**: Violates BASE-005, breaks session tracking
 
-    **Solution**: Always `cleo focus set` before work
+    **Solution**: Always `cleo start` before work
 
     **Bad**:
     ```bash
@@ -604,7 +604,7 @@ jq '.tokenResolution.fullyResolved' <<< "$spawn_json"  # Must be true
     **Good**:
     ```bash
     cleo show T2402
-    cleo focus set T2402  # ← Required
+    cleo start T2402  # ← Required
     # ... do work ...
     cleo complete T2402
     ```
@@ -627,8 +627,8 @@ jq '.tokenResolution.fullyResolved' <<< "$spawn_json"  # Must be true
 Before returning, verify all requirements:
 
 <Steps>
-  <Step title="Focus Set">
-    Task focus was set via `cleo focus set {{TASK_ID}}`
+  <Step title="Task Started">
+    Task was started via `cleo start {{TASK_ID}}`
 
     Verifies BASE-005 compliance
   </Step>
@@ -668,11 +668,10 @@ Before returning, verify all requirements:
 # Read task details
 cleo show {{TASK_ID}}
 
-# Set active task focus
-cleo focus set {{TASK_ID}}
+# Start active task
+cleo start {{TASK_ID}}
 
 # Add progress notes (optional)
-cleo focus note "Working on X"
 
 # Complete task
 cleo complete {{TASK_ID}}

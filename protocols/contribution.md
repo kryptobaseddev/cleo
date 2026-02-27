@@ -277,7 +277,7 @@ Contribution protocol is **specification-only** (no enforcement yet). Implementa
 
 ### Base Protocol
 
-- Inherits task lifecycle (focus, execute, complete)
+- Inherits task lifecycle (start, execute, complete)
 - Inherits manifest append requirement
 - Inherits error handling patterns
 

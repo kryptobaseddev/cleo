@@ -30,8 +30,8 @@ enforcement: strict
 | ct add "Title" --parent T### | Create subtask | .task.id |
 | ct done T### | Complete task | .completedAt |
 | ct update T### --status active | Update status | .task |
-| ct focus set T### | Set active task | .task |
-| ct focus show | Current focus | .task |
+| ct start T### | Set active task | .task |
+| ct current | Current active task | .task |
 | ct next | Suggest task | .recommendation.taskId |
 | ct session list | List sessions | .sessions[] |
 | ct session start --scope epic:T### --auto-focus --name "..." | Start session | .session.id |
@@ -48,10 +48,10 @@ enforcement: strict
 
 1. `ct session list` - Check existing sessions
 2. `ct session start --scope epic:T### --auto-focus --name "Name"` OR `ct session resume ID`
-3. `ct focus set T###` - Set working task
-4. Execute work on focused task
+3. `ct start T###` - Set working task
+4. Execute work on active task
 5. `ct complete T###` - Mark done
-6. `ct focus set T###` - Next task (or `ct next`)
+6. `ct start T###` - Next task (or `ct next`)
 7. `ct archive` - Clean up done tasks
 8. `ct session end --note "Progress summary"` - ALWAYS end
 
@@ -108,7 +108,7 @@ enforcement: strict
 | 35 | TASK_CLAIMED | Yes | `ct next` for unclaimed task |
 | 36 | SESSION_REQUIRED | Yes | `ct session start` first |
 | 37 | SESSION_CLOSE_BLOCKED | No | Complete pending tasks first |
-| 38 | FOCUS_REQUIRED | Yes | `ct focus set T###` |
+| 38 | ACTIVE_TASK_REQUIRED | Yes | `ct start T###` |
 | 39 | NOTES_REQUIRED | Yes | Add `--note "..."` |
 
 ### Verification (40-47)
@@ -196,12 +196,12 @@ enforcement: strict
 ### Exit 35 (TASK_CLAIMED)
 ```
 1. ct next                     -> get unclaimed task suggestion
-2. ct focus set <suggested>    -> switch to unclaimed task
+2. ct start <suggested>        -> switch to unclaimed task
 ```
 
-### Exit 38 (FOCUS_REQUIRED)
+### Exit 38 (ACTIVE_TASK_REQUIRED)
 ```
-1. ct focus set T###           -> set focus on target task
+1. ct start T###               -> start working on target task
 2. RETRY original command
 ```
 
@@ -216,14 +216,14 @@ enforcement: strict
 
 | From | To | Via Command |
 |------|----|-------------|
-| pending | active | `ct focus set T###` |
+| pending | active | `ct start T###` |
 | pending | blocked | `ct update T### --status blocked` |
 | pending | done | `ct complete T###` |
-| active | pending | `ct focus set <other>` (unfocuses current) |
+| active | pending | `ct start <other>` (stops current) |
 | active | blocked | `ct update T### --status blocked` |
 | active | done | `ct complete T###` |
 | blocked | pending | `ct update T### --status pending` |
-| blocked | active | `ct focus set T###` |
+| blocked | active | `ct start T###` |
 | done | active | `ct reopen T###` |
 
 Valid statuses: `pending` | `active` | `blocked` | `done`
@@ -260,7 +260,7 @@ Errors return:
 
 ## Subagent Protocol
 
-1. `ct focus set T###` - Set focus before work
+1. `ct start T###` - Start task before work
 2. Execute implementation work
 3. Write output file to designated path
 4. Append ONE line to `MANIFEST.jsonl` (compact JSON, no pretty-print)
