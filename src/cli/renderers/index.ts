@@ -115,6 +115,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     let dataToRender = data as Record<string, unknown>;
 
     // §5.4.1 filter-then-render: apply --field extraction BEFORE human rendering
+    let fieldExtracted = false;
     if (fieldCtx.field) {
       const extracted = extractFieldFromResult(
         data as LAFSEnvelope['result'],
@@ -129,11 +130,21 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
         console.log(String(extracted));
         return;
       }
-      dataToRender = extracted as Record<string, unknown>;
+      // If extracted is an array, wrap it for renderGeneric
+      if (Array.isArray(extracted)) {
+        dataToRender = { [fieldCtx.field]: extracted };
+      } else {
+        dataToRender = extracted as Record<string, unknown>;
+      }
+      fieldExtracted = true;
     }
 
     const normalized = normalizeForHuman(opts.command, dataToRender);
-    const renderer = renderers[opts.command] ?? renderGeneric;
+    // After field extraction, use renderGeneric — command-specific renderers
+    // expect the full data structure, not a filtered subset (§5.4.1)
+    const renderer = fieldExtracted
+      ? renderGeneric
+      : (renderers[opts.command] ?? renderGeneric);
     const text = renderer(normalized, ctx.quiet);
     if (text) {
       console.log(text);
