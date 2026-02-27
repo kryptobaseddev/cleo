@@ -2,6 +2,7 @@
 
 **Date**: 2026-02-26
 **Status**: accepted
+**Accepted**: 2026-02-26
 **Supersedes**: Legacy JSON audit file system (T2920, T2929)
 **Related ADRs**: ADR-006, ADR-010, ADR-012
 **Related Tasks**: T4844, T4837
