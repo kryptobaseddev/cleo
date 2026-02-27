@@ -56,9 +56,9 @@ function isGradeMode(): boolean {
 /**
  * Get active session info from SQLite or env vars.
  *
- * @deprecated Session-resolver middleware (T4959) now populates request.sessionId.
- *   This function is retained only as a fallback for edge cases where
- *   session-resolver is not in the pipeline (e.g., tests, legacy callers).
+ * Session-resolver middleware (T4959) now populates request.sessionId.
+ * This function is retained as a fallback for edge cases where
+ * session-resolver is not in the pipeline (e.g., tests, legacy callers).
  */
 async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean } | null> {
   const gradeId = process.env.CLEO_SESSION_GRADE_ID;

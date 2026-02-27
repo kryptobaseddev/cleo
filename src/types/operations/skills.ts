@@ -99,12 +99,6 @@ export interface SkillsFindResult {
   results: Array<SkillSummary & { score: number; matchReason: string }>;
 }
 
-// Backward-compatible aliases
-/** @deprecated Use SkillsFindParams instead */
-export type SkillsSearchParams = SkillsFindParams;
-/** @deprecated Use SkillsFindResult instead */
-export type SkillsSearchResult = SkillsFindResult;
-
 // skills.dispatch
 export interface SkillsDispatchParams {
   taskId?: string;

@@ -83,7 +83,7 @@ export function registerSessionCommand(program: Command): void {
       // Format the handoff data for display
       const formattedHandoff = {
         sessionId,
-        lastTask: handoff.lastTask ?? handoff.lastFocus ?? 'None',
+        lastTask: handoff.lastTask ?? 'None',
         tasksCompleted: handoff.tasksCompleted ?? [],
         tasksCreated: handoff.tasksCreated ?? [],
         decisionsRecorded: handoff.decisionsRecorded ?? 0,

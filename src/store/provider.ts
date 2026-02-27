@@ -43,12 +43,6 @@ export type {
  */
 export type StoreEngine = 'sqlite';
 
-/**
- * @deprecated SQLite is the only supported engine.
- */
-export function detectStoreEngine(_cwd?: string): StoreEngine {
-  return 'sqlite';
-}
 
 /** Common task filter options. */
 export interface TaskFilters {
@@ -92,13 +86,6 @@ export interface StoreProvider {
   startTaskOnSession(sessionId: string, taskId: string): Promise<void>;
   getCurrentTaskForSession(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
   stopTaskOnSession(sessionId: string): Promise<void>;
-
-  /** @deprecated Use startTaskOnSession instead. */
-  setFocus(sessionId: string, taskId: string): Promise<void>;
-  /** @deprecated Use getCurrentTaskForSession instead. */
-  getFocus(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
-  /** @deprecated Use stopTaskOnSession instead. */
-  clearFocus(sessionId: string): Promise<void>;
 
   // Lifecycle
   close(): Promise<void>;
@@ -282,9 +269,6 @@ async function createSqliteProvider(cwd?: string): Promise<StoreProvider> {
     startTaskOnSession: (sessionId, taskId) => sessionStore.startTask(sessionId, taskId, cwd),
     getCurrentTaskForSession: (sessionId) => sessionStore.getCurrentTask(sessionId, cwd),
     stopTaskOnSession: (sessionId) => sessionStore.stopTask(sessionId, cwd),
-    setFocus: (sessionId, taskId) => sessionStore.startTask(sessionId, taskId, cwd),
-    getFocus: (sessionId) => sessionStore.getCurrentTask(sessionId, cwd),
-    clearFocus: (sessionId) => sessionStore.stopTask(sessionId, cwd),
     close: async () => closeDb(),
     ...domainOps,
   };

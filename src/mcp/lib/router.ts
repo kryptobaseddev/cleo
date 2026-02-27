@@ -7,7 +7,6 @@
  * all routing now goes through the dispatch layer.
  *
  * @task T2911
- * @deprecated Use dispatch layer types for new code
  */
 
 /**

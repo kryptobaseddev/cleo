@@ -21,7 +21,7 @@ import {
 /**
  * Check if inside a git repository.
  * @task T4551
- * @deprecated Use isCleoGitInitialized() — kept for backwards-compat with --status output
+ * Thin wrapper around isCleoGitInitialized() for --status output.
  */
 function isGitRepo(): boolean {
   try {
