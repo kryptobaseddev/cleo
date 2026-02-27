@@ -68,6 +68,12 @@
       ],
       "postValidate": "./dev/validate-version.sh"
     },
+    "push": {
+      "enabled": false,
+      "remote": "origin",
+      "requireCleanTree": true,
+      "allowedBranches": ["main", "master"]
+    },
     "changelog": {
       "enabled": true,
       "autoGenerate": false,

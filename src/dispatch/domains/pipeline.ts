@@ -316,7 +316,8 @@ export class PipelineHandler implements DomainHandler {
             'version is required', startTime);
         }
         const remote = params?.remote as string | undefined;
-        const result = await releasePush(version, remote, this.projectRoot);
+        const explicitPush = params?.explicitPush as boolean | undefined;
+        const result = await releasePush(version, remote, this.projectRoot, { explicitPush: explicitPush ?? true });
         return this.wrapEngineResult(result, 'mutate', 'release.push', startTime);
       }
 
