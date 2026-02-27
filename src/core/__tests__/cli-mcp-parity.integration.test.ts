@@ -699,7 +699,6 @@ describe('Section 2: Session domain parity (T4796)', () => {
   describe('session.status', () => {
     const STATUS_DATA = {
       hasActiveSession: false,
-      multiSessionEnabled: false,
       currentSession: null,
     };
 

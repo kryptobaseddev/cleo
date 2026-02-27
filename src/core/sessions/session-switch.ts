@@ -14,7 +14,7 @@ import type { TaskFileExt } from './types.js';
 /**
  * Switch to a different session.
  * Suspends the current active session and activates the target.
- * Throws if multi-session mode is not enabled, session not found, or archived.
+ * Throws if session not found or archived.
  */
 export async function switchSession(
   projectRoot: string,
@@ -23,14 +23,6 @@ export async function switchSession(
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
   const current = taskData as unknown as TaskFileExt;
-
-  const multiSession = current._meta?.multiSessionEnabled === true;
-  if (!multiSession) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      'Session switch requires multi-session mode',
-    );
-  }
 
   const sessions = await accessor.loadSessions();
 

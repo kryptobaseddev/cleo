@@ -14,7 +14,7 @@ import type { TaskFileExt } from './types.js';
 /**
  * Suspend an active session.
  * Sets status to 'suspended' and records the reason.
- * Throws if multi-session mode is not enabled or session not found/not active.
+ * Throws if session not found or not active.
  */
 export async function suspendSession(
   projectRoot: string,
@@ -24,15 +24,6 @@ export async function suspendSession(
   const accessor = await getAccessor(projectRoot);
   const taskData = await accessor.loadTaskFile();
   const current = taskData as unknown as TaskFileExt;
-
-  const multiSession = current._meta?.multiSessionEnabled === true;
-
-  if (!multiSession) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      'Session suspend requires multi-session mode',
-    );
-  }
 
   const sessions = await accessor.loadSessions();
 

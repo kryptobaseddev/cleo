@@ -40,7 +40,7 @@ function createMockStore() {
   const taskData = {
     tasks,
     focus: { currentTask: null, currentPhase: null, blockedUntil: null, sessionNote: null, sessionNotes: [], nextAction: null, primarySession: null },
-    _meta: { schemaVersion: '1.0.0', activeSession: null, multiSessionEnabled: false },
+    _meta: { schemaVersion: '1.0.0', activeSession: null },
   };
 
   return {
