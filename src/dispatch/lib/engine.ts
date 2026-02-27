@@ -75,9 +75,9 @@ export {
   sessionComputeDebrief,
   sessionDebriefShow,
   sessionChainShow,
-  type SessionRecord,
   type DecisionRecord,
 } from '../engines/session-engine.js';
+export type { Session as SessionRecord } from '../../types/session.js';
 
 // System engine
 export {

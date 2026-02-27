@@ -6,7 +6,7 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import type { SessionRecord, SessionsFileExt } from './types.js';
+import type { Session } from '../../types/session.js';
 
 export interface SessionHistoryEntry {
   id: string;
@@ -38,17 +38,11 @@ export async function getSessionHistory(
   // Verify project is initialized by loading todo file
   await accessor.loadTaskFile();
 
-  const sessionsFile = (await accessor.loadSessions()) as unknown as SessionsFileExt;
+  const allSessions: Session[] = await accessor.loadSessions();
 
-  if (!sessionsFile || !sessionsFile.sessions) {
+  if (allSessions.length === 0) {
     return { sessions: [] };
   }
-
-  // Combine active sessions and history
-  const allSessions: SessionRecord[] = [
-    ...(sessionsFile.sessions || []),
-    ...(sessionsFile.sessionHistory || []),
-  ];
 
   let filtered = allSessions;
 
@@ -74,7 +68,7 @@ export async function getSessionHistory(
     endedAt: s.endedAt,
     tasksCompleted: s.stats?.tasksCompleted || 0,
     focusChanges: s.stats?.focusChanges || 0,
-    focusHistory: s.focus?.focusHistory || [],
+    focusHistory: [],
   }));
 
   return { sessions: result };

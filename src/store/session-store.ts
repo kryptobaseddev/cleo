@@ -10,57 +10,15 @@
 import { eq, and, desc, isNull } from 'drizzle-orm';
 import { getDb } from './sqlite.js';
 import * as schema from './schema.js';
-import type { SessionRow } from './schema.js';
-import type { Session, SessionScope, SessionStatus } from '../types/session.js';
-
-// === ROW <-> DOMAIN CONVERSION ===
-
-function rowToSession(row: SessionRow): Session {
-  const taskWork = {
-    taskId: row.currentTask,
-    setAt: row.taskStartedAt,
-  };
-  return {
-    id: row.id,
-    name: row.name,
-    status: row.status as SessionStatus,
-    scope: parseJson<SessionScope>(row.scopeJson) ?? { type: 'global' },
-    taskWork,
-    focus: taskWork,
-    startedAt: row.startedAt,
-    endedAt: row.endedAt,
-    agent: row.agent,
-    notes: parseJson<string[]>(row.notesJson),
-    tasksCompleted: parseJson<string[]>(row.tasksCompletedJson),
-    tasksCreated: parseJson<string[]>(row.tasksCreatedJson),
-    handoffJson: row.handoffJson ?? null,
-    // Session chain fields (T4959)
-    previousSessionId: row.previousSessionId ?? null,
-    nextSessionId: row.nextSessionId ?? null,
-    agentIdentifier: row.agentIdentifier ?? null,
-    handoffConsumedAt: row.handoffConsumedAt ?? null,
-    handoffConsumedBy: row.handoffConsumedBy ?? null,
-    debriefJson: row.debriefJson ?? null,
-  };
-}
-
-function parseJson<T>(jsonStr: string | null | undefined): T | undefined {
-  if (!jsonStr) return undefined;
-  try {
-    const parsed = JSON.parse(jsonStr) as T;
-    if (Array.isArray(parsed) && parsed.length === 0) return undefined;
-    return parsed;
-  } catch {
-    return undefined;
-  }
-}
+import type { Session } from '../types/session.js';
+import { rowToSession } from './converters.js';
 
 // === CRUD OPERATIONS ===
 
 /** Create a new session. */
 export async function createSession(session: Session, cwd?: string): Promise<Session> {
   const db = await getDb(cwd);
-  const tw = session.taskWork ?? session.focus;
+  const tw = session.taskWork;
   db.insert(schema.sessions).values({
     id: session.id,
     name: session.name,

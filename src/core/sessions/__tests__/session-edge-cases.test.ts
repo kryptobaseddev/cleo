@@ -140,7 +140,7 @@ describe('Session resume edge cases', () => {
 
     const resumed = await resumeSession(started.id, tempDir);
     expect(resumed.status).toBe('active');
-    expect(resumed.endedAt).toBeNull();
+    expect(resumed.endedAt).toBeUndefined();
   });
 
   it('ending session by ID works', async () => {
@@ -206,11 +206,11 @@ describe('Session focus and notes', () => {
     const session = await startSession({
       name: 'Focused',
       scope: 'epic:T001',
-      focus: 'T002',
+      startTask: 'T002',
     }, tempDir);
 
-    expect(session.focus.taskId).toBe('T002');
-    expect(session.focus.setAt).toBeDefined();
+    expect(session.taskWork.taskId).toBe('T002');
+    expect(session.taskWork.setAt).toBeDefined();
   });
 
   it('session without focus has null taskId', async () => {
@@ -219,7 +219,7 @@ describe('Session focus and notes', () => {
       scope: 'global',
     }, tempDir);
 
-    expect(session.focus.taskId).toBeNull();
+    expect(session.taskWork.taskId).toBeNull();
   });
 
   it('ending session adds note', async () => {

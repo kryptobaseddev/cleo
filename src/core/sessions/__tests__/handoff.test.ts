@@ -57,11 +57,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 
 function setupMockAccessor(sessions: Session[], tasks: unknown[] = makeMockTasks()) {
   const mockAccessor = {
-    loadSessions: vi.fn().mockResolvedValue({
-      version: '1.0.0',
-      sessions,
-      _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-    }),
+    loadSessions: vi.fn().mockResolvedValue(sessions),
     saveSessions: vi.fn().mockResolvedValue(undefined),
     loadTaskFile: vi.fn().mockResolvedValue({
       tasks,
