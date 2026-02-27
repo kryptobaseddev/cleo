@@ -201,7 +201,7 @@ describe('Migration Safety Integration Tests', () => {
 
       // Verify DB was restored (re-open to verify)
       const db = await getDb();
-      const allTasks = db.select().from(tasks).where(eq(tasks.status, 'active')).all();
+      const allTasks = await db.select().from(tasks).where(eq(tasks.status, 'active')).all();
       expect(allTasks.length).toBe(2);
     });
 
@@ -377,11 +377,11 @@ describe('Migration Safety Integration Tests', () => {
       const { count } = await import('drizzle-orm');
       const db = await getDb();
 
-      const taskCount = db.select({ count: count() }).from(taskSchema).get();
+      const taskCount = await db.select({ count: count() }).from(taskSchema).get();
       expect(taskCount?.count).toBe(3);
 
       // Verify database is valid (can run queries)
-      const allTasks = db.select().from(taskSchema).all();
+      const allTasks = await db.select().from(taskSchema).all();
       expect(allTasks.length).toBe(3);
       expect(allTasks.every(t => t.id && t.title)).toBe(true);
     });
@@ -468,7 +468,7 @@ describe('Migration Safety Integration Tests', () => {
       const { count } = await import('drizzle-orm');
       const db = await getDb();
 
-      const taskCount = db.select({ count: count() }).from(taskSchema).get();
+      const taskCount = await db.select({ count: count() }).from(taskSchema).get();
       expect(taskCount?.count).toBe(2);
     });
   });
@@ -885,7 +885,7 @@ describe('Migration Safety Integration Tests', () => {
       const { eq } = await import('drizzle-orm');
       const db = await getDb();
 
-      const archivedRows = db.select().from(tasks).where(eq(tasks.status, 'archived')).all();
+      const archivedRows = await db.select().from(tasks).where(eq(tasks.status, 'archived')).all();
 
       expect(archivedRows.length).toBe(1);
       expect(archivedRows[0]!.archivedAt).toBeDefined();

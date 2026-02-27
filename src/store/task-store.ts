@@ -8,8 +8,8 @@
  * @task W1-T3
  */
 
-import { eq, and, sql, inArray, asc, isNull, ne } from 'drizzle-orm';
-import { getDb } from './sqlite.js';
+import { eq, and, sql, inArray, asc, isNull, ne, count } from 'drizzle-orm';
+import { getDb, getNativeDb } from './sqlite.js';
 import * as schema from './schema.js';
 import type { TaskRow, NewTaskRow } from './schema.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
@@ -366,17 +366,19 @@ export async function getRelations(taskId: string, cwd?: string): Promise<Array<
 
 /** Get the dependency chain (blockers) for a task using recursive CTE. */
 export async function getBlockerChain(taskId: string, cwd?: string): Promise<string[]> {
-  const db = await getDb(cwd);
-  const result = await db.all<{ id: string }>(sql`
+  await getDb(cwd);
+  const nativeDb = getNativeDb();
+  if (!nativeDb) return [];
+  const result = nativeDb.prepare(`
     WITH RECURSIVE blocker_chain(id) AS (
-      SELECT depends_on FROM task_dependencies WHERE task_id = ${taskId}
+      SELECT depends_on FROM task_dependencies WHERE task_id = ?
       UNION
       SELECT td.depends_on FROM task_dependencies td
       JOIN blocker_chain bc ON td.task_id = bc.id
     )
     SELECT id FROM blocker_chain
-  `);
-  return result.map((r: { id: string }) => r.id);
+  `).all(taskId) as { id: string }[];
+  return result.map(r => r.id);
 }
 
 /** Get children of a task (hierarchy). */
@@ -391,27 +393,31 @@ export async function getChildren(parentId: string, cwd?: string): Promise<Task[
 
 /** Build a tree from a root task using recursive CTE. */
 export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> {
-  const db = await getDb(cwd);
-  const rows = await db.all<TaskRow>(sql`
+  await getDb(cwd);
+  const nativeDb = getNativeDb();
+  if (!nativeDb) return [];
+  const rows = nativeDb.prepare(`
     WITH RECURSIVE subtree AS (
-      SELECT * FROM tasks WHERE id = ${rootId}
+      SELECT * FROM tasks WHERE id = ?
       UNION ALL
       SELECT t.* FROM tasks t
       JOIN subtree s ON t.parent_id = s.id
     )
     SELECT * FROM subtree
-  `);
+  `).all(rootId) as TaskRow[];
   return rows.map(rowToTask);
 }
 
 /** Count tasks by status. */
 export async function countByStatus(cwd?: string): Promise<Record<string, number>> {
   const db = await getDb(cwd);
-  const rows = await db.all<{ status: string; count: number }>(sql`
-    SELECT status, COUNT(*) as count FROM tasks
-    WHERE status != 'archived'
-    GROUP BY status
-  `);
+  const rows = await db.select({
+    status: schema.tasks.status,
+    count: count(),
+  }).from(schema.tasks)
+    .where(ne(schema.tasks.status, 'archived'))
+    .groupBy(schema.tasks.status)
+    .all();
 
   const result: Record<string, number> = {};
   for (const row of rows) {
@@ -423,10 +429,11 @@ export async function countByStatus(cwd?: string): Promise<Record<string, number
 /** Get total task count (excluding archived). */
 export async function countTasks(cwd?: string): Promise<number> {
   const db = await getDb(cwd);
-  const result = await db.all<{ count: number }>(sql`
-    SELECT COUNT(*) as count FROM tasks WHERE status != 'archived'
-  `);
-  return result[0]?.count ?? 0;
+  const result = await db.select({ count: count() })
+    .from(schema.tasks)
+    .where(ne(schema.tasks.status, 'archived'))
+    .get();
+  return result?.count ?? 0;
 }
 
 // === SAFE WRAPPER FUNCTIONS (with collision detection, write verification, auto-checkpoint) ===
