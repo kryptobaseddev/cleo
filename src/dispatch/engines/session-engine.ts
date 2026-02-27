@@ -428,8 +428,7 @@ export async function sessionEnd(
     (taskData as unknown as Record<string, unknown>).lastUpdated = now;
     await accessor.saveTaskFile(taskData);
 
-    // Always update sessions.json — sessionStart always writes there
-    // (see sessionStart comment: "Always write to sessions.json so resume/suspend can find the session")
+    // Update session record in SQLite
     if (sessionId !== 'default') {
       const sessions = await accessor.loadSessions();
       const session = sessions.find(
