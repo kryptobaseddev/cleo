@@ -54,6 +54,8 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 - Fine-grained single-task writes in store layer (T5034)
 - Pre-commit hook enforcing drizzle snapshot presence and SQLite WAL exclusion (T4792, T4894)
 - Node.js v24+ minimum enforced with auto-install via fnm (T015)
+- `cleo init` now auto-installs git hooks (`commit-msg`, `pre-commit`) from `templates/git-hooks/` (T5056)
+- `grade.schema.json` moved to canonical `schemas/` directory; dead legacy schemas removed (T5056)
 
 ### Bug Fixes
 
