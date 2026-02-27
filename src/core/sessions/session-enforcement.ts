@@ -2,8 +2,7 @@
  * Session enforcement - require active sessions for write operations.
  *
  * Part of the Epic-Bound Session architecture. Enforces that write operations
- * (add, update, complete) require an active session when multi-session mode
- * is enabled.
+ * (add, update, complete) require an active session.
  *
  * @task T4454
  * @epic T4454
@@ -40,10 +39,6 @@ export type EnforcementMode = 'strict' | 'warn' | 'none';
 /** Get the current enforcement mode. */
 export function getEnforcementMode(cwd?: string): EnforcementMode {
   try {
-    // Check if multi-session is enabled
-    const multiEnabled = readConfigValueSync('multiSession.enabled', false, cwd);
-    if (!multiEnabled) return 'none';
-
     // Get enforcement mode from config
     const mode = readConfigValueSync('session.enforcement', 'strict', cwd) as string;
     if (mode === 'strict' || mode === 'warn' || mode === 'none') return mode;
@@ -133,7 +128,7 @@ export async function requireActiveSession(
 
 /**
  * Validate that a task is within the current session's scope.
- * Only enforced when multi-session mode is enabled and a session is active.
+ * Only enforced when a session is active.
  */
 export async function validateTaskInScope(
   taskId: string,

@@ -1,15 +1,12 @@
 /**
- * Extended session types used by the MCP engine layer.
- *
- * These types represent the actual on-disk format for sessions.json
- * which is richer than the core Session type in types/session.ts.
+ * Extended session types used by the engine/dispatch layer.
  *
  * @task T4782
  * @epic T4654
  */
 
 /**
- * Session object matching sessions.schema.json (engine-compatible).
+ * Session object (engine-compatible).
  */
 export interface SessionRecord {
   id: string;
@@ -69,7 +66,7 @@ export interface SessionRecord {
 }
 
 /**
- * Task work state from tasks.json (single-session mode).
+ * Task work state from the task store.
  */
 export interface TaskWorkStateExt {
   currentTask: string | null;
@@ -85,24 +82,6 @@ export interface TaskWorkStateExt {
 export type FocusState = TaskWorkStateExt;
 
 /**
- * Extended sessions.json structure (engine-compatible).
- */
-export interface SessionsFileExt {
-  version?: string;
-  project?: string;
-  _meta?: {
-    schemaVersion: string;
-    checksum: string;
-    lastModified: string;
-    totalSessionsCreated?: number;
-    lastSessionId?: string | null;
-  };
-  config?: Record<string, unknown>;
-  sessions: SessionRecord[];
-  sessionHistory?: SessionRecord[];
-}
-
-/**
  * Task file structure (subset for session operations).
  */
 export interface TaskFileExt {
@@ -113,7 +92,6 @@ export interface TaskFileExt {
     configVersion?: string;
     lastSessionId?: string | null;
     activeSession?: string | null;
-    multiSessionEnabled?: boolean;
     activeSessionCount?: number;
     sessionsFile?: string | null;
     generation?: number;
@@ -150,13 +128,3 @@ export interface AssumptionRecord {
   timestamp: string;
 }
 
-// =============================================================================
-// TYPE UNIFICATION NOTES (T4959)
-// =============================================================================
-//
-// SessionRecord (above) is the engine-layer type used by sessions.json.
-// Session (in types/session.ts) is the domain type used by core/ and store/.
-// Both now have the chain fields (T4959). Full SessionRecord -> Session
-// unification is a follow-up epic — new code should prefer Session where
-// possible, and SessionRecord only for engine/dispatch-layer code.
-//

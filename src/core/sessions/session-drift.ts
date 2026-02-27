@@ -68,7 +68,7 @@ export async function getContextDrift(
     }
   } else {
     const activeSessionId = current._meta?.activeSession;
-    if (activeSessionId && current._meta?.multiSessionEnabled) {
+    if (activeSessionId) {
       const sessions = await accessor.loadSessions();
       session = sessions.find((s) => s.id === activeSessionId);
     }

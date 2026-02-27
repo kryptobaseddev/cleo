@@ -296,14 +296,7 @@ async function computeLastSession(
 
     // Load sessions to get endedAt
     const accessor = await getAccessor(projectRoot);
-    const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as { sessions?: Session[]; sessionHistory?: Session[] };
-
-    // Find session in active or history
-    const allSessions: Session[] = [
-      ...(sessions?.sessions || []),
-      ...(sessions?.sessionHistory || []),
-    ];
+    const allSessions = await accessor.loadSessions();
 
     const session = allSessions.find((s) => s.id === sessionId);
     if (!session || !session.endedAt) return null;

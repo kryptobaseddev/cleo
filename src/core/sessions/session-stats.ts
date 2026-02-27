@@ -9,7 +9,6 @@ import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Session } from '../../types/session.js';
-import type { TaskFileExt } from './types.js';
 
 export interface SessionStatsResult {
   totalSessions: number;
@@ -39,24 +38,6 @@ export async function getSessionStats(
   sessionId?: string,
 ): Promise<SessionStatsResult> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
-
-  const multiSession = current._meta?.multiSessionEnabled === true;
-
-  if (!multiSession) {
-    // Single-session mode: return basic stats
-    return {
-      totalSessions: current.focus?.currentTask ? 1 : 0,
-      activeSessions: current.focus?.currentTask ? 1 : 0,
-      suspendedSessions: 0,
-      endedSessions: 0,
-      archivedSessions: 0,
-      totalTasksCompleted: 0,
-      totalFocusChanges: 0,
-      averageResumeCount: 0,
-    };
-  }
 
   const allSessions: Session[] = await accessor.loadSessions();
 

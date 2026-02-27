@@ -483,7 +483,6 @@ describe('Session Engine Delegation (T4796)', () => {
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
     expect(typeof result.data!.hasActiveSession).toBe('boolean');
-    expect(typeof result.data!.multiSessionEnabled).toBe('boolean');
   });
 
   it('sessionList returns valid EngineResult with array', async () => {

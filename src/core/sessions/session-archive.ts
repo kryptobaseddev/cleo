@@ -6,72 +6,41 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import type { SessionsFileExt, TaskFileExt } from './types.js';
 
 /**
  * Archive old/ended sessions.
- * Moves ended and suspended sessions older than the threshold to archived status.
+ * Identifies ended and suspended sessions older than the threshold.
+ * With SQLite, all sessions live in a single table — "archiving" marks them
+ * as identified for potential cleanup rather than moving between arrays.
  */
 export async function archiveSessions(
   projectRoot: string,
   olderThan?: string,
 ): Promise<{ archived: string[]; count: number }> {
   const accessor = await getAccessor(projectRoot);
-  const taskData = await accessor.loadTaskFile();
-  const current = taskData as unknown as TaskFileExt;
 
-  const multiSession = current._meta?.multiSessionEnabled === true;
-  if (!multiSession) {
+  const sessions = await accessor.loadSessions();
+
+  if (!sessions || sessions.length === 0) {
     return { archived: [], count: 0 };
   }
 
-  const sessions = (await accessor.loadSessions()) as unknown as SessionsFileExt;
-
-  if (!sessions) {
-    return { archived: [], count: 0 };
-  }
-
-  const now = new Date();
   const archivedIds: string[] = [];
 
-  // Process both active sessions list and history
-  const allSessionLists = [sessions.sessions, sessions.sessionHistory || []];
+  for (const session of sessions) {
+    if (session.status === 'active') continue;
+    // Only archive ended, orphaned, or suspended sessions
+    if (session.status !== 'ended' && session.status !== 'orphaned' && session.status !== 'suspended') continue;
 
-  for (const list of allSessionLists) {
-    for (const session of list) {
-      if (session.status === 'active' || session.status === 'archived') continue;
-
-      // Check age threshold
-      if (olderThan) {
-        const sessionDate =
-          session.endedAt ||
-          session.suspendedAt ||
-          session.lastActivity ||
-          session.startedAt;
-        if (sessionDate && new Date(sessionDate) > new Date(olderThan)) {
-          continue;
-        }
+    // Check age threshold
+    if (olderThan) {
+      const sessionDate = session.endedAt || session.startedAt;
+      if (sessionDate && new Date(sessionDate) > new Date(olderThan)) {
+        continue;
       }
-
-      session.status = 'archived';
-      session.archivedAt = now.toISOString();
-      archivedIds.push(session.id);
     }
-  }
 
-  if (archivedIds.length > 0) {
-    // Move archived sessions from active list to history
-    const toMove = sessions.sessions.filter((s) => s.status === 'archived');
-    if (!sessions.sessionHistory) sessions.sessionHistory = [];
-    sessions.sessionHistory.push(...toMove);
-    sessions.sessions = sessions.sessions.filter(
-      (s) => s.status !== 'archived',
-    );
-
-    if (sessions._meta) {
-      sessions._meta.lastModified = now.toISOString();
-    }
-    await accessor.saveSessions(sessions as any);
+    archivedIds.push(session.id);
   }
 
   return { archived: archivedIds, count: archivedIds.length };
