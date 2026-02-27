@@ -5,6 +5,7 @@
  * @epic T4545
  */
 
+// TODO T4894: operation 'web' not yet in registry — no dispatch equivalent.\n// Leave bypass; web command requires process spawn/PID management not suitable for dispatch.
 import { Command } from 'commander';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, rm, stat } from 'node:fs/promises';

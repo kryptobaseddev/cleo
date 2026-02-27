@@ -9,40 +9,40 @@
 import { readJsonRequired, computeChecksum, saveJson } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TodoFile } from '../../types/task.js';
-import { getTodoPath, getBackupDir } from '../paths.js';
+import type { Task, TaskFile } from '../../types/task.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 /**
- * Cached TodoFile loader to avoid repeated file reads within a single operation.
+ * Cached TaskFile loader to avoid repeated file reads within a single operation.
  * Cache is keyed by resolved path and invalidated after 1 second.
  * @task T4659
  * @epic T4654
  */
-let cachedTodoData: { path: string; data: TodoFile; timestamp: number } | null = null;
+let cachedTaskData: { path: string; data: TaskFile; timestamp: number } | null = null;
 const CACHE_TTL_MS = 1000;
 
-async function loadTodoData(cwd?: string, accessor?: DataAccessor): Promise<TodoFile> {
+async function loadTaskData(cwd?: string, accessor?: DataAccessor): Promise<TaskFile> {
   if (accessor) {
-    return accessor.loadTodoFile();
+    return accessor.loadTaskFile();
   }
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const now = Date.now();
-  if (cachedTodoData && cachedTodoData.path === todoPath && (now - cachedTodoData.timestamp) < CACHE_TTL_MS) {
-    return cachedTodoData.data;
+  if (cachedTaskData && cachedTaskData.path === taskPath && (now - cachedTaskData.timestamp) < CACHE_TTL_MS) {
+    return cachedTaskData.data;
   }
-  const data = await readJsonRequired<TodoFile>(todoPath);
-  cachedTodoData = { path: todoPath, data, timestamp: now };
+  const data = await readJsonRequired<TaskFile>(taskPath);
+  cachedTaskData = { path: taskPath, data, timestamp: now };
   return data;
 }
 
 /**
- * Invalidate the cached TodoFile (call after writes).
+ * Invalidate the cached TaskFile (call after writes).
  * @task T4659
  * @epic T4654
  */
 export function invalidateDepsCache(): void {
-  cachedTodoData = null;
+  cachedTaskData = null;
 }
 
 /** A node in the dependency graph. */
@@ -127,7 +127,7 @@ export function buildGraph(tasks: Task[]): Map<string, DepNode> {
  * @task T4464
  */
 export async function getDepsOverview(cwd?: string, accessor?: DataAccessor): Promise<DepsOverviewResult> {
-  const data = await loadTodoData(cwd, accessor);
+  const data = await loadTaskData(cwd, accessor);
   const graph = buildGraph(data.tasks);
   const nodes = Array.from(graph.values());
 
@@ -146,7 +146,7 @@ export async function getDepsOverview(cwd?: string, accessor?: DataAccessor): Pr
  * @task T4464
  */
 export async function getTaskDeps(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskDepsResult> {
-  const data = await loadTodoData(cwd, accessor);
+  const data = await loadTaskData(cwd, accessor);
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -220,7 +220,7 @@ export function topologicalSort(tasks: Task[]): Task[] {
  * @task T4464
  */
 export async function getExecutionWaves(epicId?: string, cwd?: string, accessor?: DataAccessor): Promise<ExecutionWave[]> {
-  const data = await loadTodoData(cwd, accessor);
+  const data = await loadTaskData(cwd, accessor);
   let tasks = data.tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled');
 
   // Scope to epic if provided
@@ -288,7 +288,7 @@ export async function getExecutionWaves(epicId?: string, cwd?: string, accessor?
  * @task T4464
  */
 export async function getCriticalPath(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<CriticalPathResult> {
-  const data = await loadTodoData(cwd, accessor);
+  const data = await loadTaskData(cwd, accessor);
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -337,7 +337,7 @@ export async function getCriticalPath(taskId: string, cwd?: string, accessor?: D
  * @task T4464
  */
 export async function getImpact(taskId: string, maxDepth: number = 10, cwd?: string, accessor?: DataAccessor): Promise<string[]> {
-  const data = await loadTodoData(cwd, accessor);
+  const data = await loadTaskData(cwd, accessor);
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -370,7 +370,7 @@ export async function getImpact(taskId: string, maxDepth: number = 10, cwd?: str
  * @task T4464
  */
 export async function detectCycles(cwd?: string, accessor?: DataAccessor): Promise<CycleResult> {
-  const data = await loadTodoData(cwd, accessor);
+  const data = await loadTaskData(cwd, accessor);
   const graph = buildGraph(data.tasks);
   const cycles: string[][] = [];
   const visited = new Set<string>();
@@ -422,7 +422,7 @@ export async function detectCycles(cwd?: string, accessor?: DataAccessor): Promi
  * @task T4464
  */
 export async function getTaskTree(rootId?: string, cwd?: string, accessor?: DataAccessor): Promise<TreeNode[]> {
-  const data = await loadTodoData(cwd, accessor);
+  const data = await loadTaskData(cwd, accessor);
 
   const taskMap = new Map(data.tasks.map(t => [t.id, t]));
 
@@ -476,10 +476,10 @@ export async function addRelation(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ taskId: string; relatedId: string }> {
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
 
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) {
@@ -501,9 +501,9 @@ export async function addRelation(
   data._meta.checksum = computeChecksum(data.tasks);
 
   if (accessor) {
-    await accessor.saveTodoFile(data);
+    await accessor.saveTaskFile(data);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
   invalidateDepsCache();
 

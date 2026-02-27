@@ -11,6 +11,9 @@
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { getLogger } from '../../core/logger.js';
+
+const logger = getLogger('domain:orchestrate');
 import {
   orchestrateStatus,
   orchestrateAnalyze,
@@ -272,10 +275,12 @@ export class OrchestrateHandler implements DomainHandler {
     error: unknown,
     startTime: number,
   ): DispatchResponse {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error({ gateway, domain: 'orchestrate', operation, err: error }, message);
     return this.errorResponse(
       gateway, operation,
       'E_INTERNAL_ERROR',
-      error instanceof Error ? error.message : String(error),
+      message,
       startTime,
     );
   }

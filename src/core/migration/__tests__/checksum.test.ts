@@ -103,10 +103,11 @@ describe('verifyBackup', () => {
     const backupPath = join(tempDir, 'backup.db');
 
     // Create a real SQLite database using the sqlite module
-    const { getDb, closeDb: close, saveToFile } = await import('../../../store/sqlite.js');
+    // node:sqlite uses WAL and writes directly to disk; no saveToFile needed
+    const { getDb, closeDb: close } = await import('../../../store/sqlite.js');
     close(); // Reset singleton
     await getDb();
-    saveToFile(); // Persist to disk
+    // SQLite has already written to disk via WAL; copy the file directly
 
     // Copy the database to backup location
     const dbContent = await readFile(sourcePath);

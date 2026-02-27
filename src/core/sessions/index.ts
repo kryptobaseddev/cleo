@@ -20,6 +20,8 @@ export interface StartSessionOptions {
   startTask?: string;
   focus?: string;
   agent?: string;
+  /** Enable full query+mutation audit logging for this session (behavioral grading). */
+  grade?: boolean;
 }
 
 /** Options for ending a session. */
@@ -156,6 +158,13 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
     tasksCreated: [],
   };
 
+  // If grade mode enabled, mark session and set env vars for audit middleware
+  if (options.grade) {
+    session.notes = ['[grade-mode:enabled]', ...(session.notes ?? [])];
+    process.env.CLEO_SESSION_GRADE = 'true';
+    process.env.CLEO_SESSION_ID = session.id;
+  }
+
   data.sessions.push(session);
   await saveSessions(data, cwd, accessor);
 
@@ -199,6 +208,12 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string, 
 
   session.status = 'ended';
   session.endedAt = new Date().toISOString();
+
+  // Clear grade mode env vars when session ends
+  if (process.env.CLEO_SESSION_GRADE === 'true') {
+    delete process.env.CLEO_SESSION_GRADE;
+    delete process.env.CLEO_SESSION_ID;
+  }
 
   if (options.note) {
     if (!session.notes) session.notes = [];
@@ -339,7 +354,11 @@ export { recordDecision, getDecisionLog } from './decisions.js';
 export type { RecordDecisionParams, DecisionLogParams } from './decisions.js';
 export { recordAssumption } from './assumptions.js';
 export type { RecordAssumptionParams } from './assumptions.js';
-export type { SessionRecord, FocusState, SessionsFileExt, TodoFileExt, DecisionRecord, AssumptionRecord } from './types.js';
+export { computeHandoff, persistHandoff, getHandoff, getLastHandoff } from './handoff.js';
+export type { HandoffData, ComputeHandoffOptions } from './handoff.js';
+export { computeBriefing } from './briefing.js';
+export type { SessionBriefing, BriefingOptions, BriefingTask, BriefingBug, BriefingBlockedTask, BriefingEpic, CurrentTaskInfo, CurrentFocus, LastSessionInfo, PipelineStageInfo } from './briefing.js';
+export type { SessionRecord, TaskWorkStateExt, FocusState, SessionsFileExt, TaskFileExt, DecisionRecord, AssumptionRecord } from './types.js';
 
 // =============================================================================
 // CROSS-SESSION RESUME INTEGRATION

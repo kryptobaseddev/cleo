@@ -42,7 +42,7 @@ This document does not redefine product identity. It defines one unified executi
 
 ## 2. Current Reality Baseline (Code-Verified)
 
-> **Last verified**: 2026-02-16 via architecture validation (T4565/T4566), documentation audit (T4557), and bash deprecation analysis (T4567). Evidence: `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md`, `claudedocs/agent-outputs/T4557-documentation-audit-report.md`.
+> **Last verified**: 2026-02-16 via architecture validation (T4565/T4566), documentation audit (T4557), and bash deprecation analysis (T4567). Evidence: `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md`, `.cleo/agent-outputs/T4557-documentation-audit-report.md`.
 
 ### 2.1 TypeScript Migration Status (~75% Complete)
 
@@ -259,8 +259,8 @@ These are now supporting references under this canonical layer.
 | Parallel-tracks migration authority and convergence criteria | `docs/specs/CLEO-MIGRATION-DOCTRINE.md` |
 | LAFS-native architecture design and conformance rules | `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` |
 | Code-verified operation counts and engine status | `mcp-server/src/engine/capability-matrix.ts`, `mcp-server/src/gateways/query.ts`, `mcp-server/src/gateways/mutate.ts`, `mcp-server/package.json` |
-| Shared-core compliance audit (CLI 100%, MCP 0%) | `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` |
-| Documentation inventory (1,778 files) | `claudedocs/agent-outputs/T4557-documentation-audit-report.md` |
+| Shared-core compliance audit (CLI 100%, MCP 0%) | `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` |
+| Documentation inventory (1,778 files) | `.cleo/agent-outputs/T4557-documentation-audit-report.md` |
 | Bash deprecation status (all 79+106 ported to TS) | T4567 bash deprecation analysis |
 
 ---

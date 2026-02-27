@@ -16,6 +16,9 @@
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { getLogger } from '../../core/logger.js';
+
+const logger = getLogger('domain:tasks');
 import {
   taskShow,
   taskList,
@@ -27,6 +30,7 @@ import {
   taskDelete,
   taskArchive,
   taskNext,
+  taskPlan,
   taskBlockers,
   taskTree,
   taskRelates,
@@ -82,16 +86,12 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'find': {
-          const result = await taskFind(this.projectRoot, {
-            query: params?.query as string | undefined,
-            id: params?.id as string | undefined,
-            exact: params?.exact as boolean | undefined,
-            status: params?.status as import('../../types/task.js').TaskStatus | undefined,
-            field: params?.field as string | undefined,
-            includeArchive: params?.includeArchive as boolean | undefined,
-            limit: params?.limit as number | undefined,
-            offset: params?.offset as number | undefined,
-          });
+          // taskFind(projectRoot, query, limit) — simple string query, not an options object
+          const result = await taskFind(
+            this.projectRoot,
+            params?.query as string,
+            params?.limit as number | undefined,
+          );
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -133,6 +133,11 @@ export class TasksHandler implements DomainHandler {
 
         case 'next': {
           const result = await taskNext(this.projectRoot, params as { count?: number; explain?: boolean });
+          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+        }
+
+        case 'plan': {
+          const result = await taskPlan(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -354,7 +359,7 @@ export class TasksHandler implements DomainHandler {
     return {
       query: [
         'show', 'list', 'find', 'exists', 'tree', 'blockers',
-        'depends', 'analyze', 'next', 'relates', 'complexity.estimate', 'current',
+        'depends', 'analyze', 'next', 'plan', 'relates', 'complexity.estimate', 'current',
       ],
       mutate: [
         'add', 'update', 'complete', 'delete', 'archive', 'restore',
@@ -408,6 +413,7 @@ export class TasksHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
+    logger.error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,

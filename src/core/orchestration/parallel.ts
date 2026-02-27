@@ -9,8 +9,8 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { computeWaves } from './waves.js';
 import { readJson } from '../../store/json.js';
-import { getTodoPath } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 interface ParallelState {
@@ -66,8 +66,8 @@ export async function startParallelExecution(
   }
 
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(cwd));
 
   const tasks = data?.tasks ?? [];
   const epic = tasks.find(t => t.id === epicId);

@@ -14,12 +14,12 @@ import {
   sanitizeParams,
   RateLimiter,
   SecurityError,
-  VALID_STATUSES,
   VALID_PRIORITIES,
   VALID_DOMAINS,
   VALID_GATEWAYS,
   DEFAULT_RATE_LIMITS,
 } from '../security.js';
+import { TASK_STATUSES } from '../../../store/status-registry.js';
 
 describe('Security Module', () => {
   describe('sanitizeTaskId', () => {
@@ -225,11 +225,13 @@ describe('Security Module', () => {
     });
 
     it('should define valid statuses', () => {
-      expect(VALID_STATUSES).toContain('pending');
-      expect(VALID_STATUSES).toContain('active');
-      expect(VALID_STATUSES).toContain('blocked');
-      expect(VALID_STATUSES).toContain('done');
-      expect(VALID_STATUSES).toHaveLength(4);
+      expect(TASK_STATUSES).toContain('pending');
+      expect(TASK_STATUSES).toContain('active');
+      expect(TASK_STATUSES).toContain('blocked');
+      expect(TASK_STATUSES).toContain('done');
+      expect(TASK_STATUSES).toContain('cancelled');
+      expect(TASK_STATUSES).toContain('archived');
+      expect(TASK_STATUSES).toHaveLength(6);
     });
 
     it('should define valid priorities', () => {

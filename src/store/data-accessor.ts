@@ -51,12 +51,6 @@ export interface DataAccessor {
   /** Save the full TaskFile atomically. Creates backup before write. */
   saveTaskFile(data: TaskFile): Promise<void>;
 
-  /** @deprecated Use loadTaskFile() instead. */
-  loadTodoFile(): Promise<TaskFile>;
-
-  /** @deprecated Use saveTaskFile() instead. */
-  saveTodoFile(data: TaskFile): Promise<void>;
-
   // ---- Archive data ----
 
   /** Load the archive file. Returns null if archive doesn't exist. */

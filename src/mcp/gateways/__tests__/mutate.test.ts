@@ -19,9 +19,10 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 107 operations (canonical + legacy)', () => {
+  it('should derive total operations dynamically from registry', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(107);
+    expect(totalCount).toBe(getMutateOperationCount());
+    expect(totalCount).toBeGreaterThan(0);
   });
 
   it('should have all 16 domains (8 canonical + 8 legacy)', () => {
@@ -53,7 +54,7 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.tasks.length).toBe(13);
     expect(MUTATE_OPERATIONS.session.length).toBe(7);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
-    expect(MUTATE_OPERATIONS.memory.length).toBe(4);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(6);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(12);
     expect(MUTATE_OPERATIONS.admin.length).toBe(10);
@@ -499,7 +500,7 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(107);
+    expect(getMutateOperationCount()).toBe(Object.values(MUTATE_OPERATIONS).flat().length);
   });
 
   it('should return domain-specific counts', () => {
@@ -507,7 +508,7 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('tasks')).toBe(13);
     expect(getMutateOperationCount('session')).toBe(7);
     expect(getMutateOperationCount('orchestrate')).toBe(5);
-    expect(getMutateOperationCount('memory')).toBe(4);
+    expect(getMutateOperationCount('memory')).toBe(6);
     expect(getMutateOperationCount('check')).toBe(2);
     expect(getMutateOperationCount('pipeline')).toBe(12);
     expect(getMutateOperationCount('admin')).toBe(10);

@@ -42,19 +42,19 @@ interface EngineResult<T = unknown> {
  */
 async function loadTasks(projectRoot?: string): Promise<ReleaseTaskRecord[]> {
   if (projectRoot) {
-    const todoPath = getDataPath(projectRoot, 'todo.json');
-    const todoData = readJsonFile<{ tasks: ReleaseTaskRecord[] }>(todoPath);
-    return todoData?.tasks ?? [];
+    const taskPath = getDataPath(projectRoot, 'todo.json');
+    const taskData = readJsonFile<{ tasks: ReleaseTaskRecord[] }>(taskPath);
+    return taskData?.tasks ?? [];
   }
   try {
     const accessor = await getAccessor();
-    const todoFile = await accessor.loadTodoFile();
-    return (todoFile?.tasks as ReleaseTaskRecord[]) ?? [];
+    const taskFile = await accessor.loadTaskFile();
+    return (taskFile?.tasks as ReleaseTaskRecord[]) ?? [];
   } catch {
     const root = resolveProjectRoot();
-    const todoPath = getDataPath(root, 'todo.json');
-    const todoData = readJsonFile<{ tasks: ReleaseTaskRecord[] }>(todoPath);
-    return todoData?.tasks ?? [];
+    const taskPath = getDataPath(root, 'todo.json');
+    const taskData = readJsonFile<{ tasks: ReleaseTaskRecord[] }>(taskPath);
+    return taskData?.tasks ?? [];
   }
 }
 

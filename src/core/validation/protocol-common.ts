@@ -9,6 +9,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { MANIFEST_STATUSES } from '../../store/status-registry.js';
 
 // ============================================================================
 // Types
@@ -80,7 +81,7 @@ const VALID_TYPES = [
   'Research', 'Implementation', 'Validation', 'Testing',
   'Specification', 'Consensus', 'Decomposition', 'Contribution', 'Release',
 ];
-const VALID_STATUSES_MSG = ['complete', 'partial', 'blocked'];
+const VALID_STATUSES_MSG = MANIFEST_STATUSES.filter(s => s !== 'archived');
 const VALID_DETAILS = ['summary', 'details', 'blocker details'];
 
 /**
@@ -162,7 +163,8 @@ export function checkKeyFindingsCount(entry: Record<string, unknown>): boolean {
  */
 export function checkStatusValid(entry: Record<string, unknown>): boolean {
   const status = entry['status'];
-  return status === 'complete' || status === 'partial' || status === 'blocked';
+  if (typeof status !== 'string') return false;
+  return (MANIFEST_STATUSES as readonly string[]).includes(status);
 }
 
 /**
@@ -257,7 +259,7 @@ export function validateCommonManifestRequirements(
       requirement: 'COMMON-003',
       severity: 'error',
       message: 'Invalid status value',
-      fix: 'Set status to complete/partial/blocked',
+      fix: 'Set status to completed/partial/blocked',
     });
     score -= 15;
   }

@@ -4,17 +4,24 @@
  * @epic T4454
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { readJson } from '../../store/json.js';
-import { getTaskPath, getArchivePath } from '../paths.js';
+import { eq } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TaskFile } from '../../types/task.js';
-import type { DataAccessor } from '../../store/data-accessor.js';
+import { getDb } from '../../store/sqlite.js';
+import { schemaMeta } from '../../store/schema.js';
+import { setMetaValue } from '../../store/sqlite-data-accessor.js';
+import { createDataAccessor, type DataAccessor } from '../../store/data-accessor.js';
 
-function getSequencePath(cwd?: string): string {
+const SEQUENCE_META_KEY = 'task_id_sequence';
+
+function getLegacySequenceJsonPath(cwd?: string): string {
   return join(cwd ?? process.cwd(), '.cleo', '.sequence.json');
+}
+
+function getLegacySequencePath(cwd?: string): string {
+  return join(cwd ?? process.cwd(), '.cleo', '.sequence');
 }
 
 interface SequenceState {
@@ -23,10 +30,109 @@ interface SequenceState {
   checksum: string;
 }
 
-function readSequence(cwd?: string): SequenceState | null {
-  const path = getSequencePath(cwd);
+function isValidSequenceState(value: unknown): value is SequenceState {
+  if (!value || typeof value !== 'object') return false;
+  const seq = value as Partial<SequenceState>;
+  return typeof seq.counter === 'number'
+    && typeof seq.lastId === 'string'
+    && typeof seq.checksum === 'string';
+}
+
+function isSeedSequence(value: SequenceState): boolean {
+  return value.counter === 0 && value.lastId === 'T000' && value.checksum === 'seed';
+}
+
+function readLegacySequenceFile(path: string): SequenceState | null {
   if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, 'utf-8'));
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    return isValidSequenceState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function renameLegacyFile(path: string): void {
+  if (!existsSync(path)) return;
+  const migratedPath = `${path}.migrated`;
+  try {
+    if (!existsSync(migratedPath)) {
+      renameSync(path, migratedPath);
+      return;
+    }
+    renameSync(path, `${migratedPath}.${Date.now()}`);
+  } catch {
+    // Non-fatal; sequence data has already been persisted in SQLite.
+  }
+}
+
+async function readSequenceFromDb(cwd?: string, accessor?: DataAccessor): Promise<SequenceState | null> {
+  if (accessor?.getMetaValue) {
+    const value = await accessor.getMetaValue<unknown>(SEQUENCE_META_KEY);
+    return isValidSequenceState(value) ? value : null;
+  }
+
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schemaMeta)
+    .where(eq(schemaMeta.key, SEQUENCE_META_KEY))
+    .all();
+  const raw = rows[0]?.value;
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isValidSequenceState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeSequenceToDb(state: SequenceState, cwd?: string, accessor?: DataAccessor): Promise<void> {
+  if (accessor?.setMetaValue) {
+    await accessor.setMetaValue(SEQUENCE_META_KEY, state);
+    return;
+  }
+  await setMetaValue(cwd, SEQUENCE_META_KEY, state);
+}
+
+async function maybeMigrateLegacySequence(
+  dbState: SequenceState | null,
+  cwd?: string,
+  accessor?: DataAccessor,
+): Promise<SequenceState | null> {
+  const legacyJsonPath = getLegacySequenceJsonPath(cwd);
+  const legacyPath = getLegacySequencePath(cwd);
+
+  const candidates = [
+    readLegacySequenceFile(legacyJsonPath),
+    readLegacySequenceFile(legacyPath),
+  ].filter((value): value is SequenceState => value !== null);
+
+  if (candidates.length === 0) {
+    return dbState;
+  }
+
+  const preferredLegacy = candidates.reduce((best, current) => (
+    current.counter > best.counter ? current : best
+  ));
+
+  const shouldMigrate = !dbState || isSeedSequence(dbState) || preferredLegacy.counter > dbState.counter;
+  if (shouldMigrate) {
+    await writeSequenceToDb(preferredLegacy, cwd, accessor);
+  }
+
+  // Legacy files are obsolete once validated. Rename to prevent drift.
+  renameLegacyFile(legacyJsonPath);
+  renameLegacyFile(legacyPath);
+
+  return shouldMigrate ? preferredLegacy : dbState;
+}
+
+async function readSequence(cwd?: string, accessor?: DataAccessor): Promise<SequenceState | null> {
+  const fromDb = await readSequenceFromDb(cwd, accessor);
+  return maybeMigrateLegacySequence(fromDb, cwd, accessor);
 }
 
 function getMaxIdFromTasks(tasks: Array<{ id: string }>): number {
@@ -43,9 +149,9 @@ function getMaxIdFromTasks(tasks: Array<{ id: string }>): number {
 
 /** Show current sequence state. */
 export async function showSequence(cwd?: string): Promise<Record<string, unknown>> {
-  const seq = readSequence(cwd);
+  const seq = await readSequence(cwd);
   if (!seq) {
-    throw new CleoError(ExitCode.NOT_FOUND, 'Sequence file not found');
+    throw new CleoError(ExitCode.NOT_FOUND, 'Sequence state not found in SQLite schema_meta');
   }
   return {
     counter: seq.counter,
@@ -55,26 +161,37 @@ export async function showSequence(cwd?: string): Promise<Record<string, unknown
   };
 }
 
+async function loadAllTasks(cwd?: string, accessor?: DataAccessor): Promise<Array<{ id: string }>> {
+  let localAccessor: DataAccessor | null = null;
+  const activeAccessor = accessor ?? await createDataAccessor(undefined, cwd);
+  if (!accessor) {
+    localAccessor = activeAccessor;
+  }
+
+  try {
+    const taskData = await activeAccessor.loadTaskFile();
+    const archiveData = await activeAccessor.loadArchive();
+    return [
+      ...(taskData?.tasks ?? []),
+      ...(archiveData?.archivedTasks ?? []),
+    ];
+  } finally {
+    if (localAccessor) {
+      await localAccessor.close();
+    }
+  }
+}
+
 /** Check sequence integrity. */
 export async function checkSequence(cwd?: string, accessor?: DataAccessor): Promise<Record<string, unknown>> {
-  const seq = readSequence(cwd);
+  const seq = await readSequence(cwd, accessor);
   if (!seq) {
     // File missing — return invalid state so callers trigger auto-repair instead of crashing.
-    // repairSequence() handles null seq and will recreate the file from actual task data.
+    // repairSequence() handles null state and will initialize the counter from task data.
     return { valid: false, counter: 0, maxIdInData: 0, missing: true };
   }
 
-  const todoData = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(cwd));
-  const archiveData = accessor
-    ? await accessor.loadArchive()
-    : await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
-
-  const allTasks = [
-    ...(todoData?.tasks ?? []),
-    ...(archiveData?.archivedTasks ?? []),
-  ];
+  const allTasks = await loadAllTasks(cwd, accessor);
 
   const maxId = getMaxIdFromTasks(allTasks);
   const valid = seq.counter >= maxId;
@@ -101,23 +218,27 @@ export interface RepairResult {
 
 /** Repair sequence if behind. */
 export async function repairSequence(cwd?: string, accessor?: DataAccessor): Promise<RepairResult> {
-  const seqPath = getSequencePath(cwd);
-  const seq = readSequence(cwd);
-
-  const todoData = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(cwd));
-  const archiveData = accessor
-    ? await accessor.loadArchive()
-    : await readJson<{ archivedTasks: Array<{ id: string }> }>(getArchivePath(cwd));
-
-  const allTasks = [
-    ...(todoData?.tasks ?? []),
-    ...(archiveData?.archivedTasks ?? []),
-  ];
+  const seq = await readSequence(cwd, accessor);
+  const allTasks = await loadAllTasks(cwd, accessor);
 
   const maxId = getMaxIdFromTasks(allTasks);
   const oldCounter = seq?.counter ?? 0;
+
+  if (!seq) {
+    const initialized: SequenceState = {
+      counter: maxId,
+      lastId: `T${maxId}`,
+      checksum: `seed-${Date.now()}`,
+    };
+    await writeSequenceToDb(initialized, cwd, accessor);
+    return {
+      repaired: true,
+      counter: initialized.counter,
+      oldCounter,
+      newCounter: initialized.counter,
+      message: `Sequence initialized at ${initialized.counter}`,
+    };
+  }
 
   if (oldCounter >= maxId) {
     return { repaired: false, message: 'Sequence already valid', counter: oldCounter, oldCounter, newCounter: oldCounter };
@@ -129,8 +250,7 @@ export async function repairSequence(cwd?: string, accessor?: DataAccessor): Pro
     lastId: `T${newCounter}`,
     checksum: `repair-${Date.now()}`,
   };
-
-  writeFileSync(seqPath, JSON.stringify(newSeq, null, 2));
+  await writeSequenceToDb(newSeq, cwd, accessor);
 
   return {
     repaired: true,

@@ -1,13 +1,12 @@
 /**
  * Engine Re-exports for Dispatch Domain Handlers
  *
- * Centralizes the dispatch layer's dependency on mcp/engine into a single file.
- * Domain handlers import from here instead of directly from ../../mcp/engine/.
- *
- * This file will be replaced with direct core imports as the engine functions
- * are migrated to src/core/ modules.
+ * Centralizes the dispatch layer's engine imports into a single barrel.
+ * All imports use dispatch/engines/ (which delegate to src/core/),
+ * eliminating the prior mcp/engine coupling.
  *
  * @epic T4820
+ * @task T4815
  */
 
 // Task engine (CRUD + non-CRUD operations)
@@ -22,6 +21,7 @@ export {
   taskDelete,
   taskArchive,
   taskNext,
+  taskPlan,
   taskBlockers,
   taskTree,
   taskDeps,
@@ -44,7 +44,7 @@ export {
   taskImport,
   type TaskRecord,
   type MinimalTaskRecord,
-} from '../../mcp/engine/task-engine.js';
+} from '../engines/task-engine.js';
 
 // Session engine
 export {
@@ -68,9 +68,12 @@ export {
   sessionStats,
   sessionSwitch,
   sessionArchive,
+  sessionHandoff,
+  sessionComputeHandoff,
+  sessionBriefing,
   type SessionRecord,
   type DecisionRecord,
-} from '../../mcp/engine/session-engine.js';
+} from '../engines/session-engine.js';
 
 // System engine
 export {
@@ -80,7 +83,9 @@ export {
   systemArchiveStats,
   systemLog,
   systemContext,
+  systemRuntime,
   systemSequence,
+  systemSequenceRepair,
   systemInjectGenerate,
   systemMetrics,
   systemHealth,
@@ -102,6 +107,7 @@ export {
   type ArchiveStatsData,
   type LogQueryData,
   type ContextData,
+  type RuntimeData,
   type SequenceData,
   type InjectGenerateData,
   type MetricsData,
@@ -118,13 +124,13 @@ export {
   type SyncData,
   type SafestopData,
   type UncancelData,
-} from '../../mcp/engine/system-engine.js';
+} from '../engines/system-engine.js';
 
 // Config engine
 export {
   configGet,
   configSet,
-} from '../../mcp/engine/config-engine.js';
+} from '../engines/config-engine.js';
 
 // Init engine
 export {
@@ -132,7 +138,7 @@ export {
   isAutoInitEnabled,
   ensureInitialized,
   getVersion,
-} from '../../mcp/engine/init-engine.js';
+} from '../engines/init-engine.js';
 
 // Lifecycle engine
 export {
@@ -146,11 +152,7 @@ export {
   lifecycleReset,
   lifecycleGatePass,
   lifecycleGateFail,
-  LIFECYCLE_STAGES,
-  type LifecycleStage,
-  type StageStatus,
-  type RcsdManifest,
-} from '../../mcp/engine/lifecycle-engine.js';
+} from '../engines/lifecycle-engine.js';
 
 // Validate engine
 export {
@@ -167,7 +169,7 @@ export {
   validateCoherenceCheck,
   validateTestRun,
   validateBatchValidate,
-} from '../../mcp/engine/validate-engine.js';
+} from '../engines/validate-engine.js';
 
 // Orchestrate engine
 export {
@@ -188,7 +190,7 @@ export {
   orchestrateParallelEnd,
   orchestrateCheck,
   orchestrateSkillInject,
-} from '../../mcp/engine/orchestrate-engine.js';
+} from '../engines/orchestrate-engine.js';
 
 // Memory engine (formerly research-engine)
 export {
@@ -222,7 +224,7 @@ export {
   releaseGatesRun,
   releaseRollback,
   releasePush,
-} from '../../mcp/engine/release-engine.js';
+} from '../engines/release-engine.js';
 
 // Template parser engine
 export {
@@ -233,4 +235,4 @@ export {
   type IssueTemplate,
   type TemplateConfig,
   type TemplateSection,
-} from '../../mcp/engine/template-parser.js';
+} from '../engines/template-parser.js';

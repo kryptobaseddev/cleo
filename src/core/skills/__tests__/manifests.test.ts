@@ -130,7 +130,7 @@ describe('createContributionManifestEntry', () => {
     const entry = createContributionManifestEntry('T001', 'contrib-T001-2026-01-15-abc', decisions);
 
     expect(entry.id).toBe('contrib-T001-2026-01-15-abc');
-    expect(entry.status).toBe('complete');
+    expect(entry.status).toBe('completed');
     expect(entry.agent_type).toBe('contribution');
     expect(entry.linked_tasks).toEqual(['T001']);
     expect(entry.actionable).toBe(true);

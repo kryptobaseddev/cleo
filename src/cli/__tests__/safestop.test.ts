@@ -2,25 +2,15 @@
  * Tests for safestop CLI command.
  * @task T4551
  * @epic T4545
+ *  T4904
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerSafestopCommand } from '../commands/safestop.js';
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
-}));
-
-vi.mock('../../store/json.js', () => ({
-  readJson: vi.fn().mockResolvedValue(null),
-  saveJson: vi.fn(),
-  computeChecksum: vi.fn().mockReturnValue('0000000000000000'),
-}));
-
-vi.mock('../../core/paths.js', () => ({
-  getCleoDir: vi.fn().mockReturnValue('.cleo'),
-  getTodoPath: vi.fn().mockReturnValue('.cleo/todo.json'),
+vi.mock('../../dispatch/adapters/cli.js', () => ({
+  dispatchFromCli: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe('registerSafestopCommand', () => {

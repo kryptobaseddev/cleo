@@ -7,8 +7,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson } from '../../store/json.js';
-import { getTodoPath } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Get roadmap from pending epics and CHANGELOG history. */
@@ -18,8 +18,8 @@ export async function getRoadmap(opts: {
   cwd?: string;
 }, accessor?: DataAccessor): Promise<Record<string, unknown>> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(opts.cwd));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(opts.cwd));
   const tasks = data?.tasks ?? [];
 
   // Get current version

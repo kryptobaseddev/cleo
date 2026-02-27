@@ -5,8 +5,8 @@
  */
 
 import { Command } from 'commander';
-import { dispatchRaw } from '../../dispatch/adapters/cli.js';
-import { cliOutput, cliError } from '../renderers/index.js';
+import { dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * Register the add command.
@@ -57,14 +57,7 @@ export function registerAddCommand(program: Command): void {
       const response = await dispatchRaw('mutate', 'tasks', 'add', params);
 
       if (!response.success) {
-        const exitCode = response.error?.exitCode ?? 1;
-        cliError(response.error?.message ?? 'Unknown error', exitCode, {
-          name: response.error?.code,
-          details: response.error?.details,
-          fix: response.error?.fix,
-        });
-        process.exit(exitCode);
-        return;
+        handleRawError(response, { command: 'add', operation: 'tasks.add' });
       }
 
       const data = response.data as Record<string, unknown>;

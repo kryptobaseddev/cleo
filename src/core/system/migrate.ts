@@ -20,18 +20,18 @@ export function getMigrationStatus(
   projectRoot: string,
   opts?: { target?: string; dryRun?: boolean },
 ): MigrateResult {
-  const todoPath = join(projectRoot, '.cleo', 'todo.json');
+  const taskPath = join(projectRoot, '.cleo', 'tasks.json');
 
   let currentVersion = 'unknown';
-  if (existsSync(todoPath)) {
+  if (existsSync(taskPath)) {
     try {
-      const todo = JSON.parse(readFileSync(todoPath, 'utf-8'));
-      currentVersion = todo._meta?.schemaVersion ?? todo.version ?? 'unknown';
+      const taskFile = JSON.parse(readFileSync(taskPath, 'utf-8'));
+      currentVersion = taskFile._meta?.schemaVersion ?? taskFile.version ?? 'unknown';
     } catch {
-      throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read todo.json');
+      throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.json');
     }
   } else {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'No todo.json found');
+    throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.json found');
   }
 
   const targetVersion = opts?.target ?? currentVersion;

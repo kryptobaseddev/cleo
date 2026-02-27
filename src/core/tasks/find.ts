@@ -7,8 +7,8 @@
 import { readJsonRequired, readJson } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskStatus, TodoFile } from '../../types/task.js';
-import { getTodoPath, getArchivePath } from '../paths.js';
+import type { Task, TaskStatus, TaskFile } from '../../types/task.js';
+import { getTaskPath, getArchivePath } from '../paths.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Minimal task info for search results. */
@@ -96,10 +96,10 @@ export async function findTasks(options: FindTasksOptions, cwd?: string, accesso
     throw new CleoError(ExitCode.INVALID_INPUT, 'Search query or --id is required');
   }
 
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJsonRequired<TodoFile>(todoPath);
+    ? await accessor.loadTaskFile()
+    : await readJsonRequired<TaskFile>(taskPath);
 
   let allTasks: Task[] = [...data.tasks];
 

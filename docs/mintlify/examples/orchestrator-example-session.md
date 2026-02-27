@@ -90,8 +90,8 @@ You are the research-auth-patterns subagent. Your job is to complete CLEO task T
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: claudedocs/agent-outputs/2026-01-18_research-auth-patterns.md
-2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
+1. MUST write findings to: .cleo/agent-outputs/2026-01-18_research-auth-patterns.md
+2. MUST append ONE line to: .cleo/agent-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 
@@ -112,7 +112,7 @@ After subagent completes, orchestrator reads manifest:
 
 ```bash
 # Get latest manifest entry
-jq -s '.[-1]' claudedocs/agent-outputs/MANIFEST.jsonl
+jq -s '.[-1]' .cleo/agent-outputs/MANIFEST.jsonl
 ```
 
 Example manifest entry:

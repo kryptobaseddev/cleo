@@ -33,11 +33,11 @@ export function auditData(
   const issues: AuditIssue[] = [];
 
   if (scope === 'all' || scope === 'tasks') {
-    const todoPath = join(cleoDir, 'todo.json');
-    if (existsSync(todoPath)) {
+    const taskPath = join(cleoDir, 'tasks.json');
+    if (existsSync(taskPath)) {
       try {
-        const todo = JSON.parse(readFileSync(todoPath, 'utf-8'));
-        const tasks: Array<{ id: string; status: string; title: string; parentId?: string; depends?: string[] }> = todo.tasks ?? [];
+        const taskFile = JSON.parse(readFileSync(taskPath, 'utf-8'));
+        const tasks: Array<{ id: string; status: string; title: string; parentId?: string; depends?: string[] }> = taskFile.tasks ?? [];
 
         const idSet = new Set<string>();
         for (const t of tasks) {
@@ -68,7 +68,7 @@ export function auditData(
           }
         }
       } catch (err) {
-        issues.push({ severity: 'error', category: 'tasks', message: `Failed to parse todo.json: ${err}` });
+        issues.push({ severity: 'error', category: 'tasks', message: `Failed to parse tasks.json: ${err}` });
       }
     }
   }

@@ -5,9 +5,9 @@
 **Accepted**: 2026-02-26
 **Amends**: ADR-006 (§3 ADR Lifecycle Tooling), ADR-008 (§14 File Naming, §15.2 Verb Standards)
 **Related ADRs**: ADR-006, ADR-007, ADR-008, ADR-009
-**Related Tasks**: T4732, T4791, T4792, T4942
+**Related Tasks**: T4732, T4791, T4792, T4942, T4914, T4911
 **Summary**: Establishes the canonical naming, verb, and frontmatter standards for CLEO ADRs. Extends architecture_decisions DB with lifecycle tracking columns and adds cognitive search fields (summary, keywords, topics) to enable agent-native ADR discovery via admin.adr.find.
-**Keywords**: naming, verbs, frontmatter, adr, schema, db, cognitive-search, dispatch
+**Keywords**: naming, verbs, frontmatter, adr, schema, db, cognitive-search, dispatch, plan, composite-query
 **Topics**: admin, naming, storage, schema
 
 ---
@@ -21,7 +21,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 CLEO's naming conventions have no dedicated ADR. Verb standards and naming conventions are scattered across:
 
 - **ADR-008 §14-15.2**: 1,657-line mega-document with only 14 of 36 canonical verbs in §15.2; naming conventions buried in §14
-- **docs/specs/VERB-STANDARDS.md**: v2026.2.25, 36 verbs, the actual enforcement spec
+- **docs/specs/VERB-STANDARDS.md**: v2026.2.27, 37 verbs, the actual enforcement spec
 - **docs/mintlify/specs/VERB-STANDARDS.md**: v2026.2.20, only 27 verbs, drifted from canonical
 - **ADR-007 §3.x**: MCP dot-notation naming embedded in the domain-architecture ADR
 
@@ -35,14 +35,14 @@ Additionally:
 
 **ADR-017 SHALL own all naming, verb, and frontmatter standards.** Specifically:
 
-- `docs/specs/VERB-STANDARDS.md` is the enforcement spec for the 36-verb canon; ADR-017 §1 is the authority position
+- `docs/specs/VERB-STANDARDS.md` is the enforcement spec for the 37-verb canon; ADR-017 §1 is the authority position
 - `src/dispatch/registry.ts` is the canonical runtime implementation of MCP operation naming
 - ADR-008 §14 and §15.2 defer to ADR-017; those sections retain summary tables for quick reference only
 - The `architecture_decisions` DB table is extended (partial amendment to ADR-006 §3) to support full lifecycle tracking
 
 ## §1 Core Verb Canon
 
-The 36 canonical verbs are defined in `docs/specs/VERB-STANDARDS.md`. All new operations MUST use these verbs. See that document for complete enforcement rules, usage examples, and backward-compatibility aliases.
+The 37 canonical verbs are defined in `docs/specs/VERB-STANDARDS.md`. All new operations MUST use these verbs. See that document for complete enforcement rules, usage examples, and backward-compatibility aliases.
 
 | Verb | Replaces | Domain.Operation Example |
 |------|----------|--------------------------|
@@ -78,8 +78,9 @@ The 36 canonical verbs are defined in `docs/specs/VERB-STANDARDS.md`. All new op
 | `repair` | fix, heal | `admin.repair` |
 | `resolve` | settle, fix (conflicts) | `issues.resolve` |
 | `unlink` | disconnect, detach | `memory.unlink` |
-| `compute` | calculate, derive | `tasks.compute` |
-| `schedule` | defer, plan, queue | `tasks.schedule` |
+| `compute` | calculate, derive | `orchestrate.compute` |
+| `plan` | — (composite query) | `tasks.plan` |
+| `schedule` | defer, queue | `tasks.schedule` |
 | `cancel` | abort, kill | `tasks.cancel` |
 | `sync` | pull, push, reconcile | `admin.sync` |
 | `inspect` | diagnose, debug | `admin.inspect` |
@@ -281,7 +282,7 @@ The ADR system uses the same hybrid model as all BRAIN memory: **SQLite is the r
 ```
 ADR-017 (this doc)           → owns naming/verb/frontmatter standards
     ↓ references
-docs/specs/VERB-STANDARDS.md → 36-verb enforcement spec
+docs/specs/VERB-STANDARDS.md → 37-verb enforcement spec
     ↓ implements
 src/dispatch/registry.ts     → canonical runtime operation naming
     ↓ organizes

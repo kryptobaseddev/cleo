@@ -146,7 +146,7 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'tasks',
-    operation: 'compute',
+    operation: 'plan',
     description: 'Composite planning view with in-progress epics, ready tasks, blocked tasks, and open bugs (query)',
     tier: 0,
     idempotent: true,

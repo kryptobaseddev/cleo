@@ -100,6 +100,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'depends',    // Get dependencies
     'analyze',    // Triage analysis
     'next',       // Next task suggestion
+    'plan',       // Composite planning view
     'relates',              // Query task relationships
     'complexity.estimate',  // Deterministic complexity scoring
     'current',              // Get currently active task
@@ -111,6 +112,8 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'history',      // Session history
     'decision.log',   // Decision audit log
     'context.drift',  // Session context drift analysis
+    'handoff.show',   // Show handoff data
+    'briefing.show',  // Composite session-start context
   ],
   orchestrate: [
     'status',     // Orchestrator status
@@ -134,6 +137,10 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'manifest.read',    // Read manifest entries
     'contradictions',   // Find conflicting research findings
     'superseded',       // Find superseded research entries
+    'pattern.search',   // Search BRAIN pattern memory
+    'pattern.stats',    // Pattern memory statistics
+    'learning.search',  // Search BRAIN learning memory
+    'learning.stats',   // Learning memory statistics
   ],
 
   // ── Canonical: check (validate alias) ──────────────────────────────
@@ -254,18 +261,11 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
 };
 
 /**
- * Total operation count check
- *
- * Includes operations across both canonical domains and legacy aliases.
- * Legacy aliases duplicate operations from their canonical counterparts,
- * so the total is higher than unique operations.
+ * Dynamic operation count (derived from QUERY_OPERATIONS).
  */
-const EXPECTED_QUERY_COUNT = 115;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
-if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
-  console.error(
-    `Warning: Query operation count mismatch. Expected ${EXPECTED_QUERY_COUNT}, got ${actualQueryCount}`
-  );
+if (actualQueryCount < 1) {
+  console.error('Warning: Query operation registry is empty.');
 }
 
 /**

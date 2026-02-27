@@ -2,14 +2,15 @@
  * detect-drift command - Documentation drift detection for LLM agents
  * @epic T4698
  * @task T4705
- * 
+ *
  * Exit codes:
  *   0 - No drift detected (all checks pass)
  *   1 - Warnings only (documentation exists but needs attention)
  *   2 - Errors detected (missing documentation or critical drift)
- * 
+ *
  * Output: LAFS-compliant JSON envelope for agent consumption
  */
+// TODO T4894: operation not yet in registry — detect-drift runs local static analysis; session.context.drift is a different operation
 
 import { Command } from 'commander';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';

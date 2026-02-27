@@ -34,14 +34,14 @@ export function buildPrompt(
   templateName: string = 'TASK-EXECUTOR',
   cwd?: string,
 ): SpawnPromptResult {
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
 
-  if (!existsSync(todoPath)) {
+  if (!existsSync(taskPath)) {
     throw new CleoError(ExitCode.NOT_FOUND, 'Todo file not found. Run: cleo init');
   }
 
   // Load task
-  const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
   const task = tasks.find(t => t.id === taskId);
 
@@ -167,12 +167,12 @@ export function canParallelize(
     return { canParallelize: true, conflicts: [], safeToSpawn: [] };
   }
 
-  const todoPath = getTaskPath(cwd);
-  if (!existsSync(todoPath)) {
+  const taskPath = getTaskPath(cwd);
+  if (!existsSync(taskPath)) {
     return { canParallelize: true, conflicts: [], safeToSpawn: taskIds };
   }
 
-  const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
   const taskIdSet = new Set(taskIds);
 

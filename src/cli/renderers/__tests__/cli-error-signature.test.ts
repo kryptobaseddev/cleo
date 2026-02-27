@@ -118,10 +118,11 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   // -----------------------------------------------------------------------
   it('outputs message and code in JSON format', () => {
     const spy = vi.spyOn(console, 'error');
+    spy.mockClear();
     cliError('Not found', 4);
 
     expect(spy).toHaveBeenCalledTimes(1);
-    const output = JSON.parse(spy.mock.calls[0][0] as string);
+    const output = JSON.parse(spy.mock.calls[0]![0] as string);
     expect(output.success).toBe(false);
     expect(output.error.message).toBe('Not found');
     expect(output.error.code).toBe(4);

@@ -124,9 +124,14 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
 
   if (projectName === '.') {
     // Current directory
-    const todoPath = join(process.cwd(), '.cleo', 'todo.json');
     try {
-      await access(todoPath);
+      await access(join(process.cwd(), '.cleo', 'tasks.json'));
+      return process.cwd();
+    } catch {
+      // Fall back to legacy todo.json
+    }
+    try {
+      await access(join(process.cwd(), '.cleo', 'todo.json'));
       return process.cwd();
     } catch {
       throw new CleoError(
@@ -150,18 +155,24 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
 }
 
 /**
- * Read tasks from a project's todo.json.
+ * Read tasks from a project's task file (tasks.json or legacy todo.json).
  */
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
-  const todoPath = join(projectPath, '.cleo', 'todo.json');
+  const tasksPath = join(projectPath, '.cleo', 'tasks.json');
+  const legacyPath = join(projectPath, '.cleo', 'todo.json');
   try {
-    const raw = await readFile(todoPath, 'utf-8');
+    let raw: string;
+    try {
+      raw = await readFile(tasksPath, 'utf-8');
+    } catch {
+      raw = await readFile(legacyPath, 'utf-8');
+    }
     const data = JSON.parse(raw) as { tasks: Task[] };
     return data.tasks ?? [];
   } catch {
     throw new CleoError(
       ExitCode.NOT_FOUND,
-      `Project todo.json not found: ${todoPath}`,
+      `Project task file not found: ${tasksPath}`,
     );
   }
 }

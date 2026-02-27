@@ -13,6 +13,7 @@ import type { Gateway, DispatchRequest, DispatchResponse } from '../types.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createSanitizer } from '../middleware/sanitizer.js';
+import { createFieldFilter } from '../middleware/field-filter.js';
 import { createRateLimiter } from '../middleware/rate-limiter.js';
 import { createVerificationGates } from '../middleware/verification-gates.js';
 import { createProtocolEnforcement } from '../middleware/protocol-enforcement.js';
@@ -40,6 +41,7 @@ export function initMcpDispatcher(config: McpDispatcherConfig = {}): Dispatcher 
     handlers,
     middlewares: [
       createSanitizer(() => getProjectRoot()),
+      createFieldFilter(),
       createRateLimiter(config.rateLimiting),
       createVerificationGates(strictMode),
       createProtocolEnforcement(strictMode),
@@ -111,6 +113,39 @@ function resolveDomainAlias(
 }
 
 /**
+ * Resolve legacy operation aliases to canonical operation names.
+ *
+ * Canonical mapping follows ADR-017 verb standards while preserving
+ * backward-compatible MCP aliases.
+ */
+function resolveOperationAlias(
+  domain: string,
+  operation: string,
+): string {
+  if ((domain === 'admin' || domain === 'system') && operation === 'config.get') {
+    return 'config.show';
+  }
+
+  if (domain === 'tasks' && operation === 'reopen') {
+    return 'restore';
+  }
+
+  if ((domain === 'tools' || domain === 'issues' || domain === 'issue') && operation === 'issue.create.bug') {
+    return 'issue.add.bug';
+  }
+
+  if ((domain === 'tools' || domain === 'issues' || domain === 'issue') && operation === 'issue.create.feature') {
+    return 'issue.add.feature';
+  }
+
+  if ((domain === 'tools' || domain === 'issues' || domain === 'issue') && operation === 'issue.create.help') {
+    return 'issue.add.help';
+  }
+
+  return operation;
+}
+
+/**
  * Handle an MCP tool call (cleo_query or cleo_mutate).
  *
  * Translates the MCP parameters into a DispatchRequest, executes it
@@ -164,13 +199,18 @@ export async function handleMcpToolCall(
     } as DispatchResponse;
   }
 
+  // Normalize gateway: 'cleo_query' → 'query', 'cleo_mutate' → 'mutate'
+  // The dispatch registry and router use canonical 'query'/'mutate' values.
+  const normalizedGateway: Gateway = gateway === 'cleo_query' ? 'query' : 'mutate';
+
   // Resolve legacy domain aliases to canonical dispatch names
   const resolved = resolveDomainAlias(domain, operation);
+  const canonicalOperation = resolveOperationAlias(resolved.domain, resolved.operation);
 
   const req: DispatchRequest = {
-    gateway: gateway as Gateway,
+    gateway: normalizedGateway,
     domain: resolved.domain,
-    operation: resolved.operation,
+    operation: canonicalOperation,
     params,
     source: 'mcp',
     requestId: requestId || randomUUID(),

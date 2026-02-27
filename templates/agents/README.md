@@ -58,7 +58,7 @@ Templates use `{{TOKEN}}` placeholders replaced at spawn time.
 ```
 {{EPIC_ID}}       - Parent epic (optional)
 {{SESSION_ID}}    - Session identifier (optional)
-{{OUTPUT_DIR}}    - Output directory (default: claudedocs/agent-outputs)
+{{OUTPUT_DIR}}    - Output directory (default: .cleo/agent-outputs)
 {{MANIFEST_PATH}} - Manifest file (default: {{OUTPUT_DIR}}/MANIFEST.jsonl)
 ```
 
@@ -97,8 +97,8 @@ template="${template//\{\{TASK_COMPLETE_CMD\}\}/cleo complete}"
 template="${template//\{\{TASK_LINK_CMD\}\}/cleo research link}"
 
 # Replace output tokens
-template="${template//\{\{OUTPUT_DIR\}\}/claudedocs/agent-outputs}"
-template="${template//\{\{MANIFEST_PATH\}\}/claudedocs/agent-outputs/MANIFEST.jsonl}"
+template="${template//\{\{OUTPUT_DIR\}\}/.cleo/agent-outputs}"
+template="${template//\{\{MANIFEST_PATH\}\}/.cleo/agent-outputs/MANIFEST.jsonl}"
 ```
 
 ### Step 3: Spawn Subagent

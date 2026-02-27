@@ -8,7 +8,7 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TodoFileExt } from './types.js';
+import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
 
 export interface SessionStatsResult {
   totalSessions: number;
@@ -38,16 +38,16 @@ export async function getSessionStats(
   sessionId?: string,
 ): Promise<SessionStatsResult> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTodoFile();
-  const todo = todoData as unknown as TodoFileExt;
+  const taskData = await accessor.loadTaskFile();
+  const current = taskData as unknown as TaskFileExt;
 
-  const multiSession = todo._meta?.multiSessionEnabled === true;
+  const multiSession = current._meta?.multiSessionEnabled === true;
 
   if (!multiSession) {
     // Single-session mode: return basic stats
     return {
-      totalSessions: todo.focus?.currentTask ? 1 : 0,
-      activeSessions: todo.focus?.currentTask ? 1 : 0,
+      totalSessions: current.focus?.currentTask ? 1 : 0,
+      activeSessions: current.focus?.currentTask ? 1 : 0,
       suspendedSessions: 0,
       endedSessions: 0,
       archivedSessions: 0,

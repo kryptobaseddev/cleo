@@ -73,6 +73,19 @@ export interface LifecycleConfig {
   mode: LifecycleEnforcementMode;
 }
 
+/** Sharing mode: whether .cleo/ files are committed to the project git repo. */
+export type SharingMode = 'none' | 'project';
+
+/** Sharing configuration for multi-contributor .cleo/ state management. */
+export interface SharingConfig {
+  /** Sharing mode (default: 'none'). */
+  mode: SharingMode;
+  /** Files/patterns in .cleo/ to commit to project git (relative to .cleo/). */
+  commitAllowlist: string[];
+  /** Files/patterns to always exclude, even if in commitAllowlist. */
+  denylist: string[];
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   version: string;
@@ -82,6 +95,7 @@ export interface CleoConfig {
   session: SessionConfig;
   lifecycle: LifecycleConfig;
   logging: LoggingConfig;
+  sharing: SharingConfig;
 }
 
 /** Configuration resolution priority. */

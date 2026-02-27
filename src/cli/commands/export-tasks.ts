@@ -4,6 +4,7 @@
  * @task T4551
  * @epic T4545
  */
+// TODO T4894: operation not yet in registry — no tasks.export or admin.export dispatch route
 
 import { Command } from 'commander';
 import { writeFile } from 'node:fs/promises';
@@ -136,9 +137,9 @@ export function registerExportTasksCommand(program: Command): void {
     .action(async (taskIds: string[], opts: Record<string, unknown>) => {
       try {
         const accessor = await getAccessor();
-        const todoData = await accessor.loadTaskFile();
+        const taskData = await accessor.loadTaskFile();
 
-        const allTasks = todoData.tasks;
+        const allTasks = taskData.tasks;
         const subtreeMode = opts['subtree'] as boolean ?? false;
         const includeDeps = opts['includeDeps'] as boolean ?? false;
         const dryRun = opts['dryRun'] as boolean ?? false;
@@ -211,7 +212,7 @@ export function registerExportTasksCommand(program: Command): void {
         }
 
         // Build export package
-        const pkg = buildExportPackage(selectedTasks, todoData, {
+        const pkg = buildExportPackage(selectedTasks, taskData, {
           mode: exportMode,
           rootTaskIds: parsedIds.length > 0 ? parsedIds : selectedTasks.map((t) => t.id),
           includeChildren: subtreeMode,

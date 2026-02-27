@@ -144,7 +144,7 @@
   },
 
   "agentOutputs": {
-    "directory": "claudedocs/agent-outputs",
+    "directory": ".cleo/agent-outputs",
     "manifestFile": "MANIFEST.jsonl",
     "archiveDir": "archive",
     "archiveDays": 30

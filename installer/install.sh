@@ -454,41 +454,8 @@ do_state_link() {
     local mode
     mode=$(installer_source_detect_mode)
 
-    if [[ "$mode" == "dev" ]]; then
-        # Dev mode: setup PATH symlinks for the built binaries
-        local bin_dir="${CLEO_BIN_DIR:-$HOME/.local/bin}"
-        mkdir -p "$bin_dir"
-
-        # Symlink cleo and ct
-        if [[ -f "$INSTALL_DIR/bin/cleo" ]]; then
-            ln -sf "$INSTALL_DIR/bin/cleo" "$bin_dir/cleo"
-            ln -sf "$INSTALL_DIR/bin/cleo" "$bin_dir/ct"
-            installer_log_info "Created symlinks: cleo, ct -> $INSTALL_DIR/bin/cleo"
-        fi
-
-        # Symlink cleo-mcp
-        if [[ -f "$INSTALL_DIR/bin/cleo-mcp" ]]; then
-            ln -sf "$INSTALL_DIR/bin/cleo-mcp" "$bin_dir/cleo-mcp"
-            installer_log_info "Created symlink: cleo-mcp -> $INSTALL_DIR/bin/cleo-mcp"
-        fi
-
-        # Check PATH
-        if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
-            installer_log_warn "Bin directory not in PATH: $bin_dir"
-            installer_log_warn "Add to your shell profile: export PATH=\"\$HOME/.local/bin:\$PATH\""
-        fi
-    else
-        # npm mode: npm install -g handles binary linking.
-        # Just create ct alias if missing.
-        local cleo_bin
-        cleo_bin=$(command -v cleo 2>/dev/null || true)
-        if [[ -n "$cleo_bin" ]] && ! command -v ct >/dev/null 2>&1; then
-            local bin_dir
-            bin_dir=$(dirname "$cleo_bin")
-            ln -sf "$cleo_bin" "$bin_dir/ct" 2>/dev/null || true
-            installer_log_info "Created ct alias"
-        fi
-    fi
+    # All CLI/MCP link creation is managed in installer/lib/link.sh.
+    installer_link_setup_bin "$INSTALL_DIR" "$mode" || return $EXIT_INSTALL_FAILED
 
     # Setup skills symlinks (unless skipped)
     if [[ "$OPT_SKIP_SKILLS" != "true" ]]; then
@@ -542,16 +509,11 @@ do_state_profile() {
     # Migrate legacy config if present
     installer_profile_migrate_legacy || true  # Non-critical
 
-    # Setup Claude CLI aliases (non-blocking, interactive if TTY)
-    if [[ "$OPT_SKIP_ALIASES" != "true" ]]; then
-        if [[ -t 0 ]]; then
-            installer_profile_setup_aliases --interactive || true  # Non-critical
-        else
-            installer_profile_setup_aliases || true  # Non-critical, non-interactive
-        fi
-    else
+    # Claude alias setup has moved out of CLEO installer flows.
+    if [[ "$OPT_SKIP_ALIASES" == "true" ]]; then
         installer_log_info "Skipping Claude alias setup (--skip-aliases)"
-        installer_log_info "Run later with: cleo setup-claude-aliases"
+    else
+        installer_log_info "Claude alias setup is managed by CAAMP (optional utility)"
     fi
 
     return 0
@@ -560,11 +522,14 @@ do_state_profile() {
 do_state_verify() {
     installer_log_step "Verifying installation..."
 
+    local mode
+    mode=$(installer_source_detect_mode)
+
     # Verify file structure
     installer_validate_structure "$INSTALL_DIR" || return $EXIT_VALIDATION_FAILED
 
     # Verify symlinks
-    installer_link_verify_all "$INSTALL_DIR" || {
+    installer_link_verify_all "$INSTALL_DIR" "$mode" || {
         installer_log_warn "Symlink verification found issues"
         # Non-critical - installation may still work
     }
@@ -587,6 +552,14 @@ do_state_cleanup() {
 do_state_complete() {
     local mode
     mode=$(installer_source_detect_mode)
+    local channel
+    if [[ "$mode" == "dev" ]]; then
+        channel="dev"
+    elif [[ -n "${OPT_CLEO_VERSION:-}" ]] && [[ "${OPT_CLEO_VERSION}" == *"-beta"* ]]; then
+        channel="beta"
+    else
+        channel="stable"
+    fi
 
     installer_log_info ""
     installer_log_info "========================================"
@@ -604,10 +577,28 @@ do_state_complete() {
     installer_log_info ""
     installer_log_info "To start using CLEO:"
     installer_log_info "  1. Restart your shell or run: source $(installer_profile_detect_config_file)"
-    installer_log_info "  2. Run: cleo version"
-    installer_log_info "  3. Run: cleo init    (in a project directory)"
+    if [[ "$channel" == "dev" ]]; then
+        installer_log_info "  2. Run: cleo-dev version"
+        installer_log_info "  3. Run: cleo-dev init    (in a project directory)"
+    elif [[ "$channel" == "beta" ]]; then
+        installer_log_info "  2. Run: cleo-beta version"
+        installer_log_info "  3. Run: cleo-beta init    (in a project directory)"
+    else
+        installer_log_info "  2. Run: cleo version"
+        installer_log_info "  3. Run: cleo init    (in a project directory)"
+    fi
     installer_log_info ""
-    installer_log_info "Available commands: cleo, cleo-mcp, ct (alias)"
+    case "$channel" in
+        dev)
+            installer_log_info "Available commands: cleo-dev, cleo-mcp-dev"
+            ;;
+        beta)
+            installer_log_info "Available commands: cleo-beta, cleo-mcp-beta, ct-beta (optional alias)"
+            ;;
+        *)
+            installer_log_info "Available commands: cleo, cleo-mcp, ct (alias)"
+            ;;
+    esac
     installer_log_info ""
     return 0
 }

@@ -5,6 +5,7 @@
  * @epic T4545
  */
 
+// TODO T4894: check.test.run exists in registry but testing.ts implements custom\n// manifest validation logic not supported by the current handler. Leave bypass.
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { formatError } from '../../core/output.js';
@@ -60,11 +61,11 @@ function validateTestingProtocol(
 
   // TEST-001: Check for test framework indicators
   const status = manifestEntry['status'] as string | undefined;
-  if (status !== 'complete') {
+  if (status !== 'completed') {
     violations.push({
       rule: 'TEST-004',
       severity: 'MUST',
-      message: `Test status must be "complete", got "${status ?? 'undefined'}"`,
+      message: `Test status must be "completed", got "${status ?? 'undefined'}"`,
     });
   }
 

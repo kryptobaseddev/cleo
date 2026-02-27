@@ -211,7 +211,7 @@ export {
   type TemplateSection,
 } from './template-parser.js';
 
-// Lifecycle engine
+// Lifecycle engine (functions from dispatch/engines, types/constants from core/lifecycle)
 export {
   lifecycleStatus,
   lifecycleHistory,
@@ -223,11 +223,17 @@ export {
   lifecycleReset,
   lifecycleGatePass,
   lifecycleGateFail,
-  LIFECYCLE_STAGES,
-  type LifecycleStage,
+} from '../../dispatch/engines/lifecycle-engine.js';
+
+export {
+  PIPELINE_STAGES as LIFECYCLE_STAGES,
+  type Stage as LifecycleStage,
   type StageStatus,
-  type RcsdManifest,
-} from './lifecycle-engine.js';
+} from '../../core/lifecycle/stages.js';
+
+export {
+  type RcasdManifest as RcsdManifest,
+} from '../../core/lifecycle/index.js';
 
 // Validate engine
 export {

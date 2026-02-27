@@ -378,7 +378,7 @@ jobs:
 
       - name: Validate protocols (strict mode)
         run: |
-          for task in $(jq -r '.id' claudedocs/agent-outputs/MANIFEST.jsonl); do
+          for task in $(jq -r '.id' .cleo/agent-outputs/MANIFEST.jsonl); do
             cleo validate-protocol "$task" --strict || exit 1
           done
 ```
@@ -432,7 +432,7 @@ Use protocol templates to ensure compliance:
 # Generate research template
 cleo research start T1234 --template
 
-# Generates: claudedocs/agent-outputs/T1234-research.md
+# Generates: .cleo/agent-outputs/T1234-research.md
 # With proper frontmatter and structure
 ```
 

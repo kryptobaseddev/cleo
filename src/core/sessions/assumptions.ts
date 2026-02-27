@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { AssumptionRecord, TodoFileExt } from './types.js';
+import type { AssumptionRecord, TaskFileExt } from './types.js';
 
 export interface RecordAssumptionParams {
   sessionId?: string;
@@ -47,11 +47,11 @@ export async function recordAssumption(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTodoFile();
-  const todo = todoData as unknown as TodoFileExt;
+  const taskData = await accessor.loadTaskFile();
+  const current = taskData as unknown as TaskFileExt;
 
   const sessionId =
-    params.sessionId || todo._meta?.activeSession || 'default';
+    params.sessionId || current._meta?.activeSession || 'default';
   const id = `asm-${randomBytes(8).toString('hex')}`;
   const now = new Date().toISOString();
 

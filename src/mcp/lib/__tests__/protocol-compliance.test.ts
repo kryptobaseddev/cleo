@@ -65,7 +65,7 @@ describe('Protocol Compliance Test Suite', () => {
           file: 'output.md',
           date: '2026-02-04',
           title: 'Research output',
-          status: 'complete',
+          status: 'completed',
           agent_type: 'research',
           key_findings: ['F1', 'F2', 'F3'],
           linked_tasks: ['T2050'],
@@ -107,7 +107,7 @@ describe('Protocol Compliance Test Suite', () => {
           file: 'output.md',
           date: '2026-02-04',
           title: 'Research output',
-          status: 'complete',
+          status: 'completed',
           agent_type: 'research',
           key_findings: ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8'], // 8 findings
           linked_tasks: ['T2051'],
@@ -378,7 +378,7 @@ describe('Protocol Compliance Test Suite', () => {
           id: 'T2060-impl',
           file: 'code.ts',
           date: '2026-02-04',
-          status: 'complete',
+          status: 'completed',
           agent_type: 'implementation',
         };
 
@@ -590,7 +590,7 @@ describe('Protocol Compliance Test Suite', () => {
         file: 'output.md',
         date: '2026-02-04',
         title: 'Research output',
-        status: 'complete',
+        status: 'completed',
         agent_type: 'implementation', // Wrong (RSCH-007)
         key_findings: ['Only one'], // Insufficient (RSCH-006)
         linked_tasks: ['T2070'],

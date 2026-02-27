@@ -247,7 +247,7 @@ validate_research() {
 |-------------|-------|----------|-----------|
 | RSCH-001 | No code changes detected (git diff empty) | error | 60 |
 | RSCH-002 | Sources documented in manifest or markdown | warning | 60 (strict) |
-| RSCH-003 | Output file exists in `claudedocs/agent-outputs/` | error | 60 |
+| RSCH-003 | Output file exists in `.cleo/agent-outputs/` | error | 60 |
 | RSCH-004 | Manifest entry exists in `MANIFEST.jsonl` | error | 60 |
 | RSCH-006 | Key findings count between 3-7 | error | 60 |
 | RSCH-007 | `agent_type: "research"` in manifest | error | 60 |

@@ -121,7 +121,7 @@ vi.mock('../../lib/engine.js', () => ({
   lifecycleReset: vi.fn(() => ({ success: true, data: {} })),
   lifecycleGatePass: vi.fn(() => ({ success: true, data: {} })),
   lifecycleGateFail: vi.fn(() => ({ success: true, data: {} })),
-  LIFECYCLE_STAGES: ['research', 'consensus', 'spec', 'decompose', 'implement', 'verify', 'test', 'release'],
+  // LIFECYCLE_STAGES removed — import from core/lifecycle/ instead
   // Release engine
   releasePrepare: vi.fn(() => ({ success: true, data: {} })),
   releaseChangelog: vi.fn(() => ({ success: true, data: {} })),

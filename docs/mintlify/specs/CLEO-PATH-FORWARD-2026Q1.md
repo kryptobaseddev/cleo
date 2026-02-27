@@ -326,8 +326,8 @@ Every aspect of this path forward prioritizes agent consumption:
 |----------|------|---------|
 | Strategic Roadmap | `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | Phase and gate execution plan |
 | MCP Agent Interaction | `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` | MCP vs CLI delineation |
-| Track A/B Planning | `claudedocs/agent-outputs/track-ab-planning.md` | Epic decomposition details |
-| CAAMP Analysis | `claudedocs/agent-outputs/caamp-dependency-analysis.md` | Dependency analysis |
+| Track A/B Planning | `.cleo/agent-outputs/track-ab-planning.md` | Epic decomposition details |
+| CAAMP Analysis | `.cleo/agent-outputs/caamp-dependency-analysis.md` | Dependency analysis |
 | Vision | `docs/concepts/vision.mdx` | Immutable vision identity |
 | Portable Brain | `docs/specs/PORTABLE-BRAIN-SPEC.md` | Canonical product contract |
 | v2 ADR | `claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md` | Architecture decisions |

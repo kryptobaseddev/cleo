@@ -11,6 +11,7 @@
  * @epic T4454
  */
 
+// TODO T4894: operation 'self-update' not yet in registry — no dispatch equivalent.\n// Leave bypass; self-update requires file system ops and external process execution.
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
@@ -254,6 +255,9 @@ async function runPostUpdateDiagnostics(opts?: { skipUpgrade?: boolean, autoMigr
         errors: result.errors.length > 0 ? result.errors : undefined,
       },
     }, { command: 'self-update', message: result.success ? 'Post-update upgrade complete.' : 'Post-update upgrade had errors.' });
+    process.stderr.write(
+      `\n💡 Run 'cleo install-global' to refresh global provider configs.\n\n`,
+    );
 
     if (!result.success) {
       process.stderr.write(
@@ -269,5 +273,8 @@ async function runPostUpdateDiagnostics(opts?: { skipUpgrade?: boolean, autoMigr
         summary: preflight.summary,
       },
     }, { command: 'self-update', message: 'No post-update actions needed.' });
+    process.stderr.write(
+      `\n💡 Run 'cleo install-global' to refresh global provider configs after updates.\n\n`,
+    );
   }
 }

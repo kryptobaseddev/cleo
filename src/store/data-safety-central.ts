@@ -256,9 +256,6 @@ export async function safeSaveTaskFile(
   await checkpoint(`saved TaskFile (${taskCount} tasks)`, cwd, opts);
 }
 
-/** @deprecated Use safeSaveTaskFile instead. */
-export const safeSaveTodoFile = safeSaveTaskFile;
-
 /**
  * Safe wrapper for DataAccessor.saveSessions()
  */

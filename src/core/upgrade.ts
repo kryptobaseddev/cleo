@@ -387,11 +387,43 @@ export async function runUpgrade(options: {
     }
   }
 
+  // ── Step 2a: Sequence state migration (.sequence/.sequence.json -> SQLite) ──
+  if (existsSync(dbPath)) {
+    const legacySequenceFiles = ['.sequence', '.sequence.json']
+      .filter(f => existsSync(join(cleoDir, f)));
+
+    if (legacySequenceFiles.length > 0) {
+      if (isDryRun) {
+        actions.push({
+          action: 'sequence_migration',
+          status: 'preview',
+          details: `Would migrate legacy sequence file(s) to SQLite metadata: ${legacySequenceFiles.join(', ')}`,
+        });
+      } else {
+        try {
+          const { showSequence } = await import('./sequence/index.js');
+          const sequence = await showSequence(options.cwd);
+          actions.push({
+            action: 'sequence_migration',
+            status: 'applied',
+            details: `Migrated legacy sequence state to SQLite (counter=${String(sequence.counter ?? 0)}).`,
+          });
+        } catch (err) {
+          actions.push({
+            action: 'sequence_migration',
+            status: 'error',
+            details: `Failed to migrate sequence state: ${String(err)}`,
+          });
+        }
+      }
+    }
+  }
+
   // ── Step 2b: Stale JSON file cleanup (post-migration) ────────────
   // If tasks.db exists and there are stale legacy files, safely backup and delete them
   // so they don't trigger false positives or cause confusion.
   if (needsCleanup) {
-    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', 'tasks.json'];
+    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', 'tasks.json', '.sequence', '.sequence.json'];
     const foundStale = staleJsonFiles.filter(f => existsSync(join(cleoDir, f)));
 
     if (foundStale.length > 0) {
@@ -710,6 +742,28 @@ export async function runUpgrade(options: {
     }
   } catch {
     // Project context detection is best-effort
+  }
+
+  // ── Step 7: Refresh project-scope injection ────────────────────
+  // Strip legacy CLEO blocks and update CAAMP blocks.
+  if (!isDryRun) {
+    try {
+      const { updateDocs } = await import('./init.js');
+      await updateDocs();
+      actions.push({
+        action: 'injection_refresh',
+        status: 'applied',
+        details: 'Project docs refreshed. Run: cleo install-global to refresh global provider configs.',
+      });
+    } catch {
+      // Injection refresh is best-effort
+    }
+  } else {
+    actions.push({
+      action: 'injection_refresh',
+      status: 'preview',
+      details: 'Would refresh project injection (strip legacy CLEO blocks, update CAAMP blocks)',
+    });
   }
 
   const applied = actions.filter((a) => a.status === 'applied');

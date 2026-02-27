@@ -60,13 +60,13 @@ export interface UpdateTaskResult {
  * @task T4461
  */
 export async function updateTask(options: UpdateTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<UpdateTaskResult> {
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
 
   const taskIdx = data.tasks.findIndex(t => t.id === options.taskId);
   if (taskIdx === -1) {
@@ -238,7 +238,7 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
       after: { changes, title: task.title },
     }, cwd);
   } else {
-    await saveJson(todoPath, data, { backupDir });
+    await saveJson(taskPath, data, { backupDir });
     await logOperation(logPath, 'task_updated', options.taskId, {
       changes,
       title: task.title,

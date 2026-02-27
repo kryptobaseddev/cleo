@@ -8,7 +8,7 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TodoFileExt } from './types.js';
+import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
 
 /**
  * Suspend an active session.
@@ -21,8 +21,8 @@ export async function suspendSession(
   reason?: string,
 ): Promise<SessionRecord> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTodoFile();
-  const current = todoData as unknown as TodoFileExt;
+  const taskData = await accessor.loadTaskFile();
+  const current = taskData as unknown as TaskFileExt;
 
   const multiSession = current._meta?.multiSessionEnabled === true;
 
@@ -79,7 +79,7 @@ export async function suspendSession(
     current._meta.activeSession = null;
     current._meta.generation = (current._meta.generation || 0) + 1;
     (current as Record<string, unknown>).lastUpdated = now;
-    await accessor.saveTodoFile(todoData);
+    await accessor.saveTaskFile(taskData);
   }
 
   if (sessions._meta) {

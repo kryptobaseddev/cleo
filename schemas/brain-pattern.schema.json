@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/brain-pattern.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO BRAIN Pattern Memory Schema",
+  "description": "Schema for pattern memory entries. Runtime store is SQLite (brain_patterns table). JSONL format is used for export/import portability. See ADR-009 Section 3.2.",
+  "type": "object",
+  "required": ["id", "type", "pattern", "context", "extractedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^P\\d+$",
+      "description": "Pattern identifier (e.g., 'P001')."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["workflow", "blocker", "success", "failure", "optimization"],
+      "description": "Category of the pattern."
+    },
+    "pattern": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Description of the observed pattern."
+    },
+    "context": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Context in which the pattern was observed."
+    },
+    "frequency": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Number of times this pattern has been observed."
+    },
+    "successRate": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Success rate for workflow patterns (0.0-1.0)."
+    },
+    "impact": {
+      "type": ["string", "null"],
+      "enum": ["low", "medium", "high", null],
+      "description": "Impact level of the pattern."
+    },
+    "antiPattern": {
+      "type": ["string", "null"],
+      "description": "The anti-pattern to avoid, if applicable."
+    },
+    "mitigation": {
+      "type": ["string", "null"],
+      "description": "Recommended mitigation for blocker/failure patterns."
+    },
+    "examples": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Task IDs that exemplify this pattern."
+    },
+    "extractedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the pattern was first extracted."
+    },
+    "updatedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last update."
+    }
+  }
+}

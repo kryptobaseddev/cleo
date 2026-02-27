@@ -372,61 +372,60 @@ MCP Gateway → handleMcpToolCall() → Dispatch Adapter → Dispatcher → Core
 4. Migrate business logic from `src/mcp/engine/*.ts` to `src/core/`
 5. Remove legacy domain handlers in `src/mcp/domains/*.ts`
 
-### 3.7 RCSD-IVTR Pipeline Architecture
+### 3.7 RCASD-IVTR Pipeline Architecture
 
-The CLEO project lifecycle follows an **8-stage pipeline** with two distinct phases:
+The CLEO project lifecycle follows a **9-stage pipeline** (plus 1 cross-cutting stage) with two distinct phases:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        RCSD PHASE                                │
-│  (Research → Consensus → Specification → Decomposition)         │
-│                                                                  │
-│  Takes singular ideas and breaks them down into executable      │
-│  specifications with documented architectural decisions          │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                        RCASD PHASE                                    │
+│  Research → Consensus → Architecture Decision → Specification →      │
+│  Decomposition                                                        │
+│                                                                       │
+│  Takes singular ideas and breaks them down into executable           │
+│  specifications with documented architectural decisions               │
+└──────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
-                    ┌─────────────────┐
-                    │   ADR Protocol  │
-                    │  (Cross-cutting)│
-                    └─────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       IVTR PHASE                                 │
-│  (Implementation → Validation → Testing → Release)              │
-│                                                                  │
-│  Executes the work with iterative quality loops                 │
-│  Validation/Testing can cycle back to Implementation            │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                       IVTR PHASE                                      │
+│  Implementation → Validation → Testing → Release                     │
+│                                                                       │
+│  Executes the work with iterative quality loops                      │
+│  Validation/Testing can cycle back to Implementation                 │
+└──────────────────────────────────────────────────────────────────────┘
+        ┌─────────────────────────┐
+        │ Contribution (cross-cut)│
+        │ Can occur at any stage  │
+        └─────────────────────────┘
 ```
 
-#### Stage Definitions (8 Stages)
+#### Stage Definitions (9 Pipeline + 1 Cross-Cutting)
 
 | Phase | Stage | Order | Purpose | Key Activities |
 |-------|-------|-------|---------|----------------|
-| **RCSD** | Research | 1 | Gather information and explore | Investigation, data collection, findings documentation |
-| **RCSD** | Consensus | 2 | Multi-agent decision making | Agreement on approach, options evaluation |
-| **RCSD** | Specification | 3 | Document requirements and design | RFC-style specs, API contracts, design docs |
-| **RCSD** | Decomposition | 4 | Break work into atomic tasks | Task creation, dependency mapping, wave planning |
-| **IVTR** | Implementation | 5 | Build the solution | Code writing, feature development |
-| **IVTR** | Validation | 6 | Quality checks and static analysis | Lint, type check, code review |
-| **IVTR** | Testing | 7 | Execute test suites | Unit, integration, e2e tests, coverage |
-| **IVTR** | Release | 8 | Version and publish | Tagging, changelog, deployment |
+| **RCASD** | Research | 1 | Gather information and explore | Investigation, data collection, findings documentation |
+| **RCASD** | Consensus | 2 | Multi-agent decision making | Agreement on approach, options evaluation |
+| **RCASD** | Architecture Decision | 3 | Document architectural decisions | ADR creation, design rationale, alternatives analysis |
+| **RCASD** | Specification | 4 | Document requirements and design | RFC-style specs, API contracts, design docs |
+| **RCASD** | Decomposition | 5 | Break work into atomic tasks | Task creation, dependency mapping, wave planning |
+| **IVTR** | Implementation | 6 | Build the solution | Code writing, feature development |
+| **IVTR** | Validation | 7 | Quality checks and static analysis | Lint, type check, code review |
+| **IVTR** | Testing | 8 | Execute test suites | Unit, integration, e2e tests, coverage |
+| **IVTR** | Release | 9 | Version and publish | Tagging, changelog, deployment |
+| *Cross-cutting* | Contribution | -- | Multi-agent collaborative attribution | Contribution records, agent outputs, consensus manifests |
+
+> **Note**: The canonical stage names in code and DB are: `research`, `consensus`,
+> `architecture_decision`, `specification`, `decomposition`, `implementation`,
+> `validation`, `testing`, `release`, `contribution`. See `src/core/lifecycle/stages.ts`
+> for the single source of truth.
 
 #### Cross-Cutting Protocols
 
-**ADR Protocol (Architecture Decision Records)**
-- **When**: Triggered during/after Consensus stage
-- **Purpose**: Capture significant architectural decisions with context and rationale
-- **Artifacts**: Stored in `.cleo/adrs/ADR-XXX-{title}.md`
-- **Lifecycle**: `proposed` → `accepted` → `superseded`/`deprecated`
-- **Blocking**: Specification stage MUST reference accepted ADRs
-
 **Contribution Protocol**
 - **When**: Can occur during ANY stage
-- **Purpose**: Multi-agent collaborative work and consensus building
-- **Scope**: Crosses all pipeline stages
+- **Purpose**: Multi-agent collaborative work and attribution tracking
+- **Scope**: Crosses all pipeline stages, tracked in DB but not part of linear pipeline order
 - **Artifacts**: Contribution records, agent outputs, consensus manifests
 
 #### IVTR Iteration Loops
@@ -537,7 +536,7 @@ The 9-domain model is derived from seven convergent evidence streams:
 2. **CLEO Brain/Memory identity** (vision.mdx, PORTABLE-BRAIN-SPEC.md): Domains map to cognitive functions aligned with 5 pillars
 3. **src/core/ natural clustering** (T4797 Finding 3): 13 core modules group into ~9 cohesive clusters when measured by cohesion
 4. **System domain junk drawer** (T4797 Finding 4): 28-40 ops mixing 7 concerns must be decomposed
-5. **RCSD-IVTR pipeline**: 8-stage lifecycle with clear phase boundaries and iteration support
+5. **RCASD-IVTR pipeline**: 9-stage lifecycle (+ contribution cross-cutting) with clear phase boundaries and iteration support
 6. **BRAIN specification** (CLEO-BRAIN-SPECIFICATION.md): 5 dimensions need domain homes
 7. **Nexus architecture**: Cross-project coordination operates at ~/.cleo/ (global) scope, distinct from project-local
 
@@ -567,11 +566,10 @@ The 9-domain model is derived from seven convergent evidence streams:
 - Type definitions live ONCE in `src/types/`
 - No duplication between CLI and MCP
 
-**RCSD-IVTR Pipeline**:
-- **RCSD** (Setup): Research → Consensus (→ ADR) → Specification → Decomposition
+**RCASD-IVTR Pipeline** (9 stages + 1 cross-cutting):
+- **RCASD** (Setup): Research → Consensus → Architecture Decision → Specification → Decomposition
 - **IVTR** (Execution): Implementation ⇄ Validation ⇄ Testing → Release
-- ADR Protocol: Captures consensus decisions, referenced by specifications
-- Contribution Protocol: Cross-cutting collaborative work
+- Contribution: Cross-cutting collaborative work and attribution (not part of linear pipeline order)
 
 **BRAIN Dimension Coverage** (See ADR-009 for complete bridging reference):
 
@@ -840,13 +838,13 @@ This decision is compliant when all criteria below are met. Status assessed as o
 4. ✅ **ALL** domain aliases are implemented for backward compatibility
    — `src/dispatch/adapters/mcp.ts` resolves legacy domain names (research→memory, validate→check, lifecycle→pipeline, release→pipeline, skills→tools, providers→tools, issues→tools) to canonical names before routing. Met.
 
-5. ✅ **Pipeline definition** corrected to 8 stages (RCSD: 4, IVTR: 4) without "adr" stage
-   — `src/core/lifecycle/stages.ts` updated to 8 canonical stages. "adr" removed. Met.
+5. ✅ **Pipeline definition** updated to 9 stages (RCASD: 5, IVTR: 4) + contribution cross-cutting
+   — `src/core/lifecycle/stages.ts` defines 9 pipeline stages: `research`, `consensus`, `architecture_decision`, `specification`, `decomposition`, `implementation`, `validation`, `testing`, `release`. `contribution` is a separate cross-cutting stage. Met (T4863).
 
-6. ✅ **RCSD_STAGES** array updated: `['research', 'consensus', 'specification', 'decomposition']`
-   — Confirmed in `src/core/lifecycle/stages.ts`. Met.
+6. ✅ **RCASD_STAGES** reflect 5 planning stages: `['research', 'consensus', 'architecture_decision', 'specification', 'decomposition']`
+   — Confirmed in `src/core/lifecycle/stages.ts`. Met (T4863).
 
-7. ✅ **EXECUTION_STAGES** array updated: `['implementation', 'validation', 'testing', 'release']`
+7. ✅ **EXECUTION_STAGES** array: `['implementation', 'validation', 'testing', 'release']`
    — Confirmed in `src/core/lifecycle/stages.ts`. Met.
 
 8. ✅ **Gateway routing** updated to route old domain names to new domains
@@ -887,12 +885,13 @@ This ADR formalizes the consensus reached in T4797 (Domain Model Research). The 
 
 ### 8.2 Pipeline Correction Status
 
-**RESOLVED**: `src/core/lifecycle/stages.ts` has been updated to the canonical 8-stage pipeline (compliance criteria 5-7 met):
-- 8 stages total (RCSD: 4, IVTR: 4)
-- "adr" removed from PIPELINE_STAGES
-- Canonical stage names: research, consensus, specification, decomposition, implementation, validation, testing, release
-- TRANSITION_RULES updated to reflect 8-stage flow
-- ADR and Contribution documented as protocols, not stages
+**RESOLVED**: `src/core/lifecycle/stages.ts` has been updated to the canonical 9+1 stage pipeline (compliance criteria 5-7 met, T4863):
+- 9 pipeline stages (RCASD: 5, IVTR: 4) + 1 cross-cutting (contribution)
+- `architecture_decision` added as stage 3 between consensus and specification
+- Canonical stage names: research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release
+- `contribution` tracked as cross-cutting stage (not part of linear pipeline order)
+- TRANSITION_RULES updated to reflect 9-stage flow
+- DB CHECK constraint includes all 10 stage names (9 pipeline + contribution)
 
 ### 8.3 Related ADRs
 

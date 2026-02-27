@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { getTodoPath } from '../../paths.js';
+import { getTaskPath } from '../../paths.js';
 import type { Task } from '../../../types/task.js';
 import type { ManifestEntry } from '../types.js';
 
@@ -70,13 +70,13 @@ export function validateContributionTask(
   cwd?: string,
 ): { valid: boolean; issues: string[] } {
   const issues: string[] = [];
-  const todoPath = getTodoPath(cwd);
+  const taskPath = getTaskPath(cwd);
 
-  if (!existsSync(todoPath)) {
+  if (!existsSync(taskPath)) {
     return { valid: false, issues: ['Todo file not found'] };
   }
 
-  const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
   const task = tasks.find(t => t.id === taskId);
 
@@ -244,7 +244,7 @@ export function createContributionManifestEntry(
     file: `${contributionId}.md`,
     title: `Contribution for ${taskId}`,
     date: new Date().toISOString().split('T')[0],
-    status: 'complete',
+    status: 'completed',
     agent_type: 'contribution',
     topics: ['contribution', 'multi-agent'],
     key_findings: decisions.map(d => `${d.agentId}: ${d.decision} (conf: ${d.confidence})`),

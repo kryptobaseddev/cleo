@@ -6,7 +6,8 @@
  */
 
 /** Session status. */
-export type SessionStatus = 'active' | 'ended' | 'orphaned';
+import type { SessionStatus } from '../store/status-registry.js';
+export type { SessionStatus };
 
 /** Session scope type. */
 export type SessionScopeType = 'epic' | 'global';

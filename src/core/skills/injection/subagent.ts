@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getProjectRoot, getTodoPath } from '../../paths.js';
+import { getProjectRoot, getTaskPath } from '../../paths.js';
 import { findSkill } from '../discovery.js';
 import { injectTokens, type TokenValues } from './token.js';
 import type { Task } from '../../../types/task.js';
@@ -56,12 +56,12 @@ export function loadProtocolBase(cwd?: string): string | null {
  * @task T4521
  */
 export function buildTaskContext(taskId: string, cwd?: string): string {
-  const todoPath = getTodoPath(cwd);
-  if (!existsSync(todoPath)) {
+  const taskPath = getTaskPath(cwd);
+  if (!existsSync(taskPath)) {
     return `## Task Context\n\n**Task**: ${taskId}\n**Status**: unknown\n`;
   }
 
-  const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+  const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
   const tasks: Task[] = data.tasks ?? [];
   const task = tasks.find(t => t.id === taskId);
 

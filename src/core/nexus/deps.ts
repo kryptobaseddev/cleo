@@ -102,8 +102,12 @@ const CROSS_REF_RE = /^([a-z0-9_-]+):(.+)$/;
 /** Read tasks from a project path, returning empty array on failure. */
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
   try {
-    const todoPath = join(projectPath, '.cleo', 'todo.json');
-    const raw = await readFile(todoPath, 'utf-8');
+    let raw: string;
+    try {
+      raw = await readFile(join(projectPath, '.cleo', 'tasks.json'), 'utf-8');
+    } catch {
+      raw = await readFile(join(projectPath, '.cleo', 'todo.json'), 'utf-8');
+    }
     const data = JSON.parse(raw) as { tasks: Task[] };
     return data.tasks ?? [];
   } catch {
@@ -111,14 +115,18 @@ async function readProjectTasks(projectPath: string): Promise<Task[]> {
   }
 }
 
-/** Compute a checksum across all registered project todo.json files. */
+/** Compute a checksum across all registered project task files. */
 async function computeGlobalChecksum(registry: NexusRegistryFile): Promise<string> {
   const hash = createHash('sha256');
 
   for (const project of Object.values(registry.projects)) {
     try {
-      const todoPath = join(project.path, '.cleo', 'todo.json');
-      const content = await readFile(todoPath, 'utf-8');
+      let content: string;
+      try {
+        content = await readFile(join(project.path, '.cleo', 'tasks.json'), 'utf-8');
+      } catch {
+        content = await readFile(join(project.path, '.cleo', 'todo.json'), 'utf-8');
+      }
       hash.update(content);
     } catch {
       // Skip unreadable projects

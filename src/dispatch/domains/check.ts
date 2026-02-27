@@ -14,6 +14,9 @@
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { getLogger } from '../../core/logger.js';
+
+const logger = getLogger('domain:check');
 import {
   validateSchemaOp,
   validateTaskOp,
@@ -229,6 +232,7 @@ export class CheckHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
+    logger.error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,

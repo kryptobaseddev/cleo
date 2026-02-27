@@ -50,7 +50,7 @@ This specification **DEFERS TO**:
 - [ORCHESTRATOR-SPEC.md](ORCHESTRATOR-SPEC.md) for tmux-based multi-agent orchestration
 - [IMPLEMENTATION-ORCHESTRATION-SPEC.md](IMPLEMENTATION-ORCHESTRATION-SPEC.md) for 7-agent pipeline
 - [MULTI-SESSION-SPEC.md](MULTI-SESSION-SPEC.md) for session scope binding
-- [SUBAGENT_PROTOCOL.md](../claudedocs/agent-outputs/SUBAGENT_PROTOCOL.md) for research output format
+- [SUBAGENT_PROTOCOL.md](../.cleo/agent-outputs/SUBAGENT_PROTOCOL.md) for research output format
 
 ### 1.3 Scope
 
@@ -148,8 +148,8 @@ Every research subagent prompt MUST include this instruction block:
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
+1. MUST write findings to: .cleo/agent-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: .cleo/agent-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 
@@ -225,7 +225,7 @@ When a new conversation starts, the orchestrator MUST execute this startup seque
 cleo session list --status active
 
 # Step 2: Check manifest for pending work
-cat claudedocs/agent-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
+cat .cleo/agent-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 
 # Step 3: Check active task
 cleo current
@@ -485,7 +485,7 @@ def should_spawn(task_id, completed_tasks):
 
 ```bash
 # Rebuild manifest from files (disaster recovery)
-for f in claudedocs/agent-outputs/*.md; do
+for f in .cleo/agent-outputs/*.md; do
   # Extract metadata and append to manifest
   cleo research show --file "$f" --format jsonl >> MANIFEST.jsonl.new
 done
@@ -696,7 +696,7 @@ Human-in-the-Loop summary provides complete context for resumption:
 
 | File | Purpose | Created By |
 |------|---------|------------|
-| `claudedocs/agent-outputs/` | Research output directory | `cleo research init` |
+| `.cleo/agent-outputs/` | Research output directory | `cleo research init` |
 | `MANIFEST.jsonl` | Research index | Subagents (append) |
 | `SUBAGENT_PROTOCOL.md` | Protocol reference | `cleo research init` |
 | `INJECT.md` | Copy-paste injection block | `cleo research init` |

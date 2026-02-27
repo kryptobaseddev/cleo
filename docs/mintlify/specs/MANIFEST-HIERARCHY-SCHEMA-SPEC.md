@@ -273,7 +273,7 @@ jq -s 'group_by(.depth) | map({depth: .[0].depth, entries: map(.id)})' MANIFEST.
 ## References
 
 - Epic: T4352 - Manifest Hierarchy + Path Query Engine
-- Readiness Report: `claudedocs/agent-outputs/track-b-readiness-2026-02-12.md`
+- Readiness Report: `.cleo/agent-outputs/track-b-readiness-2026-02-12.md`
 - Schema: `schemas/research-manifest.schema.json`
 - Prior Research: T2748 unified recommendations
 - Prior Consensus: T2746 folder reorg consensus

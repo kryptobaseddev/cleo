@@ -22,7 +22,7 @@ describe('checkManifestEntry', () => {
     const entry = {
       id: 'T123-research',
       title: 'Research output',
-      status: 'complete',
+      status: 'completed',
       key_findings: ['finding 1', 'finding 2'],
       linked_tasks: ['T123'],
     };
@@ -33,7 +33,7 @@ describe('checkManifestEntry', () => {
     const entry = {
       id: 'T123-research',
       title: 'Research output',
-      status: 'complete',
+      status: 'completed',
       key_findings: ['finding 1'],
     };
     expect(checkManifestEntry(entry)).toBe('partial');
@@ -60,7 +60,7 @@ describe('scoreSubagentCompliance', () => {
     const entry = {
       id: 'T1-res',
       title: 'Research',
-      status: 'complete',
+      status: 'completed',
       key_findings: ['f1', 'f2'],
       linked_tasks: ['T1'],
     };

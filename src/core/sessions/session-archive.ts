@@ -6,7 +6,7 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import type { SessionsFileExt, TodoFileExt } from './types.js';
+import type { SessionsFileExt, TaskFileExt } from './types.js';
 
 /**
  * Archive old/ended sessions.
@@ -17,8 +17,8 @@ export async function archiveSessions(
   olderThan?: string,
 ): Promise<{ archived: string[]; count: number }> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTodoFile();
-  const current = todoData as unknown as TodoFileExt;
+  const taskData = await accessor.loadTaskFile();
+  const current = taskData as unknown as TaskFileExt;
 
   const multiSession = current._meta?.multiSessionEnabled === true;
   if (!multiSession) {

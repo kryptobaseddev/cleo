@@ -22,10 +22,6 @@ import type { FindTasksOptions, FindTasksResult } from '../core/tasks/find.js';
 import type { ListTasksOptions, ListTasksResult } from '../core/tasks/list.js';
 import type { ArchiveTasksOptions, ArchiveTasksResult } from '../core/tasks/archive.js';
 import type { TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry } from '../core/task-work/index.js';
-// Backward-compatible aliases re-exported for downstream consumers
-export type FocusShowResult = TaskCurrentResult;
-export type FocusSetResult = TaskStartResult;
-export type FocusHistoryEntry = TaskWorkHistoryEntry;
 import type { AnalysisResult } from '../core/tasks/analyze.js';
 
 // Re-export domain operation types for CLI consumers
@@ -97,9 +93,11 @@ export interface StoreProvider {
   getCurrentTaskForSession(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
   stopTaskOnSession(sessionId: string): Promise<void>;
 
-  // Focus aliases (delegate to task work operations)
+  /** @deprecated Use startTaskOnSession instead. */
   setFocus(sessionId: string, taskId: string): Promise<void>;
+  /** @deprecated Use getCurrentTaskForSession instead. */
   getFocus(sessionId: string): Promise<{ taskId: string | null; since: string | null }>;
+  /** @deprecated Use stopTaskOnSession instead. */
   clearFocus(sessionId: string): Promise<void>;
 
   // Lifecycle

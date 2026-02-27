@@ -8,7 +8,7 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TodoFileExt } from './types.js';
+import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -50,8 +50,8 @@ export async function getContextDrift(
   params?: { sessionId?: string },
 ): Promise<ContextDriftResult> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTodoFile();
-  const todo = todoData as unknown as TodoFileExt;
+  const taskData = await accessor.loadTaskFile();
+  const current = taskData as unknown as TaskFileExt;
 
   // Find the active session (or specified session)
   let session: SessionRecord | undefined;
@@ -70,19 +70,19 @@ export async function getContextDrift(
       );
     }
   } else {
-    const activeSessionId = todo._meta?.activeSession;
-    if (activeSessionId && todo._meta?.multiSessionEnabled) {
+    const activeSessionId = current._meta?.activeSession;
+    if (activeSessionId && current._meta?.multiSessionEnabled) {
       const sessionsFile = (await accessor.loadSessions()) as unknown as SessionsFileExt;
       session = sessionsFile?.sessions?.find((s) => s.id === activeSessionId);
     }
   }
 
-  const tasks = todo.tasks || [];
+  const tasks = current.tasks || [];
   const factors: string[] = [];
 
   // If no session with scope, compute a basic drift from focus state
   if (!session) {
-    const focusTask = todo.focus?.currentTask;
+    const focusTask = current.focus?.currentTask;
     if (!focusTask) {
       return {
         score: 0,

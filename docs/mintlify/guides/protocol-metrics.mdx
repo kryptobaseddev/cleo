@@ -316,7 +316,7 @@ validate_custom_protocol() {
     local output_file="$2"
 
     # Check output file exists
-    check_output_file_exists "$task_id" "claudedocs/agent-outputs" || {
+    check_output_file_exists "$task_id" ".cleo/agent-outputs" || {
         echo "ERROR: Output file missing"
         return 1
     }
@@ -363,12 +363,12 @@ validate_custom_protocol() {
 
 ### Manifest Entries
 
-**Location**: `claudedocs/agent-outputs/MANIFEST.jsonl`
+**Location**: `.cleo/agent-outputs/MANIFEST.jsonl`
 
 **Purpose**: Subagent output catalog (separate from compliance metrics)
 
 ```jsonl
-{"id":"T2725-research","file":"claudedocs/agent-outputs/T2725-research.md","title":"Protocol Metrics Research","date":"2026-01-28","status":"complete","agent_type":"research","topics":["validation","metrics"],"key_findings":["9 validators implemented","Common functions library created","Exit codes 60-70 allocated"],"actionable":true,"needs_followup":[],"linked_tasks":["T2724","T2725"]}
+{"id":"T2725-research","file":".cleo/agent-outputs/T2725-research.md","title":"Protocol Metrics Research","date":"2026-01-28","status":"complete","agent_type":"research","topics":["validation","metrics"],"key_findings":["9 validators implemented","Common functions library created","Exit codes 60-70 allocated"],"actionable":true,"needs_followup":[],"linked_tasks":["T2724","T2725"]}
 ```
 
 **Relationship**:
@@ -468,7 +468,7 @@ cleo compliance audit T2724
 **Fix**:
 ```bash
 # Check manifest entry
-grep "T2725" claudedocs/agent-outputs/MANIFEST.jsonl | jq '.key_findings'
+grep "T2725" .cleo/agent-outputs/MANIFEST.jsonl | jq '.key_findings'
 
 # Should have 3-7 items:
 ["Finding 1", "Finding 2", "Finding 3"]
@@ -485,7 +485,7 @@ grep "T2725" claudedocs/agent-outputs/MANIFEST.jsonl | jq '.key_findings'
 **Fix**:
 ```bash
 # Check status field
-grep "T2726" claudedocs/agent-outputs/MANIFEST.jsonl | jq '.status'
+grep "T2726" .cleo/agent-outputs/MANIFEST.jsonl | jq '.status'
 
 # Must be exactly one of:
 "complete"   # ✓

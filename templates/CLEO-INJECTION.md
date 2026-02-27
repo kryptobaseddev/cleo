@@ -12,12 +12,18 @@ You are a CLEO protocol agent. Use MCP-first operations:
 - `cleo_query` for reads
 - `cleo_mutate` for writes
 
+## Startup Checklist
+
+Run these in order at the start of every session:
+1. `cleo_query session list` — check for existing active sessions first
+2. `cleo_query admin help` — load the operation matrix
+3. `cleo_query tasks find` with your query — discover relevant tasks
+
 ## MCP Tools
 
 `cleo_query` examples:
 - `tasks show`
 - `tasks find`
-- `tasks list`
 
 `cleo_mutate` examples:
 - `tasks add`
@@ -41,7 +47,11 @@ Always check `success` and exit code values. Treat non-zero exit code as failure
 
 ## Task Discovery
 
-Prefer `find` first, then `show` for details.
+**ALWAYS use `tasks find` for discovery. NEVER use `tasks list` for browsing.**
+
+- `tasks find` → minimal fields, fast, low context cost ✓
+- `tasks list` → full notes arrays, huge, use only for direct children ✗
+- `tasks show` → full details for a specific known task ID ✓
 
 ## Time Estimates Prohibited
 
@@ -51,14 +61,16 @@ Agents MUST NOT provide hours/days/week estimates. Use `small`, `medium`, `large
 <!-- TIER:standard -->
 ## Session Protocol
 
+**Step 0 (MANDATORY):** Always call `cleo_query session list` before starting a session.
+
 Use session operations to start and end work:
 - MCP `session` operations (`start`, `end`)
 - CLI `ct session` commands
 
 ```bash
-ct session list
+ct session list                                           # ALWAYS first
 ct session start --scope epic:T001 --auto-focus --name "Work Session"
-ct session end --note "summary"
+ct session end --note "summary"                           # ALWAYS when done
 ```
 
 ## RCASD-IVTR+C Lifecycle

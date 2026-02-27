@@ -43,6 +43,8 @@ export interface SessionRecord {
   endedAt?: string | null;
   archivedAt?: string | null;
   resumeCount?: number;
+  /** Whether full query+mutation audit logging is enabled (behavioral grading). */
+  gradeMode?: boolean;
   stats?: {
     tasksCompleted: number;
     tasksCreated: number;
@@ -54,9 +56,9 @@ export interface SessionRecord {
 }
 
 /**
- * Focus state from todo.json (single-session mode).
+ * Task work state from tasks.json (single-session mode).
  */
-export interface FocusState {
+export interface TaskWorkStateExt {
   currentTask: string | null;
   currentPhase: string | null;
   blockedUntil: string | null;
@@ -65,6 +67,9 @@ export interface FocusState {
   nextAction: string | null;
   primarySession: string | null;
 }
+
+/** @deprecated Use TaskWorkStateExt instead. */
+export type FocusState = TaskWorkStateExt;
 
 /**
  * Extended sessions.json structure (engine-compatible).
@@ -85,9 +90,9 @@ export interface SessionsFileExt {
 }
 
 /**
- * Todo.json structure (subset for session operations).
+ * Task file structure (subset for session operations).
  */
-export interface TodoFileExt {
+export interface TaskFileExt {
   focus?: FocusState;
   _meta?: {
     schemaVersion: string;

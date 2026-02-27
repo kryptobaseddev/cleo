@@ -96,7 +96,7 @@ src/                # TypeScript source (primary codebase)
 schemas/            # JSON Schema definitions for validation
 docs/               # User-facing documentation
 docs/adrs/          #   Architecture Decision Records
-claudedocs/         # Internal research and specifications
+claudedocs/         # Legacy internal research (migrated to .cleo/)
 tests/              # Test suite (Vitest + legacy BATS)
 dev/                # Development scripts (bump-version, benchmark, validation)
 dev/migrations/     # Internal one-time migration scripts (NOT user commands)

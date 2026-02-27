@@ -6,6 +6,9 @@
  * @epic T4545
  */
 
+// TODO T4894: tools.issue.diagnostics returns E_NOT_IMPLEMENTED; tools.issue.add.bug/feature/help
+// require gh CLI execution logic that cannot be dispatched through the current handler.
+// Leave bypass until issue domain handler supports full workflow.
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';

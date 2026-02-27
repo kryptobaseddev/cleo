@@ -3,6 +3,7 @@
  * @task T4538
  * @epic T4454
  */
+// TODO T4894: operation not yet in registry — no tasks.labels dispatch route for list/show/stats operations
 
 import { Command } from 'commander';
 import { getAccessor } from '../../store/data-accessor.js';

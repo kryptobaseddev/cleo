@@ -247,9 +247,9 @@ export async function getMigrationStatus(cwd?: string): Promise<MigrationStatus>
 
   // Check todo.json
   try {
-    const todoData = await readJson(getTaskPath(cwd));
-    if (todoData) {
-      const current = detectVersion(todoData);
+    const taskData = await readJson(getTaskPath(cwd));
+    if (taskData) {
+      const current = detectVersion(taskData);
       const target = TARGET_VERSIONS['todo']!;
       result.todoJson = {
         current,

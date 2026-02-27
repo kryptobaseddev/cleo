@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTaskPath, getAgentOutputsAbsolute, getManifestPath as getManifestPathFromPaths } from '../../paths.js';
+import { MANIFEST_STATUSES } from '../../../store/status-registry.js';
 import type { Task } from '../../../types/task.js';
 import type {
   ManifestEntry,
@@ -30,7 +31,7 @@ const KEY_FINDINGS_MAX = 7;
 const MANIFEST_REQUIRED_FIELDS = [
   'id', 'file', 'title', 'date', 'status', 'topics', 'key_findings', 'actionable',
 ];
-const VALID_STATUSES = new Set(['complete', 'partial', 'blocked', 'archived']);
+const VALID_STATUSES_SET = new Set(MANIFEST_STATUSES);
 
 // ============================================================================
 // Manifest Helpers
@@ -105,8 +106,8 @@ export function validateSubagentOutput(
   }
 
   // Validate status
-  if (entry.status && !VALID_STATUSES.has(entry.status)) {
-    issues.push(`INVALID_STATUS: ${entry.status} (must be complete|partial|blocked|archived)`);
+  if (entry.status && !VALID_STATUSES_SET.has(entry.status)) {
+    issues.push(`INVALID_STATUS: ${entry.status} (must be completed|partial|blocked|archived)`);
   }
 
   // Validate key_findings count
@@ -279,7 +280,7 @@ export function verifyCompliance(
   // Check return status
   let returnStatusValid: boolean | null = null;
   if (entry) {
-    returnStatusValid = VALID_STATUSES.has(entry.status);
+    returnStatusValid = VALID_STATUSES_SET.has(entry.status);
     if (!returnStatusValid) {
       violations.push(`INVALID_MANIFEST_STATUS: ${entry.status}`);
     }
@@ -328,10 +329,10 @@ export function validateOrchestratorCompliance(
 
   // Check dependency order (ORC-004) for completed tasks
   if (epicId) {
-    const todoPath = getTaskPath(cwd);
-    if (existsSync(todoPath)) {
+    const taskPath = getTaskPath(cwd);
+    if (existsSync(taskPath)) {
       try {
-        const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
+        const data = JSON.parse(readFileSync(taskPath, 'utf-8'));
         const tasks: Task[] = (data.tasks ?? []).filter(
           (t: Task) => t.parentId === epicId && t.status === 'done',
         );

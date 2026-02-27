@@ -7,7 +7,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { Task, TodoFile } from '../types/task.js';
+import type { Task, TaskFile } from '../types/task.js';
 
 /** Export format version. */
 const EXPORT_FORMAT_VERSION = '1.0.0';
@@ -137,7 +137,7 @@ export function buildRelationshipGraph(tasks: Task[]): RelationshipGraph {
  */
 export function buildExportPackage(
   tasks: Task[],
-  todoData: TodoFile,
+  taskData: TaskFile,
   options: {
     mode: string;
     rootTaskIds: string[];
@@ -147,7 +147,7 @@ export function buildExportPackage(
   },
 ): ExportPackage {
   const now = new Date().toISOString();
-  const projectName = todoData.project?.name ?? 'unknown';
+  const projectName = taskData.project?.name ?? 'unknown';
   const maxId = tasks.reduce((max, t) => {
     const num = parseInt(t.id.replace('T', ''), 10);
     return num > max ? num : max;
@@ -188,11 +188,11 @@ export function buildExportPackage(
 /**
  * Export a single task.
  */
-export function exportSingle(taskId: string, todoData: TodoFile): ExportPackage | null {
-  const task = todoData.tasks.find((t) => t.id === taskId);
+export function exportSingle(taskId: string, taskData: TaskFile): ExportPackage | null {
+  const task = taskData.tasks.find((t) => t.id === taskId);
   if (!task) return null;
 
-  return buildExportPackage([task], todoData, {
+  return buildExportPackage([task], taskData, {
     mode: 'single',
     rootTaskIds: [taskId],
     includeChildren: false,
@@ -202,8 +202,8 @@ export function exportSingle(taskId: string, todoData: TodoFile): ExportPackage 
 /**
  * Export a subtree (task + all descendants).
  */
-export function exportSubtree(rootId: string, todoData: TodoFile): ExportPackage | null {
-  const root = todoData.tasks.find((t) => t.id === rootId);
+export function exportSubtree(rootId: string, taskData: TaskFile): ExportPackage | null {
+  const root = taskData.tasks.find((t) => t.id === rootId);
   if (!root) return null;
 
   // Collect all descendants
@@ -212,15 +212,15 @@ export function exportSubtree(rootId: string, todoData: TodoFile): ExportPackage
 
   while (queue.length > 0) {
     const id = queue.shift()!;
-    const task = todoData.tasks.find((t) => t.id === id);
+    const task = taskData.tasks.find((t) => t.id === id);
     if (!task || collected.has(id)) continue;
     collected.set(id, task);
-    const children = todoData.tasks.filter((t) => t.parentId === id);
+    const children = taskData.tasks.filter((t) => t.parentId === id);
     queue.push(...children.map((c) => c.id));
   }
 
   const tasks = [...collected.values()];
-  return buildExportPackage(tasks, todoData, {
+  return buildExportPackage(tasks, taskData, {
     mode: 'subtree',
     rootTaskIds: [rootId],
     includeChildren: true,
