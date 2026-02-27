@@ -1,4 +1,4 @@
-<p alis|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.5-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.4-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.2.3-|gn="center">
+<p align="center">
   <img src="docs/images/banner.png" alt="CLEO banner" width="900">
 </p>
 
@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.2.1-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.2.6-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>

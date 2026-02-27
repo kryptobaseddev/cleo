@@ -193,3 +193,56 @@ opencode.json
 .cleo/tasks.db-shm
 .cleo/tasks.db-wal
 .cleo/tasks.db-journal
+.cleo/tasks.db.empty-backup
+.cleo/tasks.db.pre-adr-migration
+.cleo/tasks.db.pre-recovery
+
+# ============================================================
+# CLEO Runtime Data — NOT source code
+# ============================================================
+# These are generated at runtime, not part of the source tree.
+.cleo/.backups/
+.cleo/.cache/
+.cleo/.context-state.json
+.cleo/.git-checkpoint-state
+.cleo/.migration-state.json
+.cleo/.sequence.json.migrated
+.cleo/.sequence.migrated
+.cleo/archive/
+.cleo/backups/
+.cleo/consensus/
+.cleo/context-states/
+.cleo/metrics/GRADES.jsonl
+.cleo/metrics/archive/
+.cleo/metrics/COMPLIANCE.jsonl
+.cleo/rcasd/
+.cleo/research.json
+.cleo/research/
+.cleo/schemas/
+.cleo/sessions.json.migrated
+.cleo/templates/
+
+# ============================================================
+# AI Agent and IDE Configuration (user-specific)
+# ============================================================
+.agent/
+.codex/
+.cursor/
+.gemini/
+.kimi/
+.vscode/
+
+# MCP Registry tokens (secrets — NEVER commit)
+.mcpregistry_github_token
+.mcpregistry_registry_token
+
+# Tool configuration files
+.opencode.json
+
+# ============================================================
+# Temporary Development Files
+# ============================================================
+EOF
+update-adr.sh
+vitest-full.json
+vitest-threads.json
