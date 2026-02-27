@@ -1,3 +1,9 @@
+> **SUPERSEDED**: This document has been superseded by [CLEO-WEB-API-SPEC.md](../../specs/CLEO-WEB-API-SPEC.md) (v2.0.0, 2026-02-27).
+> This document is retained for historical reference only. It references legacy architecture
+> (DomainRouter, JSON file storage, chokidar file watching, mcp-server/src/web/) that has been
+> replaced by the /dispatch endpoint pattern, SQLite storage, smart polling, and src/web/.
+> Do NOT use this document for implementation decisions.
+
 # CLEO Web Dashboard - Architecture & Feature Specification
 
 **Epic**: T4284 (CLEO Nexus Command Center WebUI)

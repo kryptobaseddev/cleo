@@ -23,6 +23,7 @@ CLEO provides portable project memory, verifiable provenance, and agent-safe orc
 * [Data Integrity](specs/CLEO-DATA-INTEGRITY-SPEC.md) — Data safety guarantees
 * [Install Channels](specs/CLEO-INSTALL-CHANNELS-SPEC.md) — Distribution specification
 * [CAAMP Integration](specs/CAAMP-CLEO-INTEGRATION-REQUIREMENTS.md) — Multi-agent injection
+* [Web API](specs/CLEO-WEB-API-SPEC.md) — Dispatch-over-Fastify HTTP API contract
 
 ### Guides
 
