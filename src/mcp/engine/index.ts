@@ -87,7 +87,7 @@ export {
   type MinimalTaskRecord,
 } from './task-engine.js';
 
-// Session engine
+// Session engine (delegated to dispatch engine — MCP engine deleted per T4959)
 export {
   sessionStatus,
   sessionList,
@@ -111,7 +111,7 @@ export {
   sessionArchive,
   type SessionRecord,
   type DecisionRecord,
-} from './session-engine.js';
+} from '../../dispatch/engines/session-engine.js';
 
 // System engine (system queries + mutate operations)
 export {
