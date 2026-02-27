@@ -19,6 +19,7 @@ import { registerFocusCommand } from './commands/focus.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerStopCommand } from './commands/stop.js';
 import { registerCurrentCommand } from './commands/current.js';
+import { registerBriefingCommand } from './commands/briefing.js';
 import { registerSessionCommand } from './commands/session.js';
 import { registerPhaseCommand } from './commands/phase.js';
 import { registerDepsCommand, registerTreeCommand } from './commands/deps.js';
@@ -50,6 +51,7 @@ import { registerSkillsCommand } from './commands/skills.js';
 
 // Wave 1: Utility commands
 import { registerExistsCommand } from './commands/exists.js';
+import { registerBugCommand } from './commands/bug.js';
 
 // Wave 3: Register remaining commands (T4585)
 import { registerAnalyzeCommand } from './commands/analyze.js';
@@ -72,6 +74,7 @@ import { registerInjectCommand } from './commands/inject.js';
 import { registerLabelsCommand } from './commands/labels.js';
 import { registerLogCommand } from './commands/log.js';
 import { registerNextCommand } from './commands/next.js';
+import { registerPlanCommand } from './commands/plan.js';
 import { registerOtelCommand } from './commands/otel.js';
 import { registerPhasesCommand } from './commands/phases.js';
 import { registerPromoteCommand } from './commands/promote.js';
@@ -89,6 +92,9 @@ import { registerValidateCommand } from './commands/validate.js';
 import { registerVerifyCommand } from './commands/verify.js';
 import { registerDetectDriftCommand } from './commands/detect-drift.js';
 
+// T4362: Progressive disclosure ops command
+import { registerOpsCommand } from './commands/ops.js';
+
 // T4882: Multi-contributor snapshot
 import { registerSnapshotCommand } from './commands/snapshot.js';
 
@@ -97,6 +103,13 @@ import { registerSharingCommand } from './commands/sharing.js';
 
 // T4884: .cleo/.git remote push/pull
 import { registerRemoteCommand } from './commands/remote.js';
+
+// T4916: CAAMP global install refresh + session behavioral grading
+import { registerInstallGlobalCommand } from './commands/install-global.js';
+import { registerGradeCommand } from './commands/grade.js';
+
+// ADR-017: ADR validation, listing, and sync
+import { registerAdrCommand } from './commands/adr.js';
 
 // Core: pre-flight migration check (@task T4699)
 import { checkStorageMigration } from '../core/migration/preflight.js';
@@ -172,6 +185,9 @@ registerStartCommand(program);
 registerStopCommand(program);
 registerCurrentCommand(program);
 
+// T4916: Session briefing command
+registerBriefingCommand(program);
+
 // T4462: Focus commands (backward-compat aliases)
 registerFocusCommand(program);
 
@@ -221,6 +237,9 @@ registerSkillsCommand(program);
 // T4454: Utility commands
 registerExistsCommand(program);
 
+// T4913: Bug report command
+registerBugCommand(program);
+
 // T4585: Wave 3 - Remaining commands
 registerAnalyzeCommand(program);
 registerBackupCommand(program);
@@ -242,6 +261,7 @@ registerInjectCommand(program);
 registerLabelsCommand(program);
 registerLogCommand(program);
 registerNextCommand(program);
+registerPlanCommand(program);
 registerOtelCommand(program);
 registerPhasesCommand(program);
 registerPromoteCommand(program);
@@ -261,6 +281,9 @@ registerVerifyCommand(program);
 // T4705: Documentation drift detection
 registerDetectDriftCommand(program);
 
+// T4362: Progressive disclosure ops command
+registerOpsCommand(program);
+
 // T4882: Multi-contributor snapshot export/import
 registerSnapshotCommand(program);
 
@@ -269,6 +292,13 @@ registerSharingCommand(program);
 
 // T4884: .cleo/.git remote push/pull
 registerRemoteCommand(program);
+
+// T4916: CAAMP global install refresh + session behavioral grading
+registerInstallGlobalCommand(program);
+registerGradeCommand(program);
+
+// ADR-017: ADR validation, listing, and sync
+registerAdrCommand(program);
 
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).

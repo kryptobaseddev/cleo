@@ -9,6 +9,14 @@
  */
 
 import { resolve, normalize, relative, isAbsolute } from 'path';
+import {
+  TASK_PRIORITIES,
+} from '../../store/schema.js';
+import {
+  TASK_STATUSES,
+  MANIFEST_STATUSES,
+  LIFECYCLE_STAGE_STATUSES,
+} from '../../store/status-registry.js';
 
 /**
  * Security validation error thrown when input fails sanitization
@@ -211,13 +219,13 @@ export const VALID_DOMAINS = [
 
 export const VALID_GATEWAYS = ['cleo_query', 'cleo_mutate'] as const;
 
-export const VALID_STATUSES = ['pending', 'active', 'blocked', 'done'] as const;
+export const VALID_MANIFEST_STATUSES = MANIFEST_STATUSES;
 
-export const VALID_MANIFEST_STATUSES = ['complete', 'partial', 'blocked'] as const;
+export const VALID_LIFECYCLE_STAGE_STATUSES = LIFECYCLE_STAGE_STATUSES;
 
-export const ALL_VALID_STATUSES = [...VALID_STATUSES, 'complete', 'partial'] as const;
+export const ALL_VALID_STATUSES = [...TASK_STATUSES, ...MANIFEST_STATUSES] as const;
 
-export const VALID_PRIORITIES = ['low', 'medium', 'high', 'critical'] as const;
+export const VALID_PRIORITIES = TASK_PRIORITIES;
 
 /**
  * Rate limiter configuration
@@ -327,7 +335,8 @@ export class RateLimiter {
  */
 export function sanitizeParams(
   params: Record<string, unknown> | undefined,
-  projectRoot?: string
+  projectRoot?: string,
+  context?: { domain?: string; operation?: string },
 ): Record<string, unknown> | undefined {
   if (!params) {
     return params;
@@ -391,7 +400,20 @@ export function sanitizeParams(
     }
 
     if (typeof value === 'string' && key === 'status') {
-      sanitized[key] = validateEnum(value, [...ALL_VALID_STATUSES], 'status');
+      const isLifecycleStageStatus =
+        context?.domain === 'pipeline' && context?.operation === 'stage.record';
+      const isAdrStatus =
+        context?.domain === 'admin' && context?.operation?.startsWith('adr.');
+
+      sanitized[key] = validateEnum(
+        value,
+        isLifecycleStageStatus
+          ? [...LIFECYCLE_STAGE_STATUSES]
+          : isAdrStatus
+          ? ['proposed', 'accepted', 'superseded', 'deprecated']
+          : [...TASK_STATUSES, ...MANIFEST_STATUSES],
+        'status',
+      );
       continue;
     }
 

@@ -2,8 +2,11 @@
 
 **Date**: 2026-02-21
 **Status**: accepted
+**Accepted**: 2026-02-21
 **Supersedes**: ADR-001, ADR-002
-**Amended By**: ADR-010, ADR-011
+**Amended By**: ADR-010, ADR-011, ADR-017
+
+---
 
 ## 1. Explicit Canonical Decision
 
@@ -25,7 +28,7 @@ There are exactly two SQLite databases in the CLEO ecosystem:
 4. **End-to-End Type Safety**: By defining the schema strictly in `src/store/schema.ts` via `drizzle-orm`, TypeScript guarantees compile-time safety across all database interactions, eliminating undefined behaviors present in untyped JSON parsing.
 5. **Cross-Session Continuity**: Agents require immediate, complete context resumption. Querying a structured database for `active` pipelines or the `current` accepted ADR is deterministic and instantaneous.
 
-## 3. ADR Lifecycle Tooling (Integrated into RCSD)
+## 3. ADR Lifecycle Tooling (Integrated into RCASD)
 
 ADRs are NOT a separate protocol, but rather a structured artifact produced by the Research -> Consensus -> ADR -> Spec pipeline. They track the outcome of consensus, its status over time, and its supersession chain.
 
