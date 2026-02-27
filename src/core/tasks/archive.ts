@@ -140,8 +140,18 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   data.lastUpdated = now;
 
   if (accessor) {
-    await safeSaveTaskFile(accessor, data, cwd);
-    await safeSaveArchive(accessor, archiveData, cwd);
+    if (accessor.archiveSingleTask) {
+      // Fine-grained path: archive each task individually
+      for (const t of tasksToArchive) {
+        await accessor.archiveSingleTask(t.id, {
+          archivedAt: now,
+          archiveReason: t.status === 'cancelled' ? 'cancelled' : 'completed',
+        });
+      }
+    } else {
+      await safeSaveTaskFile(accessor, data, cwd);
+      await safeSaveArchive(accessor, archiveData, cwd);
+    }
     await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),

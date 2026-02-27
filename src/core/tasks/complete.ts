@@ -132,7 +132,16 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
   data.lastUpdated = now;
 
   if (accessor) {
-    await safeSaveTaskFile(accessor, data, cwd);
+    if (accessor.upsertSingleTask) {
+      await accessor.upsertSingleTask(task);
+      // Also upsert auto-completed parent if any
+      for (const parentId of autoCompleted) {
+        const parent = data.tasks.find(t => t.id === parentId);
+        if (parent) await accessor.upsertSingleTask(parent);
+      }
+    } else {
+      await safeSaveTaskFile(accessor, data, cwd);
+    }
     await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),

@@ -15,12 +15,14 @@
  */
 
 import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
-import type { TaskFile } from '../types/task.js';
+import type { Task, TaskFile } from '../types/task.js';
+import type { ArchiveFields } from './db-helpers.js';
 import {
   safeSaveTaskFile,
   safeSaveSessions,
   safeSaveArchive,
   safeAppendLog,
+  safeSingleTaskWrite,
   type SafetyOptions,
 } from './data-safety-central.js';
 import { getLogger } from '../core/logger.js';
@@ -148,6 +150,44 @@ export class SafetyDataAccessor implements DataAccessor {
   async appendLog(entry: Record<string, unknown>): Promise<void> {
     this.logVerbose('Appending log entry');
     await safeAppendLog(this.inner, entry, this.cwd, this.getSafetyOptions());
+  }
+
+  // ---- Fine-grained task operations (with safety) ----
+
+  async upsertSingleTask(task: Task): Promise<void> {
+    if (!this.inner.upsertSingleTask) return;
+    this.logVerbose(`Upserting single task ${task.id}`);
+    await safeSingleTaskWrite(
+      this.inner,
+      task.id,
+      () => this.inner.upsertSingleTask!(task),
+      this.cwd,
+      this.getSafetyOptions(),
+    );
+  }
+
+  async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
+    if (!this.inner.archiveSingleTask) return;
+    this.logVerbose(`Archiving single task ${taskId}`);
+    await safeSingleTaskWrite(
+      this.inner,
+      taskId,
+      () => this.inner.archiveSingleTask!(taskId, fields),
+      this.cwd,
+      this.getSafetyOptions(),
+    );
+  }
+
+  async removeSingleTask(taskId: string): Promise<void> {
+    if (!this.inner.removeSingleTask) return;
+    this.logVerbose(`Removing single task ${taskId}`);
+    await safeSingleTaskWrite(
+      this.inner,
+      taskId,
+      () => this.inner.removeSingleTask!(taskId),
+      this.cwd,
+      this.getSafetyOptions(),
+    );
   }
 
   // ---- Metadata (pass-through to inner) ----
