@@ -18,7 +18,7 @@
 
 import type { DataAccessor } from './data-accessor.js';
 import type { TaskFile } from '../types/task.js';
-import type { SessionsFile } from '../types/session.js';
+import type { Session } from '../types/session.js';
 import type { ArchiveFile } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
 import { vacuumIntoBackup } from './sqlite-backup.js';
@@ -180,20 +180,20 @@ async function verifyTaskFile(data: TaskFile, accessor: DataAccessor, options?: 
 
 
 /**
- * Verify SessionsFile was written correctly.
+ * Verify sessions were written correctly.
  */
-async function verifySessionsFile(data: SessionsFile, accessor: DataAccessor, options?: SafetyOptions): Promise<void> {
+async function verifySessions(data: Session[], accessor: DataAccessor, options?: SafetyOptions): Promise<void> {
   if (!options?.verify) return;
 
   stats.verifications++;
-  
+
   const readBack = await accessor.loadSessions();
-  
-  if (readBack.sessions.length !== data.sessions.length) {
+
+  if (readBack.length !== data.length) {
     throw new DataSafetyError(
-      `SessionsFile verification failed: count mismatch. Expected ${data.sessions.length}, got ${readBack.sessions.length}`,
+      `Sessions verification failed: count mismatch. Expected ${data.length}, got ${readBack.length}`,
       'VERIFICATION_FAILED',
-      { expected: data.sessions.length, actual: readBack.sessions.length },
+      { expected: data.length, actual: readBack.length },
     );
   }
 }
@@ -261,17 +261,17 @@ export async function safeSaveTaskFile(
  */
 export async function safeSaveSessions(
   accessor: DataAccessor,
-  data: SessionsFile,
+  data: Session[],
   cwd?: string,
   options?: Partial<SafetyOptions>,
 ): Promise<void> {
   const opts = { ...DEFAULT_SAFETY, ...options };
-  
+
   await accessor.saveSessions(data);
   stats.writes++;
-  
-  await verifySessionsFile(data, accessor, opts);
-  await checkpoint(`saved Sessions (${data.sessions.length} sessions)`, cwd, opts);
+
+  await verifySessions(data, accessor, opts);
+  await checkpoint(`saved Sessions (${data.length} sessions)`, cwd, opts);
 }
 
 /**
@@ -389,11 +389,11 @@ export async function runDataIntegrityCheck(
 
   try {
     const sessions = await accessor.loadSessions();
-    if (!sessions.sessions) {
-      errors.push('SessionsFile missing sessions array');
+    if (!Array.isArray(sessions)) {
+      errors.push('Sessions data is not an array');
     }
   } catch (err) {
-    errors.push(`SessionsFile load failed: ${String(err)}`);
+    errors.push(`Sessions load failed: ${String(err)}`);
   }
 
   // 3. Check for checkpoint recency

@@ -72,10 +72,9 @@ export async function computeHandoff(
   const accessor = await getAccessor(projectRoot);
 
   // Load session data
-  const sessionsData = await accessor.loadSessions();
-  const allSessions = sessionsData?.sessions || [];
+  const sessions = await accessor.loadSessions();
 
-  const session = allSessions.find((s) => s.id === options.sessionId);
+  const session = sessions.find((s) => s.id === options.sessionId);
   if (!session) {
     throw new CleoError(
       ExitCode.SESSION_NOT_FOUND,
@@ -263,17 +262,10 @@ export async function persistHandoff(
   handoff: HandoffData,
 ): Promise<void> {
   const accessor = await getAccessor(projectRoot);
-  const sessionsData = await accessor.loadSessions();
-
-  if (!sessionsData) {
-    throw new CleoError(
-      ExitCode.SESSION_NOT_FOUND,
-      'Sessions file not found',
-    );
-  }
+  const sessions = await accessor.loadSessions();
 
   // Find session in active sessions
-  const session = sessionsData.sessions?.find((s) => s.id === sessionId);
+  const session = sessions.find((s) => s.id === sessionId);
 
   if (!session) {
     throw new CleoError(
@@ -285,7 +277,7 @@ export async function persistHandoff(
   // Store handoff data as JSON string on the typed Session field
   session.handoffJson = JSON.stringify(handoff);
 
-  await accessor.saveSessions(sessionsData);
+  await accessor.saveSessions(sessions);
 }
 
 /**
@@ -296,12 +288,10 @@ export async function getHandoff(
   sessionId: string,
 ): Promise<HandoffData | null> {
   const accessor = await getAccessor(projectRoot);
-  const sessionsData = await accessor.loadSessions();
+  const sessions = await accessor.loadSessions();
 
-  if (!sessionsData) return null;
-
-  // Find session in active sessions
-  const session = sessionsData.sessions?.find((s) => s.id === sessionId);
+  // Find session
+  const session = sessions.find((s) => s.id === sessionId);
 
   if (!session) return null;
 
@@ -326,15 +316,10 @@ export async function getLastHandoff(
   scope?: { type: string; epicId?: string },
 ): Promise<{ sessionId: string; handoff: HandoffData } | null> {
   const accessor = await getAccessor(projectRoot);
-  const sessionsData = await accessor.loadSessions();
-
-  if (!sessionsData) return null;
-
-  // All sessions come from SQLite - no separate history array needed
-  const allSessions = sessionsData.sessions || [];
+  const sessions = await accessor.loadSessions();
 
   // Filter to ended sessions
-  let endedSessions = allSessions.filter((s) => s.status === 'ended' && s.endedAt);
+  let endedSessions = sessions.filter((s) => s.status === 'ended' && s.endedAt);
 
   // Filter by scope if provided
   if (scope) {
@@ -543,11 +528,9 @@ async function computeChainPosition(
 ): Promise<{ position: number; length: number }> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const sessionsData = await accessor.loadSessions();
-    if (!sessionsData) return { position: 1, length: 1 };
+    const sessions = await accessor.loadSessions();
 
-    const allSessions = sessionsData.sessions || [];
-    const sessionMap = new Map(allSessions.map((s) => [s.id, s]));
+    const sessionMap = new Map(sessions.map((s) => [s.id, s]));
 
     // Walk backward to find chain start
     let current = sessionId;

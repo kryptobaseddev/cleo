@@ -12,7 +12,7 @@
  */
 
 import { eq, ne } from 'drizzle-orm';
-import type { DataAccessor, ArchiveFile, SessionsFile } from './data-accessor.js';
+import type { DataAccessor, ArchiveFile } from './data-accessor.js';
 import type { TaskFile, Task, ProjectMeta, TaskWorkState, FileMeta } from '../types/task.js';
 import type { Session } from '../types/session.js';
 import type { ArchiveFields } from './db-helpers.js';
@@ -299,28 +299,21 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
     // ---- loadSessions ----
 
-    async loadSessions(): Promise<SessionsFile> {
+    async loadSessions(): Promise<Session[]> {
       const db = await getDb(cwd);
-
       const sessionRows = await db.select().from(schema.sessions).all();
-      const sessions: Session[] = sessionRows.map(rowToSession);
-
-      return {
-        sessions,
-        version: '1.0.0',
-        _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-      };
+      return sessionRows.map(rowToSession);
     },
 
     // ---- saveSessions ----
 
-    async saveSessions(data: SessionsFile): Promise<void> {
+    async saveSessions(sessions: Session[]): Promise<void> {
       const db = await getDb(cwd);
 
       // Get existing session IDs
       const existingRows = await db.select({ id: schema.sessions.id }).from(schema.sessions).all();
       const existingIds = new Set(existingRows.map((r) => r.id));
-      const incomingIds = new Set(data.sessions.map((s) => s.id));
+      const incomingIds = new Set(sessions.map((s) => s.id));
 
       // Delete sessions that are no longer in the data
       for (const eid of existingIds) {
@@ -330,7 +323,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       }
 
       // Upsert all sessions
-      for (const session of data.sessions) {
+      for (const session of sessions) {
         await upsertSession(db, session);
       }
     },

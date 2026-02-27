@@ -197,8 +197,8 @@ export async function getSystemDiagnostics(
   if (existsSync(dbPath)) {
     try {
       const accessor = await getAccessor(projectRoot);
-      const sessionsData = await accessor.loadSessions();
-      const activeSessions = (sessionsData.sessions ?? []).filter((s) => s.status === 'active');
+      const sessions = await accessor.loadSessions();
+      const activeSessions = sessions.filter((s) => s.status === 'active');
       if (activeSessions.length > 3) {
         diagChecks.push({
           name: 'stale_sessions',

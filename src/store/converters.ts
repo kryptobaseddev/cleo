@@ -8,7 +8,8 @@
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
 import type { TaskRow, NewTaskRow, SessionRow } from './schema.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
-import type { Session, SessionScope, SessionStatus } from '../types/session.js';
+import type { Session, SessionScope, SessionStats } from './validation-schemas.js';
+import type { SessionStatus } from './status-registry.js';
 
 /** Convert a database TaskRow to a domain Task object. */
 export function rowToTask(row: TaskRow): Task {
@@ -104,9 +105,8 @@ export function rowToSession(row: SessionRow): Session {
     id: row.id,
     name: row.name,
     status: row.status as SessionStatus,
-    scope: safeParseJson<SessionScope>(row.scopeJson) ?? { type: 'global' as const },
+    scope: (safeParseJson<SessionScope>(row.scopeJson) ?? { type: 'global' }) as SessionScope,
     taskWork,
-    focus: taskWork,
     startedAt: row.startedAt,
     endedAt: row.endedAt ?? undefined,
     agent: row.agent ?? undefined,
@@ -121,5 +121,9 @@ export function rowToSession(row: SessionRow): Session {
     handoffConsumedAt: row.handoffConsumedAt ?? null,
     handoffConsumedBy: row.handoffConsumedBy ?? null,
     debriefJson: row.debriefJson ?? null,
+    // Session stats fields
+    stats: row.statsJson ? safeParseJson<SessionStats>(row.statsJson) : undefined,
+    resumeCount: row.resumeCount ?? undefined,
+    gradeMode: row.gradeMode ? Boolean(row.gradeMode) : undefined,
   };
 }

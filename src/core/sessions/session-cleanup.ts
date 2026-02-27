@@ -6,7 +6,7 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
+import type { TaskFileExt } from './types.js';
 
 /**
  * Remove orphaned sessions and clean up stale data.
@@ -25,37 +25,27 @@ export async function cleanupSessions(
     return { removed: [], cleaned: false };
   }
 
-  const sessions = (await accessor.loadSessions()) as unknown as SessionsFileExt;
+  const sessions = await accessor.loadSessions();
 
-  if (!sessions) {
+  if (sessions.length === 0) {
     return { removed: [], cleaned: false };
   }
 
   const removed: string[] = [];
   let todoUpdated = false;
 
-  // Remove all non-active sessions from the sessions list
-  // (move ended/suspended to history, remove orphaned entirely)
-  const activeSessions: SessionRecord[] = [];
-  for (const session of sessions.sessions) {
-    if (session.status === 'active') {
-      activeSessions.push(session);
-    } else if (session.status === 'ended' || session.status === 'suspended') {
-      // Move to history
-      if (!sessions.sessionHistory) sessions.sessionHistory = [];
-      sessions.sessionHistory.push(session);
-      removed.push(session.id);
-    } else if (session.status === 'archived') {
-      // Archived sessions are removed from active list
+  // Identify non-active sessions to remove
+  // In SQLite, status changes are persisted directly -- no history array needed
+  for (const session of sessions) {
+    if ((session.status as string) === 'archived') {
       removed.push(session.id);
     }
   }
-  sessions.sessions = activeSessions;
 
   // Clean stale references in todo.json
   if (current._meta?.activeSession) {
-    const activeExists = sessions.sessions.some(
-      (s) => s.id === current._meta!.activeSession,
+    const activeExists = sessions.some(
+      (s) => s.id === current._meta!.activeSession && s.status === 'active',
     );
     if (!activeExists) {
       current._meta.activeSession = null;
@@ -66,10 +56,7 @@ export async function cleanupSessions(
   }
 
   if (removed.length > 0 || todoUpdated) {
-    if (sessions._meta) {
-      sessions._meta.lastModified = new Date().toISOString();
-    }
-    await accessor.saveSessions(sessions as any);
+    await accessor.saveSessions(sessions);
     if (todoUpdated) {
       await accessor.saveTaskFile(taskData);
     }

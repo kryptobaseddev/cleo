@@ -22,7 +22,8 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { TaskFile } from '../../types/task.js';
-import type { DataAccessor, ArchiveFile, SessionsFile } from '../data-accessor.js';
+import type { DataAccessor, ArchiveFile } from '../data-accessor.js';
+import type { Session } from '../../types/session.js';
 
 // Mock git-checkpoint to prevent real git operations
 vi.mock('../git-checkpoint.js', () => ({
@@ -63,8 +64,8 @@ describe('Data Safety Central', () => {
     tasks,
   });
 
-  const makeSessionsFile = (count = 0): SessionsFile => ({
-    sessions: Array.from({ length: count }, (_, i) => ({
+  const makeSessions = (count = 0): Session[] =>
+    Array.from({ length: count }, (_, i) => ({
       id: `sess-${i}`,
       name: `Session ${i}`,
       status: 'ended' as const,
@@ -75,10 +76,7 @@ describe('Data Safety Central', () => {
       tasksCreated: [],
       startedAt: new Date().toISOString(),
       endedAt: new Date().toISOString(),
-    })),
-    version: '1.0.0',
-    _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-  });
+    }));
 
   const makeArchiveFile = (count = 0): ArchiveFile => ({
     archivedTasks: Array.from({ length: count }, (_, i) => ({
@@ -95,14 +93,14 @@ describe('Data Safety Central', () => {
    */
   function createMockAccessor(): DataAccessor & {
     _taskFile: TaskFile;
-    _sessions: SessionsFile;
+    _sessions: Session[];
     _archive: ArchiveFile | null;
     _logs: Record<string, unknown>[];
   } {
     const mock = {
       engine: 'sqlite' as const,
       _taskFile: makeTaskFile(),
-      _sessions: makeSessionsFile(),
+      _sessions: makeSessions(),
       _archive: null as ArchiveFile | null,
       _logs: [] as Record<string, unknown>[],
 
@@ -127,7 +125,7 @@ describe('Data Safety Central', () => {
       async loadSessions() {
         return mock._sessions;
       },
-      async saveSessions(data: SessionsFile) {
+      async saveSessions(data: Session[]) {
         mock._sessions = data;
       },
       async appendLog(entry: Record<string, unknown>) {
@@ -326,13 +324,13 @@ describe('Data Safety Central', () => {
     it('should verify session count after save', async () => {
       const { safeSaveSessions } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
-      const sessions = makeSessionsFile(3);
+      const sessions = makeSessions(3);
 
       await safeSaveSessions(accessor, sessions, tempDir, {
         checkpoint: false,
       });
 
-      expect(accessor._sessions.sessions.length).toBe(3);
+      expect(accessor._sessions.length).toBe(3);
     });
 
     it('should fail when session count mismatches', async () => {
@@ -340,10 +338,10 @@ describe('Data Safety Central', () => {
       const accessor = createMockAccessor();
 
       // After save, return fewer sessions
-      accessor.loadSessions = async () => makeSessionsFile(1);
+      accessor.loadSessions = async () => makeSessions(1);
 
       await expect(
-        safeSaveSessions(accessor, makeSessionsFile(3), tempDir, {
+        safeSaveSessions(accessor, makeSessions(3), tempDir, {
           verify: true,
           checkpoint: false,
           strict: true,
@@ -514,7 +512,7 @@ describe('Data Safety Central', () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
       accessor._taskFile = makeTaskFile();
-      accessor._sessions = makeSessionsFile();
+      accessor._sessions = makeSessions();
 
       const result = await checkIntegrity(accessor, tempDir);
 
@@ -546,7 +544,7 @@ describe('Data Safety Central', () => {
       expect(result.errors.some(e => e.includes('tasks array'))).toBe(true);
     });
 
-    it('should report error when SessionsFile fails to load', async () => {
+    it('should report error when sessions fail to load', async () => {
       const { runDataIntegrityCheck: checkIntegrity } = await import('../data-safety-central.js');
       const accessor = createMockAccessor();
       accessor.loadSessions = async () => {
@@ -555,7 +553,7 @@ describe('Data Safety Central', () => {
 
       const result = await checkIntegrity(accessor, tempDir);
 
-      expect(result.errors.some(e => e.includes('SessionsFile load failed'))).toBe(true);
+      expect(result.errors.some(e => e.includes('Sessions load failed'))).toBe(true);
     });
   });
 });

@@ -8,7 +8,8 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
+import type { Session } from '../../types/session.js';
+import type { TaskFileExt } from './types.js';
 
 export interface ContextDriftResult {
   score: number;
@@ -54,15 +55,11 @@ export async function getContextDrift(
   const current = taskData as unknown as TaskFileExt;
 
   // Find the active session (or specified session)
-  let session: SessionRecord | undefined;
+  let session: Session | undefined;
 
   if (params?.sessionId) {
-    const sessionsFile = (await accessor.loadSessions()) as unknown as SessionsFileExt;
-    if (sessionsFile) {
-      session =
-        sessionsFile.sessions?.find((s) => s.id === params.sessionId) ||
-        sessionsFile.sessionHistory?.find((s) => s.id === params.sessionId);
-    }
+    const sessions = await accessor.loadSessions();
+    session = sessions.find((s) => s.id === params.sessionId);
     if (!session) {
       throw new CleoError(
         ExitCode.SESSION_NOT_FOUND,
@@ -72,8 +69,8 @@ export async function getContextDrift(
   } else {
     const activeSessionId = current._meta?.activeSession;
     if (activeSessionId && current._meta?.multiSessionEnabled) {
-      const sessionsFile = (await accessor.loadSessions()) as unknown as SessionsFileExt;
-      session = sessionsFile?.sessions?.find((s) => s.id === activeSessionId);
+      const sessions = await accessor.loadSessions();
+      session = sessions.find((s) => s.id === activeSessionId);
     }
   }
 
@@ -115,7 +112,7 @@ export async function getContextDrift(
   }
 
   // Multi-session: use session scope to determine in-scope tasks
-  const rootTaskId = session.scope.rootTaskId;
+  const rootTaskId = session.scope.rootTaskId ?? session.scope.epicId ?? '';
   const inScopeIds = new Set<string>();
 
   if (

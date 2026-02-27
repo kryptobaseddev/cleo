@@ -37,11 +37,6 @@ function createMockStore() {
   ];
 
   const sessions: Session[] = [];
-  const sessionsData = {
-    version: '1.0.0',
-    sessions,
-    _meta: { schemaVersion: '1.0.0', lastUpdated: new Date().toISOString() },
-  };
   const taskData = {
     tasks,
     focus: { currentTask: null, currentPhase: null, blockedUntil: null, sessionNote: null, sessionNotes: [], nextAction: null, primarySession: null },
@@ -50,10 +45,9 @@ function createMockStore() {
 
   return {
     sessions,
-    sessionsData,
     taskData,
     accessor: {
-      loadSessions: vi.fn().mockImplementation(() => Promise.resolve(sessionsData)),
+      loadSessions: vi.fn().mockImplementation(() => Promise.resolve(sessions)),
       saveSessions: vi.fn().mockImplementation(() => Promise.resolve()),
       loadTaskFile: vi.fn().mockImplementation(() => Promise.resolve(taskData)),
       saveTaskFile: vi.fn().mockImplementation(() => Promise.resolve()),

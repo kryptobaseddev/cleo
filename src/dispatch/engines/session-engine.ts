@@ -31,12 +31,8 @@ import { generateSessionId } from '../../core/sessions/session-id.js';
 import type { HandoffData } from '../../core/sessions/handoff.js';
 import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
 import type { SessionBriefing } from '../../core/sessions/briefing.js';
-import type {
-  SessionRecord,
-  SessionsFileExt,
-  TaskFileExt,
-  DecisionRecord,
-} from '../../core/sessions/types.js';
+import type { DecisionRecord } from '../../core/sessions/types.js';
+import type { Session } from '../../types/session.js';
 import type { TaskWorkState } from '../../types/task.js';
 import {
   currentTask,
@@ -46,7 +42,8 @@ import {
 import { engineError, type EngineResult } from './_error.js';
 
 // Re-export types for consumers
-export type { SessionRecord, DecisionRecord };
+export type { Session as SessionRecord };
+export type { DecisionRecord };
 
 // Re-export EngineResult for consumers
 export type { EngineResult };
@@ -71,40 +68,24 @@ export async function sessionStatus(
   EngineResult<{
     hasActiveSession: boolean;
     multiSessionEnabled: boolean;
-    session?: SessionRecord | null;
+    session?: Session | null;
     taskWork?: TaskWorkState | null;
   }>
 > {
   try {
     const accessor = await getAccessor(projectRoot);
     const taskData = await accessor.loadTaskFile();
-    const current = taskData as unknown as TaskFileExt;
 
-    const multiSession = current._meta?.multiSessionEnabled === true;
-
-    if (multiSession) {
-      const sessionsData = await accessor.loadSessions();
-      const sessions = sessionsData as unknown as SessionsFileExt;
-      const active = sessions?.sessions?.find((s) => s.status === 'active');
-
-      return {
-        success: true,
-        data: {
-          hasActiveSession: !!active,
-          multiSessionEnabled: true,
-          session: active || null,
-          taskWork: null,
-        },
-      };
-    }
+    const sessions = await accessor.loadSessions();
+    const active = sessions.find((s: Session) => s.status === 'active');
 
     return {
       success: true,
       data: {
-        hasActiveSession: !!current.focus?.currentTask,
-        multiSessionEnabled: false,
-        session: null,
-        taskWork: (current.focus as TaskWorkState | undefined) || null,
+        hasActiveSession: !!active,
+        multiSessionEnabled: true,
+        session: active || null,
+        taskWork: (taskData.focus as TaskWorkState | undefined) || null,
       },
     };
   } catch {
@@ -121,46 +102,16 @@ export async function sessionStatus(
 export async function sessionList(
   projectRoot: string,
   params?: { active?: boolean; limit?: number },
-): Promise<EngineResult<SessionRecord[]>> {
+): Promise<EngineResult<Session[]>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const taskData = await accessor.loadTaskFile();
-    const current = taskData as unknown as TaskFileExt;
 
-    const multiSession = current._meta?.multiSessionEnabled === true;
-
-    if (!multiSession) {
-      // Single-session mode: return synthetic session if focus is set
-      if (current.focus?.currentTask) {
-        const syntheticSession: SessionRecord = {
-          id: current._meta?.activeSession || 'default',
-          status: 'active',
-          scope: { type: 'task', rootTaskId: current.focus.currentTask },
-          focus: {
-            currentTask: current.focus.currentTask,
-            currentPhase: current.focus.currentPhase,
-          },
-          startedAt: new Date().toISOString(),
-          lastActivity: new Date().toISOString(),
-        };
-        return { success: true, data: [syntheticSession] };
-      }
-      return { success: true, data: [] };
-    }
-
-    const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as SessionsFileExt;
-
-    if (!sessions) {
-      return { success: true, data: [] };
-    }
-
-    let result = sessions.sessions || [];
+    let result = await accessor.loadSessions();
 
     if (params?.active === true) {
-      result = result.filter((s) => s.status === 'active');
+      result = result.filter((s: Session) => s.status === 'active');
     } else if (params?.active === false) {
-      result = result.filter((s) => s.status !== 'active');
+      result = result.filter((s: Session) => s.status !== 'active');
     }
 
     if (params?.limit && params.limit > 0) {
@@ -180,7 +131,7 @@ export async function sessionList(
 export async function sessionShow(
   projectRoot: string,
   sessionId: string,
-): Promise<EngineResult<SessionRecord>> {
+): Promise<EngineResult<Session>> {
   try {
     const result = await showSession(projectRoot, sessionId);
     return { success: true, data: result };
@@ -275,11 +226,10 @@ export async function sessionStart(
     /** Enable full query+mutation audit logging for behavioral grading. */
     grade?: boolean;
   },
-): Promise<EngineResult<SessionRecord>> {
+): Promise<EngineResult<Session>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const taskData = await accessor.loadTaskFile();
-    const current = taskData as unknown as TaskFileExt;
 
     // Parse scope (e.g., "epic:T001" -> { type: 'epic', rootTaskId: 'T001' })
     const scopeParts = params.scope.split(':');
@@ -291,7 +241,7 @@ export async function sessionStart(
     }
 
     // Verify root task exists
-    const rootTask = current.tasks?.find((t) => t.id === rootTaskId);
+    const rootTask = taskData.tasks?.find((t) => t.id === rootTaskId);
     if (!rootTask) {
       return engineError('E_NOT_FOUND', `Root task '${rootTaskId}' not found`);
     }
@@ -302,21 +252,15 @@ export async function sessionStart(
     // T4959: Chain linking — find most recent ended session for same scope
     let previousSessionId: string | null = null;
     {
-      const sessionsData = await accessor.loadSessions();
-      const sessions = sessionsData as unknown as SessionsFileExt;
-      // Search both sessions and legacy sessionHistory for chain linking
-      const allSessions = [
-        ...(sessions?.sessions || []),
-        ...(sessions?.sessionHistory || []),
-      ];
-      const sameScope = allSessions
-        .filter((s) =>
+      const sessions = await accessor.loadSessions();
+      const sameScope = sessions
+        .filter((s: Session) =>
           s.status === 'ended' &&
           s.endedAt &&
           s.scope?.rootTaskId === rootTaskId &&
           s.scope?.type === scopeType,
         )
-        .sort((a, b) =>
+        .sort((a: Session, b: Session) =>
           new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime(),
         );
       if (sameScope.length > 0) {
@@ -329,22 +273,22 @@ export async function sessionStart(
       ?? process.env.CLEO_AGENT_ID
       ?? null;
 
-    const newSession: SessionRecord = {
+    const startingTaskId = params.startTask || params.focus || (params.autoStart ? rootTaskId : null);
+
+    const newSession: Session = {
       id: sessionId,
       status: 'active',
-      name: params.name,
+      name: params.name || `session-${sessionId}`,
       scope: {
         type: scopeType,
         rootTaskId,
         includeDescendants: true,
       },
-      focus: {
-        currentTask: params.startTask || params.focus || (params.autoStart ? rootTaskId : null),
-        currentPhase: null,
-        previousTask: null,
+      taskWork: {
+        taskId: startingTaskId,
+        setAt: now,
       },
       startedAt: now,
-      lastActivity: now,
       resumeCount: 0,
       ...(params.grade ? { gradeMode: true } : {}),
       stats: {
@@ -358,8 +302,8 @@ export async function sessionStart(
     };
 
     // Update focus in task file
-    if (!current.focus) {
-      current.focus = {
+    if (!taskData.focus) {
+      taskData.focus = {
         currentTask: null,
         currentPhase: null,
         blockedUntil: null,
@@ -372,41 +316,34 @@ export async function sessionStart(
 
     const startingTask = params.startTask || params.focus;
     if (startingTask) {
-      current.focus.currentTask = startingTask;
+      taskData.focus.currentTask = startingTask;
     } else if (params.autoStart) {
-      current.focus.currentTask = rootTaskId;
+      taskData.focus.currentTask = rootTaskId;
     }
 
-    if (current._meta) {
-      current._meta.lastSessionId = sessionId;
-      current._meta.activeSession = sessionId;
-      current._meta.generation = (current._meta.generation || 0) + 1;
+    if (taskData._meta) {
+      taskData._meta.lastSessionId = sessionId;
+      taskData._meta.activeSession = sessionId;
+      taskData._meta.generation = (taskData._meta.generation || 0) + 1;
     }
 
-    (current as Record<string, unknown>).lastUpdated = now;
+    (taskData as unknown as Record<string, unknown>).lastUpdated = now;
     await accessor.saveTaskFile(taskData);
 
     // Always write to sessions.json so resume/suspend can find the session.
     // Previously only written when multi-session enabled, but session resume
     // always looks in sessions.json regardless of multi-session mode.
     {
-      const sessionsData = await accessor.loadSessions();
-      const sessions = sessionsData as unknown as SessionsFileExt;
-
-      if (!sessions.sessions) sessions.sessions = [];
+      const sessions = await accessor.loadSessions();
 
       // T4959: Set chain fields on new session
       if (previousSessionId) {
         newSession.previousSessionId = previousSessionId;
 
         // Update predecessor's nextSessionId
-        const allSessionArrays = [sessions.sessions, sessions.sessionHistory || []];
-        for (const arr of allSessionArrays) {
-          const pred = arr.find((s) => s.id === previousSessionId);
-          if (pred) {
-            pred.nextSessionId = sessionId;
-            break;
-          }
+        const pred = sessions.find((s: Session) => s.id === previousSessionId);
+        if (pred) {
+          pred.nextSessionId = sessionId;
         }
       }
 
@@ -414,15 +351,9 @@ export async function sessionStart(
         newSession.agentIdentifier = agentIdentifier;
       }
 
-      sessions.sessions.push(newSession);
-      if (sessions._meta) {
-        sessions._meta.lastModified = now;
-        sessions._meta.lastSessionId = sessionId;
-        sessions._meta.totalSessionsCreated =
-          (sessions._meta.totalSessionsCreated || 0) + 1;
-      }
+      sessions.push(newSession);
 
-      await accessor.saveSessions(sessionsData);
+      await accessor.saveSessions(sessions);
     }
 
     // Enable grade mode: set env vars so audit middleware logs queries too
@@ -444,13 +375,8 @@ export async function sessionStart(
     let previousHandoff: HandoffData | null = null;
     if (previousSessionId) {
       try {
-        const sessionsData2 = await accessor.loadSessions();
-        const sessions2 = sessionsData2 as unknown as SessionsFileExt;
-        const allSessions2 = [
-          ...(sessions2?.sessions || []),
-          ...(sessions2?.sessionHistory || []),
-        ];
-        const pred = allSessions2.find((s) => s.id === previousSessionId);
+        const sessions2 = await accessor.loadSessions();
+        const pred = sessions2.find((s: Session) => s.id === previousSessionId);
         if (pred) {
           // Try debriefJson first (rich data), then handoffJson (basic)
           if (pred.debriefJson) {
@@ -461,7 +387,7 @@ export async function sessionStart(
           // Always mark consumed regardless of debrief vs handoff
           pred.handoffConsumedAt = new Date().toISOString();
           pred.handoffConsumedBy = sessionId;
-          await accessor.saveSessions(sessionsData2);
+          await accessor.saveSessions(sessions2);
         }
       } catch {
         // Best-effort
@@ -475,7 +401,7 @@ export async function sessionStart(
       ...(previousHandoff && { previousHandoff }),
     };
 
-    return { success: true, data: enrichedSession as SessionRecord };
+    return { success: true, data: enrichedSession as Session };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
@@ -494,9 +420,8 @@ export async function sessionEnd(
   try {
     const accessor = await getAccessor(projectRoot);
     const taskData = await accessor.loadTaskFile();
-    const current = taskData as unknown as TaskFileExt;
 
-    const sessionId = current._meta?.activeSession || 'default';
+    const sessionId = taskData._meta?.activeSession || 'default';
     const now = new Date().toISOString();
 
     // Clear grade mode env vars when session ends
@@ -506,46 +431,38 @@ export async function sessionEnd(
     }
 
     // Clear focus
-    if (current.focus) {
-      current.focus.currentTask = null;
+    if (taskData.focus) {
+      taskData.focus.currentTask = null;
       if (notes) {
-        if (!current.focus.sessionNotes) current.focus.sessionNotes = [];
-        current.focus.sessionNotes.push({ timestamp: now, note: notes });
+        if (!taskData.focus.sessionNotes) taskData.focus.sessionNotes = [];
+        taskData.focus.sessionNotes.push({ timestamp: now, note: notes });
       }
     }
 
-    if (current._meta) {
-      current._meta.activeSession = null;
-      current._meta.generation = (current._meta.generation || 0) + 1;
+    if (taskData._meta) {
+      taskData._meta.activeSession = null;
+      taskData._meta.generation = (taskData._meta.generation || 0) + 1;
     }
 
-    (current as Record<string, unknown>).lastUpdated = now;
+    (taskData as unknown as Record<string, unknown>).lastUpdated = now;
     await accessor.saveTaskFile(taskData);
 
     // Always update sessions.json — sessionStart always writes there
     // (see sessionStart comment: "Always write to sessions.json so resume/suspend can find the session")
     if (sessionId !== 'default') {
-      const sessionsData = await accessor.loadSessions();
-      const sessions = sessionsData as unknown as SessionsFileExt;
-      if (sessions) {
-        const session = sessions.sessions.find(
-          (s) => s.id === sessionId,
-        );
-        if (session) {
-          session.status = 'ended';
-          session.endedAt = now;
-          session.lastActivity = now;
+      const sessions = await accessor.loadSessions();
+      const session = sessions.find(
+        (s: Session) => s.id === sessionId,
+      );
+      if (session) {
+        session.status = 'ended';
+        session.endedAt = now;
 
-          // Update in-place — do NOT splice to sessionHistory.
-          // SQLite saveSessions only persists data.sessions;
-          // splicing would delete the ended session and its handoff/debrief data.
+        // Update in-place — do NOT splice to sessionHistory.
+        // SQLite saveSessions only persists data.sessions;
+        // splicing would delete the ended session and its handoff/debrief data.
 
-          if (sessions._meta) {
-            sessions._meta.lastModified = now;
-          }
-
-          await accessor.saveSessions(sessionsData);
-        }
+        await accessor.saveSessions(sessions);
       }
     }
 
@@ -564,36 +481,17 @@ export async function sessionEnd(
 export async function sessionResume(
   projectRoot: string,
   sessionId: string,
-): Promise<EngineResult<SessionRecord>> {
+): Promise<EngineResult<Session>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const taskData = await accessor.loadTaskFile();
-    const current = taskData as unknown as TaskFileExt;
 
     // Sessions are always written to sessions.json (even without multi-session mode),
     // so resume can always look them up there.
-    const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as SessionsFileExt;
+    const sessions = await accessor.loadSessions();
 
-    if (!sessions) {
-      return engineError('E_NOT_FOUND', `Session '${sessionId}' not found`);
-    }
-
-    // Look in sessions list (all sessions live here; sessionHistory is legacy)
-    let session = sessions.sessions.find((s) => s.id === sessionId);
-
-    // Fallback: check sessionHistory for legacy data
-    if (!session && sessions.sessionHistory) {
-      const histIndex = sessions.sessionHistory.findIndex(
-        (s) => s.id === sessionId,
-      );
-      if (histIndex !== -1) {
-        session = sessions.sessionHistory[histIndex];
-        // Move from legacy history back to sessions
-        sessions.sessionHistory.splice(histIndex, 1);
-        sessions.sessions.push(session);
-      }
-    }
+    // Look in sessions list
+    const session = sessions.find((s: Session) => s.id === sessionId);
 
     if (!session) {
       return engineError('E_NOT_FOUND', `Session '${sessionId}' not found`);
@@ -603,36 +501,30 @@ export async function sessionResume(
       return { success: true, data: session };
     }
 
-    if (session.status === 'archived') {
+    if ((session.status as string) === 'archived') {
       return engineError('E_INVALID_INPUT', `Session '${sessionId}' is archived and cannot be resumed`);
     }
 
     const now = new Date().toISOString();
 
     session.status = 'active';
-    session.lastActivity = now;
-    session.suspendedAt = null;
-    session.endedAt = null;
+    session.endedAt = undefined;
     session.resumeCount = (session.resumeCount || 0) + 1;
 
     // Update task file to reflect active session
-    if (current._meta) {
-      current._meta.activeSession = sessionId;
-      current._meta.generation = (current._meta.generation || 0) + 1;
+    if (taskData._meta) {
+      taskData._meta.activeSession = sessionId;
+      taskData._meta.generation = (taskData._meta.generation || 0) + 1;
     }
 
-    if (session.focus?.currentTask && current.focus) {
-      current.focus.currentTask = session.focus.currentTask;
+    if (session.taskWork?.taskId && taskData.focus) {
+      taskData.focus.currentTask = session.taskWork.taskId;
     }
 
-    (current as Record<string, unknown>).lastUpdated = now;
-
-    if (sessions._meta) {
-      sessions._meta.lastModified = now;
-    }
+    (taskData as unknown as Record<string, unknown>).lastUpdated = now;
 
     await accessor.saveTaskFile(taskData);
-    await accessor.saveSessions(sessionsData);
+    await accessor.saveSessions(sessions);
 
     return { success: true, data: session };
   } catch {
@@ -652,20 +544,8 @@ export async function sessionGc(
 ): Promise<EngineResult<{ orphaned: string[]; removed: string[] }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const taskData = await accessor.loadTaskFile();
-    const current = taskData as unknown as TaskFileExt;
 
-    const multiSession = current._meta?.multiSessionEnabled === true;
-    if (!multiSession) {
-      return { success: true, data: { orphaned: [], removed: [] } };
-    }
-
-    const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as SessionsFileExt;
-
-    if (!sessions) {
-      return { success: true, data: { orphaned: [], removed: [] } };
-    }
+    let sessions = await accessor.loadSessions();
 
     const now = Date.now();
     const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
@@ -674,22 +554,21 @@ export async function sessionGc(
     const removed: string[] = [];
 
     // Mark stale active sessions as orphaned
-    for (const session of sessions.sessions) {
+    for (const session of sessions) {
       if (session.status === 'active') {
         const lastActive = new Date(
-          session.lastActivity || session.startedAt,
+          session.endedAt || session.startedAt,
         ).getTime();
         if (now - lastActive > maxAgeMs) {
           session.status = 'ended';
           session.endedAt = new Date().toISOString();
-          session.lastActivity = new Date().toISOString();
           orphaned.push(session.id);
         }
       }
     }
 
     // Remove very old ended sessions
-    sessions.sessions = sessions.sessions.filter((s) => {
+    sessions = sessions.filter((s: Session) => {
       if (s.status === 'active') return true;
       const endedAt = s.endedAt
         ? new Date(s.endedAt).getTime()
@@ -701,27 +580,8 @@ export async function sessionGc(
       return true;
     });
 
-    // Also clean old session history
-    if (sessions.sessionHistory) {
-      sessions.sessionHistory = sessions.sessionHistory.filter((s) => {
-        const endedAt = s.endedAt
-          ? new Date(s.endedAt).getTime()
-          : new Date(s.startedAt).getTime();
-        if (now - endedAt > thirtyDaysMs) {
-          if (!removed.includes(s.id)) {
-            removed.push(s.id);
-          }
-          return false;
-        }
-        return true;
-      });
-    }
-
     if (orphaned.length > 0 || removed.length > 0) {
-      if (sessions._meta) {
-        sessions._meta.lastModified = new Date().toISOString();
-      }
-      await accessor.saveSessions(sessionsData);
+      await accessor.saveSessions(sessions);
     }
 
     return { success: true, data: { orphaned, removed } };
@@ -738,7 +598,7 @@ export async function sessionSuspend(
   projectRoot: string,
   sessionId: string,
   reason?: string,
-): Promise<EngineResult<SessionRecord>> {
+): Promise<EngineResult<Session>> {
   try {
     const result = await suspendSession(projectRoot, sessionId, reason);
     return { success: true, data: result };
@@ -946,7 +806,7 @@ export async function sessionStats(
 export async function sessionSwitch(
   projectRoot: string,
   sessionId: string,
-): Promise<EngineResult<SessionRecord>> {
+): Promise<EngineResult<Session>> {
   try {
     const result = await switchSession(projectRoot, sessionId);
     return { success: true, data: result };
@@ -1070,13 +930,8 @@ export async function sessionComputeDebrief(
 ): Promise<EngineResult<DebriefData>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as SessionsFileExt;
-    const allSessions = [
-      ...(sessions?.sessions || []),
-      ...(sessions?.sessionHistory || []),
-    ];
-    const session = allSessions.find((s) => s.id === sessionId);
+    const sessions = await accessor.loadSessions();
+    const session = sessions.find((s: Session) => s.id === sessionId);
 
     const debrief = await computeDebrief(projectRoot, {
       sessionId,
@@ -1094,7 +949,7 @@ export async function sessionComputeDebrief(
     // Persist debriefJson via session update
     if (session) {
       session.debriefJson = JSON.stringify(debrief);
-      await accessor.saveSessions(sessionsData);
+      await accessor.saveSessions(sessions);
     }
 
     return { success: true, data: debrief };
@@ -1118,13 +973,8 @@ export async function sessionDebriefShow(
 ): Promise<EngineResult<DebriefData | { handoff: unknown; fallback: true } | null>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as SessionsFileExt;
-    const allSessions = [
-      ...(sessions?.sessions || []),
-      ...(sessions?.sessionHistory || []),
-    ];
-    const session = allSessions.find((s) => s.id === sessionId);
+    const sessions = await accessor.loadSessions();
+    const session = sessions.find((s: Session) => s.id === sessionId);
     if (!session) {
       return engineError('E_NOT_FOUND', `Session '${sessionId}' not found`);
     }
@@ -1179,13 +1029,8 @@ export async function sessionChainShow(
 }>>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const sessionsData = await accessor.loadSessions();
-    const sessions = sessionsData as unknown as SessionsFileExt;
-    const allSessions = [
-      ...(sessions?.sessions || []),
-      ...(sessions?.sessionHistory || []),
-    ];
-    const sessionMap = new Map(allSessions.map((s) => [s.id, s]));
+    const sessions = await accessor.loadSessions();
+    const sessionMap = new Map(sessions.map((s: Session) => [s.id, s]));
 
     const target = sessionMap.get(sessionId);
     if (!target) {

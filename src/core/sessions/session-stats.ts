@@ -8,7 +8,8 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
+import type { Session } from '../../types/session.js';
+import type { TaskFileExt } from './types.js';
 
 export interface SessionStatsResult {
   totalSessions: number;
@@ -57,25 +58,7 @@ export async function getSessionStats(
     };
   }
 
-  const sessionsFile = (await accessor.loadSessions()) as unknown as SessionsFileExt;
-
-  if (!sessionsFile) {
-    return {
-      totalSessions: 0,
-      activeSessions: 0,
-      suspendedSessions: 0,
-      endedSessions: 0,
-      archivedSessions: 0,
-      totalTasksCompleted: 0,
-      totalFocusChanges: 0,
-      averageResumeCount: 0,
-    };
-  }
-
-  const allSessions: SessionRecord[] = [
-    ...(sessionsFile.sessions || []),
-    ...(sessionsFile.sessionHistory || []),
-  ];
+  const allSessions: Session[] = await accessor.loadSessions();
 
   // If specific session requested
   if (sessionId) {
@@ -98,7 +81,7 @@ export async function getSessionStats(
       activeSessions: allSessions.filter((s) => s.status === 'active').length,
       suspendedSessions: allSessions.filter((s) => s.status === 'suspended').length,
       endedSessions: allSessions.filter((s) => s.status === 'ended').length,
-      archivedSessions: allSessions.filter((s) => s.status === 'archived').length,
+      archivedSessions: allSessions.filter((s) => (s.status as string) === 'archived').length,
       totalTasksCompleted: allSessions.reduce(
         (sum, s) => sum + (s.stats?.tasksCompleted ?? 0),
         0,
@@ -132,7 +115,7 @@ export async function getSessionStats(
   const activeSessions = allSessions.filter((s) => s.status === 'active').length;
   const suspendedSessions = allSessions.filter((s) => s.status === 'suspended').length;
   const endedSessions = allSessions.filter((s) => s.status === 'ended').length;
-  const archivedSessions = allSessions.filter((s) => s.status === 'archived').length;
+  const archivedSessions = allSessions.filter((s) => (s.status as string) === 'archived').length;
   const totalTasksCompleted = allSessions.reduce(
     (sum, s) => sum + (s.stats?.tasksCompleted ?? 0),
     0,

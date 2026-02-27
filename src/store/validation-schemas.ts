@@ -26,6 +26,7 @@ import {
   auditLog,
   architectureDecisions,
 } from './schema.js';
+import { SESSION_STATUSES } from './status-registry.js';
 
 // === TASKS ===
 
@@ -53,6 +54,80 @@ export const selectTaskRelationSchema = createSelectSchema(taskRelations);
 
 export const insertSessionSchema = createInsertSchema(sessions);
 export const selectSessionSchema = createSelectSchema(sessions);
+
+// === SESSION DOMAIN TYPES (Drizzle-first) ===
+// Sub-schemas for JSON column shapes, domain transform, and type exports.
+// These are the SINGLE SOURCE OF TRUTH for all session types.
+
+/** Zod schema for the session scope JSON blob. */
+export const sessionScopeSchema = z.object({
+  type: z.string(),
+  epicId: z.string().optional(),
+  rootTaskId: z.string().optional(),
+  includeDescendants: z.boolean().optional(),
+  phaseFilter: z.union([z.string(), z.null()]).optional(),
+  labelFilter: z.union([z.array(z.string()), z.null()]).optional(),
+  maxDepth: z.union([z.number(), z.null()]).optional(),
+  explicitTaskIds: z.union([z.array(z.string()), z.null()]).optional(),
+  excludeTaskIds: z.union([z.array(z.string()), z.null()]).optional(),
+  computedTaskIds: z.array(z.string()).optional(),
+  computedAt: z.string().optional(),
+});
+
+/** Zod schema for session statistics. */
+export const sessionStatsSchema = z.object({
+  tasksCompleted: z.number(),
+  tasksCreated: z.number(),
+  tasksUpdated: z.number(),
+  focusChanges: z.number(),
+  totalActiveMinutes: z.number(),
+  suspendCount: z.number(),
+});
+
+/** Zod schema for active task work state within a session. */
+export const sessionTaskWorkSchema = z.object({
+  taskId: z.union([z.string(), z.null()]),
+  setAt: z.union([z.string(), z.null()]),
+});
+
+/** Inferred types from Zod sub-schemas. */
+export type SessionScope = z.infer<typeof sessionScopeSchema>;
+export type SessionStats = z.infer<typeof sessionStatsSchema>;
+export type SessionTaskWork = z.infer<typeof sessionTaskWorkSchema>;
+
+/**
+ * Session domain schema — Zod object schema defining the canonical Session type.
+ * Columns are derived from the Drizzle sessions table; JSON blobs use sub-schemas.
+ * Non-required fields use .optional() so Session objects can be created ergonomically.
+ *
+ * This is the SINGLE SOURCE OF TRUTH for the Session type.
+ */
+export const sessionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(SESSION_STATUSES),
+  scope: sessionScopeSchema,
+  taskWork: sessionTaskWorkSchema,
+  startedAt: z.string(),
+  endedAt: z.string().optional(),
+  agent: z.string().optional(),
+  notes: z.array(z.string()).optional(),
+  tasksCompleted: z.array(z.string()).optional(),
+  tasksCreated: z.array(z.string()).optional(),
+  handoffJson: z.string().nullable().optional(),
+  previousSessionId: z.string().nullable().optional(),
+  nextSessionId: z.string().nullable().optional(),
+  agentIdentifier: z.string().nullable().optional(),
+  handoffConsumedAt: z.string().nullable().optional(),
+  handoffConsumedBy: z.string().nullable().optional(),
+  debriefJson: z.string().nullable().optional(),
+  stats: sessionStatsSchema.optional(),
+  resumeCount: z.number().optional(),
+  gradeMode: z.boolean().optional(),
+});
+
+/** Session domain type — derived from Zod schema aligned with Drizzle sessions table. */
+export type Session = z.infer<typeof sessionSchema>;
 
 // === TASK WORK HISTORY ===
 

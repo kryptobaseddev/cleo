@@ -179,6 +179,10 @@ export const sessions = sqliteTable('sessions', {
   handoffConsumedAt: text('handoff_consumed_at'),
   handoffConsumedBy: text('handoff_consumed_by'),
   debriefJson: text('debrief_json'),
+  // Session stats columns (type unification)
+  statsJson: text('stats_json'),
+  resumeCount: integer('resume_count'),
+  gradeMode: integer('grade_mode'),
 }, (table) => [
   index('idx_sessions_status').on(table.status),
   index('idx_sessions_previous').on(table.previousSessionId),
