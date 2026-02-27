@@ -84,6 +84,20 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Strip legacy <!-- CLEO:START -->...<!-- CLEO:END --> blocks from a file.
+ * Called before CAAMP injection to prevent competing blocks.
+ * @task T4916
+ */
+async function stripCLEOBlocks(filePath: string): Promise<void> {
+  if (!existsSync(filePath)) return;
+  const content = await readFile(filePath, 'utf8');
+  const stripped = content.replace(
+    /\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, ''
+  );
+  if (stripped !== content) await writeFile(filePath, stripped, 'utf8');
+}
+
 
 /**
  * Create default config.json content.
@@ -147,35 +161,14 @@ function getGitignoreContent(): string {
 
 /** Embedded fallback for .cleo/.gitignore content. */
 const CLEO_GITIGNORE_FALLBACK = `# CLEO Project Data - Selective Git Tracking
-# Tracked: config.json, templates/, schemas/
-# IGNORED:
-*.lock
-*.tmp
-.backups/
-backups/
-metrics/
-audit-log-*.json
-.context-state.json
-.context-state-session_*.json
-context-states/
+# Tracked via STATE_FILES: config.json, project-info.json, project-context.json, adrs/, agent-outputs/
+# agent-outputs/ is intentionally tracked (research outputs, ADR evidence)
+logs/
+audit-log*.json
 tasks.db
-tasks.db-journal
-tasks.db-wal
 tasks.db-shm
-*.db-journal
-*.db-wal
-*.db-shm
-research/
-rcsd/
-.current-session
-.git-checkpoint-state
-backup-metadata.json
-*.corrupted
-*.bak
-*.bak*
-*.backup-*
-agent-outputs/
-.cache/
+tasks.db-wal
+.git/
 `;
 
 /**
@@ -463,6 +456,13 @@ async function initInjection(
       return;
     }
 
+    // Step 0: Strip legacy CLEO blocks from all provider files and AGENTS.md
+    for (const provider of providers) {
+      const instructFile = join(projectRoot, provider.pathProject, provider.instructFile);
+      await stripCLEOBlocks(instructFile);
+    }
+    await stripCLEOBlocks(join(projectRoot, 'AGENTS.md'));
+
     // Step 1: Inject @AGENTS.md into all provider instruction files (CLAUDE.md, GEMINI.md, etc.)
     const injectionContent = buildInjectionContent({ references: ['@AGENTS.md'] });
     const results = await injectAll(providers, projectRoot, 'project', injectionContent);
@@ -499,6 +499,17 @@ async function initInjection(
       if (!existsSync(globalPath)) {
         await writeFile(globalPath, content);
       }
+    }
+
+    // Step 4: Create global ~/.agents/AGENTS.md hub if it doesn't exist
+    try {
+      const globalAgentsDir = join(homedir(), '.agents');
+      const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
+      await mkdir(globalAgentsDir, { recursive: true });
+      // inject() from CAAMP creates or updates the file with the CAAMP block
+      await inject(globalAgentsMd, '@~/.cleo/templates/CLEO-INJECTION.md');
+    } catch {
+      // Best-effort — don't fail init if global hub creation fails
     }
   } catch (err) {
     warnings.push(`CAAMP injection: ${err instanceof Error ? err.message : String(err)}`);
