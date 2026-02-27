@@ -96,6 +96,8 @@ CLEO provides:
 
 The MCP server is included in the `@cleocode/cleo` package. No separate install needed.
 
+For provider-specific MCP setup and profile management (Claude Code, OpenCode, Antigravity, etc.), use CAAMP as the canonical installer/config manager.
+
 **Auto-configure** across your AI tools:
 
 ```bash
@@ -234,6 +236,27 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 
 ## Quick Start
 
+### Installation Channels (Stable, Beta, Dev)
+
+CLEO supports three runtime channels:
+
+- **Stable**: production users (`cleo`, `cleo-mcp`, optional `ct`)
+- **Beta**: prerelease validation (`cleo-beta`, `cleo-mcp-beta`, optional `ct-beta`)
+- **Dev**: contributor-isolated runtime (`cleo-dev`, `cleo-mcp-dev`, no `ct`)
+
+The dev channel is designed to run in parallel with stable and should use isolated data (`~/.cleo-dev`).
+
+### Contributor Dev Setup (Isolated)
+
+Use the installer dev mode for canonical `cleo-dev` behavior:
+
+```bash
+./install.sh --dev
+cleo-dev env info --json
+```
+
+`npm link` caveat: raw `npm link` follows `package.json` bin mappings and can expose `cleo`/`ct`. Use `./install.sh --dev` when you need strict dev-channel isolation.
+
 ### TL;DR - Just Install It
 
 **Option 1: One-liner (Easiest)**
@@ -267,7 +290,7 @@ git clone https://github.com/kryptobaseddev/cleo.git && cd cleo && ./installer/i
 
 Then initialize in your project:
 ```bash
-cd /path/to/your/project && cleo init
+cd /path/to/your/project && cleo-dev init
 ```
 
 <details>
@@ -277,21 +300,17 @@ cd /path/to/your/project && cleo init
 
 | Dependency | Version | Install |
 |------------|---------|---------|
-| **Bash** | 4.0+ | Pre-installed (check: `bash --version`). macOS: `brew install bash` |
-| **jq** | 1.6+ | `apt install jq` / `brew install jq` / `dnf install jq` |
-| **flock** | Any | For atomic file operations. Linux: pre-installed. macOS: `brew install flock` or `brew install util-linux` |
+| **Node.js** | 24+ | https://nodejs.org/ |
+| **npm** | Latest with Node.js | Included with Node |
 | **curl** or **wget** | Any | Pre-installed on most systems (for remote install) |
-| **sha256sum** | Any | For checksum verification. Linux: pre-installed. macOS: comes with coreutils |
 
 **Optional (Advanced Features):**
 
 | Dependency | For | Install |
 |------------|-----|---------|
-| **Python 3.x** | Skill creator scripts | Pre-installed on most systems |
-| **PyYAML** | Skill creator scripts | `pip install pyyaml` |
-| **ajv-cli** | JSON Schema validation | `npm install -g ajv-cli` |
+| **sqlite3 CLI** | Manual DB inspection/debugging | platform package manager |
 
-> **Note**: The core CLEO CLI is pure Bash. Python is only needed for skill creation/validation scripts.
+> **Note**: CLEO is TypeScript/Node.js. Contributor docs in `CONTRIBUTING.md` cover full dev setup.
 
 </details>
 
@@ -322,37 +341,39 @@ curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/install.sh
 git clone https://github.com/kryptobaseddev/cleo.git
 cd cleo
 
-# Install for development (creates symlinks to repo)
+# Install dev channel (isolated command names)
 ./installer/install.sh --dev
+
+# Verify isolated runtime
+cleo-dev env info --json
 
 # Or install as release (copies files)
 ./installer/install.sh --release
 ```
 
+`npm link` caveat: raw `npm link` follows package bin mappings and can expose `cleo`/`ct`. Use `./installer/install.sh --dev` when you need strict `cleo-dev` isolation.
+
 #### Verify Installation
 
 ```bash
 cleo version
-cleo --validate
+cleo env info --json
 ```
 
-#### Claude CLI Aliases (Optional)
-
-Install optimized aliases for Claude Code CLI:
-
-```bash
-cleo setup-claude-aliases
-```
-
-This installs `cc`, `ccy`, `ccr`, and other aliases across bash, zsh, PowerShell, and CMD.exe. See [setup-claude-aliases docs](docs/commands/setup-claude-aliases.md) for details.
-
-> **Tip**: During interactive installation, you'll be prompted to install aliases automatically.
+Provider alias/config utilities are managed by CAAMP.
 
 #### Initialize in Your Project
 
 ```bash
 cd /path/to/your/project
 cleo init
+```
+
+For contributor dev channel:
+
+```bash
+cd /path/to/your/project
+cleo-dev init
 ```
 
 > **Note**: The installer creates symlinks in `~/.local/bin/`, which works immediately with Claude Code and most modern shells.
@@ -441,6 +462,8 @@ cleo migrate run
 
 ### The `ct` Shortcut
 
+`ct` is a stable-channel compatibility alias. Dev channel intentionally does not provide `ct`; use `cleo-dev`.
+
 ```bash
 ct list        # Same as cleo list
 ct add "Task"  # Same as cleo add "Task"
@@ -475,7 +498,7 @@ autoload -Uz compinit && compinit
 # Example usage
 cleo add --parent <TAB>     # Shows T001, T002 (epic/task only)
 cleo list --status <TAB>    # Shows pending, active, blocked, done
-cleo focus set <TAB>        # Shows pending/active task IDs
+cleo start <TAB>             # Shows pending/active task IDs
 ```
 
 ---
@@ -487,7 +510,7 @@ cleo focus set <TAB>        # Shows pending/active task IDs
 
 | Category | Commands | Purpose |
 |----------|----------|---------|
-| **Write (14)** | `add`, `update`, `complete`, `focus`, `session`, `phase`, `archive`, `promote`, `reparent`, `populate-hierarchy`, `delete`, `uncancel`, `reopen`, `verify` | Modify task state |
+| **Write (14)** | `add`, `update`, `complete`, `start`, `session`, `phase`, `archive`, `promote`, `reparent`, `populate-hierarchy`, `delete`, `uncancel`, `reopen`, `verify` | Modify task state |
 | **Read (17)** | `list`, `show`, `find`, `analyze`, `next`, `dash`, `deps`, `blockers`, `phases`, `labels`, `stats`, `log`, `commands`, `exists`, `export`, `history`, `research` | Query and analyze |
 | **Sync (3)** | `sync`, `inject`, `extract` | TodoWrite integration |
 | **Orchestration (5)** | `orchestrator`, `context`, `tree`, `import-tasks`, `export-tasks` | Multi-agent coordination |
@@ -506,14 +529,14 @@ cleo archive
 
 # Session workflow
 cleo session start
-cleo focus set T001           # Only ONE active task allowed
-cleo focus note "Working on JWT validation"
+cleo start T001               # Only ONE active task allowed
+cleo update T001 --notes "Working on JWT validation"
 cleo session end
 
 # Analysis & planning
 cleo dash                     # Project overview
 cleo analyze                  # Task triage with leverage scoring
-cleo analyze --auto-focus     # Auto-set focus to highest leverage task
+cleo analyze --auto-start     # Auto-start highest leverage task
 cleo next --explain           # What should I work on?
 cleo blockers analyze         # Critical path analysis
 
@@ -682,11 +705,11 @@ Agents lose context between invocations. Sessions provide checkpoints:
 # Morning routine
 cleo session start
 cleo dash              # Where am I?
-cleo focus show        # What was I working on?
+cleo current           # What was I working on?
 
 # Work session
-cleo focus set T042
-cleo focus note "Implementing validation logic"
+cleo start T042
+cleo update T042 --notes "Implementing validation logic"
 cleo update T042 --notes "Tests passing"
 
 # End of day
@@ -700,7 +723,7 @@ cleo session end
 
 | Command | Purpose | Storage |
 |---------|---------|---------|
-| `focus note "text"` | Session-level progress | Replaces `.focus.sessionNote` |
+| `update T001 --notes "text"` | Task-level progress | Appends to `.tasks[].notes[]` |
 | `update T001 --notes "text"` | Task-specific history | Appends to `.tasks[].notes[]` with timestamp |
 
 ### Session Maintenance (v0.60.0+)
@@ -979,7 +1002,7 @@ fi
 
 # Agent parses structured output
 ACTIVE=$(cleo list | jq -r '.tasks[] | select(.status=="active") | .id')
-cleo focus note "Working on $ACTIVE"
+cleo update $ACTIVE --notes "Working on task"
 
 # Context-efficient task discovery
 cleo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
@@ -1149,7 +1172,7 @@ See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
 | `Invalid JSON` | `cleo validate --fix` or `cleo restore` |
 | `Duplicate ID` | `cleo restore .cleo/.backups/todo.json.1` |
 | `Checksum mismatch` | `cleo validate --fix` |
-| `Multiple active tasks` | `cleo focus set <correct-id>` (resets others) |
+| `Multiple active tasks` | `cleo start <correct-id>` (resets others) |
 | `Schema outdated` | `cleo migrate run` |
 
 ### Debug Mode

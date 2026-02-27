@@ -432,7 +432,7 @@ All agents interact with CLEO via CLI commands:
 ```bash
 # Reading state
 ct show T005 --json
-ct focus show --json
+ct current --json
 ct session status
 
 # Updating state
@@ -442,7 +442,7 @@ ct complete T005
 
 # Session management
 ct session start --scope epic:T001
-ct focus set T005
+ct start T005
 ct session end
 ```
 
@@ -551,7 +551,7 @@ ct decompose T001 --phases auto
 **Implementation**:
 ```bash
 ct session start --scope epic:T001
-ct focus set T005
+ct start T005
 ct verify T005 --gate implemented --value true --agent coder
 ct verify T005 --gate testsPassed --value false --reason "3 tests failed"
 ct complete T005

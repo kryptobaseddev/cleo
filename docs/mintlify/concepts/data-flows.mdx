@@ -103,12 +103,12 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> pending: cleo add
-    pending --> active: cleo focus set
+    pending --> active: cleo start
     pending --> blocked: --blocked-by
-    active --> pending: cleo focus clear
+    active --> pending: cleo stop
     active --> done: cleo complete
     blocked --> pending: dependency resolved
-    blocked --> active: cleo focus set
+    blocked --> active: cleo start
     done --> [*]
     done --> pending: cleo reopen
 

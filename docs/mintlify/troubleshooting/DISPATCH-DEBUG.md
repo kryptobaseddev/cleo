@@ -91,7 +91,7 @@ cleo find --id 123
 | 0 | Success | Operation completed |
 | 4 | E_NOT_FOUND | Task not found |
 | 6 | E_VALIDATION | Token/template validation failed |
-| 38 | E_FOCUS_REQUIRED | Session needs focus |
+| 38 | E_ACTIVE_TASK_REQUIRED | Session needs active task |
 | 100 | E_SESSION_DISCOVERY | Session scope required |
 
 ## Related

@@ -62,7 +62,7 @@ This specification incorporates findings from:
 - Current convention: `(T####)` suffix or flexible placement
 - No commits use `Task: T####` prefix format (rejected Option A)
 - Pre-commit hook timing wrong for message validation (need commit-msg)
-- Session scope available via `CLEO_SESSION` env var and `cleo focus show`
+- Session scope available via `CLEO_SESSION` env var and `cleo current`
 
 ---
 
@@ -179,7 +179,7 @@ done
 | SCOPE-001 | Hook SHOULD validate task ID belongs to current session scope (Phase 2) | Prevents out-of-scope commits |
 | SCOPE-002 | Hook MUST read `CLEO_SESSION` environment variable for session context | Session binding |
 | SCOPE-003 | Hook MUST use `cleo session status --format json` to get scope task IDs | Programmatic access |
-| SCOPE-004 | Hook SHOULD use `cleo focus show --format json` to get current focused task | Auto-suggestion source |
+| SCOPE-004 | Hook SHOULD use `cleo current --format json` to get current focused task | Auto-suggestion source |
 | SCOPE-005 | Hook MAY allow out-of-scope task IDs with interactive confirmation | Flexibility for cross-session work |
 | SCOPE-006 | Hook MUST NOT fail if no session is active (allow work outside CLEO) | Non-blocking for non-session workflows |
 
@@ -198,7 +198,7 @@ TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\(T[0-9]+\)' | head -1 | grep -oE 'T[0-
 
 if [[ -z "$TASK_ID" ]]; then
     # No task ID found - suggest from focus if available
-    FOCUSED_TASK=$(cleo focus show --format json 2>/dev/null | jq -r '.task.id // empty')
+    FOCUSED_TASK=$(cleo current --format json 2>/dev/null | jq -r '.task.id // empty')
 
     if [[ -n "$FOCUSED_TASK" ]]; then
         echo "ERROR: No task ID in commit message"
@@ -254,7 +254,7 @@ fi
 ### 4.3 Auto-suggestion Logic
 
 **Priority**:
-1. Current focused task (`cleo focus show`)
+1. Current focused task (`cleo current`)
 2. Session scope tasks (if only one task in scope)
 3. Branch name task ID (if matches pattern `feature/T####-*`)
 4. No suggestion (generic error)

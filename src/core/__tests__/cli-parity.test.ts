@@ -101,7 +101,7 @@ describe('Exit Code Parity', () => {
     expect(codeSet.has(12)).toBe(true);    // SIBLING_LIMIT
     expect(codeSet.has(20)).toBe(true);    // CHECKSUM_MISMATCH
     expect(codeSet.has(30)).toBe(true);    // SESSION_EXISTS
-    expect(codeSet.has(38)).toBe(true);    // FOCUS_REQUIRED
+    expect(codeSet.has(38)).toBe(true);    // ACTIVE_TASK_REQUIRED
     expect(codeSet.has(60)).toBe(true);    // PROTOCOL_MISSING
     expect(codeSet.has(80)).toBe(true);    // LIFECYCLE_GATE_FAILED
     expect(codeSet.has(100)).toBe(true);   // NO_DATA

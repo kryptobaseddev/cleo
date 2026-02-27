@@ -138,7 +138,7 @@ cleo init
 # 4. Run through typical workflow
 cleo add "First task"
 cleo session start --name "Test"
-cleo focus set T001
+cleo start T001
 cleo done T001
 cleo session end
 

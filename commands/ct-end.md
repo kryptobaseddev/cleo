@@ -14,8 +14,8 @@ Properly close your current CLEO work session with cleanup and archiving.
 If your current task is done, mark it complete:
 
 ```bash
-# Check current focus
-cleo focus show
+# Check current task
+cleo current
 
 # Complete if done
 cleo complete <task-id>

@@ -141,7 +141,7 @@ cleo research add \
 
 ### Base Protocol
 
-- Inherits task lifecycle (focus, execute, complete)
+- Inherits task lifecycle (start, execute, complete)
 - Inherits manifest append requirement
 - Inherits error handling patterns
 

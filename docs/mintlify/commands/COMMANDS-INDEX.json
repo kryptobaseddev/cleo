@@ -713,8 +713,10 @@
       "name": "focus",
       "script": "focus.sh",
       "category": "write",
-      "synopsis": "Single-task workflow discipline. Set/show/clear active task.",
-      "agentRelevance": "critical",
+      "deprecated": true,
+      "supersededBy": ["start", "stop", "current"],
+      "synopsis": "DEPRECATED: Use 'start', 'stop', 'current' instead. Legacy backward-compat alias.",
+      "agentRelevance": "low",
       "jsonOutput": true,
       "jsonDefault": false,
       "flags": [
@@ -1983,12 +1985,12 @@
     "sessionStart": [
       "session start",
       "dash --compact",
-      "focus show"
+      "current"
     ],
     "taskSelection": [
       "analyze --json",
       "next --explain",
-      "focus set <id>"
+      "start <id>"
     ],
     "validation": [
       "exists <id> --quiet",

@@ -803,7 +803,7 @@ All commands now have: `exit-codes.sh`, `error-json.sh`, `output-format.sh`, `CO
 
 | Command | Issue Found | Severity |
 |---------|-------------|:--------:|
-| `focus show` | Missing `format` field in `_meta` | MEDIUM |
+| `current` | Missing `format` field in `_meta` | MEDIUM |
 | `next` | Missing `success` boolean field | HIGH |
 | `dash` | Missing `success` boolean field | HIGH |
 | `backup create` | Missing `version` field in `_meta` | MEDIUM |
@@ -822,8 +822,8 @@ All commands now have: `exit-codes.sh`, `error-json.sh`, `output-format.sh`, `CO
 #### Verification Tests (All Passed)
 
 ```bash
-# focus show JSON envelope
-✅ ct focus show --format json | jq -e '._meta.format and ._meta.version and .success' → true
+# current JSON envelope
+✅ ct current --format json | jq -e '._meta.format and ._meta.version and .success' → true
 
 # next success field
 ✅ ct next --format json | jq -e '.success' → true

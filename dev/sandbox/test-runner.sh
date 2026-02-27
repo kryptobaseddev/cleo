@@ -103,8 +103,8 @@ test_basic_workflow() {
         "cd /home/testuser/test-project && cleo session start --name 'Test Session'"
 
     # Set focus
-    run_in_sandbox "Set focus to first task" \
-        "cd /home/testuser/test-project && cleo focus set T001"
+    run_in_sandbox "Start first task" \
+        "cd /home/testuser/test-project && cleo start T001"
 
     # Complete task
     run_in_sandbox "Complete first task" \

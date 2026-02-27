@@ -98,7 +98,7 @@ OUTPUT REQUIREMENTS:
 ## YOUR TASK
 
 1. Read task details: `cleo show T101`
-2. Set focus: `cleo focus set T101`
+2. Set focus: `cleo start T101`
 3. Research authentication patterns: JWT, session-based, OAuth
 4. Document trade-offs and recommendations
 5. Write output file and manifest entry

@@ -69,7 +69,7 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
   { exitCode: ExitCode.TASK_CLAIMED, lafsCode: 'E_CLEO_TASK_CLAIMED', category: 'CONFLICT', description: 'Task claimed by another session', retryable: false, httpStatus: 409 },
   { exitCode: ExitCode.SESSION_REQUIRED, lafsCode: 'E_CLEO_SESSION_REQUIRED', category: 'CONTRACT', description: 'Active session required', retryable: false, httpStatus: 428 },
   { exitCode: ExitCode.SESSION_CLOSE_BLOCKED, lafsCode: 'E_CLEO_SESSION_CLOSE_BLOCKED', category: 'CONFLICT', description: 'Session close blocked', retryable: false, httpStatus: 409 },
-  { exitCode: ExitCode.FOCUS_REQUIRED, lafsCode: 'E_CLEO_FOCUS_REQUIRED', category: 'CONTRACT', description: 'Focus task required', retryable: false, httpStatus: 428 },
+  { exitCode: ExitCode.ACTIVE_TASK_REQUIRED, lafsCode: 'E_CLEO_ACTIVE_TASK_REQUIRED', category: 'CONTRACT', description: 'Active task required', retryable: false, httpStatus: 428 },
   { exitCode: ExitCode.NOTES_REQUIRED, lafsCode: 'E_CLEO_NOTES_REQUIRED', category: 'VALIDATION', description: 'Notes required', retryable: false, httpStatus: 422 },
 
   // Orchestrator errors (60-67)

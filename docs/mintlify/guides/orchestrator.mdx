@@ -300,7 +300,7 @@ cat MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 cleo session list --status active
 
 # 3. Check current focus
-cleo focus show
+cleo current
 
 # 4. Review epic status
 cleo dash --compact

@@ -101,7 +101,7 @@ Reference: @skills/_shared/task-system-integration.md
 
 ```
 1. Read task:    {{TASK_SHOW_CMD}} {{TASK_ID}}
-2. Set focus:    {{TASK_FOCUS_CMD}} {{TASK_ID}}
+2. Start task:   {{TASK_START_CMD}} {{TASK_ID}}
 3. Do work:      [skill-specific execution]
 4. Write output: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
 5. Create manifest entry: cleo research add [flags]
@@ -149,7 +149,7 @@ Reference: @skills/_shared/task-system-integration.md
 
 Before returning, verify:
 
-- [ ] Task focus set via `{{TASK_FOCUS_CMD}}`
+- [ ] Task started via `{{TASK_START_CMD}}`
 - [ ] Output file written to `{{OUTPUT_DIR}}/`
 - [ ] Manifest entry created via `cleo research add`
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
@@ -181,7 +181,7 @@ Before returning, verify:
 | Token | CLEO Default |
 |-------|--------------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_START_CMD}}` | `cleo start` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 

@@ -27,7 +27,7 @@ This specification defines a complete set of MCP (Model Context Protocol) gatewa
 MCP Gateways
     │
     ├── cleo_tasks      ─────► Task CRUD (66 scripts)
-    ├── cleo_session    ─────► Session + Focus Management
+    ├── cleo_session    ─────► Session + Active Task Management
     ├── cleo_orchestrate ────► Multi-Agent Coordination
     ├── cleo_research   ─────► Research Protocol + Manifest
     ├── cleo_lifecycle  ─────► RCSD-IVTR Gate Management
@@ -59,7 +59,7 @@ MCP Gateways
 
 ## Gateway 2: cleo_session
 
-**Purpose**: Session lifecycle and focus management
+**Purpose**: Session lifecycle and active task management
 
 ### Operations
 
@@ -69,9 +69,9 @@ MCP Gateways
 | `end` | `note?` | Session summary | `cleo session end` |
 | `status` | - | Current session state | `cleo session status` |
 | `list` | `status?` | Session list | `cleo session list` |
-| `focus.set` | `taskId` | Focus confirmation | `cleo focus set` |
-| `focus.show` | - | Current focus | `cleo focus show` |
-| `focus.clear` | - | Clear confirmation | `cleo focus clear` |
+| `tasks.start` | `taskId` | Task start confirmation | `cleo start` |
+| `tasks.current` | - | Current active task | `cleo current` |
+| `tasks.stop` | - | Clear confirmation | `cleo stop` |
 
 ---
 

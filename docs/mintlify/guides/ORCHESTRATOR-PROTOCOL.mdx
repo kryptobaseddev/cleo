@@ -173,7 +173,7 @@ cleo session list --status active
 cat claudedocs/agent-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 
 # 3. Check focused task
-cleo focus show
+cleo current
 
 # 4. Review epic status
 cleo dash --compact
@@ -202,7 +202,7 @@ Every subagent MUST follow this protocol:
 ### CLEO Integration
 
 1. **MUST** read task details: `cleo show <task-id>`
-2. **MUST** set focus: `cleo focus set <task-id>`
+2. **MUST** set focus: `cleo start <task-id>`
 3. **MUST** complete task when done: `cleo complete <task-id>`
 4. **SHOULD** link research: `cleo research link <task-id> <research-id>`
 
@@ -221,7 +221,7 @@ OUTPUT REQUIREMENTS:
 
 CLEO INTEGRATION:
 1. MUST read task details: `cleo show <task-id>`
-2. MUST set focus: `cleo focus set <task-id>`
+2. MUST set focus: `cleo start <task-id>`
 3. MUST complete task when done: `cleo complete <task-id>`
 4. SHOULD link research: `cleo research link <task-id> <research-id>`
 ```

@@ -192,7 +192,7 @@ describe('Exit Code Mapping', () => {
         ExitCode.E_SESSION_NOT_FOUND,
         ExitCode.E_SCOPE_CONFLICT,
         ExitCode.E_SESSION_REQUIRED,
-        ExitCode.E_FOCUS_REQUIRED,
+        ExitCode.E_ACTIVE_TASK_REQUIRED,
       ];
 
       sessionCodes.forEach((code) => {
@@ -366,7 +366,7 @@ describe('Exit Code Mapping', () => {
       expect(ERROR_MAP[0]).toBeDefined(); // Success
       expect(ERROR_MAP[4]).toBeDefined(); // E_NOT_FOUND
       expect(ERROR_MAP[12]).toBeDefined(); // E_SIBLING_LIMIT
-      expect(ERROR_MAP[38]).toBeDefined(); // E_FOCUS_REQUIRED
+      expect(ERROR_MAP[38]).toBeDefined(); // E_ACTIVE_TASK_REQUIRED
       expect(ERROR_MAP[60]).toBeDefined(); // E_PROTOCOL_RESEARCH
       expect(ERROR_MAP[80]).toBeDefined(); // E_LIFECYCLE_GATE_FAILED
       expect(ERROR_MAP[100]).toBeDefined(); // E_NO_DATA

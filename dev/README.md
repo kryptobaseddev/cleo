@@ -5,11 +5,11 @@ Development scripts for CLEO contributors. **Not shipped to users.**
 ## Dev Workflow
 
 ```bash
-# Initial setup (builds + npm link)
-npm run dev:setup
+# Canonical isolated dev install
+./install.sh --dev
 
 # Edit source in src/
-# Rebuild after changes
+# Rebuild after changes (or use watch)
 npm run build
 
 # Or auto-rebuild on file change
@@ -21,6 +21,9 @@ npm run build:check
 # Run tests
 npm test
 
+# Verify dev-channel runtime identity
+cleo-dev env info --json
+
 # Switch back to production release
 bash dev/teardown-dev.sh --production
 ```
@@ -29,14 +32,19 @@ bash dev/teardown-dev.sh --production
 
 | Aspect | Dev Mode | Production |
 |--------|----------|------------|
-| Install | `npm run dev:setup` | `npm install -g @cleocode/cleo` |
-| Binary resolution | `npm link` -> repo `dist/` | npm global `node_modules/` |
-| Binary path | Same as production (`npm global bin`) | `npm global bin` |
+| Install | `./install.sh --dev` (channel-aware) | `npm install -g @cleocode/cleo` |
+| Binary names | `cleo-dev`, `cleo-mcp-dev` | `cleo`, `cleo-mcp`, `ct` |
+| Binary resolution | `installer/lib/link.sh` mode mapping | npm global `node_modules/` |
 | Rebuild | `npm run build` or `dev:watch` | N/A (pre-built) |
-| VERSION marker | `mode=dev` | `mode=production` |
+| VERSION marker | `mode=dev-*` | `mode=production` |
 
-Dev mode uses `npm link` to create the same symlinks that `npm install -g` would,
-ensuring the binary resolution path matches production exactly.
+Dev mode is intentionally isolated from stable runtime behavior.
+
+### Important `npm link` caveat
+
+Raw `npm link` follows package `bin` mappings and may expose `cleo`/`ct` names.
+Use `./install.sh --dev` when you need strict dev-channel identity (`cleo-dev`) and
+parallel-safe behavior with stable installs.
 
 ## Scripts
 
@@ -44,7 +52,7 @@ ensuring the binary resolution path matches production exactly.
 
 | Script | Purpose |
 |--------|---------|
-| `setup-ts-dev.sh` | Set up dev mode via `npm link` (`npm run dev:setup`) |
+| `setup-ts-dev.sh` | Legacy dev bootstrap via `npm link` (`npm run dev:setup`, non-isolated names) |
 | `teardown-dev.sh` | Remove dev mode, optionally install production |
 | `validate-version.sh` | Verify version consistency across repo files |
 | `generate-command-docs.sh` | Generate Mintlify MDX docs from COMMANDS-INDEX.json |

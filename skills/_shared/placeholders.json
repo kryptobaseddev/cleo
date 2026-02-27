@@ -85,9 +85,9 @@
         "description": "Command to show task details"
       },
       {
-        "token": "TASK_FOCUS_CMD",
-        "default": "cleo focus set",
-        "description": "Command to set focus on task"
+        "token": "TASK_START_CMD",
+        "default": "cleo start",
+        "description": "Command to start a task"
       },
       {
         "token": "TASK_FOCUS_SHOW_CMD",

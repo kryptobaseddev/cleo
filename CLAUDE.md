@@ -1,3 +1,7 @@
+<!-- CAAMP:START -->
+@AGENTS.md
+<!-- CAAMP:END -->
+
 <!-- CLEO:START -->
 @.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
@@ -134,6 +138,45 @@ npx vitest run --coverage            # Run tests with coverage
 bats tests/unit/*.bats               # Run specific BATS unit tests
 ```
 
+### Database Schema Changes (CRITICAL — read before touching schema.ts)
+```bash
+# Standard path — drizzle-kit diffs schema.ts vs last snapshot:
+npx drizzle-kit generate             # → creates migration.sql + snapshot.json
+
+# Exception path — change drizzle-kit cannot detect (e.g. CHECK constraint values):
+npx drizzle-kit generate --custom --name "describe-the-change"
+# → creates migration.sql (empty, you fill it in) + snapshot.json (generated, do not touch)
+```
+
+**Rules enforced by pre-commit hook:**
+- Every `drizzle/*/migration.sql` MUST have a sibling `snapshot.json` in the same directory
+- `snapshot.json` is generated automatically — never hand-write it
+- A migration without a snapshot breaks the diff chain: the next `drizzle-kit generate` will produce incorrect output
+
+**Never do:**
+- Create a migration directory and write `migration.sql` by hand without running `drizzle-kit generate` or `drizzle-kit generate --custom` first
+- Copy a `snapshot.json` from another migration and edit it
+- Create a `snapshot.json` with `"ddl": []` or `"prevIds": []`
+
+**When to use `--custom`:**
+drizzle-kit v7 SQLite snapshots store column type (`text`) but not CHECK constraint values.
+`{ enum: [...] }` on a SQLite column is TypeScript-only metadata — drizzle-kit cannot diff it.
+Any migration that modifies a CHECK constraint (e.g. adding a status value) will return
+"No schema changes" from plain `drizzle-kit generate`. Use `--custom` in that case.
+
+**Workflow (standard):**
+1. Edit `src/store/schema.ts`
+2. Run `npx drizzle-kit generate` → inspect the generated SQL
+3. If the generated SQL has already-applied statements (from a broken prior chain), trim those statements from `migration.sql` — **leave `snapshot.json` untouched**
+4. Commit both files together
+
+**Workflow (CHECK constraint / enum value change):**
+1. Edit `src/store/schema.ts` and `src/store/status-registry.ts`
+2. Run `npx drizzle-kit generate` — if it says "No schema changes", proceed to step 3
+3. Run `npx drizzle-kit generate --custom --name "describe-the-change"`
+4. Fill in the generated (empty) `migration.sql` with the table-rebuild SQL
+5. Commit `migration.sql` + `snapshot.json` together
+
 ### Development Tools
 ```bash
 npm run dev                          # Watch mode type-checking
@@ -244,14 +287,14 @@ Format: `<type>: <summary>`
 - `src/cli/commands/add.ts` - Task creation
 - `src/cli/commands/update.ts` - Task updates
 - `src/cli/commands/complete.ts` - Task completion
-- `src/cli/commands/start.ts` - Start working on task (set focus)
-- `src/cli/commands/stop.ts` - Stop working on task (clear focus)
+- `src/cli/commands/start.ts` - Start working on a task
+- `src/cli/commands/stop.ts` - Stop working on current task
 - `src/cli/commands/current.ts` - Show currently active task
 - `src/cli/commands/session.ts` - Session management
 
 ### Core Business Logic
 - `src/core/tasks/` - Task CRUD, hierarchy, dependencies
-- `src/core/task-work/` - Active task tracking (focus management)
+- `src/core/task-work/` - Active task tracking (start/stop/current)
 - `src/core/sessions/` - Session lifecycle
 - `src/core/lifecycle/` - RCSD-IVTR lifecycle gates
 - `src/core/orchestration/` - Multi-agent orchestration

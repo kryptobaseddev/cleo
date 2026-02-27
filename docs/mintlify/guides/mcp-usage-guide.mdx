@@ -227,7 +227,7 @@ Both accept the same parameter structure:
 1. cleo_query   → domain: session,  operation: status
 2. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority }
 3. cleo_mutate  → domain: session,  operation: start     → params: { scope: "task:T####", name, autoFocus: true }
-4. cleo_mutate  → domain: session,  operation: focus.set → params: { taskId: "T####" }
+4. cleo_mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
 5.   ... do the work ...
 6. cleo_mutate  → domain: tasks,    operation: update    → params: { taskId, notes: "progress..." }
 7. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "what was done" }
@@ -240,7 +240,7 @@ Both accept the same parameter structure:
 1. cleo_query   → domain: system,   operation: dash
 2. cleo_query   → domain: tasks,    operation: find      → params: { query: "search terms" }
 3. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority: "high" }
-4. cleo_mutate  → domain: session,  operation: focus.set → params: { taskId: "T####" }
+4. cleo_mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
 5.   ... investigate ...
 6. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "root cause and fix" }
 ```
@@ -298,8 +298,8 @@ Issue types: `create_bug`, `create_feature`, `create_help`
 | **tasks** | `archive` | Archive done tasks | - |
 | **session** | `start` | Begin session | `scope`, `name` |
 | **session** | `end` | End session | `note` |
-| **session** | `focus.set` | Set active task | `taskId` |
-| **session** | `focus.clear` | Clear focus | - |
+| **session** | `tasks.start` | Set active task | `taskId` |
+| **session** | `tasks.stop` | Clear focus | - |
 | **issues** | `create_bug` | File bug report | `title`, `body` |
 | **issues** | `create_feature` | Request feature | `title`, `body` |
 | **issues** | `create_help` | Ask question | `title`, `body` |

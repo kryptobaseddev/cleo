@@ -231,7 +231,7 @@ cleo research add \
 
 ### Base Protocol
 
-- Inherits task lifecycle (focus, execute, complete)
+- Inherits task lifecycle (start, execute, complete)
 - Inherits manifest append requirement
 - Inherits error handling patterns
 
@@ -247,7 +247,7 @@ cleo research add \
 
 ```
 1. Read task requirements (cleo show T####)
-2. Set focus (cleo focus set T####)
+2. Start task (cleo start T####)
 3. Implement changes with provenance tags
 4. Write/update tests
 5. Run validation (tests, lint)

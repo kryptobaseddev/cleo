@@ -29,7 +29,7 @@ cleo session start
 cleo list
 
 # 3. Check focus and session notes
-cleo focus show
+cleo current
 
 # 4. Identify today's priorities
 cleo list --priority critical,high --status pending
@@ -45,7 +45,7 @@ cleo list --priority critical,high --status pending
 
 ```bash
 # 1. Set focus to ONE task only
-cleo focus set T001
+cleo start T001
 
 # 2. Add related subtasks as needed
 cleo add "Implement validation logic" --depends T001
@@ -54,14 +54,13 @@ cleo add "Implement validation logic" --depends T001
 cleo update T001 --notes "Completed database schema"
 
 # 4. Update session progress
-cleo focus note "Working on authentication validation"
 
 # 5. Complete tasks as finished
 cleo complete T001
 ```
 
 **Key Rules**:
-- **ONE active task only** (enforced by focus system)
+- **ONE active task only** (enforced by start/stop system)
 - Add notes for context preservation
 - Create subtasks for discovered work
 - Complete promptly to maintain accuracy
@@ -132,10 +131,10 @@ cleo backup --name "session-$(date -Idate)"
 
 | From State | To State | Trigger | Command |
 |------------|----------|---------|---------|
-| `pending` | `active` | Work starts | `focus set <id>` |
+| `pending` | `active` | Work starts | `start <id>` |
 | `active` | `done` | Task complete | `complete <id>` |
 | `active` | `blocked` | Impediment found | `update <id> --blocked-by "reason"` |
-| `blocked` | `active` | Blocker resolved | `focus set <id>` |
+| `blocked` | `active` | Blocker resolved | `start <id>` |
 | `pending` | `blocked` | Pre-blocked task | `update <id> --blocked-by "reason"` |
 | `done` | `archived` | After retention | `archive` (auto or manual) |
 
@@ -217,15 +216,15 @@ Use `cleo` CLI for all task operations.
 ```bash
 cleo session start
 cleo list
-cleo focus show
+cleo current
 ```
 
 **WORK**:
 ```bash
-cleo focus set <task-id>    # ONE task only
+cleo start <task-id>    # ONE task only
 cleo add "Subtask"          # Add related tasks
 cleo update <id> --notes "Progress"
-cleo focus note "Working on X"
+
 ```
 
 **END**:
@@ -323,7 +322,7 @@ done
 
 1. **Single active task rule**
    - ONE task active at a time
-   - Use `focus set` to enforce
+   - Use `start` to enforce
    - Update session notes for context
 
 2. **Track progress with notes**
@@ -334,7 +333,7 @@ done
 
 3. **Use session notes for interruptions**
    ```bash
-   cleo focus note "Completed validation logic, next: error handling"
+
    ```
 
 ### Dependency Management Best Practices

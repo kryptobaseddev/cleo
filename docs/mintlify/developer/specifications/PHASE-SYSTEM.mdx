@@ -149,9 +149,9 @@ PROJECT LEVEL (lifecycle)          TASK LEVEL (categorization)
 }
 ```
 
-### 2.4 Focus Integration
+### 2.4 Active Task Integration
 
-The focus object syncs with project phase:
+The active task state syncs with project phase:
 
 ```json
 {
@@ -267,7 +267,7 @@ ct phase set setup --rollback --force
 1. Create new phase definition with new name
 2. Update all `task.phase` references
 3. Update `project.currentPhase` if matches
-4. Update `focus.currentPhase` if matches
+4. Update active task's `currentPhase` if matches
 5. Delete old phase definition
 6. Backup created before operation
 7. Rollback on any failure
@@ -320,7 +320,7 @@ When `project.currentPhase` is null:
 **Example**:
 ```bash
 # Project in core, working on polish task
-ct focus set T099  # phase: polish
+ct start T099  # phase: polish
 # Works without error (permissive mode)
 ```
 
@@ -357,7 +357,7 @@ Tasks with `phase: null` are treated as **phase-agnostic**:
 **Extraction** (`sync --extract`):
 - Detects if project phase changed during session
 - Warns if phase mismatch detected
-- New tasks inherit phase from focused task or `defaults.phase`
+- New tasks inherit phase from active task or `defaults.phase`
 - Override with `--default-phase <phase>` flag
 
 ### 6.2 Archive Integration

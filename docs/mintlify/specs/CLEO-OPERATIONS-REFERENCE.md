@@ -22,9 +22,9 @@ Implementation source files:
 
 | Gateway | Operations | Domains |
 |---------|-----------|---------|
-| cleo_query | 75 | 10 |
+| cleo_query | 78 | 10 |
 | cleo_mutate | 65 | 11 |
-| **Total** | **140** | **11** |
+| **Total** | **143** | **11** |
 
 Domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers
 
@@ -41,7 +41,7 @@ Domains: tasks, session, orchestrate, research, lifecycle, validate, release, sy
 
 The core task management domain. Handles CRUD, hierarchy, dependencies, focus, and analysis.
 
-### Query Operations (12)
+### Query Operations (13)
 
 | Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
 |-----------|---------------|-------------|------------|-----------------|
@@ -54,15 +54,17 @@ The core task management domain. Handles CRUD, hierarchy, dependencies, focus, a
 | `depends` | `cleo deps <id>` | Dependency graph | `taskId`, `direction?` | 1 |
 | `analyze` | `cleo analyze` | Triage with scoring | `epicId?` | 2 |
 | `next` | `cleo next` | Smart task suggestion | `epicId?`, `count?` | 0 |
+| `compute` | `cleo plan` | Composite planning view | - | 0 |
 | `relates` | `cleo relates <id>` | Relationship query | `taskId` | 2 |
 | `complexity.estimate` | N/A | Complexity scoring | `taskId` | 2 |
 | `current` | `cleo current` | Currently active task | - | 0 |
 
-### Mutate Operations (14)
+### Mutate Operations (15)
 
 | Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
 |-----------|---------------|-------------|------------|-----------------|
 | `add` | `cleo add <title>` | Create new task | `title`, `description?`, `parent?`, `priority?`, `labels?`, `depends?` | 0 |
+| `add` | `cleo bug <title>` | Create bug report | `title`, `type="bug"`, `origin="bug-report"` | 0 |
 | `update` | `cleo update <id>` | Update task fields | `taskId`, `title?`, `status?`, `priority?`, `notes?` | 0 |
 | `complete` | `cleo complete <id>` | Mark task done | `taskId`, `notes?` | 0 |
 | `delete` | `cleo delete <id>` | Delete/cancel task | `taskId`, `force?`, `reason?` | 1 |
@@ -83,7 +85,7 @@ The core task management domain. Handles CRUD, hierarchy, dependencies, focus, a
 
 Work session lifecycle and decision tracking.
 
-### Query Operations (6)
+### Query Operations (8)
 
 | Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
 |-----------|---------------|-------------|------------|-----------------|
@@ -93,6 +95,8 @@ Work session lifecycle and decision tracking.
 | `history` | `cleo session history` | Session history | `limit?` | 2 |
 | `decision.log` | N/A | Decision audit log | `sessionId?` | 2 |
 | `context.drift` | N/A | Context drift analysis | `sessionId?` | 3 |
+| `handoff.show` | `cleo session handoff` | Show handoff data | `scope?` | 0 |
+| `briefing.show` | `cleo briefing` | Session-start context | `scope?`, `maxNext?` | 0 |
 
 ### Mutate Operations (7)
 
@@ -391,8 +395,8 @@ Complete protocol stack including RCSD-IVTR lifecycle, orchestration waves, mani
 | `get` | `show` | tasks | CLI verb alignment |
 | `create` | `add` | tasks | CLI verb alignment |
 | `unarchive` | `restore` | tasks | Unified restore verb |
-| `focus.set` | `start` | tasks | Moved from session |
-| `focus.clear` | `stop` | tasks | Moved from session |
+| `tasks.start` | `start` | tasks | Moved from session |
+| `tasks.stop` | `stop` | tasks | Moved from session |
 | `focus.get` | `current` | tasks | Moved from session |
 | `startup` | `start` | orchestrate | Simpler verb |
 | `progress` | `record` | lifecycle | More descriptive |

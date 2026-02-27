@@ -189,8 +189,8 @@ cleo session start
 # 2. Check current phase
 cleo list --label consensus-framework
 
-# 3. Check current focus
-cleo focus show
+# 3. Check active task
+cleo current
 
 # 4. List output files
 ls docs/archive/specs-md/research/ 2>/dev/null || echo "Research directory archived"
@@ -205,8 +205,7 @@ ls docs/archive/specs-md/research/ 2>/dev/null || echo "Research directory archi
 # 1. Update current task with progress
 cleo update <task-id> --notes "Progress: completed X, next: Y"
 
-# 2. Update focus note
-cleo focus note "Phase N, working on <task>"
+# 2. Update progress note
 
 # 3. Archive completed tasks (optional)
 cleo archive
@@ -225,14 +224,14 @@ cleo session end
 # 1. Start session
 cleo session start
 
-# 2. Set focus to phase task
-cleo focus set T184  # Phase 1
+# 2. Start phase task
+cleo start T184  # Phase 1
 # OR
-cleo focus set T189  # Phase 2
+cleo start T189  # Phase 2
 # OR
-cleo focus set T195  # Phase 3
+cleo start T195  # Phase 3
 # OR
-cleo focus set T199  # Phase 4
+cleo start T199  # Phase 4
 
 # 3. Update phase task to active
 cleo update T184 --status active --notes "Starting Phase 1"
@@ -265,8 +264,8 @@ cleo list --phase phase-1 --status done
 # 2. Complete phase task
 cleo complete T184 --notes "Phase 1 complete: all evidence collected"
 
-# 3. Clear focus
-cleo focus clear
+# 3. Stop active task
+cleo stop
 
 # 4. Session checkpoint
 cleo session end
@@ -406,7 +405,7 @@ If session interrupted, resume by:
 
 # 2. Check task status
 cleo labels show consensus-framework
-cleo focus show
+cleo current
 
 # 3. Read spec
 cat docs/archive/specs-md/CONSENSUS-FRAMEWORK-SPEC.md
@@ -456,20 +455,19 @@ cleo find --id T19  # Prefix search
 cleo show T001 --history
 ```
 
-### Focus Management
+### Active Task Management
 
 ```bash
-# Set focus
-cleo focus set T001
+# Start task
+cleo start T001
 
-# Show current focus
-cleo focus show
+# Show active task
+cleo current
 
-# Update focus note
-cleo focus note "Working on Phase 2"
+# Update progress note
 
-# Clear focus
-cleo focus clear
+# Stop active task
+cleo stop
 ```
 
 ### Monitoring

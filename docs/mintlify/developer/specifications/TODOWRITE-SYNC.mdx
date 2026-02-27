@@ -50,7 +50,7 @@ Enable seamless task management across Claude Code sessions by providing bidirec
 | Decision | Rationale |
 |----------|-----------|
 | Content prefix for ID | No schema coupling; works with any TodoWrite version |
-| Tiered selection | Focused work > dependencies > priority (max 8 tasks) |
+| Tiered selection | Active task > dependencies > priority (max 8 tasks) |
 | Session state file | Enables diff detection and recovery |
 | Warn-don't-fail conflicts | Robustness over strict consistency |
 
@@ -181,13 +181,13 @@ The system MUST create a session state file at `.cleo/sync/todowrite-session.jso
 The injection system MUST use tiered selection with maximum task limit:
 
 **Tier 1** (Always Included):
-- Current focused task (from `.focus.currentTask`)
+- Current active task (from `.focus.currentTask`)
 
 **Tier 2** (Include if capacity):
-- Direct dependencies of focused task (tasks in focused task's `depends` array)
+- Direct dependencies of active task (tasks in active task's `depends` array)
 
 **Tier 3** (Fill remaining capacity):
-- High/critical priority tasks in same phase as focused task
+- High/critical priority tasks in same phase as active task
 - Ordered by priority (critical > high > medium > low)
 
 **Constraints:**
@@ -200,7 +200,7 @@ The system MUST support phase-based filtering with this priority order:
 
 1. `--phase <slug>` - Explicit phase override (highest priority)
 2. `project.currentPhase` - Project-level phase setting
-3. Focused task's phase - Inferred from `.focus.currentTask`
+3. Active task's phase - Inferred from `.focus.currentTask`
 4. No filter (default) - All phases included
 
 ### 3.3 ActiveForm Generation
@@ -272,7 +272,7 @@ For tasks discovered during session (no `[T###]` prefix):
 
 **Phase Inheritance Priority**:
 1. `--default-phase` flag (explicit override)
-2. Focused task's phase from session metadata
+2. Active task's phase from session metadata
 3. Most active phase (phase with most non-done tasks)
 4. `project.currentPhase` from schema
 5. `config.defaults.phase` (final fallback)
@@ -320,7 +320,7 @@ cleo sync --clear               # Clear state without merge
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--max-tasks` | integer | 8 | Maximum tasks to inject |
-| `--focused-only` | flag | false | Only inject focused task |
+| `--focused-only` | flag | false | Only inject active task |
 | `--phase` | string | - | Filter to specific phase |
 | `--output` | path | stdout | Write JSON to file |
 | `--no-save-state` | flag | false | Skip session state creation |

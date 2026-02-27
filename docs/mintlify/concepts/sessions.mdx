@@ -84,18 +84,18 @@ Multiple terminals can have different active sessions. Each terminal is bound to
 Within each session scope, only one task can be `active` at a time:
 
 - Starting a session with `--auto-focus` sets focus to the first available task
-- `cleo focus set T005` changes the active task
+- `cleo start T005` changes the active task
 - `cleo complete T005` automatically suggests the next task
 
 ```bash
 # Check current focus
-cleo focus show
+cleo current
 
 # Change focus
-cleo focus set T006
+cleo start T006
 
 # Add progress note
-cleo focus note "Implementing validation logic"
+
 ```
 
 ## Multi-Session Coordination
@@ -129,7 +129,7 @@ Sessions cannot claim the same task simultaneously. Scope overlap is configurabl
 | **Scope** | Group of tasks | Single task |
 | **Persistence** | Survives restarts | Within session |
 | **Purpose** | Work boundary | Current attention |
-| **Commands** | `session start/end` | `focus set/show` |
+| **Commands** | `session start/end` | `start/show` |
 
 ## Related
 

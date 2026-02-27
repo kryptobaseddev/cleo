@@ -33,7 +33,7 @@ icon: "code"
 | Task Fields (targetRelease, shippedRelease) | PENDING | Add to task definition |
 | CLI Commands (release subcommand) | PENDING | 9 commands total |
 | Validation Library (lib/release.sh) | PENDING | Core release functions |
-| Auto-transition Logic | PENDING | planning→development on focus |
+| Auto-transition Logic | PENDING | planning→development on task start |
 | VERSION File Integration | PENDING | Suggest, bump on ship |
 | Git Tag Integration | PENDING | Create tag on ship |
 | Migration Tool (migrate-labels) | PENDING | Label → release migration |
@@ -82,7 +82,7 @@ User-driven refinement session addressing real-world observations:
 | Topic | Decision | Rationale |
 |-------|----------|-----------|
 | Lifecycle states | 4 states (removed stabilization) | Stabilization is workflow discipline, not system state |
-| Planning→Development | Automatic on focus | Reduces friction, reflects reality |
+| Planning→Development | Automatic on task start | Reduces friction, reflects reality |
 | Epic handling | No shippedRelease on epics | Epics are organizational, children ship individually |
 | VERSION integration | Suggest NEXT version, bump on ship | Prevents drift between tasks and VERSION file |
 | Git tags | Included in v1, prompt-based | Low complexity, high value |
@@ -132,7 +132,7 @@ User-driven refinement session addressing real-world observations:
 - [ ] Implement `release_create()` function
 - [ ] Implement `release_transition()` function
 - [ ] Implement `release_ship()` function
-- [ ] Implement auto-transition logic (planning→development on focus)
+- [ ] Implement auto-transition logic (planning→development on task start)
 - [ ] Integrate with lib/focus.sh for auto-transition trigger
 
 ### Phase 4: VERSION Integration - PENDING
@@ -228,7 +228,7 @@ User-driven refinement session addressing real-world observations:
 | `test_release_create` | Create with valid/invalid versions |
 | `test_release_transition` | Valid and invalid state transitions |
 | `test_release_ship` | Full ship workflow |
-| `test_release_auto_transition` | Focus triggers planning→development |
+| `test_release_auto_transition` | Task start triggers planning→development |
 | `test_epic_shipped_blocked` | Epics cannot have shippedRelease |
 
 ### Integration Tests

@@ -154,9 +154,9 @@ cleo update <id> --notes "..."     # Add notes
 ### Focus Management
 
 ```bash
-cleo focus set <id>                # Set active task (one at a time)
-cleo focus show                    # Show current focus
-cleo focus clear                   # Clear focus
+cleo start <id>                # Set active task (one at a time)
+cleo current                    # Show current focus
+cleo stop                   # Clear focus
 ```
 
 ### Session Protocol
@@ -166,7 +166,7 @@ cleo focus clear                   # Clear focus
 ```bash
 cleo session start
 cleo list --status pending
-cleo focus set <task-id>
+cleo start <task-id>
 ```
 
 #### During Work
@@ -202,7 +202,7 @@ ct              # cleo
 ct-add          # cleo add
 ct-list         # cleo list
 ct-done         # cleo complete
-ct-focus        # cleo focus
+
 ```
 
 ## Output Formats
@@ -246,7 +246,7 @@ Edit `.cleo/config.json`:
 
 1. **One Active Task**: Set focus to maintain clarity
    ```bash
-   cleo focus set T002
+   cleo start T002
    ```
 
 2. **Use Labels**: Organize with labels

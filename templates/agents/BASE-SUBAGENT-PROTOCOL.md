@@ -15,7 +15,7 @@ Replace `{{TOKENS}}` with actual values before injection.
 ## Task Lifecycle
 
 1. **MUST** read task details: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
-2. **MUST** set focus: `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+2. **MUST** start task: `{{TASK_START_CMD}} {{TASK_ID}}`
 3. **MUST** complete task when done: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 4. **SHOULD** link research: `{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}`
 
@@ -45,7 +45,7 @@ Replace `{{TOKENS}}` with actual values before injection.
 
 ## Completion Checklist
 
-- [ ] Task focus set
+- [ ] Task started
 - [ ] Output file written
 - [ ] Manifest entry appended (single line)
 - [ ] Task completed
@@ -77,7 +77,7 @@ Replace `{{TOKENS}}` with actual values before injection.
 | Token | Default Value |
 |-------|---------------|
 | `{{TASK_SHOW_CMD}}` | `cleo show` |
-| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_START_CMD}}` | `cleo start` |
 | `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
 | `{{TASK_LINK_CMD}}` | `cleo research link` |
 
@@ -100,7 +100,7 @@ OUTPUT REQUIREMENTS:
 
 TASK LIFECYCLE:
 1. MUST read task details: {{TASK_SHOW_CMD}} {{TASK_ID}}
-2. MUST set focus: {{TASK_FOCUS_CMD}} {{TASK_ID}}
+2. MUST start task: {{TASK_START_CMD}} {{TASK_ID}}
 3. MUST complete task: {{TASK_COMPLETE_CMD}} {{TASK_ID}}
 
 [... rest of subagent instructions ...]

@@ -102,7 +102,7 @@ Every spawn combines two layers:
 | BASE-002 | MUST NOT return content in response | Required |
 | BASE-003 | MUST complete task via `cleo complete` | Required |
 | BASE-004 | MUST write output file before manifest | Required |
-| BASE-005 | MUST set focus before starting work | Required |
+| BASE-005 | MUST start a task before beginning work | Required |
 | BASE-006 | MUST NOT fabricate information | Required |
 | BASE-007 | SHOULD link research to task | Recommended |
 

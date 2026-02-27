@@ -62,17 +62,16 @@ CLEO sessions provide structure for work continuity across terminal sessions and
 
 ```bash
 # Set your current task
-cleo focus set T001
+cleo start T001
 
 # Add progress notes
-cleo focus note "Implementing JWT validation"
 
 # View current focus
-cleo focus show
+cleo current
 
 # Complete and move on
 cleo complete T001
-cleo focus set T002
+cleo start T002
 ```
 
 ### Ending a Session
@@ -106,26 +105,25 @@ Single-task focus prevents context switching overhead and provides clarity on cu
 
 ```bash
 # Set active task
-cleo focus set T001
+cleo start T001
 
 # View current focus
-cleo focus show
+cleo current
 
 # Clear focus
-cleo focus clear
+cleo stop
 
 # Add session-level progress note
-cleo focus note "Making progress on validation logic"
 
 # Suggest next action
-cleo focus next "Write unit tests for validator"
+
 ```
 
 ### Focus vs Task Notes
 
 | Command | Purpose | Storage |
 |---------|---------|---------|
-| `cleo focus note "..."` | Session-level progress | `.focus.sessionNote` (replaces) |
+
 | `cleo update T001 --notes "..."` | Task-specific notes | Task's notes array (appends) |
 
 ## Session States
@@ -171,8 +169,8 @@ When you start or resume a session, CLEO binds that terminal to the session:
 cleo session start --scope epic:T001
 
 # All commands now use this session context
-cleo focus show      # Shows THIS session's focus
-cleo focus set T005  # Sets focus within THIS scope
+cleo current      # Shows THIS session's focus
+cleo start T005  # Sets focus within THIS scope
 
 # Switch to different session
 cleo session switch <session-id>
@@ -185,7 +183,7 @@ cleo session switch <session-id>
     ```bash
     cleo session list
     cleo dash
-    cleo focus show
+    cleo current
     ```
   </Step>
 
@@ -201,12 +199,12 @@ cleo session switch <session-id>
 
   <Step title="Work: Task Cycle">
     ```bash
-    cleo focus set T001
+    cleo start T001
     # ... do work ...
     cleo update T001 --notes "Completed validation"
     cleo complete T001
     cleo next  # Suggests next task
-    cleo focus set T002
+    cleo start T002
     ```
   </Step>
 
@@ -241,7 +239,7 @@ cleo session show abc123
   <Accordion title="Multiple Active Tasks" icon="triangle-exclamation">
     ```bash
     # Reset focus to correct task
-    cleo focus set T001
+    cleo start T001
     # This clears other active tasks in scope
     ```
   </Accordion>

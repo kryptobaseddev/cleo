@@ -468,7 +468,7 @@ cleo research add \
 
 ### Base Protocol
 
-- Inherits task lifecycle (focus, execute, complete)
+- Inherits task lifecycle (start, execute, complete)
 - Inherits manifest append requirement
 - Inherits error handling patterns
 
@@ -514,7 +514,7 @@ Release Protocol                    Artifact Publish Protocol
 
 ```
  1. Read task requirements (cleo show T####)
- 2. Set focus (cleo focus set T####)
+ 2. Set focus (cleo start T####)
  3. Load release config (source lib/release-config.sh)
  4. Enumerate enabled artifacts (get_artifact_type)
  5. Pre-validate all artifacts (validate_artifact loop)

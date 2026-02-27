@@ -21,7 +21,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Executive Summary
 
-This specification defines the multi-session architecture for cleo, enabling multiple concurrent LLM agents to work on different task groups within the same project. Each session maintains isolated focus state and scope boundaries while sharing the underlying task data.
+This specification defines the multi-session architecture for cleo, enabling multiple concurrent LLM agents to work on different task groups within the same project. Each session maintains isolated active task state and scope boundaries while sharing the underlying task data.
 
 ### Key Capabilities
 
@@ -29,7 +29,7 @@ This specification defines the multi-session architecture for cleo, enabling mul
 |------------|-------------|
 | **Concurrent Sessions** | Multiple agents work simultaneously on different task groups |
 | **Scoped Isolation** | Each session owns a defined subset of tasks (epic, taskGroup, phase) |
-| **Per-Scope Validation** | Active task constraint applies per-scope, not globally |
+| **Per-Scope Validation** | One active task constraint applies per-scope, not globally |
 | **Session Lifecycle** | Start, suspend, resume, end with full state preservation |
 | **Conflict Detection** | Prevent scope overlaps and task contention |
 | **Audit Trail** | Session-aware logging for debugging and accountability |
@@ -56,7 +56,7 @@ This specification defines the multi-session architecture for cleo, enabling mul
 |------|-------|---------|
 | `sessions.json` | Session lifecycle operations | Exclusive per operation |
 | `todo.json` | Task operations | Exclusive per operation |
-| Both | Focus changes, task completion | Sequential (sessions → todo) |
+| Both | Active task changes, task completion | Sequential (sessions → todo) |
 
 ### 1.3 Mode Selection
 
@@ -70,7 +70,7 @@ multiSession.enabled = true
   └── sessions.json created and used
   └── ._meta.multiSessionEnabled = true
   └── .focus.primarySession for default context
-  └── Per-session focus in sessions.json
+  └── Per-session active task in sessions.json
 ```
 
 ---
@@ -146,7 +146,7 @@ validate_new_session(new_scope):
 
     switch overlap.type:
       case "hard":
-        ERROR: "Task {id} already focused by session {session.id}"
+        ERROR: "Task {id} already active in session {session.id}"
 
       case "identical":
         ERROR: "Scope identical to session {session.id}"
@@ -168,9 +168,9 @@ validate_new_session(new_scope):
         OK: proceed
 ```
 
-### 3.3 Task Focus Validation
+### 3.3 Task Activation Validation
 
-When setting focus within a session:
+When starting a task within a session:
 
 1. Lock sessions.json
 2. Verify task is in session's `computedTaskIds`
@@ -197,7 +197,7 @@ When setting focus within a session:
 ┌─────────────────────────────────────────────────────┐
 │                      ACTIVE                          │
 │  - Can modify tasks in scope                        │
-│  - Can set/clear focus                              │
+│  - Can start/stop active task                        │
 │  - lastActivity updated on operations               │
 └───────┬──────────────────────────────┬──────────────┘
         │                              │
@@ -224,27 +224,27 @@ When setting focus within a session:
 
 ### 4.2 Session Start
 
-A session MUST have a focused task to start. This ensures every session has a clear purpose and trackable work context.
+A session MUST have an active task to start. This ensures every session has a clear purpose and trackable work context.
 
 ```bash
-# Explicit focus (REQUIRED: one of these)
+# Explicit active task (REQUIRED: one of these)
 cleo session start --scope epic:T001 --focus T005 --name "Auth impl"
 
-# Auto-focus: picks highest priority pending task in scope
+# Auto-select: picks highest priority pending task in scope
 cleo session start --scope epic:T001 --auto-focus --name "Auth impl"
 
-# ERROR: No focus specified
+# ERROR: No active task specified
 cleo session start --scope epic:T001
-# → ERROR (E_FOCUS_REQUIRED): Session requires --focus <task-id> or --auto-focus
+# → ERROR (E_ACTIVE_TASK_REQUIRED): Session requires --focus <task-id> or --auto-focus
 ```
 
-**Focus Requirement Rationale**:
-- Sessions track "what is being worked on" - a session without focus has no purpose
+**Active Task Requirement Rationale**:
+- Sessions track "what is being worked on" - a session without an active task has no purpose
 - Enables session-to-task attribution in logs and audit trails
 - Prevents orphaned sessions that consume scope but do nothing
 - Allows resumption with clear context ("pick up where you left off")
 
-**Auto-Focus Selection** (when `--auto-focus` specified):
+**Auto-Select Active Task** (when `--auto-focus` specified):
 1. Filter tasks in scope with status = "pending"
 2. Sort by: priority (critical > high > medium > low), then createdAt (oldest first)
 3. Select first task
@@ -254,16 +254,16 @@ Operations:
 1. Lock sessions.json
 2. Validate scope (no conflicts)
 3. Compute `computedTaskIds`
-4. **Validate focus task exists and is in scope**
-5. **If `--auto-focus`: select focus task per algorithm above**
+4. **Validate active task exists and is in scope**
+5. **If `--auto-focus`: select active task per algorithm above**
 6. Generate session ID
-7. Create session entry with status="active" and `focus.currentTask` set
+7. Create session entry with status="active" and active task (`focus.currentTask`) set
 8. Update `_meta.totalSessionsCreated`
 9. Lock todo.json
-10. **Set focused task status = "active"**
+10. **Set active task status = "active"**
 11. Save both files
 12. Update todo.json `_meta.activeSessionCount`
-13. Log `session_start` with scope and focus context
+13. Log `session_start` with scope and active task context
 14. Unlock both
 
 ### 4.3 Session Suspend
@@ -275,7 +275,7 @@ cleo session suspend --note "Waiting for API review"
 Operations:
 1. Lock sessions.json
 2. Set `status = "suspended"`, `suspendedAt = now()`
-3. Preserve focus state (not cleared)
+3. Preserve active task state (not cleared)
 4. Increment `stats.suspendCount`
 5. Save sessions.json
 6. Log `session_suspended`
@@ -294,7 +294,7 @@ Operations:
 3. Re-validate scope (tasks still exist)
 4. Set `status = "active"`, clear `suspendedAt`
 5. Increment `resumeCount`
-6. Restore focus from preserved state
+6. Restore active task from preserved state
 7. Save sessions.json
 8. Log `session_resumed`
 9. Unlock
@@ -310,7 +310,7 @@ Operations:
 2. Create `sessionHistoryEntry` from session
 3. Remove from `sessions` array
 4. Add to `sessionHistory` array
-5. Clear focus in todo.json if needed
+5. Clear active task in todo.json if needed
 6. Reset active task to "pending" if needed
 7. Update `_meta.activeSessionCount`
 8. Save both files
@@ -319,11 +319,11 @@ Operations:
 
 ---
 
-## Part 5: Focus Management
+## Part 5: Active Task Management
 
-### 5.1 Per-Session Focus
+### 5.1 Per-Session Active Task
 
-Each session maintains independent focus:
+Each session maintains an independent active task:
 
 ```json
 {
@@ -335,26 +335,26 @@ Each session maintains independent focus:
     "nextAction": "Add JWT validation",
     "focusHistory": [
       {"taskId": "T003", "timestamp": "...", "action": "completed"},
-      {"taskId": "T005", "timestamp": "...", "action": "focused"}
+      {"taskId": "T005", "timestamp": "...", "action": "started"}
     ]
   }
 }
 ```
 
-### 5.2 Focus Commands
+### 5.2 Active Task Commands
 
 ```bash
-# Set focus (uses current session or env var)
-cleo focus set T005
+# Start task (uses current session or env var)
+cleo start T005
 
 # Explicit session
-cleo focus set T005 --session session_20251227_...
+cleo start T005 --session session_20251227_...
 
-# Clear focus
-cleo focus clear
+# Stop active task
+cleo stop
 
-# Show focus (session-aware)
-cleo focus show
+# Show active task (session-aware)
+cleo current
 ```
 
 ### 5.3 Active Task Constraint
@@ -425,7 +425,7 @@ unlock_multi_file() {
 ### 6.4 Transaction Pattern
 
 ```bash
-# Example: Set focus (requires both files)
+# Example: Start task / set active task (requires both files)
 set_focus_multi_session() {
   local session_id="$1"
   local task_id="$2"
@@ -553,19 +553,17 @@ cleo session history
 cleo session history --scope T001
 ```
 
-### 8.2 Focus (Session-Aware)
+### 8.2 Active Task (Session-Aware)
 
 ```bash
 # Uses current session (from env or .current-session)
-cleo focus set T005
-cleo focus show
-cleo focus clear
-cleo focus note "Progress update"
-cleo focus next "Add validation"
+cleo start T005
+cleo current
+cleo stop
 
 # Explicit session
-cleo focus set T005 --session <id>
-cleo focus show --session <id>
+cleo start T005 --session <id>
+cleo current --session <id>
 ```
 
 ### 8.3 Environment Variables
@@ -593,7 +591,7 @@ cleo config set multiSession.enabled true
 1. Create sessions.json with empty sessions array
 2. If `._meta.activeSession` exists:
    - Create session entry with `scope: { type: "epic", rootTaskId: null }` (full project)
-   - Move `.focus` contents to `session.focus`
+   - Move `.focus` contents to `session.focus` (active task data)
 3. Set `._meta.multiSessionEnabled = true`
 4. Clear `._meta.activeSession`
 5. Set `._meta.activeSessionCount = 1` (if migrated session)
@@ -603,7 +601,7 @@ cleo config set multiSession.enabled true
 - Single-session mode remains default
 - Existing projects work unchanged
 - Multi-session is opt-in via config
-- `.focus` in todo.json preserved for fallback
+- `.focus` field in todo.json preserved for fallback
 
 ---
 
@@ -644,7 +642,7 @@ cleo config set multiSession.enabled true
 - [ ] Implement session suspend/resume
 - [ ] Implement session list/show/history
 
-### Phase 4: Focus Integration
+### Phase 4: Active Task Integration
 - [ ] Update scripts/focus.sh for session-awareness
 - [ ] Implement per-scope active task validation
 - [ ] Update lib/validation.sh
@@ -674,7 +672,7 @@ cleo session start --scope epic:T001 --name "Auth Work" --agent opus-1
 cleo session start --scope epic:T050 --name "UI Work" --agent haiku-1
 
 # Both can work simultaneously
-# Each has own focus, own active task
+# Each has own active task tracking
 ```
 
 ### A.2 Parallel Phase Work Within Epic

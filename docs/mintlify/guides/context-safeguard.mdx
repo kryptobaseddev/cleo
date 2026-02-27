@@ -75,7 +75,7 @@ Alerts automatically appear after key operations:
 ```bash
 cleo complete T005     # May trigger alert if crossing threshold
 cleo add "New task"    # May trigger alert
-cleo focus set T006    # May trigger alert
+cleo start T006    # May trigger alert
 ```
 
 ## Alert Behavior
@@ -216,7 +216,7 @@ cleo session start --scope epic:T001 --auto-focus
 
 ```bash
 # Alerts automatically trigger during work
-cleo focus set T005          # May alert
+cleo start T005          # May alert
 cleo complete T005           # May alert
 cleo add "New task"          # May alert
 

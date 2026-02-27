@@ -84,7 +84,7 @@ mcp-server/src/domains/ -->  mcp-server/src/engine/*        (MCP path: parallel 
 - MCP server requires **Node >=20**.
 - `@cleocode/caamp` is installed and integrated.
 - `@cleocode/lafs-protocol` is installed and available for conformance integration.
-- `@cleocode/ct-skills` is installed and actively used in skills-domain operations.
+- `ct-skills` is bundled in-repo at `packages/ct-skills` and consumed through CAAMP skill-library APIs (no standalone npm package release workflow).
 
 ### 2.5 Domain Surface
 

@@ -12,7 +12,7 @@ description: "Standard operating procedures for AI agents interacting with the C
 **Output**: CLI commands + brief notes; JSON when scripting.
 **Limits**: **MUST** use CLI (no direct JSON edits). **MUST** check exit codes. **MUST NOT** invent task IDs.
 **Data**: Use `cleo` (or `ct` alias); use `cleo find` for discovery; use `cleo analyze --parent <epic-id>` for waves.
-**Evaluation**: Task status accurate, deps valid, session closed, focus set or cleared.
+**Evaluation**: Task status accurate, deps valid, session closed, start or cleared.
 **Next**: If confidence < 80%, ask for clarification on scope, deps, or phase.
 
 ---
@@ -36,7 +36,7 @@ cleo session resume <session-id>
 **During Work:**
 ```bash
 # 1. Focus on ONE task
-cleo focus set <task-id>
+cleo start <task-id>
 
 # 2. Update progress
 cleo update <task-id> --notes "Completed X, working on Y"
@@ -90,7 +90,7 @@ cleo find "error message"
 cleo add "Bug: Error message" --labels "bug" --priority high --description "Steps to reproduce..."
 
 # 3. Focus if working immediately
-cleo focus set <new-task-id>
+cleo start <new-task-id>
 ```
 
 ### Standup / Status Check

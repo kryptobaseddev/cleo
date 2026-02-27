@@ -399,11 +399,11 @@ ct session status
 # 2. If no session, prompt user to start one
 ct session start --scope epic:TXXX --auto-focus --name "Implementation Session"
 
-# 3. Analyze tasks and auto-focus
+# 3. Analyze tasks and auto-select active task
 ct analyze --auto-focus
 
-# 4. Get focused task details
-ct focus show --json
+# 4. Get active task details
+ct current --json
 ```
 
 ### Task Selection Criteria
@@ -429,8 +429,8 @@ Current Round: [verification.round + 1]
 
 Before spawning the Coder Agent, you MUST:
 1. Update task status: `ct update TXXX --status active`
-2. Set focus: `ct focus set TXXX`
-3. Add session note: `ct focus note "Starting implementation round N"`
+2. Start task: `ct start TXXX`
+
 4. Initialize verification if null: `ct verify TXXX --init`
 
 ## HITL Gates
@@ -481,8 +481,8 @@ You are an Implementation Coder Agent specializing in writing production-quality
 
 ### On Activation
 ```bash
-# Verify task is focused and active
-ct focus show --json
+# Verify task is started and active
+ct current --json
 
 # Read task details
 ct show TXXX --json
@@ -759,7 +759,7 @@ ct update TXXX --notes "QA failed: Missing error message on invalid email format
 
 ### Accessibility (Basic)
 - [ ] Keyboard navigation works
-- [ ] Focus states visible
+- [ ] Active task states visible
 - [ ] Screen reader labels present
 - [ ] Color contrast adequate
 

@@ -257,7 +257,7 @@ ct proj                             # Short alias
 | **Data Integrity (DI)** | 40% | JSON validity, checksums, schema versions, required fields |
 | **Referential Integrity (RI)** | 25% | Dependencies exist, parents exist, no orphans, no cycles |
 | **Semantic Integrity (SI)** | 20% | Business rules (single active task, status consistency) |
-| **Session/Operational (SO)** | 5% | Stale sessions, lock files, focus consistency |
+| **Session/Operational (SO)** | 5% | Stale sessions, lock files, active task consistency |
 | **Backup Health (BH)** | 5% | Recent backups exist, backup validation |
 | **Configuration Health (CH)** | 5% | Config validity, version compatibility |
 
@@ -282,7 +282,7 @@ ct proj                             # Short alias
 | RI-003 | No Circular Dependencies | CRITICAL | NO |
 | RI-004 | Parent Task Exists | CRITICAL | CONDITIONAL |
 | RI-005 | Phase Slug Valid | WARNING | SAFE |
-| RI-006 | Focus Task Exists | WARNING | SAFE |
+| RI-006 | Active Task Exists | WARNING | SAFE |
 | RI-007 | Labels Index Consistent | INFO | SAFE |
 
 #### Category 3: Semantic Integrity (SI) - 20% Weight
@@ -308,7 +308,7 @@ ct proj                             # Short alias
 |----|------------|----------|----------|
 | SO-001 | No Stale Sessions | WARNING | SAFE |
 | SO-002 | Lock File Staleness | WARNING | SAFE |
-| SO-003 | Focus Consistency | WARNING | SAFE |
+| SO-003 | Active Task Consistency | WARNING | SAFE |
 | SO-004 | Session Note Present | INFO | NO |
 | SO-005 | Last Session ID Valid | INFO | SAFE |
 
@@ -484,8 +484,8 @@ All commands output JSON when piped (non-TTY). Standard envelope:
   "autoFixable": [
     {
       "checkId": "RI-006",
-      "fixCommand": "ct focus clear",
-      "description": "Clear invalid focus reference"
+      "fixCommand": "ct stop",
+      "description": "Clear invalid active task reference"
     }
   ],
   "nextAction": {
