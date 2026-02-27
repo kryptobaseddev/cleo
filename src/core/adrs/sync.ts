@@ -130,7 +130,7 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
   }
 
   // --- MANIFEST.jsonl (all ADRs including archive/) ---
-  for (const { file, relPath } of allFiles) {
+  for (const { relPath } of allFiles) {
     try {
       const filePath = join(adrsDir, relPath);
       const record = parseAdrFile(filePath, projectRoot);
