@@ -13,6 +13,9 @@
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { getLogger } from '../../core/logger.js';
+
+const logger = getLogger('domain:memory');
 import {
   memoryShow,
   memoryList,
@@ -26,6 +29,13 @@ import {
   memoryLink,
   memoryManifestAppend,
   memoryManifestArchive,
+  // BRAIN memory operations (T4770)
+  memoryPatternStore,
+  memoryPatternSearch,
+  memoryPatternStats,
+  memoryLearningStore,
+  memoryLearningSearch,
+  memoryLearningStats,
 } from '../../core/memory/engine-compat.js';
 
 // ---------------------------------------------------------------------------
@@ -109,6 +119,45 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
+        // BRAIN memory query operations (T4770)
+        case 'pattern.search': {
+          const result = memoryPatternSearch(
+            {
+              type: params?.type as Parameters<typeof memoryPatternSearch>[0]['type'],
+              impact: params?.impact as Parameters<typeof memoryPatternSearch>[0]['impact'],
+              query: params?.query as string | undefined,
+              minFrequency: params?.minFrequency as number | undefined,
+              limit: params?.limit as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'pattern.stats': {
+          const result = memoryPatternStats(this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'learning.search': {
+          const result = memoryLearningSearch(
+            {
+              query: params?.query as string | undefined,
+              minConfidence: params?.minConfidence as number | undefined,
+              actionableOnly: params?.actionableOnly as boolean | undefined,
+              applicableType: params?.applicableType as string | undefined,
+              limit: params?.limit as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'learning.stats': {
+          const result = memoryLearningStats(this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'memory', operation, startTime);
       }
@@ -170,6 +219,49 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
+        // BRAIN memory mutate operations (T4770)
+        case 'pattern.store': {
+          const patternText = params?.pattern as string;
+          const context = params?.context as string;
+          if (!patternText || !context) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'pattern and context are required', startTime);
+          }
+          const result = memoryPatternStore(
+            {
+              type: (params?.type as Parameters<typeof memoryPatternStore>[0]['type']) || 'workflow',
+              pattern: patternText,
+              context,
+              impact: params?.impact as Parameters<typeof memoryPatternStore>[0]['impact'],
+              antiPattern: params?.antiPattern as string | undefined,
+              mitigation: params?.mitigation as string | undefined,
+              examples: params?.examples as string[] | undefined,
+              successRate: params?.successRate as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
+        case 'learning.store': {
+          const insight = params?.insight as string;
+          const source = params?.source as string;
+          if (!insight || !source) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'insight and source are required', startTime);
+          }
+          const result = memoryLearningStore(
+            {
+              insight,
+              source,
+              confidence: (params?.confidence as number) ?? 0.5,
+              actionable: params?.actionable as boolean | undefined,
+              application: params?.application as string | undefined,
+              applicableTypes: params?.applicableTypes as string[] | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
         default:
           return this.unsupported('mutate', 'memory', operation, startTime);
       }
@@ -184,8 +276,8 @@ export class MemoryHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['show', 'list', 'find', 'pending', 'stats', 'manifest.read', 'contradictions', 'superseded'],
-      mutate: ['inject', 'link', 'manifest.append', 'manifest.archive'],
+      query: ['show', 'list', 'find', 'pending', 'stats', 'manifest.read', 'contradictions', 'superseded', 'pattern.search', 'pattern.stats', 'learning.search', 'learning.stats'],
+      mutate: ['inject', 'link', 'manifest.append', 'manifest.archive', 'pattern.store', 'learning.store'],
     };
   }
 
@@ -233,6 +325,7 @@ export class MemoryHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
+    logger.error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,

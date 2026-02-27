@@ -183,7 +183,7 @@ cleo validate --fix-orphans delete  # Delete orphaned tasks
 cleo validate-protocol T1234 --verbose
 
 # Check manifest entry
-jq 'select(.id == "T1234-output")' claudedocs/agent-outputs/MANIFEST.jsonl
+jq 'select(.id == "T1234-output")' .cleo/agent-outputs/MANIFEST.jsonl
 
 # Verify protocol requirements
 cleo protocol show research  # or: consensus, specification, etc.

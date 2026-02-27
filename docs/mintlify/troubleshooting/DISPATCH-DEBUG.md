@@ -49,10 +49,10 @@ ls -la skills/ct-{skill}/SKILL.md
 **Resolution**:
 ```bash
 # Check manifest
-tail -5 claudedocs/agent-outputs/MANIFEST.jsonl
+tail -5 .cleo/agent-outputs/MANIFEST.jsonl
 
 # Validate JSON
-tail -1 claudedocs/agent-outputs/MANIFEST.jsonl | jq .
+tail -1 .cleo/agent-outputs/MANIFEST.jsonl | jq .
 ```
 
 ### Task Not Found

@@ -6,6 +6,7 @@
  * @epic T4545
  */
 
+// TODO T4894: pipeline.release.changelog exists in registry but generate-changelog\n// implements local file generation from CHANGELOG.md, not a dispatch operation. Leave bypass.
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';

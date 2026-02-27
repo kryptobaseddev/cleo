@@ -42,7 +42,7 @@ Wave 2 (T4540 epic) has completed audit and validation tasks that provide gate e
 | T4567 -- Bash Deprecation Plan | Complete | All 79 scripts + 106 libs have TS equivalents; 50 of 76 CLI commands unregistered |
 | T4558 -- Canonical Doc Update | Complete | This update |
 
-**Gate evidence**: These findings establish that Phase 0 (Foundation) TypeScript work is ~75% complete. The remaining gaps are: (1) register 50 CLI commands, (2) unify MCP engine with `src/core/`, and (3) update 81 `.mdx` command docs for TS CLI. See `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` and `claudedocs/agent-outputs/T4557-documentation-audit-report.md` for full evidence.
+**Gate evidence**: These findings establish that Phase 0 (Foundation) TypeScript work is ~75% complete. The remaining gaps are: (1) register 50 CLI commands, (2) unify MCP engine with `src/core/`, and (3) update 81 `.mdx` command docs for TS CLI. See `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` and `.cleo/agent-outputs/T4557-documentation-audit-report.md` for full evidence.
 
 ## 1. Executive Summary
 
@@ -186,7 +186,7 @@ T4334 (MCP Server Native TypeScript Engine) completed and shipped as v0.91.0. Ke
 - **Cross-platform standalone mode**: The MCP server can operate independently on any platform with Node.js, removing the Bash/jq dependency for MCP consumers
 - **MCP-first migration validated**: This delivery validates the incremental "MCP-first then hotspots" migration strategy as canonical doctrine. The MCP server provides the foundation for further TypeScript expansion, independent of the T2112 Bash stabilization gate
 
-**Architecture validation finding (2026-02-16, T4565/T4566)**: The MCP engine at `mcp-server/src/engine/` operates as a **parallel implementation** separate from the `src/core/` shared-core layer. Task operations (8 ops), session operations (4 ops), and data access layers are independently implemented. The CLI layer is 100% compliant with shared-core, but MCP domains route to `mcp-server/src/engine/` instead of `src/core/`. Unification of these layers is a priority remediation item. See `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` for the full audit.
+**Architecture validation finding (2026-02-16, T4565/T4566)**: The MCP engine at `mcp-server/src/engine/` operates as a **parallel implementation** separate from the `src/core/` shared-core layer. Task operations (8 ops), session operations (4 ops), and data access layers are independently implemented. The CLI layer is 100% compliant with shared-core, but MCP domains route to `mcp-server/src/engine/` instead of `src/core/`. Unification of these layers is a priority remediation item. See `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` for the full audit.
 
 **Architecture** (TypeScript + FastMCP)
 

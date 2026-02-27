@@ -1979,7 +1979,7 @@ protocol=$(contribution_protocol_instantiate \
   "Session A" \
   "$decision_questions" \
   "$baseline_decisions" \
-  '{"outputDir": "claudedocs/agent-outputs"}'
+  '{"outputDir": ".cleo/agent-outputs"}'
 )
 ```
 
@@ -2078,7 +2078,7 @@ decisions_json='[{"id": 1, "question": "Architecture approach?"}]'
 options_json='{
   "epicTitle": "RCSD Integration",
   "markerLabel": "consensus-source",
-  "outputDir": "claudedocs/agent-outputs",
+  "outputDir": ".cleo/agent-outputs",
   "phase": "core",
   "version": "1.0.0"
 }'

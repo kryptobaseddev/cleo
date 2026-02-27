@@ -13,7 +13,10 @@ export function createSanitizer(getProjectRoot?: () => string): Middleware {
     if (req.params) {
       try {
         const root = getProjectRoot ? getProjectRoot() : undefined;
-        req.params = legacySanitizeParams(req.params, root);
+        req.params = legacySanitizeParams(req.params, root, {
+          domain: req.domain,
+          operation: req.operation,
+        });
       } catch (error) {
         return {
           _meta: {

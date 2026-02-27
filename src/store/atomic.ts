@@ -190,7 +190,9 @@ export async function cleanupMigrationArtifacts(backupPath: string): Promise<boo
  */
 export async function validateSqliteDatabase(dbPath: string): Promise<boolean> {
   try {
-    const { DatabaseSync } = await import('node:sqlite');
+    const { createRequire } = await import('node:module');
+    const _req = createRequire(import.meta.url);
+    const { DatabaseSync } = _req('node:sqlite') as typeof import('node:sqlite');
     const db = new DatabaseSync(dbPath, { readOnly: true });
     const integrityRow = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string } | undefined;
     const isOk = integrityRow?.integrity_check === 'ok';

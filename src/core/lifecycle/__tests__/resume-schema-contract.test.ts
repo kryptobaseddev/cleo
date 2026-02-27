@@ -78,17 +78,19 @@ describe('lifecycle resume schema contract (T4809 regression)', () => {
     });
 
     it('status enum includes all DbStageStatus values used by resume.ts', () => {
-      // resume.ts type DbStageStatus = 'pending' | 'active' | 'blocked' | 'completed' | 'skipped'
+      // resume.ts DbStageStatus = StageStatus from status-registry.ts (ADR-018)
+      // Canonical values: 'not_started' | 'in_progress' | 'blocked' | 'completed' | 'skipped' | 'failed'
       const statusCol = schema.lifecycleStages.status;
       expect(statusCol).toBeDefined();
       const config = (statusCol as Record<string, unknown>)['config'] as Record<string, unknown> | undefined;
       if (config?.['enumValues']) {
         const enumValues = config['enumValues'] as string[];
-        expect(enumValues).toContain('pending');
-        expect(enumValues).toContain('active');
+        expect(enumValues).toContain('not_started');
+        expect(enumValues).toContain('in_progress');
         expect(enumValues).toContain('blocked');
         expect(enumValues).toContain('completed');
         expect(enumValues).toContain('skipped');
+        expect(enumValues).toContain('failed');
       }
     });
   });

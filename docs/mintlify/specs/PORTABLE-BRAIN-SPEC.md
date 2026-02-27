@@ -104,7 +104,7 @@ The CLI is transitioning from Bash to TypeScript. The TypeScript CLI (`src/cli/`
 
 MCP is the strategic interface for provider-neutral integration. The MCP server (v0.91.0) operates with a native TypeScript engine (`mcp-server/src/engine/`) that currently runs as a parallel implementation separate from the shared `src/core/` layer. This parallel engine was an intentional pragmatic decision to enable cross-platform MCP operation without Bash CLI dependency.
 
-**Architecture finding (2026-02-16)**: The MCP engine duplicates task CRUD (8 ops) and session management (4 ops) independently from `src/core/`. Unification of `mcp-server/src/engine/` with `src/core/` is a tracked remediation priority. See `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md`.
+**Architecture finding (2026-02-16)**: The MCP engine duplicates task CRUD (8 ops) and session management (4 ops) independently from `src/core/`. Unification of `mcp-server/src/engine/` with `src/core/` is a tracked remediation priority. See `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md`.
 
 MCP implementations MUST preserve CLI semantics, invariants, and exit-code intent.
 
@@ -158,5 +158,5 @@ Documentation and implementation MUST use the same canonical terms for:
 - `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`
 - `docs/specs/CLEO-BRAIN-SPECIFICATION.md`
 - `docs/specs/MCP-SERVER-SPECIFICATION.md`
-- `claudedocs/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit)
-- `claudedocs/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)
+- `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit)
+- `.cleo/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)

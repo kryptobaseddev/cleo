@@ -31,7 +31,7 @@ const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
 const MANIFEST_PATH = join(MANIFEST_DIR, 'MANIFEST.jsonl');
 
 const SAMPLE_ENTRIES = [
-  { id: 'T001-research', file: 'out/T001.md', title: 'First Research', date: '2026-01-15', status: 'complete', agent_type: 'research', topics: ['mcp', 'engine'], key_findings: ['finding1', 'finding2', 'finding3'], actionable: true, linked_tasks: ['T001'], needs_followup: [] },
+  { id: 'T001-research', file: 'out/T001.md', title: 'First Research', date: '2026-01-15', status: 'completed', agent_type: 'research', topics: ['mcp', 'engine'], key_findings: ['finding1', 'finding2', 'finding3'], actionable: true, linked_tasks: ['T001'], needs_followup: [] },
   { id: 'T002-spec', file: 'out/T002.md', title: 'Specification Doc', date: '2026-02-01', status: 'partial', agent_type: 'specification', topics: ['spec', 'api'], key_findings: ['spec1'], actionable: false, linked_tasks: ['T002'], needs_followup: ['T003'] },
   { id: 'T003-impl', file: 'out/T003.md', title: 'Implementation', date: '2026-02-10', status: 'blocked', agent_type: 'implementation', topics: ['engine', 'native'], key_findings: [], actionable: true, linked_tasks: ['T001', 'T003'] },
 ];
@@ -83,7 +83,7 @@ describe('Memory Engine Compat', () => {
     });
 
     it('should filter by status', () => {
-      const result = memoryList({ status: 'complete' }, TEST_ROOT);
+      const result = memoryList({ status: 'completed' }, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
@@ -152,7 +152,7 @@ describe('Memory Engine Compat', () => {
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.total).toBe(3);
-      expect(data.byStatus.complete).toBe(1);
+      expect(data.byStatus.completed).toBe(1);
       expect(data.byStatus.partial).toBe(1);
       expect(data.actionable).toBe(2);
     });
@@ -192,7 +192,7 @@ describe('Memory Engine Compat', () => {
         file: 'out/T004.md',
         title: 'New Entry',
         date: '2026-02-13',
-        status: 'complete' as const,
+        status: 'completed' as const,
         agent_type: 'research',
         topics: ['test'],
         actionable: true,
@@ -286,7 +286,7 @@ describe('Memory Engine Compat', () => {
     });
 
     it('should apply filter', () => {
-      const result = memoryManifestRead({ status: 'complete' }, TEST_ROOT);
+      const result = memoryManifestRead({ status: 'completed' }, TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });

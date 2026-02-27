@@ -331,7 +331,7 @@ The following tasks should be created to track the highest-priority gaps identif
 | CAAMP Integration Spec | `docs/specs/CLEO-CAAMP-INTEGRATION.md` |
 | Path Forward | `docs/specs/CLEO-PATH-FORWARD-2026Q1.md` |
 | MCP Agent Interaction | `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` |
-| CAAMP Dependency Analysis | `claudedocs/agent-outputs/caamp-dependency-analysis.md` |
+| CAAMP Dependency Analysis | `.cleo/agent-outputs/caamp-dependency-analysis.md` |
 | Native Engine | `mcp-server/src/engine/index.ts` |
 | Epic | T4332 |
 | CAAMP npm publish blocker | T4341 (RESOLVED) |

@@ -6,8 +6,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson } from '../../store/json.js';
-import { getTodoPath, getSessionsPath } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath, getSessionsPath } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 export interface InjectGenerateResult {
@@ -46,13 +46,13 @@ export async function generateInjection(
   let focusTask: string | null = null;
   let sessionScope: string | null = null;
 
-  const todo = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(projectRoot));
+  const taskFile = accessor
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(projectRoot));
 
-  if (todo) {
-    focusTask = todo.focus?.currentTask ?? null;
-    activeSessionName = todo._meta?.activeSession ?? null;
+  if (taskFile) {
+    focusTask = taskFile.focus?.currentTask ?? null;
+    activeSessionName = taskFile._meta?.activeSession ?? null;
   }
 
   // Try sessions.json for richer session data
@@ -68,7 +68,7 @@ export async function generateInjection(
       }
     }
   } catch {
-    // fallback to todo.json data
+    // fallback to tasks.json data
   }
 
   // Storage engine is always sqlite (ADR-006)

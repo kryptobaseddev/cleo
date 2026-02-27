@@ -27,6 +27,7 @@ import {
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
 import { computeChecksum } from '../../store/json.js';
 import type { Task } from '../../types/task.js';
+import { TASK_STATUSES } from '../../store/status-registry.js';
 
 // ============================================================================
 // Types
@@ -455,15 +456,15 @@ export async function coreValidateTask(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
+  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
   const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
 
-  if (!todoData) {
+  if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
   }
 
   const allTasks = [
-    ...(todoData.tasks || []),
+    ...(taskData.tasks || []),
     ...(archiveData?.tasks || []),
   ];
 
@@ -524,13 +525,13 @@ export async function coreValidateProtocol(
   }
 
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
+  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
 
-  if (!todoData) {
+  if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
   }
 
-  const task = todoData.tasks?.find((t) => t.id === taskId);
+  const task = taskData.tasks?.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
   }
@@ -547,11 +548,10 @@ export async function coreValidateProtocol(
     violations.push({ code: 'P_SAME_TITLE_DESC', message: 'Title and description must be different', severity: 'error' });
   }
 
-  const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled', 'archived'];
-  if (!validStatuses.includes(task.status)) {
+  if (!(TASK_STATUSES as readonly string[]).includes(task.status)) {
     violations.push({
       code: 'P_INVALID_STATUS',
-      message: `Invalid status: ${task.status}. Valid: ${validStatuses.join(', ')}`,
+      message: `Invalid status: ${task.status}. Valid: ${TASK_STATUSES.join(', ')}`,
       severity: 'error',
     });
   }
@@ -893,13 +893,13 @@ export async function coreCoherenceCheck(
   projectRoot: string,
 ): Promise<{ coherent: boolean; issues: CoherenceIssue[] }> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
+  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
 
-  if (!todoData || !todoData.tasks) {
+  if (!taskData || !taskData.tasks) {
     throw new Error('No task data found (SQLite store unavailable)');
   }
 
-  const tasks = todoData.tasks;
+  const tasks = taskData.tasks;
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const issues: CoherenceIssue[] = [];
 
@@ -1137,15 +1137,15 @@ export async function coreBatchValidate(
   }>;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
+  const taskData = await accessor.loadTaskFile() as unknown as { tasks: TaskRecord[] };
 
-  if (!todoData) {
+  if (!taskData) {
     throw new Error('Task data not found (SQLite store unavailable)');
   }
 
   const archiveData = await accessor.loadArchive() as unknown as { tasks: TaskRecord[] } | null;
   const allTasks = [
-    ...(todoData.tasks || []),
+    ...(taskData.tasks || []),
     ...(archiveData?.tasks || []),
   ];
 

@@ -9,6 +9,7 @@
  * @epic T4663
  */
 
+// TODO T4894: operation 'mcp-install' not yet in registry — no dispatch equivalent.\n// Leave bypass until admin domain exposes mcp.install operation.
 import { Command } from 'commander';
 import { detectEnvMode, generateMcpServerEntry } from '../../core/mcp/index.js';
 import { formatError } from '../../core/output.js';

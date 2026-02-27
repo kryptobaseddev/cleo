@@ -5,8 +5,8 @@
  */
 
 import { readJson } from '../../store/json.js';
-import { getTodoPath, getSessionsPath } from '../paths.js';
-import type { TodoFile } from '../../types/task.js';
+import { getTaskPath, getSessionsPath } from '../paths.js';
+import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import type { BrainState } from '../../types/operations/orchestrate.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -50,8 +50,8 @@ export async function buildBrainState(
 
   // --- Tasks & Progress ---
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(projectRoot));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(projectRoot));
 
   const tasks = data?.tasks ?? [];
   brain.progress = {

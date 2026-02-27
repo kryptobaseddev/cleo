@@ -71,19 +71,19 @@ export function uncancelTask(
     throw new CleoError(ExitCode.INVALID_INPUT, 'taskId is required');
   }
 
-  const todoPath = join(projectRoot, '.cleo', 'todo.json');
-  if (!existsSync(todoPath)) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'No todo.json found');
+  const taskPath = join(projectRoot, '.cleo', 'tasks.json');
+  if (!existsSync(taskPath)) {
+    throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.json found');
   }
 
-  let todo: { tasks: Array<{ id: string; status: string; parentId?: string; notes?: Array<{ text: string; timestamp: string }> }> };
+  let taskFile: { tasks: Array<{ id: string; status: string; parentId?: string; notes?: Array<{ text: string; timestamp: string }> }> };
   try {
-    todo = JSON.parse(readFileSync(todoPath, 'utf-8'));
+    taskFile = JSON.parse(readFileSync(taskPath, 'utf-8'));
   } catch {
-    throw new CleoError(ExitCode.FILE_ERROR, 'Failed to parse todo.json');
+    throw new CleoError(ExitCode.FILE_ERROR, 'Failed to parse tasks.json');
   }
 
-  const task = todo.tasks.find(t => t.id === params.taskId);
+  const task = taskFile.tasks.find(t => t.id === params.taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${params.taskId}`);
   }
@@ -101,16 +101,16 @@ export function uncancelTask(
       task.notes.push({ text: params.notes, timestamp: new Date().toISOString() });
     }
     if (params.cascade) {
-      for (const t of todo.tasks) {
+      for (const t of taskFile.tasks) {
         if (t.parentId === params.taskId && t.status === 'cancelled') {
           t.status = 'pending';
           cascadeCount++;
         }
       }
     }
-    writeFileSync(todoPath, JSON.stringify(todo, null, 2), 'utf-8');
+    writeFileSync(taskPath, JSON.stringify(taskFile, null, 2), 'utf-8');
   } else if (params.cascade) {
-    cascadeCount = todo.tasks.filter(t => t.parentId === params.taskId && t.status === 'cancelled').length;
+    cascadeCount = taskFile.tasks.filter(t => t.parentId === params.taskId && t.status === 'cancelled').length;
   }
 
   return {

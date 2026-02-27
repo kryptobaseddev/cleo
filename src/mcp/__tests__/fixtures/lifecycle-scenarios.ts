@@ -29,56 +29,61 @@ export const rcsdStates = {
     },
   },
 
-  // Partial RCSD (research + consensus complete)
+  // Partial RCASD (research + consensus + architecture_decision complete, ready for specification)
   researchAndConsensus: {
     epicId: 'T3002',
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'pending',
       decomposition: 'pending',
     },
   },
 
-  // Partial RCSD (research + consensus + spec complete)
+  // Partial RCASD (R+C+A+S complete, ready for decomposition)
   upToSpecification: {
     epicId: 'T3003',
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'pending',
     },
   },
 
-  // Complete RCSD (all stages done)
+  // Complete RCASD (all stages done)
   completeRCSD: {
     epicId: 'T3004',
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'completed',
     },
   },
 
-  // RCSD with skipped stage (consensus skipped)
+  // RCASD with skipped stages (consensus + architecture_decision skipped)
   consensusSkipped: {
     epicId: 'T3005',
     manifest: {
       research: 'completed',
       consensus: 'skipped', // Skipped stages count as passed
+      architecture_decision: 'skipped',
       specification: 'completed',
       decomposition: 'completed',
     },
   },
 
-  // RCSD with failed stage
+  // RCASD with failed stage
   specificationFailed: {
     epicId: 'T3006',
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'failed', // Failed stage blocks progression
       decomposition: 'pending',
     },
@@ -96,6 +101,7 @@ export const ivtrStates = {
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'completed',
       implementation: 'completed',
@@ -111,6 +117,7 @@ export const ivtrStates = {
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'completed',
       implementation: 'completed',
@@ -126,6 +133,7 @@ export const ivtrStates = {
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'completed',
       implementation: 'completed',
@@ -141,6 +149,7 @@ export const ivtrStates = {
     manifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'completed',
       implementation: 'completed',
@@ -255,13 +264,14 @@ export const gateSuccesses = {
     },
   },
 
-  // Valid progression: with skipped stage
+  // Valid progression: with skipped consensus + architecture_decision
   withSkippedStage: {
     epicId: 'T3031',
     targetStage: 'specification',
     currentManifest: {
       research: 'completed',
       consensus: 'skipped', // Skipped is acceptable
+      architecture_decision: 'skipped', // Must also skip or complete A before S
     },
     expectedResult: {
       passed: true,
@@ -269,13 +279,14 @@ export const gateSuccesses = {
     },
   },
 
-  // Valid progression: complete RCSD to implementation
+  // Valid progression: complete RCASD to implementation
   completeRCSDToImplementation: {
     epicId: 'T3032',
     targetStage: 'implementation',
     currentManifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'completed',
     },
@@ -292,6 +303,7 @@ export const gateSuccesses = {
     currentManifest: {
       research: 'completed',
       consensus: 'completed',
+      architecture_decision: 'completed',
       specification: 'completed',
       decomposition: 'completed',
       implementation: 'completed',

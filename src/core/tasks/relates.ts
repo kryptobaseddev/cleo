@@ -88,10 +88,10 @@ export async function addRelation(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
 
   const fromTask = data.tasks.find(t => t.id === from);
   if (!fromTask) {
@@ -122,7 +122,7 @@ export async function addRelation(
   if (accessor) {
     await safeSaveTaskFile(accessor, data, cwd);
   } else {
-    await saveJson(todoPath, data, { backupDir: getBackupDir(cwd) });
+    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
 
   return { from, to, type, reason, added: true };

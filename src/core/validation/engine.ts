@@ -11,19 +11,16 @@
 
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { TASK_STATUSES, type TaskStatus } from '../../store/status-registry.js';
+export type { TaskStatus } from '../../store/status-registry.js';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-export const VALID_STATUSES = ['pending', 'active', 'done', 'blocked', 'cancelled'] as const;
-export type TaskStatus = typeof VALID_STATUSES[number];
-
 export const VALID_OPERATIONS = [
   'create', 'update', 'complete', 'archive', 'restore', 'delete', 'validate', 'backup',
 ] as const;
-
-export const VALID_PHASE_STATUSES = ['pending', 'active', 'completed'] as const;
 
 /** Field length limits matching the Bash implementation. */
 export const FIELD_LIMITS = {
@@ -332,9 +329,10 @@ export function validateCancelReason(reason: string): ValidationResult {
 const STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   pending: ['active', 'blocked', 'cancelled'],
   active: ['done', 'blocked', 'pending', 'cancelled'],
-  done: ['pending'],
+  done: ['pending', 'archived'],
   blocked: ['pending', 'active', 'cancelled'],
   cancelled: ['pending'],
+  archived: [],
 };
 
 /**
@@ -368,7 +366,7 @@ export function validateStatusTransition(oldStatus: TaskStatus, newStatus: TaskS
  * @task T4523
  */
 export function isValidStatus(status: string): status is TaskStatus {
-  return (VALID_STATUSES as readonly string[]).includes(status);
+  return (TASK_STATUSES as readonly string[]).includes(status);
 }
 
 // ============================================================================
@@ -494,7 +492,7 @@ export interface Task {
   [key: string]: unknown;
 }
 
-export interface TodoFile {
+export interface TaskFile {
   tasks: Task[];
   project?: {
     currentPhase?: string;
@@ -517,19 +515,19 @@ export interface ArchiveFile {
  * @task T4523
  */
 export function checkIdUniqueness(
-  todoFile: TodoFile,
+  taskFile: TaskFile,
   archiveFile?: ArchiveFile,
 ): ValidationResult {
   const errors: ValidationError[] = [];
 
-  const todoIds = todoFile.tasks
+  const taskIds = taskFile.tasks
     .map(t => t.id)
     .filter((id): id is string => !!id);
 
   // Check for duplicates within todo
   const seen = new Set<string>();
   const duplicates = new Set<string>();
-  for (const id of todoIds) {
+  for (const id of taskIds) {
     if (seen.has(id)) duplicates.add(id);
     seen.add(id);
   }
@@ -550,7 +548,7 @@ export function checkIdUniqueness(
         .filter((id): id is string => !!id),
     );
 
-    const crossDuplicates = todoIds.filter(id => archiveIds.has(id));
+    const crossDuplicates = taskIds.filter(id => archiveIds.has(id));
     if (crossDuplicates.length > 0) {
       errors.push({
         message: `Task IDs exist in both todo and archive: ${crossDuplicates.join(', ')}`,
@@ -581,7 +579,7 @@ export function validateTask(task: Task): ValidationResult {
   }
 
   if (!task.status) {
-    errors.push({ field: 'status', message: 'Missing status field', severity: 'error', fix: 'Add status field (pending|active|done|blocked|cancelled)' });
+    errors.push({ field: 'status', message: 'Missing status field', severity: 'error', fix: `Add status field (${TASK_STATUSES.join('|')})` });
   }
 
   if (!task.activeForm) {
@@ -594,7 +592,7 @@ export function validateTask(task: Task): ValidationResult {
       field: 'status',
       message: `Invalid status: '${task.status}'`,
       severity: 'error',
-      fix: `Status must be one of: ${VALID_STATUSES.join(', ')}`,
+      fix: `Status must be one of: ${TASK_STATUSES.join(', ')}`,
     });
   }
 
@@ -744,8 +742,8 @@ export function validateNoCircularDeps(
  * Validate only one phase is active.
  * @task T4523
  */
-export function validateSingleActivePhase(todoFile: TodoFile): ValidationResult {
-  const phases = todoFile.project?.phases;
+export function validateSingleActivePhase(taskFile: TaskFile): ValidationResult {
+  const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
   const activeCount = Object.values(phases).filter(p => p.status === 'active').length;
@@ -769,11 +767,11 @@ export function validateSingleActivePhase(todoFile: TodoFile): ValidationResult 
  * Validate currentPhase matches an active phase.
  * @task T4523
  */
-export function validateCurrentPhaseConsistency(todoFile: TodoFile): ValidationResult {
-  const currentPhase = todoFile.project?.currentPhase;
+export function validateCurrentPhaseConsistency(taskFile: TaskFile): ValidationResult {
+  const currentPhase = taskFile.project?.currentPhase;
   if (!currentPhase) return { valid: true, errors: [], warnings: [] };
 
-  const phases = todoFile.project?.phases;
+  const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
   const phase = phases[currentPhase];
@@ -808,8 +806,8 @@ export function validateCurrentPhaseConsistency(todoFile: TodoFile): ValidationR
  * Validate phase timestamp ordering.
  * @task T4523
  */
-export function validatePhaseTimestamps(todoFile: TodoFile): ValidationResult {
-  const phases = todoFile.project?.phases;
+export function validatePhaseTimestamps(taskFile: TaskFile): ValidationResult {
+  const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
   const errors: ValidationError[] = [];
@@ -833,8 +831,8 @@ export function validatePhaseTimestamps(todoFile: TodoFile): ValidationResult {
  * Validate phase status requirements (e.g., active phases must have startedAt).
  * @task T4523
  */
-export function validatePhaseStatusRequirements(todoFile: TodoFile): ValidationResult {
-  const phases = todoFile.project?.phases;
+export function validatePhaseStatusRequirements(taskFile: TaskFile): ValidationResult {
+  const phases = taskFile.project?.phases;
   if (!phases) return { valid: true, errors: [], warnings: [] };
 
   const errors: ValidationError[] = [];
@@ -874,11 +872,11 @@ export interface ComprehensiveValidationResult {
 }
 
 /**
- * Run all validation checks on a TodoFile.
+ * Run all validation checks on a TaskFile.
  * @task T4523
  */
 export function validateAll(
-  todoFile: TodoFile,
+  taskFile: TaskFile,
   archiveFile?: ArchiveFile,
 ): ComprehensiveValidationResult {
   let schemaErrors = 0;
@@ -886,7 +884,7 @@ export function validateAll(
   const checks: ComprehensiveValidationResult['checks'] = [];
 
   // 1. Check tasks array exists
-  if (!Array.isArray(todoFile.tasks)) {
+  if (!Array.isArray(taskFile.tasks)) {
     schemaErrors++;
     checks.push({ name: 'tasks_array', passed: false, message: 'Missing or invalid tasks array' });
     return { schemaErrors, semanticErrors, exitCode: VAL_SCHEMA_ERROR, checks };
@@ -894,7 +892,7 @@ export function validateAll(
   checks.push({ name: 'tasks_array', passed: true, message: 'Tasks array valid' });
 
   // 2. ID Uniqueness
-  const idResult = checkIdUniqueness(todoFile, archiveFile);
+  const idResult = checkIdUniqueness(taskFile, archiveFile);
   if (!idResult.valid) {
     semanticErrors++;
     checks.push({ name: 'id_uniqueness', passed: false, message: idResult.errors[0]?.message ?? 'Duplicate IDs found' });
@@ -904,7 +902,7 @@ export function validateAll(
 
   // 3. Individual task validation
   let taskErrors = 0;
-  for (const task of todoFile.tasks) {
+  for (const task of taskFile.tasks) {
     const result = validateTask(task);
     if (!result.valid) taskErrors++;
   }
@@ -912,11 +910,11 @@ export function validateAll(
     semanticErrors++;
     checks.push({ name: 'task_validation', passed: false, message: `${taskErrors} task(s) have validation errors` });
   } else {
-    checks.push({ name: 'task_validation', passed: true, message: `All tasks valid (${todoFile.tasks.length} tasks)` });
+    checks.push({ name: 'task_validation', passed: true, message: `All tasks valid (${taskFile.tasks.length} tasks)` });
   }
 
   // 4. Content duplicate check
-  const contents = todoFile.tasks.map(t => t.content).filter(Boolean);
+  const contents = taskFile.tasks.map(t => t.content).filter(Boolean);
   const contentDuplicates = contents.filter((c, i) => contents.indexOf(c) !== i);
   if (contentDuplicates.length > 0) {
     checks.push({ name: 'content_duplicates', passed: true, message: `Warning: duplicate content found` });
@@ -925,12 +923,12 @@ export function validateAll(
   }
 
   // 5. Phase validation
-  if (todoFile.project?.phases) {
+  if (taskFile.project?.phases) {
     let phaseErrors = 0;
-    if (!validateSingleActivePhase(todoFile).valid) phaseErrors++;
-    if (!validateCurrentPhaseConsistency(todoFile).valid) phaseErrors++;
-    if (!validatePhaseTimestamps(todoFile).valid) phaseErrors++;
-    if (!validatePhaseStatusRequirements(todoFile).valid) phaseErrors++;
+    if (!validateSingleActivePhase(taskFile).valid) phaseErrors++;
+    if (!validateCurrentPhaseConsistency(taskFile).valid) phaseErrors++;
+    if (!validatePhaseTimestamps(taskFile).valid) phaseErrors++;
+    if (!validatePhaseStatusRequirements(taskFile).valid) phaseErrors++;
 
     if (phaseErrors > 0) {
       semanticErrors++;
@@ -942,9 +940,9 @@ export function validateAll(
 
   // 6. Circular dependency check
   let cycleErrors = 0;
-  for (const task of todoFile.tasks) {
+  for (const task of taskFile.tasks) {
     if (task.id && task.depends && task.depends.length > 0) {
-      const result = validateNoCircularDeps(todoFile.tasks, task.id, task.depends);
+      const result = validateNoCircularDeps(taskFile.tasks, task.id, task.depends);
       if (!result.valid) cycleErrors++;
     }
   }
@@ -956,7 +954,7 @@ export function validateAll(
   }
 
   // 7. Done status consistency
-  const invalidDone = todoFile.tasks.filter(
+  const invalidDone = taskFile.tasks.filter(
     t => t.status === 'done' && !t.completed_at,
   );
   if (invalidDone.length > 0) {

@@ -16,7 +16,13 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+// Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
+// Use createRequire as the runtime loader; keep type-only import for annotations.
+import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
+import { createRequire } from 'node:module';
+const _require = createRequire(import.meta.url);
+type DatabaseSync = _DatabaseSyncType;
+const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync };
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';

@@ -10,7 +10,9 @@
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
+const _require = createRequire(import.meta.url);
+const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
 
 /**
  * Result of a backup verification operation.

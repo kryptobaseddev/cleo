@@ -205,3 +205,19 @@ export function getNodeUpgradeInstructions(): {
 
   return { platform, arch, instructions, recommended };
 }
+
+// =============================================================================
+// File I/O re-exports
+//
+// dispatch/engines/ must import from core/, not store/ directly (ADR-008).
+// These re-exports make store/file-utils available to the engine layer via
+// the core boundary without creating inverted dependencies.
+// =============================================================================
+
+export {
+  resolveProjectRoot,
+  getDataPath,
+  readJsonFile,
+  writeJsonFileAtomic,
+  readLogFileEntries,
+} from '../store/file-utils.js';

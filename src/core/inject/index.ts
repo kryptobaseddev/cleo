@@ -12,8 +12,8 @@
  */
 
 import { readJson } from '../../store/json.js';
-import { getTodoPath } from '../paths.js';
-import type { TodoFile, Task } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
+import type { TaskFile, Task } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -27,7 +27,7 @@ import type { DataAccessor } from '../../store/data-accessor.js';
  * @task T4539
  */
 function selectTasksForInjection(
-  data: TodoFile,
+  data: TaskFile,
   opts: {
     maxTasks?: number;
     focusedOnly?: boolean;
@@ -86,8 +86,8 @@ export async function injectTasks(opts: {
   cwd?: string;
 }, accessor?: DataAccessor): Promise<Record<string, unknown>> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(opts.cwd));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(opts.cwd));
   if (!data) {
     throw new CleoError(ExitCode.CONFIG_ERROR, 'Not in a CLEO project');
   }

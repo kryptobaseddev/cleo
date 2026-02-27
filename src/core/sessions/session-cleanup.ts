@@ -6,7 +6,7 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import type { SessionRecord, SessionsFileExt, TodoFileExt } from './types.js';
+import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
 
 /**
  * Remove orphaned sessions and clean up stale data.
@@ -17,8 +17,8 @@ export async function cleanupSessions(
   projectRoot: string,
 ): Promise<{ removed: string[]; cleaned: boolean }> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTodoFile();
-  const current = todoData as unknown as TodoFileExt;
+  const taskData = await accessor.loadTaskFile();
+  const current = taskData as unknown as TaskFileExt;
 
   const multiSession = current._meta?.multiSessionEnabled === true;
   if (!multiSession) {
@@ -71,7 +71,7 @@ export async function cleanupSessions(
     }
     await accessor.saveSessions(sessions as any);
     if (todoUpdated) {
-      await accessor.saveTodoFile(todoData);
+      await accessor.saveTaskFile(taskData);
     }
   }
 

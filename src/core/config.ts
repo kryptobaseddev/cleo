@@ -51,6 +51,11 @@ const DEFAULTS: CleoConfig = {
     maxFileSize: 10 * 1024 * 1024, // 10MB
     maxFiles: 5,
   },
+  sharing: {
+    mode: 'none',
+    commitAllowlist: [],
+    denylist: [],
+  },
 };
 
 /** Environment variable to config path mapping. */

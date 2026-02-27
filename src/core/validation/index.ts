@@ -7,17 +7,17 @@
  * @epic T4454
  */
 
-// Core validation engine
+// Core validation engine — also re-export registry constants for convenience
+export { TASK_STATUSES } from '../../store/status-registry.js';
+
 export {
-  VALID_STATUSES,
   VALID_OPERATIONS,
-  VALID_PHASE_STATUSES,
   FIELD_LIMITS,
   type TaskStatus,
   type ValidationError,
   type ValidationResult,
   type Task,
-  type TodoFile,
+  type TaskFile,
   type ArchiveFile,
   type ComprehensiveValidationResult,
   sanitizeFilePath,

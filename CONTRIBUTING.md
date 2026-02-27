@@ -56,7 +56,7 @@ Many CLEO contributors use AI coding agents to help with their work. Here's how 
    echo "OS: $(uname -srm 2>/dev/null || echo 'unknown')" && \
    echo "Shell: $SHELL" && \
    echo "CLEO_HOME: ${CLEO_HOME:-not set}" && \
-   echo "Initialized: $(test -f .cleo/todo.json && echo 'yes' || echo 'no')"
+   echo "Initialized: $(test -f .cleo/tasks.db && echo 'yes' || echo 'no')"
    ```
 3. Include the **full error output** (JSON responses, stderr, exit codes)
 4. Mark the issue as agent-filed in the template dropdown
@@ -64,18 +64,18 @@ Many CLEO contributors use AI coding agents to help with their work. Here's how 
 ### Submitting PRs with an AI Agent
 
 1. Make sure your agent reads `CLAUDE.md` and this file first
-2. Run all tests before submitting: `./tests/run-all-tests.sh`
-3. Run syntax checks: `bash -n scripts/*.sh lib/*.sh`
+2. Run tests before submitting: `npm test`
+3. Run type-check: `npm run build:check`
 4. Fill out the PR template completely - it has a section for AI agent disclosure
 5. Use conventional commit messages: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
 
 ### What Your Agent Should Know
 
-- CLEO is a **Bash CLI tool** - all scripts use `#!/usr/bin/env bash`
+- CLEO is a **TypeScript/Node.js CLI and MCP server** (`src/` is canonical)
 - All writes must be **atomic** (temp file -> validate -> backup -> rename)
 - **Never estimate time** - use scope/complexity descriptions instead
 - Error responses are **structured JSON** with exit codes
-- Tests use the **BATS** framework (`tests/unit/*.bats`, `tests/integration/*.bats`)
+- Tests use **Vitest** (BATS remains legacy coverage)
 
 ## Reporting Issues
 
@@ -108,8 +108,8 @@ We use GitHub Issue templates to collect the right information. Choose the right
 
 Before contributing, ensure you have:
 
-- **Bash 4.0+**: `bash --version`
-- **jq 1.5+**: `jq --version`
+- **Node.js 24+**: `node -v`
+- **npm**: `npm -v`
 - **Git**: For version control
 - **A Unix-like environment**: Linux, macOS, or WSL2
 
@@ -130,20 +130,25 @@ Before contributing, ensure you have:
 
 ### Local Installation
 
-Install for development (uses symlinks so changes are reflected immediately):
+Install for development with channel isolation (`cleo-dev`):
 
 ```bash
-# Install in dev mode
+# Install in dev mode (canonical isolated contributor setup)
 ./install.sh --dev
 
 # Verify installation
-cleo version
+cleo-dev env info --json
 
 # Create a test project directory
 mkdir /tmp/test-project
 cd /tmp/test-project
-cleo init
+cleo-dev init
 ```
+
+Important caveat:
+
+- Raw `npm link` follows package bin mappings and may expose `cleo`/`ct`.
+- Use `./install.sh --dev` when you need strict `cleo-dev`/`cleo-mcp-dev` behavior.
 
 ### Initialize Test Dependencies
 
@@ -155,42 +160,32 @@ git submodule update --init --recursive
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run primary test suite (Vitest)
+npm test
+
+# Type-check without emit
+npm run build:check
+
+# Legacy BATS (optional, migration in progress)
 ./tests/run-all-tests.sh
-
-# Run specific test types
-bats tests/unit/*.bats           # Unit tests
-bats tests/integration/*.bats    # Integration tests
-
-# Run with verbose output
-CLEO_LOG_LEVEL=debug ./tests/run-all-tests.sh
 ```
 
 ### Project Structure
 
 ```
 cleo/
-├── scripts/           # CLI command entrypoints (user-facing commands ONLY)
-├── lib/               # Shared library functions
-│   ├── core/          #   Foundation: exit codes, error handling, logging
-│   ├── validation/    #   Schema validation, protocol enforcement
-│   ├── session/       #   Session lifecycle, context monitoring
-│   ├── tasks/         #   Task mutations, dependency graphs
-│   ├── skills/        #   Skill discovery, agent registry
-│   ├── data/          #   Atomic writes, file ops, backup, cache
-│   ├── ui/            #   CLI flags, command registry
-│   ├── metrics/       #   Token estimation, OpenTelemetry
-│   └── release/       #   Release lifecycle, artifacts
+├── src/               # TypeScript source (canonical)
+│   ├── core/          # Business logic and contracts
+│   ├── cli/           # CLI commands and renderers
+│   ├── mcp/           # MCP gateways/domains/engine
+│   ├── dispatch/      # Canonical operation routing
+│   └── store/         # SQLite/data access
 ├── schemas/           # JSON Schema definitions
 ├── templates/         # Template files for new projects
-├── tests/             # BATS test suite
-│   ├── unit/          #   Unit tests
-│   ├── integration/   #   Integration tests
-│   ├── golden/        #   Output format tests
-│   └── fixtures/      #   Test data
+├── tests/             # Test suites (Vitest primary, BATS legacy)
 ├── docs/              # User-facing documentation
 ├── .github/           # Issue templates, PR template, CI workflows
-└── mcp-server/        # MCP server for AI agent integration
+└── installer/         # Channel-aware installer
 ```
 
 ## Making Changes
@@ -253,7 +248,15 @@ Closes #42
 
 ### Writing Tests
 
-Tests use the [BATS](https://github.com/bats-core/bats-core) framework. Place tests in the appropriate directory:
+Primary tests use Vitest (`npm test`). Legacy bash coverage still uses BATS where needed.
+
+Vitest conventions:
+
+- `*.test.ts` for unit tests
+- `*.integration.test.ts` for integration tests
+- co-located tests in `src/**/__tests__/` or under `tests/`
+
+Legacy BATS (optional):
 
 - `tests/unit/` - Test individual functions in isolation
 - `tests/integration/` - Test command workflows end-to-end
@@ -284,22 +287,22 @@ teardown() {
 ### Running Validation Before Submitting
 
 ```bash
-# Run all tests
+# Run tests
+npm test
+
+# Type-check
+npm run build:check
+
+# Optional: legacy test suite
 ./tests/run-all-tests.sh
-
-# Validate JSON schemas
-cleo --validate
-
-# Check scripts for syntax errors
-bash -n scripts/*.sh lib/*.sh
 ```
 
 ## Submitting a Pull Request
 
 ### Before Submitting
 
-1. All tests pass: `./tests/run-all-tests.sh`
-2. No syntax errors: `bash -n scripts/*.sh lib/*.sh`
+1. Tests pass: `npm test`
+2. Type-check passes: `npm run build:check`
 3. Branch is up to date with `main`
 4. Commit messages follow conventions
 
@@ -319,7 +322,8 @@ bash -n scripts/*.sh lib/*.sh
 
 ### PR Checklist
 
-- [ ] Tests pass (`./tests/run-all-tests.sh`)
+- [ ] Tests pass (`npm test`)
+- [ ] Type-check passes (`npm run build:check`)
 - [ ] Code follows style guidelines (see below)
 - [ ] Documentation updated (if applicable)
 - [ ] Commit messages use conventional format
@@ -335,36 +339,13 @@ bash -n scripts/*.sh lib/*.sh
 
 ## Code Style
 
-### Shell Script Conventions
+### TypeScript Conventions
 
-```bash
-#!/usr/bin/env bash
-# Use bash, not sh
-
-# Enable strict mode
-set -euo pipefail
-
-# Constants in UPPER_SNAKE_CASE
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Functions in snake_case
-my_function() {
-    local arg1="$1"
-    local arg2="${2:-default}"
-    # Implementation
-}
-
-# Quote all variable expansions
-echo "$variable"
-
-# Use [[ ]] for conditionals (not [ ])
-if [[ -f "$file" ]]; then
-    # ...
-fi
-
-# Use $() for command substitution (not backticks)
-result=$(command)
-```
+- ESM imports/exports, strict mode enabled
+- 2-space indentation
+- `camelCase` for variables/functions, `PascalCase` for types
+- Exported functions should have explicit return types
+- Add/update Vitest coverage for behavior changes
 
 ### JSON Conventions
 
@@ -375,8 +356,7 @@ result=$(command)
 
 ### Key Rules
 
-- **4 spaces** for indentation (no tabs)
-- **Always quote** variable expansions
+- **2 spaces** for indentation
 - **Atomic writes** for all file operations (temp -> validate -> backup -> rename)
 - **Error JSON** with proper exit codes for all failures
 - **No time estimates** anywhere in the codebase
@@ -387,18 +367,17 @@ result=$(command)
 
 1. **Anti-Hallucination First**: All data modifications must be validated
 2. **Atomic Operations**: Use temp file -> validate -> backup -> rename pattern
-3. **Single Source of Truth**: `todo.json` is authoritative
+3. **Single Source of Truth**: SQLite (`.cleo/tasks.db`) is authoritative
 4. **Immutable History**: Log entries are append-only
 5. **Fail-Safe**: Always provide rollback capability
 
 ### Adding New Commands
 
-1. Create script in `scripts/` following naming convention
-2. Add help text with `--help` support
-3. Use library functions from `lib/`
-4. Add to CLI wrapper routing
-5. Write tests
-6. Update documentation
+1. Add command implementation in `src/cli/commands/`
+2. Route through dispatch/core layers (MCP-first + shared core)
+3. Add tests (Vitest)
+4. Update command docs/help text
+5. Update operation registry if needed
 
 ### Modifying Schemas
 

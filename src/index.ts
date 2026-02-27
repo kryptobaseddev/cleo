@@ -6,7 +6,7 @@
 
 // Types
 export { ExitCode } from './types/exit-codes.js';
-export type { Task, TodoFile, Phase, Release } from './types/task.js';
+export type { Task, TaskFile, Phase, Release } from './types/task.js';
 
 // Core
 export { CleoError } from './core/errors.js';

@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcasd-gate-result.schema.json",
+  "title": "RCASD Gate Result",
+  "description": "Schema for lifecycle gate check results. Gates enforce quality requirements at stage boundaries in the RCASD-IVTR pipeline.",
+  "type": "object",
+  "required": ["id", "stageId", "gateName", "result", "checkedAt", "checkedBy"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique gate result identifier"
+    },
+    "stageId": {
+      "type": "string",
+      "description": "Reference to the lifecycle stage this gate belongs to"
+    },
+    "gateName": {
+      "type": "string",
+      "description": "Name of the gate check (e.g., prerequisites-met, code-complete)"
+    },
+    "result": {
+      "type": "string",
+      "enum": ["pass", "fail", "warn"],
+      "description": "Gate check result"
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the gate was checked"
+    },
+    "checkedBy": {
+      "type": "string",
+      "description": "Agent or user who performed the check"
+    },
+    "details": {
+      "type": ["string", "null"],
+      "description": "Additional details about the check result"
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Reason for failure or warning"
+    }
+  }
+}

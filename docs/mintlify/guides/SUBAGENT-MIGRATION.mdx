@@ -100,8 +100,8 @@ All subagents MUST follow the protocol:
 
 | Requirement | Description |
 |-------------|-------------|
-| OUT-001 | MUST write findings to `claudedocs/agent-outputs/{DATE}_{TOPIC_SLUG}.md` |
-| OUT-002 | MUST append ONE line to `claudedocs/agent-outputs/MANIFEST.jsonl` |
+| OUT-001 | MUST write findings to `.cleo/agent-outputs/{DATE}_{TOPIC_SLUG}.md` |
+| OUT-002 | MUST append ONE line to `.cleo/agent-outputs/MANIFEST.jsonl` |
 | OUT-003 | MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary." |
 | OUT-004 | MUST NOT return content in response |
 
@@ -111,7 +111,7 @@ The output directory has been renamed:
 
 | Before | After |
 |--------|-------|
-| `claudedocs/research-outputs/` | `claudedocs/agent-outputs/` |
+| `claudedocs/research-outputs/` | `.cleo/agent-outputs/` |
 
 This change runs automatically during `cleo upgrade`. See [agent-outputs-migration-guide.md](../migration/agent-outputs-migration-guide.md) for details.
 
@@ -569,7 +569,7 @@ cleo restore
 
 ```bash
 # Reverse agent-outputs → research-outputs
-mv claudedocs/agent-outputs claudedocs/research-outputs
+mv .cleo/agent-outputs claudedocs/research-outputs
 
 # Update manifest paths
 sed -i 's|agent-outputs/|research-outputs/|g' claudedocs/research-outputs/MANIFEST.jsonl
@@ -604,7 +604,7 @@ cleo self-update --version 0.69.0
 ```json
 {
   "agentOutputs": {
-    "directory": "claudedocs/agent-outputs",
+    "directory": ".cleo/agent-outputs",
     "manifestFile": "MANIFEST.jsonl"
   }
 }
@@ -620,7 +620,7 @@ After migration, verify:
 
 - [ ] CLEO version is v0.70.0 or later (`cleo version`)
 - [ ] `cleo upgrade` completed successfully
-- [ ] `claudedocs/agent-outputs/` directory exists
+- [ ] `.cleo/agent-outputs/` directory exists
 - [ ] Custom skills have protocol references
 - [ ] Custom skills registered in `skills/manifest.json`
 - [ ] Skill dispatch works (`cleo orchestrator spawn T001 --dry-run`)

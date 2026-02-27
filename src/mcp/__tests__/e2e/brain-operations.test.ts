@@ -130,11 +130,14 @@ function writeManifest(entries: any[]): void {
 
 /**
  * Write decisions.jsonl with the given records.
+ * The orchestrateBootstrap reads from .cleo/decision-log.jsonl at the project root level.
  */
 function writeDecisions(records: any[]): void {
   mkdirSync(AUDIT_DIR, { recursive: true });
   const content = records.map((r) => JSON.stringify(r)).join('\n') + '\n';
   writeFileSync(join(AUDIT_DIR, 'decisions.jsonl'), content, 'utf-8');
+  // Also write to the path that orchestrateBootstrap reads from
+  writeFileSync(join(CLEO_DIR, 'decision-log.jsonl'), content, 'utf-8');
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +292,7 @@ const SAMPLE_MANIFEST_ENTRIES = [
     file: '.cleo/agent-outputs/T101-infra.md',
     title: 'Infrastructure Research',
     date: '2026-01-03',
-    status: 'complete',
+    status: 'completed',
     agent_type: 'research',
     topics: ['infrastructure', 'devops', 'deployment'],
     key_findings: ['Use containerized deployment', 'Kubernetes preferred'],
@@ -302,7 +305,7 @@ const SAMPLE_MANIFEST_ENTRIES = [
     file: '.cleo/agent-outputs/T102-spec.md',
     title: 'Core Module Specification',
     date: '2026-01-04',
-    status: 'complete',
+    status: 'completed',
     agent_type: 'specification',
     topics: ['core', 'architecture', 'deployment'],
     key_findings: ['Modular design with plugin architecture'],
@@ -315,7 +318,7 @@ const SAMPLE_MANIFEST_ENTRIES = [
     file: '.cleo/agent-outputs/T103-tests.md',
     title: 'Integration Test Plan',
     date: '2026-01-05',
-    status: 'complete',
+    status: 'completed',
     agent_type: 'specification',
     topics: ['testing', 'integration', 'deployment'],
     key_findings: ['Need 85% coverage minimum', 'Containers recommended for testing'],
@@ -328,7 +331,7 @@ const SAMPLE_MANIFEST_ENTRIES = [
     file: '.cleo/agent-outputs/T104-deploy.md',
     title: 'Deployment Strategy Research',
     date: '2026-01-06',
-    status: 'complete',
+    status: 'completed',
     agent_type: 'research',
     topics: ['deployment', 'staging', 'infrastructure'],
     key_findings: ['Blue-green deployment strategy', 'Contradicts containerized approach from T101'],

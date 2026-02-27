@@ -32,7 +32,7 @@ export function registerConfigCommand(program: Command): void {
       await dispatchFromCli('mutate', 'admin', 'config.set', { key, value }, { command: 'config' });
     });
 
-  // config list uses core directly — no dispatch op for listing all resolved config
+  // TODO T4894: config list uses core directly — no dispatch op for listing all resolved config
   config
     .command('list')
     .description('Show all resolved configuration')

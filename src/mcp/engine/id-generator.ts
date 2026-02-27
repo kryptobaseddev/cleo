@@ -28,10 +28,10 @@ export function collectAllIds(projectRoot: string): Set<string> {
   const ids = new Set<string>();
 
   // Read todo.json
-  const todoPath = join(projectRoot, '.cleo', 'todo.json');
-  const todoData = readJsonFile<{ tasks?: Array<{ id: string }> }>(todoPath);
-  if (todoData?.tasks) {
-    for (const task of todoData.tasks) {
+  const taskPath = join(projectRoot, '.cleo', 'todo.json');
+  const taskData = readJsonFile<{ tasks?: Array<{ id: string }> }>(taskPath);
+  if (taskData?.tasks) {
+    for (const task of taskData.tasks) {
       if (task.id) ids.add(task.id);
     }
   }

@@ -36,7 +36,7 @@ export async function getSessionHistory(
   const accessor = await getAccessor(projectRoot);
 
   // Verify project is initialized by loading todo file
-  await accessor.loadTodoFile();
+  await accessor.loadTaskFile();
 
   const sessionsFile = (await accessor.loadSessions()) as unknown as SessionsFileExt;
 

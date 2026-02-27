@@ -204,6 +204,30 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'grade': {
+          const { gradeSession } = await import('../../core/sessions/session-grade.js');
+          const sessionId = params?.sessionId as string;
+          if (!sessionId) {
+            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'sessionId required', startTime);
+          }
+          const result = await gradeSession(sessionId, this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'grade.list': {
+          const { readGrades } = await import('../../core/sessions/session-grade.js');
+          const result = await readGrades(undefined, this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         default:
           return this.unsupported('query', 'admin', operation, startTime);
       }
@@ -341,7 +365,7 @@ export class AdminHandler implements DomainHandler {
       query: [
         'version', 'health', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
-        'adr.list', 'adr.show', 'adr.find',
+        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list',
       ],
       mutate: [
         'init', 'config.set', 'backup', 'restore', 'migrate',

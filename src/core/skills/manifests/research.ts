@@ -21,6 +21,7 @@ import { getAgentOutputsDir, getAgentOutputsAbsolute, getManifestPath } from '..
 import type { ManifestEntry } from '../types.js';
 import { CleoError } from '../../errors.js';
 import { ExitCode } from '../../../types/exit-codes.js';
+import { MANIFEST_STATUSES } from '../../../store/status-registry.js';
 
 // ============================================================================
 // Initialization
@@ -273,7 +274,7 @@ export function rotateManifest(maxEntries: number = 100, cwd?: string): number {
 // Validation
 // ============================================================================
 
-const VALID_STATUSES = new Set(['complete', 'partial', 'blocked', 'archived']);
+const MANIFEST_STATUS_SET = new Set(MANIFEST_STATUSES);
 const VALID_AGENT_TYPES = new Set([
   'research', 'consensus', 'specification', 'decomposition',
   'implementation', 'contribution', 'release',
@@ -299,7 +300,7 @@ function validateEntry(entry: ManifestEntry): void {
   if (!entry.date || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) {
     throw new CleoError(ExitCode.VALIDATION_ERROR, `Invalid date format: ${entry.date}`);
   }
-  if (!VALID_STATUSES.has(entry.status)) {
+  if (!MANIFEST_STATUS_SET.has(entry.status)) {
     throw new CleoError(ExitCode.VALIDATION_ERROR, `Invalid status: ${entry.status}`);
   }
   if (!Array.isArray(entry.topics)) {

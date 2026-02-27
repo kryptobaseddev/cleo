@@ -18,11 +18,11 @@ import {
 
 describe('checkReturnMessageFormat', () => {
   it('accepts valid research format', () => {
-    expect(checkReturnMessageFormat('Research complete. See MANIFEST.jsonl for summary.')).toBe(true);
+    expect(checkReturnMessageFormat('Research completed. See MANIFEST.jsonl for summary.')).toBe(true);
   });
 
   it('accepts valid implementation format', () => {
-    expect(checkReturnMessageFormat('Implementation complete. See MANIFEST.jsonl for summary.')).toBe(true);
+    expect(checkReturnMessageFormat('Implementation completed. See MANIFEST.jsonl for summary.')).toBe(true);
   });
 
   it('accepts partial status', () => {
@@ -92,7 +92,7 @@ describe('checkKeyFindingsCount', () => {
 
 describe('checkStatusValid', () => {
   it('accepts valid statuses', () => {
-    expect(checkStatusValid({ status: 'complete' })).toBe(true);
+    expect(checkStatusValid({ status: 'completed' })).toBe(true);
     expect(checkStatusValid({ status: 'partial' })).toBe(true);
     expect(checkStatusValid({ status: 'blocked' })).toBe(true);
   });
@@ -133,7 +133,7 @@ describe('validateCommonManifestRequirements', () => {
     const entry = {
       id: 'T1-research',
       file: 'output.md',
-      status: 'complete',
+      status: 'completed',
       key_findings: ['a', 'b', 'c'],
       linked_tasks: ['T1'],
     };
@@ -143,7 +143,7 @@ describe('validateCommonManifestRequirements', () => {
   });
 
   it('deducts for missing fields', () => {
-    const entry = { status: 'complete' };
+    const entry = { status: 'completed' };
     const result = validateCommonManifestRequirements(entry);
     expect(result.valid).toBe(false);
     expect(result.score).toBeLessThan(70);

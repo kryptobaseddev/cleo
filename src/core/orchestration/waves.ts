@@ -4,8 +4,8 @@
  */
 
 import { readJson } from '../../store/json.js';
-import { getTodoPath } from '../paths.js';
-import type { Task, TodoFile } from '../../types/task.js';
+import { getTaskPath } from '../paths.js';
+import type { Task, TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 export interface Wave {
@@ -96,8 +96,8 @@ export async function getEnrichedWaves(
   accessor?: DataAccessor,
 ): Promise<{ epicId: string; waves: EnrichedWave[]; totalWaves: number; totalTasks: number }> {
   const data = accessor
-    ? await accessor.loadTodoFile()
-    : await readJson<TodoFile>(getTodoPath(cwd));
+    ? await accessor.loadTaskFile()
+    : await readJson<TaskFile>(getTaskPath(cwd));
 
   const tasks = data?.tasks ?? [];
   const children = tasks.filter(t => t.parentId === epicId);

@@ -128,21 +128,11 @@ export class SafetyDataAccessor implements DataAccessor {
     return this.inner.loadSessions();
   }
 
-  /** @deprecated Use loadTaskFile() instead. */
-  async loadTodoFile(): Promise<TaskFile> {
-    return this.loadTaskFile();
-  }
-
   // ---- Write operations (with safety) ----
 
   async saveTaskFile(data: TaskFile): Promise<void> {
     this.logVerbose(`Saving TaskFile with ${data.tasks?.length ?? 0} tasks`);
     await safeSaveTaskFile(this.inner, data, this.cwd, this.getSafetyOptions());
-  }
-
-  /** @deprecated Use saveTaskFile() instead. */
-  async saveTodoFile(data: TaskFile): Promise<void> {
-    return this.saveTaskFile(data);
   }
 
   async saveSessions(data: SessionsFile): Promise<void> {

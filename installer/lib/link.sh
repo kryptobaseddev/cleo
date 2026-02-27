@@ -38,9 +38,75 @@ fi
 readonly LINK_BIN_DIR="${CLEO_BIN_DIR:-$HOME/.local/bin}"
 readonly LINK_CLI_NAME="cleo"
 readonly LINK_ALIAS_NAME="ct"
+readonly LINK_MCP_NAME="cleo-mcp"
 
 # Backup suffix for replaced links
 readonly LINK_BACKUP_SUFFIX=".cleo-backup"
+
+installer_link_detect_channel() {
+    local mode="${1:-release}"
+
+    if [[ -n "${INSTALLER_CHANNEL:-}" ]]; then
+        echo "$INSTALLER_CHANNEL"
+        return 0
+    fi
+
+    if [[ "$mode" == "dev" ]]; then
+        echo "dev"
+        return 0
+    fi
+
+    if [[ -n "${OPT_CLEO_VERSION:-}" ]] && [[ "${OPT_CLEO_VERSION}" == *"-beta"* ]]; then
+        echo "beta"
+        return 0
+    fi
+
+    echo "stable"
+}
+
+installer_link_resolve_names() {
+    local channel="$1"
+    case "$channel" in
+        dev)
+            echo "cleo-dev::cleo-mcp-dev"
+            ;;
+        beta)
+            echo "cleo-beta ct-beta::cleo-mcp-beta"
+            ;;
+        *)
+            echo "${LINK_CLI_NAME} ${LINK_ALIAS_NAME}::${LINK_MCP_NAME}"
+            ;;
+    esac
+}
+
+installer_link_prune_dev_collisions() {
+    local cli_source="$1"
+    local mcp_source="$2"
+    local legacy_cli=("$LINK_BIN_DIR/cleo" "$LINK_BIN_DIR/ct")
+    local legacy_mcp=("$LINK_BIN_DIR/cleo-mcp")
+
+    for link in "${legacy_cli[@]}"; do
+        if [[ -L "$link" ]]; then
+            local target
+            target=$(readlink "$link" 2>/dev/null || echo "")
+            if [[ "$target" == *"/bin/cleo"* ]] || [[ "$target" == "$cli_source" ]]; then
+                installer_log_info "Removing legacy dev collision link: $link"
+                rm -f "$link"
+            fi
+        fi
+    done
+
+    for link in "${legacy_mcp[@]}"; do
+        if [[ -L "$link" ]]; then
+            local target
+            target=$(readlink "$link" 2>/dev/null || echo "")
+            if [[ "$target" == *"/bin/cleo-mcp"* ]] || [[ "$target" == "$mcp_source" ]]; then
+                installer_log_info "Removing legacy dev collision link: $link"
+                rm -f "$link"
+            fi
+        fi
+    done
+}
 
 # ============================================
 # LINK CREATION
@@ -196,62 +262,66 @@ installer_link_ensure_bin_dir() {
     return 0
 }
 
-# Setup all CLI symlinks
-# Args: install_dir
+# Setup CLI/MCP symlinks with channel-aware naming.
+# Args: install_dir [mode] [channel]
 # Returns: 0 on success, non-zero on failure
 installer_link_setup_bin() {
     local install_dir="${1:-$INSTALL_DIR}"
-    local wrapper=""
+    local mode="${2:-$(installer_source_detect_mode)}"
+    local channel="${3:-$(installer_link_detect_channel "$mode")}" 
+    local cli_source=""
+    local mcp_source=""
     local failed=0
 
     installer_log_step "Setting up CLI symlinks..."
+    installer_log_info "Mode: $mode, Channel: $channel"
 
-    # Ensure bin directory exists
-    installer_link_ensure_bin_dir || true  # Continue even if PATH warning
+    installer_link_ensure_bin_dir || true
 
-    # Find or create the wrapper script
-    # Check locations in order of preference
-    local wrapper_locations=(
-        "$install_dir/cleo"
-        "$install_dir/bin/cleo"
-        "$install_dir/scripts/cleo"
-    )
+    if [[ "$mode" == "dev" ]]; then
+        cli_source="$install_dir/bin/cleo"
+        mcp_source="$install_dir/bin/cleo-mcp"
+    else
+        cli_source=$(command -v cleo 2>/dev/null || echo "")
+        mcp_source=$(command -v cleo-mcp 2>/dev/null || echo "")
 
-    for loc in "${wrapper_locations[@]}"; do
-        if [[ -f "$loc" ]]; then
-            wrapper="$loc"
-            installer_log_debug "Found wrapper at: $wrapper"
-            break
+        [[ -z "$cli_source" && -f "$install_dir/bin/cleo" ]] && cli_source="$install_dir/bin/cleo"
+        [[ -z "$mcp_source" && -f "$install_dir/bin/cleo-mcp" ]] && mcp_source="$install_dir/bin/cleo-mcp"
+    fi
+
+    if [[ -z "$cli_source" || ! -e "$cli_source" ]]; then
+        installer_log_error "CLI source not found for linking (mode=$mode)"
+        return $EXIT_INSTALL_FAILED
+    fi
+
+    local name_spec
+    name_spec=$(installer_link_resolve_names "$channel")
+    local cli_names_raw="${name_spec%%::*}"
+    local mcp_name="${name_spec##*::}"
+    read -r -a cli_names <<< "$cli_names_raw"
+
+    for cli_name in "${cli_names[@]}"; do
+        if installer_link_create "$cli_source" "$LINK_BIN_DIR/$cli_name"; then
+            installer_log_info "Created symlink: $cli_name -> $cli_source"
+        else
+            installer_log_error "Failed to create $cli_name symlink"
+            ((failed++))
         fi
     done
 
-    # If no wrapper found, create one
-    if [[ -z "$wrapper" ]]; then
-        installer_log_info "Creating CLI wrapper script..."
-        wrapper="$install_dir/cleo"
-        if ! installer_link_create_wrapper "$wrapper" "$install_dir"; then
-            installer_log_error "Failed to create wrapper script"
-            return $EXIT_INSTALL_FAILED
+    if [[ -n "$mcp_source" && -e "$mcp_source" ]]; then
+        if installer_link_create "$mcp_source" "$LINK_BIN_DIR/$mcp_name"; then
+            installer_log_info "Created symlink: $mcp_name -> $mcp_source"
+        else
+            installer_log_error "Failed to create $mcp_name symlink"
+            ((failed++))
         fi
+    else
+        installer_log_warn "MCP source not found; skipping MCP symlink"
     fi
 
-    # Make wrapper executable
-    chmod +x "$wrapper" 2>/dev/null || true
-
-    # Create main CLI symlink (cleo)
-    if installer_link_create "$wrapper" "$LINK_BIN_DIR/$LINK_CLI_NAME"; then
-        installer_log_info "Created symlink: $LINK_CLI_NAME -> $wrapper"
-    else
-        installer_log_error "Failed to create $LINK_CLI_NAME symlink"
-        ((failed++))
-    fi
-
-    # Create alias symlink (ct)
-    if installer_link_create "$wrapper" "$LINK_BIN_DIR/$LINK_ALIAS_NAME"; then
-        installer_log_info "Created symlink: $LINK_ALIAS_NAME -> $wrapper"
-    else
-        installer_log_error "Failed to create $LINK_ALIAS_NAME symlink"
-        ((failed++))
+    if [[ "$channel" == "dev" ]]; then
+        installer_link_prune_dev_collisions "$cli_source" "$mcp_source"
     fi
 
     if [[ $failed -gt 0 ]]; then
@@ -456,13 +526,24 @@ WRAPPER_EOF
     return 0
 }
 
-# Remove all CLI symlinks
+# Remove channel CLI/MCP symlinks
+# Args: [mode] [channel]
 # Returns: 0 on success
 installer_link_remove_bin() {
-    installer_log_info "Removing CLI symlinks..."
+    local mode="${1:-$(installer_source_detect_mode)}"
+    local channel="${2:-$(installer_link_detect_channel "$mode")}" 
+    local name_spec
+    name_spec=$(installer_link_resolve_names "$channel")
+    local cli_names_raw="${name_spec%%::*}"
+    local mcp_name="${name_spec##*::}"
 
-    installer_link_remove "$LINK_BIN_DIR/$LINK_CLI_NAME" "true" || true
-    installer_link_remove "$LINK_BIN_DIR/$LINK_ALIAS_NAME" "true" || true
+    installer_log_info "Removing CLI symlinks for channel: $channel"
+
+    read -r -a cli_names <<< "$cli_names_raw"
+    for cli_name in "${cli_names[@]}"; do
+        installer_link_remove "$LINK_BIN_DIR/$cli_name" "true" || true
+    done
+    installer_link_remove "$LINK_BIN_DIR/$mcp_name" "true" || true
 
     return 0
 }
@@ -471,40 +552,44 @@ installer_link_remove_bin() {
 # VERIFICATION
 # ============================================
 
-# Verify all symlinks are correct
-# Args: install_dir
+# Verify channel symlinks are correct
+# Args: install_dir [mode] [channel]
 # Returns: 0 if all valid, 1 otherwise
 installer_link_verify_all() {
     local install_dir="${1:-$INSTALL_DIR}"
-    local wrapper="$install_dir/cleo"
+    local mode="${2:-$(installer_source_detect_mode)}"
+    local channel="${3:-$(installer_link_detect_channel "$mode")}" 
+    local name_spec
     local failed=0
+    local primary_cli=""
 
-    installer_log_info "Verifying CLI symlinks..."
+    name_spec=$(installer_link_resolve_names "$channel")
+    local cli_names_raw="${name_spec%%::*}"
+    local mcp_name="${name_spec##*::}"
 
-    # Find wrapper
-    if [[ ! -f "$wrapper" ]]; then
-        wrapper="$install_dir/bin/cleo"
+    installer_log_info "Verifying CLI symlinks (mode=$mode, channel=$channel)..."
+
+    read -r -a cli_names <<< "$cli_names_raw"
+    for cli_name in "${cli_names[@]}"; do
+        if [[ -L "$LINK_BIN_DIR/$cli_name" ]]; then
+            installer_link_verify "$LINK_BIN_DIR/$cli_name" || ((failed++))
+            [[ -z "$primary_cli" ]] && primary_cli="$cli_name"
+        else
+            installer_log_error "Missing symlink: $LINK_BIN_DIR/$cli_name"
+            ((failed++))
+        fi
+    done
+
+    if [[ -n "$mcp_name" ]]; then
+        if [[ -L "$LINK_BIN_DIR/$mcp_name" ]]; then
+            installer_link_verify "$LINK_BIN_DIR/$mcp_name" || ((failed++))
+        else
+            installer_log_warn "Missing MCP symlink: $LINK_BIN_DIR/$mcp_name"
+        fi
     fi
 
-    # Verify main CLI
-    if [[ -L "$LINK_BIN_DIR/$LINK_CLI_NAME" ]]; then
-        installer_link_verify "$LINK_BIN_DIR/$LINK_CLI_NAME" || ((failed++))
-    else
-        installer_log_error "Missing symlink: $LINK_BIN_DIR/$LINK_CLI_NAME"
-        ((failed++))
-    fi
-
-    # Verify alias
-    if [[ -L "$LINK_BIN_DIR/$LINK_ALIAS_NAME" ]]; then
-        installer_link_verify "$LINK_BIN_DIR/$LINK_ALIAS_NAME" || ((failed++))
-    else
-        installer_log_error "Missing symlink: $LINK_BIN_DIR/$LINK_ALIAS_NAME"
-        ((failed++))
-    fi
-
-    # Test execution
-    if [[ $failed -eq 0 ]]; then
-        if "$LINK_BIN_DIR/$LINK_CLI_NAME" version &>/dev/null; then
+    if [[ $failed -eq 0 && -n "$primary_cli" ]]; then
+        if "$LINK_BIN_DIR/$primary_cli" version &>/dev/null; then
             installer_log_debug "CLI execution test passed"
         else
             installer_log_warn "CLI symlink exists but execution failed"

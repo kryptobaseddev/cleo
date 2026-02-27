@@ -8,7 +8,7 @@
 import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { SessionRecord, SessionsFileExt, TodoFileExt } from './types.js';
+import type { SessionRecord, SessionsFileExt, TaskFileExt } from './types.js';
 
 /**
  * Switch to a different session.
@@ -20,8 +20,8 @@ export async function switchSession(
   sessionId: string,
 ): Promise<SessionRecord> {
   const accessor = await getAccessor(projectRoot);
-  const todoData = await accessor.loadTodoFile();
-  const current = todoData as unknown as TodoFileExt;
+  const taskData = await accessor.loadTaskFile();
+  const current = taskData as unknown as TaskFileExt;
 
   const multiSession = current._meta?.multiSessionEnabled === true;
   if (!multiSession) {
@@ -115,7 +115,7 @@ export async function switchSession(
     sessions._meta.lastModified = now;
   }
 
-  await accessor.saveTodoFile(todoData);
+  await accessor.saveTaskFile(taskData);
   await accessor.saveSessions(sessions as any);
 
   return targetSession;

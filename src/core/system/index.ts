@@ -32,3 +32,6 @@ export type { SystemMetricsResult } from './metrics.js';
 
 export { generateInjection } from './inject-generate.js';
 export type { InjectGenerateResult } from './inject-generate.js';
+
+export { getRuntimeDiagnostics } from './runtime.js';
+export type { RuntimeDiagnostics } from './runtime.js';

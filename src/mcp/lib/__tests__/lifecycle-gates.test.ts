@@ -106,7 +106,7 @@ describe('Lifecycle Gate Enforcement', () => {
 
         // When no manifest exists, enforcer warns but allows (for backward compatibility)
         expect(result.passed).toBe(true);
-        expect(result.message).toContain('No RCSD manifest');
+        expect(result.message).toContain('No RCASD manifest');
       });
     });
   });
@@ -194,7 +194,8 @@ describe('Lifecycle Gate Enforcement', () => {
         // Use a scenario with pending prerequisites
         const manifest = {
           research: 'completed',
-          consensus: 'pending',
+          consensus: 'completed',
+          architecture_decision: 'pending',
           specification: 'pending',
           decomposition: 'pending',
         };
@@ -202,7 +203,7 @@ describe('Lifecycle Gate Enforcement', () => {
         const result = await enforcer.checkLifecycleGate('T3020', 'implementation', manifest);
 
         expect(result.message).toContain('missing prerequisites');
-        expect(result.message).toContain('consensus'); // At least one missing
+        expect(result.message).toContain('architecture_decision'); // At least one missing
       });
 
       it('should be enabled by default', () => {
@@ -236,13 +237,13 @@ describe('Lifecycle Gate Enforcement', () => {
    * Missing Manifest Tests
    */
   describe('Missing Manifest Handling', () => {
-    it('should warn when no RCSD manifest exists', async () => {
+    it('should warn when no RCASD manifest exists', async () => {
       const { epicId } = lifecycleScenarios.rcsd.noRCSD;
 
       const result = await enforcer.checkLifecycleGate(epicId, 'implementation', undefined);
 
       expect(result.passed).toBe(true); // Allows by default
-      expect(result.message).toContain('No RCSD manifest');
+      expect(result.message).toContain('No RCASD manifest');
     });
 
     it('should allow first stage (research) without manifest', async () => {
@@ -286,21 +287,23 @@ describe('Lifecycle Gate Enforcement', () => {
     it('should validate all prerequisites in sequence', async () => {
       const manifest = {
         research: 'completed',
-        consensus: 'pending', // Breaks chain
-        specification: 'completed', // This shouldn't matter
+        consensus: 'completed',
+        architecture_decision: 'pending', // Breaks chain before specification/decomposition
+        specification: 'completed',
         decomposition: 'pending',
       };
 
       const result = await enforcer.checkLifecycleGate('T3300', 'decomposition', manifest);
 
       expect(result.passed).toBe(false);
-      expect(result.missingPrerequisites).toContain('consensus');
+      expect(result.missingPrerequisites).toContain('architecture_decision');
     });
 
     it('should check multiple missing prerequisites', async () => {
       const manifest = {
         research: 'pending',
         consensus: 'pending',
+        architecture_decision: 'pending',
         specification: 'pending',
         decomposition: 'pending',
       };
@@ -308,9 +311,9 @@ describe('Lifecycle Gate Enforcement', () => {
       const result = await enforcer.checkLifecycleGate('T3301', 'implementation', manifest);
 
       expect(result.passed).toBe(false);
-      expect(result.missingPrerequisites.length).toBe(4); // All RCSD stages
+      expect(result.missingPrerequisites.length).toBe(4); // All RCASD stages (implementation prereqs)
       expect(result.missingPrerequisites).toContain('research');
-      expect(result.missingPrerequisites).toContain('consensus');
+      expect(result.missingPrerequisites).toContain('architecture_decision');
       expect(result.missingPrerequisites).toContain('specification');
       expect(result.missingPrerequisites).toContain('decomposition');
     });
@@ -332,6 +335,7 @@ describe('Lifecycle Gate Enforcement', () => {
       const manifest = {
         research: 'completed',
         consensus: 'skipped',
+        architecture_decision: 'skipped', // RCASD: A is also required before S
       };
 
       const result = await enforcer.checkLifecycleGate('T3401', 'specification', manifest);
@@ -399,6 +403,7 @@ describe('Lifecycle Gate Enforcement', () => {
       const manifest = {
         research: 'completed',
         consensus: 'completed',
+        architecture_decision: 'completed',
         specification: 'completed',
         decomposition: 'completed',
       };
@@ -422,14 +427,15 @@ describe('Lifecycle Gate Enforcement', () => {
     it('should handle partial manifest (missing stages)', async () => {
       const manifest = {
         research: 'completed',
-        // consensus missing
+        consensus: 'completed',
+        // architecture_decision missing
         specification: 'completed',
       };
 
       const result = await enforcer.checkLifecycleGate('T3601', 'decomposition', manifest);
 
       expect(result.passed).toBe(false);
-      expect(result.missingPrerequisites).toContain('consensus');
+      expect(result.missingPrerequisites).toContain('architecture_decision');
     });
 
     it('should handle unknown stage gracefully', async () => {

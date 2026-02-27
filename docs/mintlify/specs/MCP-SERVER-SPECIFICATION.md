@@ -732,7 +732,7 @@ implementation ──GATE──► validation ──GATE──► testing ──
 
 ### 6.1 MANIFEST.jsonl Structure
 
-**Location**: Configurable, default `claudedocs/agent-outputs/MANIFEST.jsonl`
+**Location**: Configurable, default `.cleo/agent-outputs/MANIFEST.jsonl`
 
 **Format**: JSON Lines (one JSON object per line, append-only)
 

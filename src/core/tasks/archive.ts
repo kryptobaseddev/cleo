@@ -41,14 +41,14 @@ export interface ArchiveTasksResult {
  * @task T4461
  */
 export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ArchiveTasksResult> {
-  const todoPath = getTaskPath(cwd);
+  const taskPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
   const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(todoPath);
+    : await readJsonRequired<TaskFile>(taskPath);
   const includeCancelled = options.includeCancelled ?? true;
 
   // Determine which tasks to archive
@@ -153,7 +153,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
       after: { count: archived.length, ids: archived },
     }, cwd);
   } else {
-    await saveJson(todoPath, data, { backupDir });
+    await saveJson(taskPath, data, { backupDir });
     await saveJson(archivePath, archiveData, { backupDir });
     await logOperation(logPath, 'tasks_archived', archived.join(','), {
       count: archived.length,

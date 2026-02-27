@@ -47,18 +47,30 @@ export interface AuditEntry {
  * Get active session info from SQLite or env vars.
  */
 async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean } | null> {
+  // Grade mode fast path: CLEO_SESSION_GRADE_ID is immune to subagent session.start overwrites.
+  // A subagent starting their own session sets CLEO_SESSION_ID (overwriting it), but never
+  // touches CLEO_SESSION_GRADE_ID, so grade attribution stays correct throughout the scenario.
+  const gradeId = process.env.CLEO_SESSION_GRADE_ID;
+  if (gradeId && process.env.CLEO_SESSION_GRADE === 'true') {
+    return { id: gradeId, gradeMode: true };
+  }
   const envId = process.env.CLEO_SESSION_ID;
   if (envId) {
-    return { id: envId, gradeMode: process.env.CLEO_SESSION_GRADE === 'true' };
+    return { id: envId, gradeMode: false };
   }
   try {
     const { getAccessor } = await import('../../store/data-accessor.js');
     const accessor = await getAccessor(process.cwd());
     const sessionsData = await accessor.loadSessions();
     const sessions = (sessionsData as unknown as {
-      sessions?: Array<{ id: string; status: string; gradeMode?: boolean }>;
+      sessions?: Array<{ id: string; status: string; gradeMode?: boolean; startedAt?: string }>;
     }).sessions ?? [];
-    const active = sessions.find(s => s.status === 'active');
+    const activeSessions = sessions.filter(s => s.status === 'active');
+    // Prefer grade sessions; otherwise pick the most recently started active session
+    const gradeSession = activeSessions.find(s => s.gradeMode === true);
+    const active = gradeSession ?? activeSessions.sort((a, b) =>
+      (b.startedAt ?? '').localeCompare(a.startedAt ?? '')
+    )[0];
     if (active) {
       return { id: active.id, gradeMode: active.gradeMode === true };
     }
@@ -185,70 +197,45 @@ export async function queryAudit(options?: {
   try {
     const { getDb } = await import('../../store/sqlite.js');
     const { auditLog } = await import('../../store/schema.js');
-    const { sql } = await import('drizzle-orm');
+    const { and, eq, gte, or } = await import('drizzle-orm');
 
     const db = await getDb(process.cwd());
 
-    const conditions: ReturnType<typeof sql>[] = [];
-    if (options?.sessionId) {
-      conditions.push(sql`${auditLog.sessionId} = ${options.sessionId}`);
-    }
-    if (options?.domain) {
-      conditions.push(sql`${auditLog.domain} = ${options.domain}`);
-    }
-    if (options?.operation) {
-      conditions.push(sql`(${auditLog.operation} = ${options.operation} OR ${auditLog.action} = ${options.operation})`);
-    }
-    if (options?.taskId) {
-      conditions.push(sql`${auditLog.taskId} = ${options.taskId}`);
-    }
-    if (options?.since) {
-      conditions.push(sql`${auditLog.timestamp} >= ${options.since}`);
-    }
-
-    const whereClause = conditions.length > 0
-      ? sql.join(conditions, sql` AND `)
-      : sql`1=1`;
+    // Use typed ORM query (not raw SQL) so drizzle returns named-field objects,
+    // not positional arrays (node:sqlite setReturnArrays causes raw SQL to lose field names).
+    const conditions = [];
+    if (options?.sessionId) conditions.push(eq(auditLog.sessionId, options.sessionId));
+    if (options?.domain) conditions.push(eq(auditLog.domain, options.domain));
+    if (options?.operation) conditions.push(or(eq(auditLog.operation, options.operation), eq(auditLog.action, options.operation))!);
+    if (options?.taskId) conditions.push(eq(auditLog.taskId, options.taskId));
+    if (options?.since) conditions.push(gte(auditLog.timestamp, options.since));
 
     const limit = options?.limit ?? 1000;
 
-    const rows = await db.all<{
-      timestamp: string;
-      action: string;
-      task_id: string;
-      domain: string | null;
-      operation: string | null;
-      session_id: string | null;
-      duration_ms: number | null;
-      success: number | null;
-      source: string | null;
-      gateway: string | null;
-      error_message: string | null;
-      details_json: string | null;
-    }>(
-      sql`SELECT * FROM ${auditLog}
-          WHERE ${whereClause}
-          ORDER BY ${auditLog.timestamp} ASC
-          LIMIT ${limit}`,
-    );
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(auditLog.timestamp)
+      .limit(limit);
 
     return rows.map(row => ({
       timestamp: row.timestamp,
-      sessionId: row.session_id,
+      sessionId: row.sessionId,
       domain: row.domain ?? 'unknown',
       operation: row.operation ?? row.action,
-      params: row.details_json ? JSON.parse(row.details_json) : {},
+      params: row.detailsJson ? JSON.parse(row.detailsJson) : {},
       result: {
         success: row.success === 1,
         exitCode: row.success === 1 ? 0 : 1,
-        duration: row.duration_ms ?? 0,
+        duration: row.durationMs ?? 0,
       },
       metadata: {
-        taskId: row.task_id !== 'system' && row.task_id !== 'unknown' ? row.task_id : undefined,
+        taskId: row.taskId !== 'system' && row.taskId !== 'unknown' ? row.taskId : undefined,
         source: (row.source as 'mcp' | 'cli') ?? 'mcp',
         gateway: row.gateway as 'cleo_mutate' | 'cleo_query' | undefined,
       },
-      error: row.error_message ?? undefined,
+      error: row.errorMessage ?? undefined,
     }));
   } catch {
     return [];

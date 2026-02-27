@@ -36,7 +36,7 @@ function validEntry(agentType: string, overrides: Partial<ManifestEntryInput> = 
     file: 'output/T001-test.md',
     title: 'Test entry',
     date: '2026-01-01',
-    status: 'complete',
+    status: 'completed',
     agent_type: agentType,
     topics: ['testing'],
     key_findings: ['Finding 1', 'Finding 2', 'Finding 3'],

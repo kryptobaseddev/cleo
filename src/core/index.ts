@@ -23,7 +23,6 @@ export {
   getCleoDirAbsolute,
   getProjectRoot,
   resolveProjectPath,
-  getTodoPath,
   getConfigPath,
   getSessionsPath,
   getArchivePath,

@@ -13,7 +13,8 @@
 /**
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
-export type TaskStatus = 'pending' | 'active' | 'blocked' | 'done' | 'cancelled';
+import type { TaskStatus } from '../../store/status-registry.js';
+export type { TaskStatus };
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
 export interface Task {

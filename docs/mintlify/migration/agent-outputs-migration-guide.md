@@ -13,7 +13,7 @@ Agent outputs are stored at `.cleo/agent-outputs/` (the canonical location since
 | Version | Directory | Status |
 |---------|-----------|--------|
 | pre-v0.61.0 | `claudedocs/research-outputs/` | Legacy (auto-migrated) |
-| v0.61.0–v0.70.0 | `claudedocs/agent-outputs/` | Legacy (auto-migrated) |
+| v0.61.0–v0.70.0 | `.cleo/agent-outputs/` | Legacy (auto-migrated) |
 | v0.80.0+ | `.cleo/agent-outputs/` | **Current canonical** |
 
 > **NOTE**: The `research-outputs` naming predates the `agent-outputs` rename
@@ -38,7 +38,7 @@ Migration runs automatically during:
 
 ### What Happens
 
-1. **Discovery**: Checks for `claudedocs/research-outputs/` and `claudedocs/agent-outputs/`
+1. **Discovery**: Checks for `claudedocs/research-outputs/` and `.cleo/agent-outputs/`
 2. **Copy**: Files from legacy directories are copied to `.cleo/agent-outputs/` (oldest first, so newer files win on conflicts)
 3. **Manifest merge**: MANIFEST.jsonl entries are collected from all sources, deduplicated by ID, and path references are rewritten to `.cleo/agent-outputs/`
 4. **Config update**: Any config pointing to a legacy path is updated to `.cleo/agent-outputs`
@@ -68,7 +68,7 @@ claudedocs/research-outputs/
 ├── 2026-01-15_auth-research.md
 └── 2026-01-20_api-analysis.md
 
-claudedocs/agent-outputs/
+.cleo/agent-outputs/
 ├── MANIFEST.jsonl
 ├── 2026-02-01_deploy-analysis.md
 └── 2026-02-05_perf-research.md
@@ -91,7 +91,7 @@ All file path references inside MANIFEST.jsonl are rewritten during migration:
 {"id":"R001","file":"claudedocs/research-outputs/2026-01-15_auth-research.md",...}
 
 // Before (agent-outputs in claudedocs era)
-{"id":"A001","file":"claudedocs/agent-outputs/2026-02-01_deploy-analysis.md",...}
+{"id":"A001","file":".cleo/agent-outputs/2026-02-01_deploy-analysis.md",...}
 
 // After (canonical)
 {"id":"R001","file":".cleo/agent-outputs/2026-01-15_auth-research.md",...}
@@ -124,8 +124,8 @@ if [ -d "claudedocs/research-outputs" ]; then
 fi
 
 # Copy from agent-outputs if it exists (overwrites older files)
-if [ -d "claudedocs/agent-outputs" ]; then
-  cp -n claudedocs/agent-outputs/*.md .cleo/agent-outputs/ 2>/dev/null
+if [ -d ".cleo/agent-outputs" ]; then
+  cp -n .cleo/agent-outputs/*.md .cleo/agent-outputs/ 2>/dev/null
 fi
 ```
 
@@ -138,9 +138,9 @@ fi
   [ -f ".cleo/agent-outputs/MANIFEST.jsonl" ] && cat .cleo/agent-outputs/MANIFEST.jsonl
 
   # Then legacy entries with path rewriting
-  for dir in claudedocs/research-outputs claudedocs/agent-outputs; do
+  for dir in claudedocs/research-outputs .cleo/agent-outputs; do
     [ -f "$dir/MANIFEST.jsonl" ] && \
-      sed 's|claudedocs/research-outputs/|.cleo/agent-outputs/|g; s|claudedocs/agent-outputs/|.cleo/agent-outputs/|g' \
+      sed 's|claudedocs/research-outputs/|.cleo/agent-outputs/|g; s|.cleo/agent-outputs/|.cleo/agent-outputs/|g' \
       "$dir/MANIFEST.jsonl"
   done
 } > .cleo/agent-outputs/MANIFEST.jsonl.tmp
@@ -152,7 +152,7 @@ mv .cleo/agent-outputs/MANIFEST.jsonl.tmp .cleo/agent-outputs/MANIFEST.jsonl
 
 ```bash
 rm -rf claudedocs/research-outputs
-rm -rf claudedocs/agent-outputs
+rm -rf .cleo/agent-outputs
 
 # Remove claudedocs/ if empty
 rmdir claudedocs 2>/dev/null
@@ -203,7 +203,7 @@ done < .cleo/agent-outputs/MANIFEST.jsonl
 **Solution**: Check if files are still in legacy directories (migration may have partially failed):
 ```bash
 ls -la claudedocs/research-outputs/ 2>/dev/null
-ls -la claudedocs/agent-outputs/ 2>/dev/null
+ls -la .cleo/agent-outputs/ 2>/dev/null
 ```
 
 If found, re-run `cleo upgrade` to complete the migration.
@@ -260,7 +260,7 @@ After migration, verify:
 
 - [ ] `.cleo/agent-outputs/` directory exists
 - [ ] `claudedocs/research-outputs/` does NOT exist
-- [ ] `claudedocs/agent-outputs/` does NOT exist
+- [ ] `.cleo/agent-outputs/` does NOT exist
 - [ ] `MANIFEST.jsonl` paths reference `.cleo/agent-outputs/` (not `claudedocs/`)
 - [ ] `cleo validate` passes
 - [ ] `cleo research list` returns expected entries

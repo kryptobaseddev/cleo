@@ -36,7 +36,7 @@ describe('Import Graph Verification (T4796)', () => {
   const ENGINE_FILES = [
     'task-engine.ts',
     'session-engine.ts',
-    'lifecycle-engine.ts',
+    // lifecycle-engine.ts deleted — moved to src/dispatch/engines/lifecycle-engine.ts
     'system-engine.ts',
     'orchestrate-engine.ts',
     'validate-engine.ts',
@@ -124,12 +124,14 @@ describe('Import Graph Verification (T4796)', () => {
   });
 
   it('lifecycle-engine.ts imports from core/lifecycle/', async () => {
+    // lifecycle-engine.ts moved to src/dispatch/engines/lifecycle-engine.ts
+    const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(
-      join(ENGINE_DIR, 'lifecycle-engine.ts'),
+      join(dispatchEngineDir, 'lifecycle-engine.ts'),
       'utf-8',
     );
 
-    expect(content).toContain("from '../../core/lifecycle/index.js'");
+    expect(content).toContain("from '../../core/lifecycle/engine.js'");
   });
 
   it('validate-engine.ts imports from core/validation/', async () => {
@@ -379,7 +381,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
       accessor,
     );
 
-    const engineResult = await taskFind(testDir, { query: 'alpha' });
+    const engineResult = await taskFind(testDir, 'alpha');
 
     expect(engineResult.success).toBe(true);
     expect(engineResult.data).toBeDefined();
@@ -573,7 +575,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     testDir = await mkdtemp(join(tmpdir(), 'cleo-lifecycle-'));
     cleoDir = join(testDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
-    await mkdir(join(cleoDir, 'rcsd', 'T100'), { recursive: true });
+    await mkdir(join(cleoDir, 'rcasd', 'T100'), { recursive: true });
 
     process.env['CLEO_DIR'] = cleoDir;
   });
@@ -583,19 +585,21 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
-  it('LIFECYCLE_STAGES re-exported from engine match core constants', async () => {
-    const engineMod = await import('../../mcp/engine/lifecycle-engine.js');
+  it('lifecycle-engine uses PIPELINE_STAGES from core/lifecycle/', async () => {
+    const engineMod = await import('../../dispatch/engines/lifecycle-engine.js');
     const coreMod = await import('../lifecycle/index.js');
 
-    // Engine re-exports ENGINE_LIFECYCLE_STAGES as LIFECYCLE_STAGES
-    expect(engineMod.LIFECYCLE_STAGES).toEqual(
-      coreMod.ENGINE_LIFECYCLE_STAGES,
-    );
+    // Engine function uses PIPELINE_STAGES from core for status
+    const result = engineMod.lifecycleStatus('NONEXISTENT', testDir);
+    expect(result.success).toBe(true);
+    const data = result.data as { stages: Array<{ stage: string }> };
+    const engineStageNames = data.stages.map((s: { stage: string }) => s.stage);
+    expect(engineStageNames).toEqual([...coreMod.PIPELINE_STAGES]);
   });
 
   it('lifecycleStatus returns valid result for uninitialized epic', async () => {
     const { lifecycleStatus } = await import(
-      '../../mcp/engine/lifecycle-engine.js'
+      '../../dispatch/engines/lifecycle-engine.js'
     );
 
     const result = lifecycleStatus('T100', testDir);
@@ -612,7 +616,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecycleProgress records stage and lifecycleStatus reflects it', async () => {
     const { lifecycleProgress, lifecycleStatus } = await import(
-      '../../mcp/engine/lifecycle-engine.js'
+      '../../dispatch/engines/lifecycle-engine.js'
     );
 
     // Record research as completed
@@ -639,7 +643,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecyclePrerequisites returns valid data', async () => {
     const { lifecyclePrerequisites } = await import(
-      '../../mcp/engine/lifecycle-engine.js'
+      '../../dispatch/engines/lifecycle-engine.js'
     );
 
     const result = lifecyclePrerequisites('specification', testDir);
@@ -652,7 +656,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecycleCheck validates prerequisites correctly', async () => {
     const { lifecycleCheck, lifecycleProgress } = await import(
-      '../../mcp/engine/lifecycle-engine.js'
+      '../../dispatch/engines/lifecycle-engine.js'
     );
 
     // Check specification without completing research
@@ -678,7 +682,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
 
   it('lifecycleSkip records skip with reason', async () => {
     const { lifecycleSkip, lifecycleHistory } = await import(
-      '../../mcp/engine/lifecycle-engine.js'
+      '../../dispatch/engines/lifecycle-engine.js'
     );
 
     const skipResult = lifecycleSkip(
@@ -758,7 +762,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
 
   it('lifecycle engine error results have E_ prefixed codes', async () => {
     const { lifecycleStatus } = await import(
-      '../../mcp/engine/lifecycle-engine.js'
+      '../../dispatch/engines/lifecycle-engine.js'
     );
 
     // Empty epicId should fail

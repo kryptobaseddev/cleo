@@ -4,8 +4,8 @@
  * @task T4456
  */
 
-/** Task status enum. */
-export type TaskStatus = 'pending' | 'active' | 'blocked' | 'done' | 'cancelled';
+import type { TaskStatus } from '../store/status-registry.js';
+export type { TaskStatus };
 
 /** Task priority levels. */
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
@@ -191,6 +191,3 @@ export interface TaskFile {
   tasks: Task[];
   labels?: Record<string, string[]>;
 }
-
-/** @deprecated Use TaskFile instead. */
-export type TodoFile = TaskFile;

@@ -33,7 +33,7 @@ export interface ManifestEntry {
   file: string;
   title: string;
   date: string;
-  status: 'complete' | 'partial' | 'blocked';
+  status: 'completed' | 'partial' | 'blocked';
   agent_type: string;
   topics: string[];
   key_findings: string[];
@@ -194,10 +194,10 @@ export async function linkResearch(
   }
 
   // Validate task exists
-  const todoData = accessor
+  const taskData = accessor
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(getTaskPath(cwd));
-  const task = todoData.tasks.find(t => t.id === taskId);
+  const task = taskData.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
@@ -1032,7 +1032,7 @@ export async function validateManifestEntries(
     if (!entry.status) issues.push({ entryId: entry.id, issue: 'Missing status', severity: 'error' });
     if (!entry.agent_type) issues.push({ entryId: entry.id, issue: 'Missing agent_type', severity: 'error' });
 
-    if (entry.status && !['complete', 'partial', 'blocked'].includes(entry.status)) {
+    if (entry.status && !['completed', 'partial', 'blocked'].includes(entry.status)) {
       issues.push({ entryId: entry.id, issue: `Invalid status: ${entry.status}`, severity: 'error' });
     }
 

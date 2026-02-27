@@ -232,6 +232,8 @@ describe('SafetyDataAccessor', () => {
   });
 
   // ---- Deprecated Aliases ----
+  // Note: SafetyDataAccessor no longer exposes loadTodoFile/saveTodoFile aliases.
+  // These tests now verify the canonical loadTaskFile/saveTaskFile methods work.
 
   describe('Deprecated Aliases', () => {
     it('should route loadTodoFile to loadTaskFile', async () => {
@@ -239,7 +241,7 @@ describe('SafetyDataAccessor', () => {
       const inner = createMockAccessor();
       const wrapped = new SafetyDataAccessor(inner, tempDir);
 
-      const result = await wrapped.loadTodoFile();
+      const result = await wrapped.loadTaskFile();
       expect(result).toBeDefined();
       expect(result.version).toBe('2.10.0');
     });
@@ -255,7 +257,7 @@ describe('SafetyDataAccessor', () => {
       const inner = createMockAccessor();
       const wrapped = new SafetyDataAccessor(inner, tempDir, { enabled: true });
 
-      await wrapped.saveTodoFile(makeTaskFile());
+      await wrapped.saveTaskFile(makeTaskFile());
 
       expect(getSafetyStats().writes).toBeGreaterThan(0);
     });

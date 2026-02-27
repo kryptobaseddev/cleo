@@ -116,7 +116,7 @@ export interface TaskRecord {
   cancellationReason?: string;
 }
 
-// Local TodoFile interface removed — DataAccessor uses the canonical TodoFile from types/task.ts.
+// Local TaskFile interface removed — DataAccessor uses the canonical TaskFile from types/task.ts.
 
 /**
  * Minimal task representation for find results
@@ -143,7 +143,7 @@ export interface EngineResult<T = unknown> {
   };
 }
 
-// loadTodoFile and saveTodoFile removed — all operations now use DataAccessor.
+// loadTaskFile and saveTaskFile removed — all operations now use DataAccessor.
 // Config reads (hierarchy limits, phase meta) still use readJsonFile directly
 // since they are NOT domain data (they don't go through the accessor).
 
@@ -250,7 +250,7 @@ export async function taskExists(
 ): Promise<EngineResult<{ exists: boolean; taskId: string }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const data = await accessor.loadTodoFile();
+    const data = await accessor.loadTaskFile();
     const exists = data.tasks.some((t) => t.id === taskId);
     return { success: true, data: { exists, taskId } };
   } catch {
@@ -489,6 +489,59 @@ export async function taskNext(
 }>> {
   try {
     const result = await coreTaskNext(projectRoot, params);
+    return { success: true, data: result };
+  } catch {
+    return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };
+  }
+}
+
+/**
+ * Composite planning view aggregating in-progress epics, ready tasks, blocked tasks, and open bugs.
+ * @task T4914
+ * @epic T4454
+ */
+export async function taskPlan(
+  projectRoot: string
+): Promise<EngineResult<{
+  inProgress: Array<{
+    epicId: string;
+    epicTitle: string;
+    activeTasks: number;
+    completionPercent: number;
+  }>;
+  ready: Array<{
+    id: string;
+    title: string;
+    epicId: string;
+    leverage: number;
+    score: number;
+    reasons: string[];
+  }>;
+  blocked: Array<{
+    id: string;
+    title: string;
+    blockedBy: string[];
+    blocksCount: number;
+  }>;
+  openBugs: Array<{
+    id: string;
+    title: string;
+    priority: string;
+    epicId: string;
+  }>;
+  metrics: {
+    totalEpics: number;
+    activeEpics: number;
+    totalTasks: number;
+    actionable: number;
+    blocked: number;
+    openBugs: number;
+    avgLeverage: number;
+  };
+}>> {
+  const { coreTaskPlan } = await import('../../core/tasks/plan.js');
+  try {
+    const result = await coreTaskPlan(projectRoot);
     return { success: true, data: result };
   } catch {
     return { success: false, error: { code: 'E_NOT_INITIALIZED', message: 'Task database not initialized' } };

@@ -33,7 +33,6 @@ export type {
   FindTasksOptions, FindTasksResult,
   ListTasksOptions, ListTasksResult,
   ArchiveTasksOptions, ArchiveTasksResult,
-  FocusShowResult, FocusSetResult, FocusHistoryEntry,
   TaskCurrentResult, TaskStartResult, TaskWorkHistoryEntry,
   AnalysisResult,
 } from './provider.js';

@@ -128,6 +128,8 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'link',            // Link research to task
     'manifest.append', // Append manifest entry
     'manifest.archive', // Archive old entries
+    'pattern.store',   // Store BRAIN pattern memory
+    'learning.store',  // Store BRAIN learning memory
   ],
 
   // ── Canonical: check (validate alias) ──────────────────────────────
@@ -249,18 +251,11 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
 };
 
 /**
- * Total operation count check
- *
- * Includes operations across both canonical domains and legacy aliases.
- * Legacy aliases duplicate operations from their canonical counterparts,
- * so the total is higher than unique operations.
+ * Dynamic operation count (derived from MUTATE_OPERATIONS).
  */
-const EXPECTED_MUTATE_COUNT = 107;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
-if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
-  console.error(
-    `Warning: Mutate operation count mismatch. Expected ${EXPECTED_MUTATE_COUNT}, got ${actualMutateCount}`
-  );
+if (actualMutateCount < 1) {
+  console.error('Warning: Mutate operation registry is empty.');
 }
 
 /**

@@ -15,6 +15,7 @@
 
 import { getAccessor } from '../../store/data-accessor.js';
 import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../mcp/engine/store.js';
+import { TASK_STATUSES } from '../../store/status-registry.js';
 
 // ============================================================================
 // Types (shared)
@@ -76,7 +77,7 @@ const PRIORITY_SCORE: Record<string, number> = {
 
 async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   const accessor = await getAccessor(projectRoot);
-  const data = await accessor.loadTodoFile();
+  const data = await accessor.loadTaskFile();
   return data.tasks as unknown as TaskRecord[];
 }
 
@@ -196,8 +197,8 @@ export async function coreTaskNext(
   const allTasks = await loadAllTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
-  const todoPath = getDataPath(projectRoot, 'todo.json');
-  const todoMeta = storeReadJsonFile<{ project?: { currentPhase?: string | null } }>(todoPath);
+  const taskPath = getDataPath(projectRoot, 'tasks.json');
+  const todoMeta = storeReadJsonFile<{ project?: { currentPhase?: string | null } }>(taskPath);
   const currentPhase = todoMeta?.project?.currentPhase;
 
   const candidates = allTasks.filter((t) =>
@@ -463,9 +464,9 @@ export async function coreTaskRelatesAdd(
   reason?: string,
 ): Promise<{ from: string; to: string; type: string; added: boolean }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTodoFile();
+  const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid todo.json found');
+    throw new Error('No valid tasks.json found');
   }
 
   const fromTask = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -489,7 +490,7 @@ export async function coreTaskRelatesAdd(
   });
 
   fromTask.updatedAt = new Date().toISOString();
-  await accessor.saveTodoFile(current);
+  await accessor.saveTaskFile(current);
 
   return { from: taskId, to: relatedId, type, added: true };
 }
@@ -613,9 +614,9 @@ export async function coreTaskRestore(
   params?: { cascade?: boolean; notes?: string },
 ): Promise<{ task: string; restored: string[]; count: number }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTodoFile();
+  const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid todo.json found');
+    throw new Error('No valid tasks.json found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -655,7 +656,7 @@ export async function coreTaskRestore(
     restored.push(t.id);
   }
 
-  await accessor.saveTodoFile(current);
+  await accessor.saveTaskFile(current);
 
   return { task: taskId, restored, count: restored.length };
 }
@@ -665,7 +666,7 @@ export async function coreTaskRestore(
 // ============================================================================
 
 /**
- * Move an archived task back to todo.json.
+ * Move an archived task back to tasks.json.
  * @task T4790
  */
 export async function coreTaskUnarchive(
@@ -674,9 +675,9 @@ export async function coreTaskUnarchive(
   params?: { status?: string; preserveStatus?: boolean },
 ): Promise<{ task: string; unarchived: boolean; title: string; status: string }> {
   const accessor = await getAccessor(projectRoot);
-  const todo = await accessor.loadTodoFile();
-  if (!todo || !todo.tasks) {
-    throw new Error('No valid todo.json found');
+  const taskFile = await accessor.loadTaskFile();
+  if (!taskFile || !taskFile.tasks) {
+    throw new Error('No valid tasks.json found');
   }
 
   const archive = await accessor.loadArchive();
@@ -689,8 +690,8 @@ export async function coreTaskUnarchive(
     throw new Error(`Task '${taskId}' not found in archive`);
   }
 
-  if (todo.tasks.some((t) => t.id === taskId)) {
-    throw new Error(`Task '${taskId}' already exists in todo.json`);
+  if (taskFile.tasks.some((t) => t.id === taskId)) {
+    throw new Error(`Task '${taskId}' already exists in tasks.json`);
   }
 
   const task = archive.archivedTasks[taskIndex] as TaskRecord & { _archive?: Record<string, unknown> };
@@ -707,10 +708,10 @@ export async function coreTaskUnarchive(
 
   task.updatedAt = new Date().toISOString();
 
-  (todo.tasks as unknown as TaskRecord[]).push(task);
+  (taskFile.tasks as unknown as TaskRecord[]).push(task);
   archive.archivedTasks.splice(taskIndex, 1);
 
-  await accessor.saveTodoFile(todo);
+  await accessor.saveTaskFile(taskFile);
   await accessor.saveArchive(archive);
 
   return { task: taskId, unarchived: true, title: task.title, status: task.status };
@@ -730,9 +731,9 @@ export async function coreTaskReorder(
   position: number,
 ): Promise<{ task: string; reordered: boolean; newPosition: number; totalSiblings: number }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTodoFile();
+  const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid todo.json found');
+    throw new Error('No valid tasks.json found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId);
@@ -760,7 +761,7 @@ export async function coreTaskReorder(
     }
   }
 
-  await accessor.saveTodoFile(current);
+  await accessor.saveTaskFile(current);
 
   return { task: taskId, reordered: true, newPosition: newIndex + 1, totalSiblings: allSiblings.length };
 }
@@ -785,9 +786,9 @@ export async function coreTaskReparent(
   newType?: string;
 }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTodoFile();
+  const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid todo.json found');
+    throw new Error('No valid tasks.json found');
   }
 
   const taskMap = new Map(current.tasks.map((t) => [t.id, t]));
@@ -804,7 +805,7 @@ export async function coreTaskReparent(
     if (task.type === 'subtask') task.type = 'task';
     task.updatedAt = new Date().toISOString();
 
-    await accessor.saveTodoFile(current);
+    await accessor.saveTaskFile(current);
 
     return { task: taskId, reparented: true, oldParent, newParent: null, newType: task.type };
   }
@@ -857,7 +858,7 @@ export async function coreTaskReparent(
 
   task.updatedAt = new Date().toISOString();
 
-  await accessor.saveTodoFile(current);
+  await accessor.saveTaskFile(current);
 
   return { task: taskId, reparented: true, oldParent, newParent: effectiveParentId, newType: task.type };
 }
@@ -875,9 +876,9 @@ export async function coreTaskPromote(
   taskId: string,
 ): Promise<{ task: string; promoted: boolean; previousParent: string | null; typeChanged: boolean }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTodoFile();
+  const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid todo.json found');
+    throw new Error('No valid tasks.json found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -899,7 +900,7 @@ export async function coreTaskPromote(
     typeChanged = true;
   }
 
-  await accessor.saveTodoFile(current);
+  await accessor.saveTaskFile(current);
 
   return { task: taskId, promoted: true, previousParent: oldParent, typeChanged };
 }
@@ -918,9 +919,9 @@ export async function coreTaskReopen(
   params?: { status?: string; reason?: string },
 ): Promise<{ task: string; reopened: boolean; previousStatus: string; newStatus: string }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTodoFile();
+  const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid todo.json found');
+    throw new Error('No valid tasks.json found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -946,7 +947,7 @@ export async function coreTaskReopen(
   const reason = params?.reason;
   task.notes.push(`[${task.updatedAt}] Reopened from ${previousStatus}${reason ? ': ' + reason : ''}`);
 
-  await accessor.saveTodoFile(current);
+  await accessor.saveTaskFile(current);
 
   return { task: taskId, reopened: true, previousStatus, newStatus: targetStatus };
 }
@@ -1196,7 +1197,7 @@ export async function coreTaskHistory(
   taskId: string,
   limit?: number,
 ): Promise<Array<Record<string, unknown>>> {
-  const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
+  const logPath = getDataPath(projectRoot, 'tasks-log.jsonl');
   const entries = readLogFileEntries(logPath);
 
   const taskEntries = entries.filter((entry) => {
@@ -1289,8 +1290,7 @@ export async function coreTaskLint(
       allDescriptions.add(descLower);
     }
 
-    const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled'];
-    if (!validStatuses.includes(task.status)) {
+    if (!(TASK_STATUSES as readonly string[]).includes(task.status)) {
       issues.push({ taskId: task.id, severity: 'error', rule: 'valid-status', message: `Invalid status: ${task.status}` });
     }
 
@@ -1360,8 +1360,7 @@ export async function coreTaskBatchValidate(
       taskIssues.push({ severity: 'warning', rule: 'description-required', message: 'Missing description' });
     }
 
-    const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled'];
-    if (!validStatuses.includes(task.status)) {
+    if (!(TASK_STATUSES as readonly string[]).includes(task.status)) {
       taskIssues.push({ severity: 'error', rule: 'valid-status', message: `Invalid status: ${task.status}` });
     }
 
@@ -1422,9 +1421,9 @@ export async function coreTaskImport(
   overwrite?: boolean,
 ): Promise<{ imported: number; skipped: number; errors: string[]; remapTable?: Record<string, string> }> {
   const accessor = await getAccessor(projectRoot);
-  const current = await accessor.loadTodoFile();
+  const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid todo.json found');
+    throw new Error('No valid tasks.json found');
   }
 
   let importData: unknown;
@@ -1504,7 +1503,7 @@ export async function coreTaskImport(
   }
 
   if (imported > 0) {
-    await accessor.saveTodoFile(current);
+    await accessor.saveTaskFile(current);
   }
 
   return {

@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock child_process
 vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
   execFileSync: vi.fn(),
 }));
 
