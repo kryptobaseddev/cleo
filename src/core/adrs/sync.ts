@@ -1,13 +1,18 @@
 /**
  * ADR DB Sync (ADR-017)
  *
- * Syncs ADR markdown frontmatter into the architecture_decisions DB table.
- * Upserts each ADR row and rebuilds adr_task_links from Related Tasks field.
+ * Syncs ADR markdown frontmatter into the architecture_decisions DB table
+ * AND regenerates .cleo/adrs/MANIFEST.jsonl in one pass.
+ *
+ * Single command: ct adr sync (or admin.adr.sync)
+ * - Updates architecture_decisions + adr_task_links in SQLite (runtime search)
+ * - Rewrites MANIFEST.jsonl (portable export, includes archive/ ADRs)
  *
  * @task T4792
+ * @task T4942 — MANIFEST generation folded in so one command keeps both in sync
  */
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
@@ -29,7 +34,28 @@ function parseTaskIds(raw: string): string[] {
     .filter(t => /^T\d{1,5}$/.test(t));
 }
 
-/** Sync all ADR markdown files into the architecture_decisions table */
+/** Collect all ADR .md files recursively (top-level + archive/) */
+function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> {
+  const results: Array<{ file: string; relPath: string }> = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      const sub = join(dir, entry.name);
+      for (const f of readdirSync(sub)) {
+        if (f.endsWith('.md') && /^ADR-\d+/.test(f)) {
+          results.push({ file: f, relPath: `${entry.name}/${f}` });
+        }
+      }
+    } else if (entry.name.endsWith('.md') && /^ADR-\d+/.test(entry.name)) {
+      results.push({ file: entry.name, relPath: entry.name });
+    }
+  }
+  return results.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+/**
+ * Sync all ADR markdown files into the architecture_decisions table
+ * AND regenerate MANIFEST.jsonl in one pass.
+ */
 export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> {
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
   const result: AdrSyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [] };
@@ -41,15 +67,18 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 
-  const files = readdirSync(adrsDir)
-    .filter(f => f.endsWith('.md') && /^ADR-\d+/.test(f));
+  const allFiles = collectAdrFiles(adrsDir);
+  // Only sync top-level files to DB (archive/ ADRs are superseded)
+  const activeFiles = allFiles.filter(f => !f.relPath.includes('/'));
+  const manifestEntries: Record<string, unknown>[] = [];
 
-  for (const file of files) {
+  // --- DB sync (active ADRs only) ---
+  for (const { file, relPath } of activeFiles) {
     try {
-      const filePath = join(adrsDir, file);
+      const filePath = join(adrsDir, relPath);
       const record = parseAdrFile(filePath, projectRoot);
       const fm = record.frontmatter;
-      const relativePath = `.cleo/adrs/${file}`;
+      const dbRelPath = `.cleo/adrs/${relPath}`;
       const content = readFileSync(filePath, 'utf-8');
 
       const supersedesId = fm.Supersedes ? extractAdrIdFromRef(fm.Supersedes) : null;
@@ -61,7 +90,7 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
         title: record.title,
         status: fm.Status ?? 'proposed',
         content,
-        filePath: relativePath,
+        filePath: dbRelPath,
         date: fm.Date ?? '',
         acceptedAt: fm.Accepted ?? null,
         gate: (fm.Gate ?? null) as 'HITL' | 'automated' | null,
@@ -75,7 +104,6 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
         updatedAt: now,
       } as const;
 
-      // Check if row already exists
       const existing = await db
         .select({ id: architectureDecisions.id })
         .from(architectureDecisions)
@@ -83,35 +111,63 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
         .all();
 
       if (existing.length > 0) {
-        await db
-          .update(architectureDecisions)
-          .set(rowBase)
-          .where(eq(architectureDecisions.id, record.id));
+        await db.update(architectureDecisions).set(rowBase).where(eq(architectureDecisions.id, record.id));
         result.updated++;
       } else {
-        await db
-          .insert(architectureDecisions)
-          .values({ ...rowBase, createdAt: now });
+        await db.insert(architectureDecisions).values({ ...rowBase, createdAt: now });
         result.inserted++;
       }
 
-      // Rebuild task links: delete then re-insert
-      await db
-        .delete(adrTaskLinks)
-        .where(eq(adrTaskLinks.adrId, record.id));
-
+      await db.delete(adrTaskLinks).where(eq(adrTaskLinks.adrId, record.id));
       if (fm['Related Tasks']) {
-        const taskIds = parseTaskIds(fm['Related Tasks']);
-        for (const taskId of taskIds) {
-          await db
-            .insert(adrTaskLinks)
-            .values({ adrId: record.id, taskId, linkType: 'related' });
+        for (const taskId of parseTaskIds(fm['Related Tasks'])) {
+          await db.insert(adrTaskLinks).values({ adrId: record.id, taskId, linkType: 'related' });
         }
       }
     } catch (err) {
       result.errors.push({ file, error: String(err) });
     }
   }
+
+  // --- MANIFEST.jsonl (all ADRs including archive/) ---
+  for (const { file, relPath } of allFiles) {
+    try {
+      const filePath = join(adrsDir, relPath);
+      const record = parseAdrFile(filePath, projectRoot);
+      const fm = record.frontmatter;
+
+      const entry: Record<string, unknown> = {
+        id: record.id,
+        file: `.cleo/adrs/${relPath}`,
+        title: record.title,
+        status: fm.Status ?? 'unknown',
+        date: fm.Date ?? '',
+      };
+      if (fm.Accepted) entry['accepted'] = fm.Accepted;
+      if (fm.Supersedes) entry['supersedes'] = fm.Supersedes;
+      if (fm['Superseded By']) entry['supersededBy'] = fm['Superseded By'];
+      if (fm.Amends) entry['amends'] = fm.Amends;
+      if (fm['Amended By']) entry['amendedBy'] = fm['Amended By'];
+      if (fm['Related Tasks']) {
+        entry['relatedTasks'] = fm['Related Tasks'].split(',').map(s => s.trim()).filter(Boolean);
+      }
+      if (fm.Gate) entry['gate'] = fm.Gate;
+      if (fm['Gate Status']) entry['gateStatus'] = fm['Gate Status'];
+      if (fm.Summary) entry['summary'] = fm.Summary;
+      if (fm.Keywords) entry['keywords'] = fm.Keywords.split(',').map(s => s.trim()).filter(Boolean);
+      if (fm.Topics) entry['topics'] = fm.Topics.split(',').map(s => s.trim()).filter(Boolean);
+
+      manifestEntries.push(entry);
+    } catch {
+      // Non-fatal: a parse failure in one ADR doesn't block the manifest
+    }
+  }
+
+  writeFileSync(
+    join(adrsDir, 'MANIFEST.jsonl'),
+    manifestEntries.map(e => JSON.stringify(e)).join('\n') + '\n',
+    'utf-8',
+  );
 
   return result;
 }
