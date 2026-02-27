@@ -18,6 +18,8 @@ import { getFormatContext } from '../format-context.js';
 import { getFieldContext } from '../field-context.js';
 import { formatSuccess, type FormatOptions } from '../../core/output.js';
 import { normalizeForHuman } from './normalizer.js';
+import { extractFieldFromResult, applyFieldFilter } from '@cleocode/lafs-protocol';
+import type { LAFSEnvelope } from '@cleocode/lafs-protocol';
 
 // Task renderers
 import {
@@ -107,7 +109,11 @@ export interface CliOutputOptions {
  */
 export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   const ctx = getFormatContext();
+  const fieldCtx = getFieldContext();
 
+  // --human wins over all field flags.
+  // --field, --fields, and --mvi are JSON-envelope / scripting concepts.
+  // When a human is reading the output, render the full data without manipulation.
   if (ctx.format === 'human') {
     const normalized = normalizeForHuman(opts.command, data as Record<string, unknown>);
     const renderer = renderers[opts.command] ?? renderGeneric;
@@ -118,8 +124,39 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     return;
   }
 
-  // JSON format (default)
-  const fieldCtx = getFieldContext();
+  // --field: single-field plain text extraction (scripting / agent use).
+  // Centralised here so ALL commands (dispatchFromCli and dispatchRaw) honour the flag.
+  if (fieldCtx.field) {
+    const value = extractFieldFromResult(data as LAFSEnvelope['result'], fieldCtx.field);
+    if (value === undefined) {
+      cliError(`Field "${fieldCtx.field}" not found`, 4, { name: 'E_NOT_FOUND' });
+      process.exit(4);
+    }
+    const out = (value !== null && typeof value === 'object') ? JSON.stringify(value) : String(value);
+    process.stdout.write(out + '\n');
+    return;
+  }
+
+  // JSON format (default): apply --fields filter, then emit LAFS envelope.
+  // Centralised here so ALL commands honour the flag without per-command wiring.
+  // applyFieldFilter can throw on unusual mixed-type arrays (e.g. changes: ['status']).
+  // In that case we fall back to unfiltered output rather than crashing.
+  let filteredData = data;
+  if (fieldCtx.fields?.length && data !== undefined && data !== null) {
+    try {
+      const stub: LAFSEnvelope = {
+        $schema: 'https://lafs.dev/schemas/v1/envelope.schema.json',
+        _meta: {} as unknown as LAFSEnvelope['_meta'],
+        success: true,
+        result: data as LAFSEnvelope['result'],
+      };
+      const filtered = applyFieldFilter(stub, fieldCtx.fields);
+      filteredData = filtered.result;
+    } catch {
+      // applyFieldFilter limitation: mixed-type arrays (strings inside arrays) are not
+      // supported. Fall through to emit the full unfiltered result.
+    }
+  }
 
   // Per LAFS §9.1 (v1.5.0 clarification): _meta MUST always be present.
   // --mvi minimal governs result contents only; mvi level is reflected in _meta.mvi.
@@ -129,7 +166,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
   if (opts.extensions) formatOpts.extensions = opts.extensions;
   if (fieldCtx.mvi) formatOpts.mvi = fieldCtx.mvi;
 
-  console.log(formatSuccess(data, opts.message, Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation));
+  console.log(formatSuccess(filteredData, opts.message, Object.keys(formatOpts).length > 0 ? formatOpts : opts.operation));
 }
 
 /**
