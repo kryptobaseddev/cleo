@@ -8,7 +8,7 @@
  * Layer 1: Schema Validation (JSON Schema compliance)
  * Layer 2: Semantic Validation (Business rules)
  * Layer 3: Referential Validation (Cross-entity integrity)
- * Layer 4: Protocol Validation (RCSD-IVTR lifecycle)
+ * Layer 4: Protocol Validation (RCASD-IVTR+C lifecycle)
  *
  * Reference: docs/specs/MCP-SERVER-SPECIFICATION.md Section 7
  */

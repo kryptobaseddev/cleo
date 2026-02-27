@@ -1,6 +1,16 @@
 /**
- * RCSD pipeline lifecycle - stage transitions and gate enforcement.
+ * RCASD-IVTR pipeline lifecycle - stage transitions and gate enforcement.
+ *
+ * CANONICAL EXPORTS: `stages.ts` is the single source of truth for stage
+ * definitions, ordering, prerequisites, and transition rules. This file
+ * re-exports canonical types and provides JSON manifest I/O for on-disk
+ * `.cleo/rcasd/<epicId>/_manifest.json` (canonical) and legacy
+ * `.cleo/rcasd/<epicId>/_manifest.json` files (canonical) and legacy
+ * `.cleo/rcsd/<epicId>/_manifest.json` files.
+ *
  * @task T4467
+ * @task T4800 - Unified lifecycle barrel export
+ * @task T4798 - RCASD rename (Phase 1: code-only, no disk paths)
  * @epic T4454
  */
 
@@ -9,96 +19,178 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoDirAbsolute, getBackupDir } from '../paths.js';
 import { join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { LIFECYCLE_STAGE_STATUSES } from '../../store/schema.js';
 
-/** RCSD pipeline stages in order. */
-export const RCSD_STAGES = ['research', 'consensus', 'specification', 'decomposition'] as const;
-export type RcsdStage = typeof RCSD_STAGES[number];
+// =============================================================================
+// CANONICAL RE-EXPORTS from stages.ts (single source of truth)
+// =============================================================================
 
-/** Execution stages. */
-export const EXECUTION_STAGES = ['implementation', 'contribution', 'release'] as const;
-export type ExecutionStage = typeof EXECUTION_STAGES[number];
+export {
+  PIPELINE_STAGES,
+  CONTRIBUTION_STAGE,
+  type Stage,
+  type StageStatus,
+  type StageCategory,
+  type StageDefinition,
+  STAGE_DEFINITIONS as CANONICAL_STAGE_DEFINITIONS,
+  STAGE_PREREQUISITES as CANONICAL_PREREQUISITES,
+  STAGE_ORDER,
+  STAGE_COUNT,
+  FIRST_STAGE,
+  LAST_STAGE,
+  PLANNING_STAGES,
+  DECISION_STAGES,
+  EXECUTION_STAGES,
+  VALIDATION_STAGES,
+  DELIVERY_STAGES,
+  getStageOrder,
+  getPrerequisites,
+  isPrerequisite,
+  getDependents,
+  checkTransition,
+  validateStage,
+  isValidStage,
+  isValidStageStatus,
+  getNextStage,
+  getPreviousStage,
+  getStagesBetween,
+  isStageBefore,
+  isStageAfter,
+  getStagesByCategory,
+  getSkippableStages,
+} from './stages.js';
 
-/** All lifecycle stages. */
-export type LifecycleStage = RcsdStage | ExecutionStage;
+import { PIPELINE_STAGES } from './stages.js';
+import type { Stage } from './stages.js';
 
-/** Stage status values. */
-export type StageStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped';
-
-/** RCSD manifest for an epic. */
-export interface RcsdManifest {
-  epicId: string;
-  createdAt: string;
-  updatedAt: string;
-  stages: Record<LifecycleStage, {
-    status: StageStatus;
-    startedAt?: string;
-    completedAt?: string;
-    artifacts?: string[];
-  }>;
-}
+// =============================================================================
+// MANIFEST TYPES (canonical on-disk format with legacy path compatibility)
+// =============================================================================
 
 /** Lifecycle enforcement modes. */
 export type EnforcementMode = 'strict' | 'advisory' | 'off';
+
+/** Gate data within a stage. */
+export interface GateData {
+  status: 'passed' | 'failed' | 'pending';
+  agent?: string;
+  notes?: string;
+  reason?: string;
+  timestamp?: string;
+}
+
+/** Stage data in an on-disk manifest. */
+export interface ManifestStageData {
+  status: typeof LIFECYCLE_STAGE_STATUSES[number];
+  completedAt?: string;
+  skippedAt?: string;
+  skippedReason?: string;
+  artifacts?: string[];
+  notes?: string;
+  gates?: Record<string, GateData>;
+}
+
+/**
+ * Canonical RCASD manifest interface for on-disk pipeline data.
+ * Used by lifecycle-engine.ts and rcasd-index.ts for `.cleo/rcasd/` manifests
+ * with fallback support for legacy `.cleo/rcsd/` manifests.
+ *
+ * Stage keys use full canonical names matching the DB CHECK constraint:
+ * research, consensus, architecture_decision, specification, decomposition,
+ * implementation, validation, testing, release.
+ *
+ * @task T4798
+ */
+export interface RcasdManifest {
+  epicId: string;
+  title?: string;
+  stages: Record<string, ManifestStageData>;
+}
 
 /** Gate check result. */
 export interface GateCheckResult {
   allowed: boolean;
   mode: EnforcementMode;
   missingPrerequisites: string[];
-  currentStage: LifecycleStage;
+  currentStage: string;
   message: string;
 }
 
 /** Stage transition result. */
 export interface StageTransitionResult {
   epicId: string;
-  stage: LifecycleStage;
-  previousStatus: StageStatus;
-  newStatus: StageStatus;
+  stage: string;
+  previousStatus: string;
+  newStatus: string;
   timestamp: string;
 }
 
-/**
- * Get RCSD manifest path for an epic.
- * @task T4467
- */
-function getRcsdPath(epicId: string, cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'rcsd', epicId, '_manifest.json');
+// =============================================================================
+// ON-DISK MANIFEST I/O (.cleo/rcasd/ + legacy .cleo/rcsd/ JSON files)
+// =============================================================================
+
+const LIFECYCLE_DATA_DIRS = ['rcasd', 'rcsd'] as const;
+const DEFAULT_LIFECYCLE_DATA_DIR = 'rcasd' as const;
+
+function getManifestReadPath(epicId: string, cwd?: string): string | null {
+  const cleoDir = getCleoDirAbsolute(cwd);
+  for (const dirName of LIFECYCLE_DATA_DIRS) {
+    const path = join(cleoDir, dirName, epicId, '_manifest.json');
+    if (existsSync(path)) {
+      return path;
+    }
+  }
+  return null;
+}
+
+function getManifestWritePath(epicId: string, cwd?: string): string {
+  const cleoDir = getCleoDirAbsolute(cwd);
+  for (const dirName of LIFECYCLE_DATA_DIRS) {
+    if (existsSync(join(cleoDir, dirName, epicId))) {
+      return join(cleoDir, dirName, epicId, '_manifest.json');
+    }
+  }
+  return join(cleoDir, DEFAULT_LIFECYCLE_DATA_DIR, epicId, '_manifest.json');
 }
 
 /**
- * Read or initialize RCSD manifest for an epic.
+ * Get lifecycle manifest path for an epic.
  * @task T4467
  */
-async function readRcsdManifest(epicId: string, cwd?: string): Promise<RcsdManifest> {
-  const path = getRcsdPath(epicId, cwd);
-  const existing = await readJson<RcsdManifest>(path);
+function getRcsdPath(epicId: string, cwd?: string): string {
+  return getManifestWritePath(epicId, cwd);
+}
+
+/**
+ * Read or initialize lifecycle manifest for an epic.
+ * On-disk manifests use full-form stage names (matching DB schema).
+ * @task T4467
+ */
+async function readRcsdManifest(epicId: string, cwd?: string): Promise<RcasdManifest> {
+  const path = getManifestReadPath(epicId, cwd) ?? getRcsdPath(epicId, cwd);
+  const existing = await readJson<RcasdManifest>(path);
   if (existing) return existing;
 
-  // Initialize new manifest
-  const now = new Date().toISOString();
-  const allStages = [...RCSD_STAGES, ...EXECUTION_STAGES] as const;
-  const stages: RcsdManifest['stages'] = {} as RcsdManifest['stages'];
+  // Initialize new manifest with all 9 pipeline stages
+  const stages: RcasdManifest['stages'] = {};
 
-  for (const stage of allStages) {
+  for (const stage of PIPELINE_STAGES) {
     stages[stage] = { status: 'not_started' };
   }
 
   return {
     epicId,
-    createdAt: now,
-    updatedAt: now,
     stages,
   };
 }
 
 /**
- * Save RCSD manifest.
+ * Save lifecycle manifest.
  * @task T4467
  */
-async function saveRcsdManifest(manifest: RcsdManifest, cwd?: string): Promise<void> {
+async function saveRcsdManifest(manifest: RcasdManifest, cwd?: string): Promise<void> {
   const path = getRcsdPath(manifest.epicId, cwd);
-  manifest.updatedAt = new Date().toISOString();
   await saveJson(path, manifest, { backupDir: getBackupDir(cwd) });
 }
 
@@ -109,7 +201,7 @@ async function saveRcsdManifest(manifest: RcsdManifest, cwd?: string): Promise<v
 export async function getLifecycleState(
   epicId: string,
   cwd?: string,
-): Promise<RcsdManifest> {
+): Promise<RcasdManifest> {
   return readRcsdManifest(epicId, cwd);
 }
 
@@ -119,7 +211,7 @@ export async function getLifecycleState(
  */
 export async function startStage(
   epicId: string,
-  stage: LifecycleStage,
+  stage: string,
   cwd?: string,
 ): Promise<StageTransitionResult> {
   const manifest = await readRcsdManifest(epicId, cwd);
@@ -147,8 +239,7 @@ export async function startStage(
   }
 
   const now = new Date().toISOString();
-  stageData.status = 'in_progress';
-  stageData.startedAt = now;
+  stageData.status = 'completed';
 
   await saveRcsdManifest(manifest, cwd);
 
@@ -156,7 +247,7 @@ export async function startStage(
     epicId,
     stage,
     previousStatus,
-    newStatus: 'in_progress',
+    newStatus: 'completed',
     timestamp: now,
   };
 }
@@ -167,7 +258,7 @@ export async function startStage(
  */
 export async function completeStage(
   epicId: string,
-  stage: LifecycleStage,
+  stage: string,
   artifacts?: string[],
   cwd?: string,
 ): Promise<StageTransitionResult> {
@@ -179,7 +270,7 @@ export async function completeStage(
   }
 
   const previousStatus = stageData.status;
-  if (previousStatus !== 'in_progress' && previousStatus !== 'not_started') {
+  if (previousStatus === 'completed') {
     throw new CleoError(
       ExitCode.LIFECYCLE_TRANSITION_INVALID,
       `Cannot complete stage '${stage}' from status '${previousStatus}'`,
@@ -210,7 +301,7 @@ export async function completeStage(
  */
 export async function skipStage(
   epicId: string,
-  stage: LifecycleStage,
+  stage: string,
   _reason: string,
   cwd?: string,
 ): Promise<StageTransitionResult> {
@@ -249,7 +340,7 @@ export async function skipStage(
  */
 export async function checkGate(
   epicId: string,
-  targetStage: LifecycleStage,
+  targetStage: string,
   cwd?: string,
 ): Promise<GateCheckResult> {
   // Get enforcement mode from config
@@ -266,8 +357,7 @@ export async function checkGate(
   }
 
   const manifest = await readRcsdManifest(epicId, cwd);
-  const allStages = [...RCSD_STAGES, ...EXECUTION_STAGES] as LifecycleStage[];
-  const targetIndex = allStages.indexOf(targetStage);
+  const targetIndex = PIPELINE_STAGES.indexOf(targetStage as Stage);
 
   if (targetIndex === -1) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${targetStage}`);
@@ -276,7 +366,7 @@ export async function checkGate(
   // Check all prior stages are completed or skipped
   const missing: string[] = [];
   for (let i = 0; i < targetIndex; i++) {
-    const stage = allStages[i]!;
+    const stage = PIPELINE_STAGES[i]!;
     const status = manifest.stages[stage]?.status ?? 'not_started';
     if (status !== 'completed' && status !== 'skipped') {
       missing.push(stage);
@@ -324,102 +414,32 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
 }
 
 // ============================================================================
-// Engine-compatible lifecycle stages (superset including validation/testing)
-// These are used by the MCP engine layer for RCSD-IVTR pipeline support.
+// ENGINE-COMPATIBLE LIFECYCLE STATUS (reads on-disk manifests)
 // ============================================================================
 
-/** Full RCSD-IVTR stage list used by the engine layer. */
-export const ENGINE_LIFECYCLE_STAGES = [
-  'research', 'consensus', 'specification', 'decomposition',
-  'implementation', 'validation', 'testing', 'release',
-] as const;
-
-export type EngineLifecycleStage = (typeof ENGINE_LIFECYCLE_STAGES)[number];
-
-/** Engine-compatible stage status (includes 'pending' and 'blocked'). */
-export type EngineStageStatus = 'pending' | 'completed' | 'skipped' | 'blocked';
-
-/** Gate data within a stage. */
-export interface GateData {
-  status: 'passed' | 'failed' | 'pending';
-  agent?: string;
-  notes?: string;
-  reason?: string;
-  timestamp?: string;
-}
-
-/** Engine-compatible stage data with extended fields. */
-export interface EngineStageData {
-  status: EngineStageStatus;
-  completedAt?: string;
-  skippedAt?: string;
-  skippedReason?: string;
-  artifacts?: string[];
-  notes?: string;
-  gates?: Record<string, GateData>;
-}
-
-/** Engine-compatible RCSD manifest with extended fields. */
-export interface EngineRcsdManifest {
-  epicId: string;
-  title?: string;
-  stages: Record<string, EngineStageData>;
-}
-
-/** Stage definition with metadata. */
-export interface StageInfo {
-  stage: EngineLifecycleStage;
-  name: string;
-  description: string;
-  order: number;
-  optional: boolean;
-  pipeline: 'rcsd' | 'ivtr';
-}
-
-/** Stage definitions with metadata. */
-export const STAGE_DEFINITIONS: StageInfo[] = [
-  { stage: 'research', name: 'Research', description: 'Information gathering and exploration', order: 1, optional: false, pipeline: 'rcsd' },
-  { stage: 'consensus', name: 'Consensus', description: 'Multi-agent decisions and validation', order: 2, optional: true, pipeline: 'rcsd' },
-  { stage: 'specification', name: 'Specification', description: 'Document creation and RFC design', order: 3, optional: false, pipeline: 'rcsd' },
-  { stage: 'decomposition', name: 'Decomposition', description: 'Task breakdown and planning', order: 4, optional: false, pipeline: 'rcsd' },
-  { stage: 'implementation', name: 'Implementation', description: 'Code execution and building', order: 5, optional: false, pipeline: 'ivtr' },
-  { stage: 'validation', name: 'Validation', description: 'Validation and quality checks', order: 6, optional: false, pipeline: 'ivtr' },
-  { stage: 'testing', name: 'Testing', description: 'Test execution and coverage', order: 7, optional: false, pipeline: 'ivtr' },
-  { stage: 'release', name: 'Release', description: 'Version management and publishing', order: 8, optional: true, pipeline: 'ivtr' },
-];
-
-/** Prerequisite map: stage -> required prior stages. */
-export const STAGE_PREREQUISITES: Record<string, string[]> = {
-  research: [],
-  consensus: ['research'],
-  specification: ['research'],
-  decomposition: ['research', 'specification'],
-  implementation: ['research', 'specification', 'decomposition'],
-  validation: ['implementation'],
-  testing: ['implementation'],
-  release: ['implementation', 'validation', 'testing'],
-};
-
 /**
- * Read engine-compatible RCSD manifest (returns null if no data exists).
+ * Read engine-compatible RCASD manifest (returns null if no data exists).
  * @task T4785
  */
-async function readEngineManifest(epicId: string, cwd?: string): Promise<EngineRcsdManifest | null> {
-  const path = join(getCleoDirAbsolute(cwd), 'rcsd', epicId, '_manifest.json');
-  return readJson<EngineRcsdManifest>(path);
+async function readEngineManifest(epicId: string, cwd?: string): Promise<RcasdManifest | null> {
+  const path = getManifestReadPath(epicId, cwd);
+  if (!path) {
+    return null;
+  }
+  return readJson<RcasdManifest>(path);
 }
 
 /**
- * Save engine-compatible RCSD manifest.
+ * Save engine-compatible RCASD manifest.
  * @task T4785
  */
-async function saveEngineManifest(epicId: string, manifest: EngineRcsdManifest, cwd?: string): Promise<void> {
-  const path = join(getCleoDirAbsolute(cwd), 'rcsd', epicId, '_manifest.json');
+async function saveEngineManifest(epicId: string, manifest: RcasdManifest, cwd?: string): Promise<void> {
+  const path = getManifestWritePath(epicId, cwd);
   await saveJson(path, manifest, { backupDir: getBackupDir(cwd) });
 }
 
 /**
- * Get lifecycle status for an epic (engine-compatible format).
+ * Get lifecycle status for an epic (on-disk manifest format).
  * Returns stage progress, current/next stage, and blockers.
  * @task T4785
  */
@@ -429,9 +449,9 @@ export async function getLifecycleStatus(
 ): Promise<{
   epicId: string;
   title?: string;
-  currentStage: EngineLifecycleStage | null;
-  stages: Array<{ stage: string; status: EngineStageStatus; completedAt?: string; notes?: string }>;
-  nextStage: EngineLifecycleStage | null;
+  currentStage: Stage | null;
+  stages: Array<{ stage: string; status: string; completedAt?: string; notes?: string }>;
+  nextStage: Stage | null;
   blockedOn: string[];
   initialized: boolean;
 }> {
@@ -441,33 +461,33 @@ export async function getLifecycleStatus(
     return {
       epicId,
       currentStage: null,
-      stages: ENGINE_LIFECYCLE_STAGES.map(s => ({ stage: s, status: 'pending' as EngineStageStatus })),
+      stages: PIPELINE_STAGES.map(s => ({ stage: s, status: 'not_started' })),
       nextStage: 'research',
       blockedOn: [],
       initialized: false,
     };
   }
 
-  const stages = ENGINE_LIFECYCLE_STAGES.map(s => {
+  const stages = PIPELINE_STAGES.map(s => {
     const stageData = manifest.stages[s];
     return {
       stage: s,
-      status: (stageData?.status || 'pending') as EngineStageStatus,
+      status: stageData?.status || 'not_started',
       completedAt: stageData?.completedAt,
       notes: stageData?.notes,
     };
   });
 
-  let currentStage: EngineLifecycleStage | null = null;
-  let nextStage: EngineLifecycleStage | null = null;
+  let currentStage: Stage | null = null;
+  let nextStage: Stage | null = null;
 
-  for (let i = ENGINE_LIFECYCLE_STAGES.length - 1; i >= 0; i--) {
-    const s = ENGINE_LIFECYCLE_STAGES[i];
+  for (let i = PIPELINE_STAGES.length - 1; i >= 0; i--) {
+    const s = PIPELINE_STAGES[i];
     const status = manifest.stages[s]?.status;
     if (status === 'completed' || status === 'skipped') {
       currentStage = s;
-      if (i < ENGINE_LIFECYCLE_STAGES.length - 1) {
-        nextStage = ENGINE_LIFECYCLE_STAGES[i + 1];
+      if (i < PIPELINE_STAGES.length - 1) {
+        nextStage = PIPELINE_STAGES[i + 1];
       }
       break;
     }
@@ -479,7 +499,8 @@ export async function getLifecycleStatus(
 
   const blockedOn: string[] = [];
   if (nextStage) {
-    const prereqs = STAGE_PREREQUISITES[nextStage] || [];
+    const { STAGE_PREREQUISITES: prereqMap } = await import('./stages.js');
+    const prereqs = prereqMap[nextStage] || [];
     for (const prereq of prereqs) {
       const prereqStatus = manifest.stages[prereq]?.status;
       if (prereqStatus !== 'completed' && prereqStatus !== 'skipped') {
@@ -592,18 +613,22 @@ export async function getLifecycleGates(
  */
 export function getStagePrerequisites(targetStage: string): {
   prerequisites: string[];
-  stageInfo: StageInfo | undefined;
+  stageInfo: { stage: string; name: string; description: string; order: number } | undefined;
 } {
-  if (!ENGINE_LIFECYCLE_STAGES.includes(targetStage as EngineLifecycleStage)) {
+  if (!PIPELINE_STAGES.includes(targetStage as Stage)) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
-      `Invalid stage: ${targetStage}. Valid stages: ${ENGINE_LIFECYCLE_STAGES.join(', ')}`,
+      `Invalid stage: ${targetStage}. Valid stages: ${PIPELINE_STAGES.join(', ')}`,
     );
   }
 
+  // Use dynamic import to avoid circular reference at module level
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { STAGE_DEFINITIONS, STAGE_PREREQUISITES } = require('./stages.js');
+  const def = STAGE_DEFINITIONS[targetStage as Stage];
   return {
-    prerequisites: STAGE_PREREQUISITES[targetStage] || [],
-    stageInfo: STAGE_DEFINITIONS.find(s => s.stage === targetStage),
+    prerequisites: STAGE_PREREQUISITES[targetStage as Stage] || [],
+    stageInfo: def ? { stage: def.stage, name: def.name, description: def.description, order: def.order } : undefined,
   };
 }
 
@@ -623,15 +648,16 @@ export async function checkStagePrerequisites(
   missingPrerequisites: string[];
   issues: Array<{ stage: string; severity: string; message: string }>;
 }> {
-  if (!ENGINE_LIFECYCLE_STAGES.includes(targetStage as EngineLifecycleStage)) {
+  if (!PIPELINE_STAGES.includes(targetStage as Stage)) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
-      `Invalid stage: ${targetStage}. Valid stages: ${ENGINE_LIFECYCLE_STAGES.join(', ')}`,
+      `Invalid stage: ${targetStage}. Valid stages: ${PIPELINE_STAGES.join(', ')}`,
     );
   }
 
   const manifest = await readEngineManifest(epicId, cwd);
-  const prereqs = STAGE_PREREQUISITES[targetStage] || [];
+  const { STAGE_PREREQUISITES: prereqMap } = await import('./stages.js');
+  const prereqs: string[] = prereqMap[targetStage as Stage] || [];
 
   const missingPrerequisites: string[] = [];
   const issues: Array<{ stage: string; severity: string; message: string }> = [];
@@ -669,12 +695,12 @@ export async function recordStageProgress(
   notes?: string,
   cwd?: string,
 ): Promise<{ epicId: string; stage: string; status: string; timestamp: string }> {
-  if (!ENGINE_LIFECYCLE_STAGES.includes(stage as EngineLifecycleStage)) {
+  if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Invalid stage: ${stage}`);
   }
 
-  const validStatuses: EngineStageStatus[] = ['pending', 'completed', 'skipped', 'blocked'];
-  if (!validStatuses.includes(status as EngineStageStatus)) {
+  const validStatuses = [...LIFECYCLE_STAGE_STATUSES];
+  if (!validStatuses.includes(status as (typeof LIFECYCLE_STAGE_STATUSES)[number])) {
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       `Invalid status: ${status}. Valid: ${validStatuses.join(', ')}`,
@@ -687,11 +713,11 @@ export async function recordStageProgress(
   }
 
   if (!manifest.stages[stage]) {
-    manifest.stages[stage] = { status: 'pending' };
+    manifest.stages[stage] = { status: 'not_started' };
   }
 
   const now = new Date().toISOString();
-  manifest.stages[stage].status = status as EngineStageStatus;
+  manifest.stages[stage].status = status as ManifestStageData['status'];
 
   if (status === 'completed') {
     manifest.stages[stage].completedAt = now;
@@ -722,7 +748,7 @@ export async function skipStageWithReason(
   }
 
   if (!manifest.stages[stage]) {
-    manifest.stages[stage] = { status: 'pending' };
+    manifest.stages[stage] = { status: 'not_started' };
   }
 
   const now = new Date().toISOString();
@@ -756,7 +782,7 @@ export async function resetStage(
   }
 
   manifest.stages[stage] = {
-    status: 'pending',
+    status: 'not_started',
     notes: `Reset: ${reason}`,
   };
 
@@ -785,7 +811,7 @@ export async function passGate(
   const stageName = stageParts[0];
 
   if (!manifest.stages[stageName]) {
-    manifest.stages[stageName] = { status: 'pending' };
+    manifest.stages[stageName] = { status: 'not_started' };
   }
 
   if (!manifest.stages[stageName].gates) {
@@ -824,7 +850,7 @@ export async function failGate(
   const stageName = stageParts[0];
 
   if (!manifest.stages[stageName]) {
-    manifest.stages[stageName] = { status: 'pending' };
+    manifest.stages[stageName] = { status: 'not_started' };
   }
 
   if (!manifest.stages[stageName].gates) {
@@ -844,19 +870,27 @@ export async function failGate(
 }
 
 /**
- * List all epic IDs that have RCSD data.
+ * List all epic IDs that have lifecycle data.
  * @task T4785
  */
 export async function listEpicsWithLifecycle(cwd?: string): Promise<string[]> {
-  const rcsdDir = join(getCleoDirAbsolute(cwd), 'rcsd');
   try {
-    const { readdirSync, existsSync } = await import('node:fs');
-    if (!existsSync(rcsdDir)) {
-      return [];
+    const cleoDir = getCleoDirAbsolute(cwd);
+    const taskIds = new Set<string>();
+
+    for (const dirName of LIFECYCLE_DATA_DIRS) {
+      const lifecycleDir = join(cleoDir, dirName);
+      if (!existsSync(lifecycleDir)) {
+        continue;
+      }
+      for (const entry of readdirSync(lifecycleDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith('T')) {
+          taskIds.add(entry.name);
+        }
+      }
     }
-    return readdirSync(rcsdDir, { withFileTypes: true })
-      .filter(d => d.isDirectory() && d.name.startsWith('T'))
-      .map(d => d.name);
+
+    return Array.from(taskIds).sort();
   } catch {
     return [];
   }

@@ -11,7 +11,10 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "const": "https://cleo-dev.com/schemas/v1/rcsd-manifest.schema.json",
+      "enum": [
+        "https://cleo-dev.com/schemas/v1/rcsd-manifest.schema.json",
+        "https://cleo-dev.com/schemas/v1/rcasd-manifest.schema.json"
+      ],
       "description": "Self-referencing schema URI for validation"
     },
     "taskId": {

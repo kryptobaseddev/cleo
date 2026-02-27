@@ -4,7 +4,7 @@
  * @task T2918
  * @epic T2908
  *
- * Defines validation rules for all 7 RCSD-IVTR protocols.
+ * Defines validation rules for all 9 RCASD-IVTR+C protocols.
  *
  * Reference: lib/protocol-validation.sh, protocols/*.md
  */
@@ -682,9 +682,9 @@ const VALIDATION_RULES: ProtocolRule[] = [
     id: 'VALID-003',
     level: 'MUST',
     message: 'Must check protocol compliance',
-    fix: 'Set status to complete/partial/blocked',
+    fix: 'Set status to completed/partial/blocked',
     validate: (entry) => {
-      return hasEnumValue(entry, 'status', ['complete', 'partial', 'blocked']);
+      return hasEnumValue(entry, 'status', ['completed', 'partial', 'blocked']);
     },
   },
   {

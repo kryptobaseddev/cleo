@@ -5,7 +5,7 @@
 
 ## Overview
 
-The protocol enforcement middleware validates RCSD-IVTR lifecycle compliance with exit codes 60-70. It intercepts domain operations to enforce protocol requirements before completion.
+The protocol enforcement middleware validates RCASD-IVTR+C lifecycle compliance with exit codes 60-70. It intercepts domain operations to enforce protocol requirements before completion.
 
 ## Architecture
 
@@ -21,10 +21,10 @@ DomainRequest → DomainRouter → ProtocolEnforcer.enforceProtocol() → Domain
 
 | Protocol | Exit Code | Stage |
 |----------|-----------|-------|
-| Research | 60 | RCSD Setup |
-| Consensus | 61 | RCSD Setup |
-| Specification | 62 | RCSD Setup |
-| Decomposition | 63 | RCSD Setup |
+| Research | 60 | RCASD Setup |
+| Consensus | 61 | RCASD Setup |
+| Specification | 62 | RCASD Setup |
+| Decomposition | 63 | RCASD Setup |
 | Implementation | 64 | IVTR Execution |
 | Contribution | 65 | IVTR Execution (cross-cutting) |
 | Release | 66 | IVTR Execution |
@@ -34,16 +34,16 @@ DomainRequest → DomainRouter → ProtocolEnforcer.enforceProtocol() → Domain
 ## Lifecycle Gates
 
 ```
-research ──GATE──► consensus ──GATE──► specification ──GATE──► decomposition
-   ↓                 ↓                     ↓                       ↓
-  []               [research]      [research, consensus]  [research, consensus, spec]
+research ──GATE──► consensus ──GATE──► architecture_decision ──GATE──► specification ──GATE──► decomposition
+   ↓                 ↓                     ↓                           ↓                         ↓
+  []               [research]      [research, consensus]  [research, consensus, architecture_decision]  [research, specification, architecture_decision]
 
                               │
                               ▼
 
 implementation ──GATE──► validation ──GATE──► testing ──GATE──► release
      ↓                      ↓                   ↓                  ↓
-  [RCSD complete]      [implementation]  [implementation,      [implementation,
+ [RCASD complete]      [implementation]  [implementation,      [implementation,
                                           validation]           validation, testing]
 ```
 
@@ -77,7 +77,7 @@ protocolEnforcer.setStrictMode(false);
 const gateCheck = await protocolEnforcer.checkLifecycleGate(
   'T2918',
   'implementation',
-  rcsdManifest
+  lifecycleManifest
 );
 
 if (!gateCheck.passed) {
