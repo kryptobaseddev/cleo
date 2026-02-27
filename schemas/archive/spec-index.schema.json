@@ -1,0 +1,196 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/spec-index.schema.json",
+  "title": "Claude-TODO Specification Index",
+  "description": "Schema for the authoritative specification index. LLM-agent-first design: structured, queryable, schema-validated.",
+  "type": "object",
+  "required": ["$schema", "_meta", "authorities", "specs"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/spec-index.schema.json"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Index metadata for version tracking and integrity",
+      "required": ["version", "lastUpdated", "totalSpecs", "totalReports"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version of the index format"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date",
+          "description": "ISO date of last index update"
+        },
+        "totalSpecs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of specification documents"
+        },
+        "totalReports": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of implementation reports"
+        },
+        "checksum": {
+          "type": "string",
+          "description": "Optional SHA256 for integrity verification"
+        }
+      }
+    },
+    "authorities": {
+      "type": "object",
+      "description": "Domain to authoritative specification mapping. Query: 'What is the authoritative source for X?'",
+      "additionalProperties": {
+        "type": "string",
+        "description": "Filename of authoritative spec for this domain"
+      }
+    },
+    "specs": {
+      "type": "array",
+      "description": "All specification documents with metadata",
+      "items": {
+        "$ref": "#/definitions/specEntry"
+      }
+    },
+    "reports": {
+      "type": "array",
+      "description": "All implementation reports with progress tracking",
+      "items": {
+        "$ref": "#/definitions/reportEntry"
+      }
+    },
+    "recentChanges": {
+      "type": "array",
+      "description": "Last 20 changes for change tracking",
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/definitions/changeEntry"
+      }
+    }
+  },
+  "definitions": {
+    "specEntry": {
+      "type": "object",
+      "required": ["file", "version", "status", "type", "domain", "synopsis", "lastUpdated"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+\\.(md|json)$",
+          "description": "Filename (not path)"
+        },
+        "version": {
+          "type": "string",
+          "description": "Semantic version or version string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "APPROVED", "ACTIVE", "IMMUTABLE", "DEPRECATED", "PLANNING", "IMPLEMENTED"],
+          "description": "Document lifecycle status"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["SPEC", "GUIDELINES", "PLAN"],
+          "description": "Document type classification"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Primary domain this spec covers"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["core-system", "feature", "design-philosophy", "integration", "process"],
+          "description": "Organizational category"
+        },
+        "synopsis": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "1-2 sentence purpose summary"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date",
+          "description": "ISO date of last document update"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Specs this document depends on (filenames)"
+        },
+        "dependedOnBy": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Specs that depend on this document (filenames)"
+        },
+        "implementationReport": {
+          "type": "string",
+          "description": "Filename of associated implementation report"
+        },
+        "isAuthoritativeFor": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Domains this spec is authoritative for"
+        }
+      }
+    },
+    "reportEntry": {
+      "type": "object",
+      "required": ["file", "relatedSpec", "progress", "lastUpdated"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-IMPLEMENTATION-REPORT\\.md$"
+        },
+        "relatedSpec": {
+          "type": "string",
+          "description": "Filename of the spec this tracks"
+        },
+        "progress": {
+          "type": "string",
+          "description": "Progress indicator (e.g., '85%', '16/18', 'Varies')"
+        },
+        "phase": {
+          "type": "string",
+          "description": "Current implementation phase"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Brief status note"
+        }
+      }
+    },
+    "changeEntry": {
+      "type": "object",
+      "required": ["date", "file", "changeType", "description"],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "file": {
+          "type": "string"
+        },
+        "changeType": {
+          "type": "string",
+          "enum": ["Created", "Updated", "StatusChange", "Deprecated"]
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 100
+        }
+      }
+    }
+  }
+}

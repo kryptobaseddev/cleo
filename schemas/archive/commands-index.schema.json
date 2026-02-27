@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
+  "title": "Claude-TODO Commands Index",
+  "description": "Schema for the authoritative command reference index. LLM-agent-first design: structured, queryable, schema-validated.",
+  "type": "object",
+  "required": ["$schema", "_meta", "categories", "commands"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/commands-index.schema.json"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Index metadata",
+      "required": ["version", "lastUpdated", "totalCommands"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date"
+        },
+        "totalCommands": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "specCompliance": {
+          "type": "string",
+          "description": "Reference to LLM-AGENT-FIRST-SPEC version"
+        }
+      }
+    },
+    "categories": {
+      "type": "object",
+      "description": "Command categorization for quick filtering",
+      "properties": {
+        "write": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Commands that modify state"
+        },
+        "read": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Commands that query/display data"
+        },
+        "sync": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "TodoWrite synchronization commands"
+        },
+        "maintenance": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "System maintenance commands"
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "description": "All commands with metadata",
+      "items": {
+        "$ref": "#/definitions/commandEntry"
+      }
+    },
+    "agentWorkflows": {
+      "type": "object",
+      "description": "Pre-defined command sequences for common agent workflows",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"type": "string"}
+      }
+    },
+    "quickLookup": {
+      "type": "object",
+      "description": "Intent-to-command mapping for agents",
+      "additionalProperties": {"type": "string"}
+    }
+  },
+  "definitions": {
+    "commandEntry": {
+      "type": "object",
+      "required": ["name", "script", "category", "doc", "synopsis", "exitCodes", "jsonOutput", "agentRelevance"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z-]+$",
+          "description": "Command name (lowercase, hyphens allowed)"
+        },
+        "script": {
+          "type": "string",
+          "pattern": "^[a-z-]+\\.sh$",
+          "description": "Implementation script filename"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["write", "read", "sync", "maintenance"],
+          "description": "Command category"
+        },
+        "doc": {
+          "type": "string",
+          "pattern": "^[a-z-]+\\.md$",
+          "description": "Documentation filename in docs/commands/"
+        },
+        "synopsis": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "One-line command purpose"
+        },
+        "flags": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Supported flags (--format, --quiet, etc.)"
+        },
+        "subcommands": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Available subcommands if any"
+        },
+        "exitCodes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "description": "Possible exit codes per LLM-AGENT-FIRST-SPEC"
+        },
+        "jsonOutput": {
+          "type": "boolean",
+          "description": "Whether command supports JSON output"
+        },
+        "jsonDefault": {
+          "type": "boolean",
+          "description": "Whether JSON is default output (not text)"
+        },
+        "agentRelevance": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"],
+          "description": "How frequently agents should use this command"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Command aliases"
+        },
+        "note": {
+          "type": "string",
+          "description": "Additional usage notes"
+        }
+      }
+    }
+  }
+}

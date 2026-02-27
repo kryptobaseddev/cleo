@@ -1,0 +1,267 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/releases.schema.json",
+  "title": "CLEO Releases Schema",
+  "description": "Release provenance tracking with SLSA attestation metadata. Tracks full provenance chain: Task → Commit → PR → Changelog → Release → Artifact.",
+  "type": "object",
+  "required": ["_meta", "releases"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "required": ["schemaVersion", "createdAt", "updatedAt"],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for releases.json"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of file creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last update"
+        }
+      }
+    },
+    "releases": {
+      "type": "array",
+      "description": "Array of release records with provenance metadata",
+      "items": {
+        "$ref": "#/definitions/release"
+      }
+    }
+  },
+  "definitions": {
+    "release": {
+      "type": "object",
+      "required": ["version", "date", "tasks", "commits", "artifacts", "provenance", "signing"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$",
+          "description": "SemVer or CalVer version string (e.g., 1.0.0, 26.1.0)"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of release"
+        },
+        "tasks": {
+          "type": "array",
+          "description": "Task IDs included in this release",
+          "items": {
+            "type": "string",
+            "pattern": "^T[0-9]+$"
+          },
+          "uniqueItems": true
+        },
+        "commits": {
+          "type": "array",
+          "description": "Git commit SHAs included in this release",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{7,40}$"
+          },
+          "uniqueItems": true
+        },
+        "artifacts": {
+          "type": "array",
+          "description": "Build artifacts with checksums",
+          "items": {
+            "$ref": "#/definitions/artifact"
+          }
+        },
+        "provenance": {
+          "$ref": "#/definitions/slsaProvenance"
+        },
+        "signing": {
+          "$ref": "#/definitions/signing"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "npm-package",
+            "python-wheel",
+            "python-sdist",
+            "cargo-crate",
+            "go-module",
+            "ruby-gem",
+            "github-release",
+            "docker-image",
+            "generic-tarball"
+          ],
+          "description": "Artifact type/ecosystem"
+        },
+        "name": {
+          "type": "string",
+          "description": "Artifact name (e.g., package name, image tag)"
+        },
+        "path": {
+          "type": "string",
+          "description": "Relative path to artifact file"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 checksum of artifact"
+        },
+        "sha512": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{128}$",
+          "description": "SHA-512 checksum of artifact (optional)"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Artifact size in bytes"
+        },
+        "registry": {
+          "type": "string",
+          "description": "Registry URL (e.g., https://registry.npmjs.org)"
+        },
+        "published": {
+          "type": "boolean",
+          "description": "Whether artifact was successfully published"
+        }
+      }
+    },
+    "slsaProvenance": {
+      "type": "object",
+      "required": ["slsaVersion", "slsaLevel", "enabled"],
+      "additionalProperties": true,
+      "properties": {
+        "slsaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "SLSA framework version (e.g., 1.0)"
+        },
+        "slsaLevel": {
+          "type": "string",
+          "enum": [
+            "SLSA_BUILD_LEVEL_1",
+            "SLSA_BUILD_LEVEL_2",
+            "SLSA_BUILD_LEVEL_3",
+            "SLSA_BUILD_LEVEL_4"
+          ],
+          "description": "SLSA Build Level (1-4)"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether provenance tracking is enabled"
+        },
+        "buildType": {
+          "type": "string",
+          "description": "Build system identifier URI"
+        },
+        "builder": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Builder identifier URI"
+            }
+          }
+        },
+        "invocation": {
+          "type": "object",
+          "properties": {
+            "configSource": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "description": "Source repository URI"
+                },
+                "digest": {
+                  "type": "object",
+                  "description": "Source commit digest"
+                }
+              }
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "buildInvocationId": {
+              "type": "string",
+              "description": "Unique build invocation ID"
+            },
+            "buildStartedOn": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Build start timestamp"
+            },
+            "buildFinishedOn": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Build completion timestamp"
+            },
+            "completeness": {
+              "type": "object",
+              "properties": {
+                "parameters": {
+                  "type": "boolean",
+                  "description": "All build parameters captured"
+                },
+                "environment": {
+                  "type": "boolean",
+                  "description": "Build environment fully captured"
+                },
+                "materials": {
+                  "type": "boolean",
+                  "description": "All build materials captured"
+                }
+              }
+            },
+            "reproducible": {
+              "type": "boolean",
+              "description": "Whether build is reproducible"
+            }
+          }
+        }
+      }
+    },
+    "signing": {
+      "type": "object",
+      "required": ["method", "signed"],
+      "additionalProperties": true,
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["sigstore", "gpg", "none"],
+          "description": "Signing method used"
+        },
+        "keyless": {
+          "type": "boolean",
+          "description": "Whether keyless signing was used (Sigstore)"
+        },
+        "signed": {
+          "type": "boolean",
+          "description": "Whether artifacts are signed"
+        },
+        "signature": {
+          "type": "string",
+          "description": "Signature data or reference"
+        },
+        "certificate": {
+          "type": "string",
+          "description": "Signing certificate (if applicable)"
+        }
+      }
+    }
+  }
+}

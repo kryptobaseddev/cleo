@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/claudedocs-frontmatter.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "Claudedocs YAML Frontmatter",
+  "description": "YAML frontmatter schema for claudedocs/ working documentation. Enforces task-linked lifecycle tracking, status management, and metadata consistency for internal development documentation.",
+  "type": "object",
+  "required": [
+    "task_id",
+    "status",
+    "created_at",
+    "updated_at",
+    "type"
+  ],
+  "additionalProperties": false,
+
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "Primary task ID that anchors this document (T#### format)"
+    },
+    "epic_id": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "Parent epic ID for context (optional, inferred from task hierarchy)"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^session_[0-9]{8}_[0-9]{6}_[a-f0-9]{6}$",
+      "description": "CLEO session that created this document (for audit trail)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "review", "archived"],
+      "description": "Document lifecycle status: draft (initial), active (in-use), review (needs approval), archived (historical)"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["research", "design", "spec", "analysis", "proposal"],
+      "description": "Document category for organizational purposes"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 date when document was created (YYYY-MM-DD)"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 date of last update (YYYY-MM-DD)"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 10,
+      "description": "Categorization tags (kebab-case)"
+    },
+    "canonical_promotion": {
+      "type": "object",
+      "description": "Tracking for promotion to canonical docs/ location",
+      "required": ["eligible", "promoted"],
+      "additionalProperties": false,
+      "properties": {
+        "eligible": {
+          "type": "boolean",
+          "description": "Whether this document is eligible for promotion to docs/"
+        },
+        "promoted": {
+          "type": "boolean",
+          "description": "Whether this document has been promoted to canonical location"
+        },
+        "target_path": {
+          "type": "string",
+          "pattern": "^docs/[a-z0-9-/]+\\.md$",
+          "description": "Target canonical path if promoted (relative from repo root)"
+        },
+        "promoted_at": {
+          "type": "string",
+          "format": "date",
+          "description": "Date when promotion occurred"
+        }
+      }
+    },
+    "gap_check": {
+      "type": "object",
+      "description": "Gap validation results before archive (ensures no orphaned task references)",
+      "required": ["validated", "validated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "validated": {
+          "type": "boolean",
+          "description": "Whether gap validation has been performed"
+        },
+        "validated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when validation occurred"
+        },
+        "has_gaps": {
+          "type": "boolean",
+          "description": "Whether gaps were detected (orphaned task references)"
+        },
+        "gap_details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["task_id", "issue"],
+            "additionalProperties": false,
+            "properties": {
+              "task_id": {
+                "type": "string",
+                "pattern": "^T\\d{3,}$"
+              },
+              "issue": {
+                "type": "string",
+                "enum": ["task_pending", "task_active", "task_not_found"],
+                "description": "Type of gap detected"
+              }
+            }
+          },
+          "description": "Detailed list of gaps found during validation"
+        }
+      }
+    },
+    "title": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 150,
+      "description": "Human-readable document title"
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Author or generating agent identifier"
+    },
+    "related_tasks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^T\\d{3,}$"
+      },
+      "uniqueItems": true,
+      "description": "Additional task IDs referenced in document"
+    },
+    "supersedes": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+\\.md$",
+      "description": "Previous document filename this supersedes (if any)"
+    },
+    "superseded_by": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+\\.md$",
+      "description": "Newer document that supersedes this (if archived)"
+    }
+  }
+}

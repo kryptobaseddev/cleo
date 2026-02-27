@@ -1,0 +1,264 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-manifest.schema.json",
+  "title": "RCSD Per-Directory Manifest",
+  "description": "Manifest schema for individual RCSD task directories (.cleo/rcsd/TXXX_short-name/_manifest.json). Tracks pipeline state, file references, and per-stage status.",
+  "type": "object",
+  "required": ["$schema", "taskId", "shortName", "pipelineStage", "files", "status", "createdAt", "updatedAt"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/rcsd-manifest.schema.json",
+      "description": "Self-referencing schema URI for validation"
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "Anchoring task ID (e.g., T001, T042, T999)"
+    },
+    "shortName": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,25}$",
+      "description": "Kebab-case short identifier derived from task title. Used in directory and file naming."
+    },
+    "taskTitle": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "Original task title for reference"
+    },
+    "taskDescription": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Original task description for context"
+    },
+    "pipelineStage": {
+      "$ref": "#/definitions/pipelineStage",
+      "description": "Current stage in the RCSD pipeline"
+    },
+    "files": {
+      "type": "object",
+      "description": "References to pipeline artifact files",
+      "required": ["research", "consensus", "spec", "report"],
+      "additionalProperties": false,
+      "properties": {
+        "research": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/definitions/fileReference" }
+          ],
+          "description": "Research output file reference"
+        },
+        "consensus": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/definitions/fileReference" }
+          ],
+          "description": "Consensus report file reference"
+        },
+        "spec": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/definitions/fileReference" }
+          ],
+          "description": "Generated specification file reference"
+        },
+        "report": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/definitions/fileReference" }
+          ],
+          "description": "Implementation report file reference"
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "description": "Per-stage status tracking",
+      "required": ["initialized", "research", "consensus", "spec", "decompose"],
+      "additionalProperties": false,
+      "properties": {
+        "initialized": {
+          "$ref": "#/definitions/stageStatus"
+        },
+        "research": {
+          "$ref": "#/definitions/stageStatus"
+        },
+        "consensus": {
+          "$ref": "#/definitions/stageStatus"
+        },
+        "spec": {
+          "$ref": "#/definitions/stageStatus"
+        },
+        "decompose": {
+          "$ref": "#/definitions/stageStatus"
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "Pipeline configuration for this task",
+      "additionalProperties": false,
+      "properties": {
+        "researchDepth": {
+          "type": "string",
+          "enum": ["shallow", "standard", "deep"],
+          "default": "standard",
+          "description": "Depth of research to perform"
+        },
+        "consensusThreshold": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 1.0,
+          "default": 0.7,
+          "description": "Minimum consensus level required (0.5-1.0)"
+        },
+        "autoDecompose": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically create subtasks from spec"
+        },
+        "requireApproval": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require user approval before spec generation"
+        }
+      }
+    },
+    "domain": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Primary domain for this specification"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["core-system", "feature", "integration", "process", "enhancement"],
+      "description": "Organizational category for the generated spec"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "uniqueItems": true,
+      "description": "Additional tags for categorization and search"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this RCSD directory was initialized"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When pipeline reached complete stage (if applicable)"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stage": {
+            "$ref": "#/definitions/pipelineStage"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "description": "Append-only log of pipeline notes and decisions"
+    }
+  },
+
+  "definitions": {
+    "pipelineStage": {
+      "type": "string",
+      "enum": ["initialized", "research", "consensus", "spec", "decompose", "complete"],
+      "description": "RCSD pipeline stages"
+    },
+    "fileReference": {
+      "type": "object",
+      "required": ["filename", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "File name within this directory"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When file was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last modification timestamp"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "File version (if applicable)"
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16,64}$",
+          "description": "SHA-256 (truncated or full) for integrity"
+        }
+      }
+    },
+    "stageStatus": {
+      "type": "object",
+      "required": ["state"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
+          "description": "Current state of this pipeline stage"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When stage began"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When stage finished"
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Duration in seconds (computed)"
+        },
+        "error": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Error message if state is failed"
+        },
+        "retryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of retry attempts"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,208 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/skillsmp.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "SkillsMP Configuration Schema",
+  "description": "Configuration for SkillsMP API integration with CLEO skill loading system.",
+  "type": "object",
+  "required": ["_meta"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for validation."
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Configuration file metadata.",
+      "required": ["schemaVersion"],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version (semver)."
+        }
+      }
+    },
+
+    "api": {
+      "type": "object",
+      "description": "SkillsMP API connection settings.",
+      "required": ["endpoint"],
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "default": "https://api.skillsmp.com",
+          "description": "SkillsMP API base URL. Override via SKILLSMP_ENDPOINT env var."
+        },
+        "version": {
+          "type": "string",
+          "enum": ["v1", "v2"],
+          "default": "v1",
+          "description": "API version to use."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "default": 30,
+          "description": "Request timeout in seconds."
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 3,
+          "description": "Number of retry attempts on failure."
+        },
+        "retryDelay": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 1000,
+          "description": "Initial retry delay in milliseconds (exponential backoff)."
+        }
+      }
+    },
+
+    "auth": {
+      "type": "object",
+      "description": "Authentication configuration. MUST NOT contain API key directly.",
+      "additionalProperties": false,
+      "properties": {
+        "envVar": {
+          "type": "string",
+          "default": "SKILLSMP_API_KEY",
+          "description": "Environment variable name for API key. NEVER hardcode key in config."
+        },
+        "keyFile": {
+          "type": "string",
+          "description": "Path to file containing API key (relative to project root or absolute). File should contain ONLY the key with no whitespace."
+        }
+      }
+    },
+
+    "install": {
+      "type": "object",
+      "description": "Skill installation preferences.",
+      "additionalProperties": false,
+      "properties": {
+        "defaultLocation": {
+          "type": "string",
+          "enum": ["project", "global"],
+          "default": "project",
+          "description": "Default installation target: project=./skills/, global=~/.cleo/skills/"
+        },
+        "projectDir": {
+          "type": "string",
+          "default": "./skills",
+          "description": "Project-local skills directory (relative to project root)."
+        },
+        "globalDir": {
+          "type": "string",
+          "default": "~/.cleo/skills",
+          "description": "Global skills directory (expands ~ to home)."
+        },
+        "updateManifest": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically update skills/manifest.json after install/update."
+        },
+        "verifyChecksum": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verify skill package checksums before installation."
+        }
+      }
+    },
+
+    "cache": {
+      "type": "object",
+      "description": "Cache settings for API responses.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable caching of API responses."
+        },
+        "directory": {
+          "type": "string",
+          "default": ".cleo/.cache/skillsmp",
+          "description": "Cache directory (relative to project root)."
+        },
+        "ttl": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400,
+          "default": 3600,
+          "description": "Cache TTL in seconds (default: 1 hour)."
+        },
+        "maxSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum cached entries before eviction."
+        }
+      }
+    },
+
+    "validation": {
+      "type": "object",
+      "description": "Skill validation settings.",
+      "additionalProperties": false,
+      "properties": {
+        "strictMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Treat validation warnings as errors."
+        },
+        "checkDependencies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate skill dependencies exist before install."
+        },
+        "checkVersion": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate skill version compatibility with CLEO."
+        },
+        "minVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "default": "1.0.0",
+          "description": "Minimum required SkillsMP API version."
+        }
+      }
+    },
+
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration for SkillsMP operations.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable logging of install/update operations."
+        },
+        "level": {
+          "type": "string",
+          "enum": ["error", "warn", "info", "debug"],
+          "default": "info",
+          "description": "Logging verbosity level."
+        },
+        "file": {
+          "type": "string",
+          "default": ".cleo/skillsmp.log",
+          "description": "Log file path (relative to project root)."
+        }
+      }
+    }
+  }
+}
