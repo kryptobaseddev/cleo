@@ -225,9 +225,10 @@ function getScopeTaskIds(
     current.tasks.forEach((t) => taskIds.add(t.id));
   } else {
     // Epic/task scope: root task and descendants
-    const rootTaskId = session.scope.epicId;
-    if (!rootTaskId) {
-      // No epic ID, fall back to global
+    // Prefer rootTaskId (engine-layer), fall back to epicId (core-layer)
+    const rootId = session.scope.rootTaskId ?? session.scope.epicId;
+    if (!rootId) {
+      // No root ID, fall back to global
       current.tasks.forEach((t) => taskIds.add(t.id));
       return taskIds;
     }
@@ -241,7 +242,13 @@ function getScopeTaskIds(
       });
     };
 
-    addDescendants(rootTaskId);
+    addDescendants(rootId);
+
+    // Include explicitTaskIds if present in scope (runtime safe access for engine-layer sessions)
+    const explicitIds = (session.scope as unknown as Record<string, unknown>).explicitTaskIds;
+    if (Array.isArray(explicitIds)) {
+      explicitIds.forEach((id) => { if (typeof id === 'string') taskIds.add(id); });
+    }
   }
 
   return taskIds;
@@ -335,7 +342,10 @@ export async function getLastHandoff(
       if (scope.type === 'global') {
         return s.scope.type === 'global';
       }
-      return s.scope.type === scope.type && s.scope.epicId === scope.epicId;
+      // Match against both epicId and rootTaskId for cross-layer compatibility
+      const scopeRootId = scope.epicId ?? (scope as unknown as Record<string, unknown>).rootTaskId;
+      const sessionRootId = s.scope.rootTaskId ?? s.scope.epicId;
+      return s.scope.type === scope.type && sessionRootId === scopeRootId;
     });
   }
 
@@ -345,7 +355,7 @@ export async function getLastHandoff(
       new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime(),
   );
 
-  // Find first with handoff data
+  // Find first with handoff data (check handoffJson, then debriefJson fallback)
   for (const session of endedSessions) {
     if (typeof session.handoffJson === 'string') {
       try {
@@ -353,6 +363,17 @@ export async function getLastHandoff(
         return { sessionId: session.id, handoff };
       } catch {
         // Skip invalid handoff data
+      }
+    }
+    // T4959: debriefJson is a superset containing handoff as a nested field
+    if (typeof session.debriefJson === 'string') {
+      try {
+        const debrief = JSON.parse(session.debriefJson);
+        if (debrief?.handoff) {
+          return { sessionId: session.id, handoff: debrief.handoff as HandoffData };
+        }
+      } catch {
+        // Skip invalid debrief data
       }
     }
   }
