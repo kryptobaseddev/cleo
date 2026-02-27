@@ -61,3 +61,21 @@ Both interfaces now share a single execution path through `src/core/`.
 - MCP domains: `src/mcp/domains/`
 - Shared core: `src/core/`
 - CLI commands: `src/cli/commands/`
+
+---
+
+## Post-Implementation Amendment (2026-02-27, ADR-020)
+
+### Session Engine Unification Complete
+
+The MCP session engine file `src/mcp/engine/session-engine.ts` (~1,060 lines) has been **deleted** in commit `ffe49957`. This file was the last significant duplicate engine that reimplemented session lifecycle logic independently from `src/core/sessions/`.
+
+The dispatch layer engine `src/dispatch/engines/session-engine.ts` is now the **sole** session engine. It follows the pattern established by this ADR: a thin wrapper that delegates all business logic to `src/core/sessions/*` functions (handoff, briefing, cleanup, drift, stats, suspend, switch, history, show) and wraps results in `EngineResult` envelopes.
+
+The data flow for session operations is now:
+
+```
+src/dispatch/domains/session.ts  -->  src/dispatch/engines/session-engine.ts  -->  src/core/sessions/*  -->  src/store/*
+```
+
+This completes the ADR-003 mandate for session engine unification. No MCP engine files contain session-specific business logic. The `src/mcp/engine/` directory may still contain other engine files (task, system, etc.) pending their own migration, but the session domain is fully consolidated.

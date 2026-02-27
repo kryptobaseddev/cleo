@@ -4,7 +4,7 @@
 **Status**: accepted
 **Accepted**: 2026-02-22
 **Related Tasks**: T4797, T4781, T4813, T4863, T4800
-**Amended By**: ADR-017
+**Amended By**: ADR-017, ADR-020
 **Summary**: Defines the canonical shared-core + CQRS dispatch architecture. src/core/ is the single source of truth for all business logic. CLI and MCP are thin wrappers that parse/translate then delegate to core. Introduces the dispatch layer (cleo_query/cleo_mutate) as the uniform interface.
 **Keywords**: architecture, shared-core, cqrs, dispatch, mcp, cli, core, canonical
 **Topics**: admin, orchestrate, tools, naming
@@ -373,7 +373,7 @@ src/
     │
     ├── engine/                # DEPRECATED: Engine adapters
     │   ├── task-engine.ts     # → Migrate logic to src/core/tasks/
-    │   ├── session-engine.ts  # → Migrate logic to src/core/sessions/
+    │   ├── session-engine.ts  # DELETED (ADR-020) — migrated to src/core/sessions/
     │   ├── system-engine.ts   # → Migrate logic to src/core/admin/
     │   ├── lifecycle-engine.ts # → Migrate logic to src/core/pipeline/
     │   ├── orchestrate-engine.ts # → Migrate logic to src/core/orchestration/
@@ -1191,7 +1191,7 @@ export class McpAdapter {
 |------|--------|-------|--------|
 | 1 | Create core modules | src/core/{domain}/*.ts | Pending |
 | 2 | Migrate task-engine | src/core/tasks/*.ts | Partial |
-| 3 | Migrate session-engine | src/core/sessions/*.ts | Pending |
+| 3 | Migrate session-engine | src/core/sessions/*.ts | **COMPLETE** (ADR-020, commit ffe49957) |
 | 4 | Migrate system-engine | src/core/admin/*.ts | Pending |
 | 5 | Migrate orchestrate-engine | src/core/orchestration/*.ts | Pending |
 | 6 | Migrate lifecycle-engine | src/core/pipeline/stage/*.ts | Pending |
@@ -1660,5 +1660,7 @@ The architecture is complete when:
 ### Footnotes
 
 **[T4798, 2026-02-25]** Section 12.1 Layer Dependencies states engines must not import from `store/` directly. Six engine files previously violated this by importing from `../../store/file-utils.js`. These have been corrected to import from `../../core/platform.js`, which re-exports the necessary path/IO utilities (`resolveProjectRoot`, `readJsonFile`, `writeJsonFileAtomic`, `getDataPath`, `readLogFileEntries`). Additionally, `src/core/lifecycle/rcasd-index.ts` was migrated from raw `writeFileSync`/`readFileSync` to atomic `writeJsonFileAtomic`/`readJsonFile` per the mandatory atomic write pattern. The four BRAIN foundation features (`ct briefing`, `ct bug`, `ct plan`, structured handoff) will follow this same pattern: thin CLI commands delegating to `src/core/` with no direct store imports.
+
+**[ADR-020, 2026-02-27]** Session engine migration is COMPLETE. The deprecated MCP session engine (`src/mcp/engine/session-engine.ts`, ~1,060 lines) has been deleted (commit `ffe49957`). The dispatch layer engine (`src/dispatch/engines/session-engine.ts`) is now the sole active session engine, delegating all business logic to `src/core/sessions/*`. Session type unification is complete: a single `Session` type derived from the Drizzle schema via Zod in `src/store/validation-schemas.ts` replaces all hand-maintained interfaces. The migration status table (Section 15) has been updated to reflect this completion. See ADR-020 for the full session architecture documentation.
 
 **END OF ADR-008**
