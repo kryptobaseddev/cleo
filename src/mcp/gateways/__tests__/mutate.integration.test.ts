@@ -633,7 +633,7 @@ describe('cleo_mutate Gateway Integration', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toMatch(/E_(VALIDATION_SIBLING_LIMIT|SIBLING_LIMIT|SIBLING|LIMIT|CHILD)/i);
-    });
+    }, 90000); // 90s: creating 15+ siblings via CLI is slow
   });
 
   describe('Error Handling', () => {
