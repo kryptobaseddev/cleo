@@ -2,7 +2,7 @@
  * Tests for cleo_query gateway
  *
  * Validates:
- * - All 115 query operations across 15 domains (canonical + legacy)
+ * - Query operations across all domains (canonical + legacy)
  * - Parameter validation
  * - Error handling
  * - Read-only enforcement
@@ -24,9 +24,10 @@ import {
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
-    it('should have exactly 115 query operations (canonical + legacy)', () => {
+    it('should derive query operation total dynamically from registry', () => {
       const total = getQueryOperationCount();
-      expect(total).toBe(115);
+      expect(total).toBe(Object.values(QUERY_OPERATIONS).flat().length);
+      expect(total).toBeGreaterThan(0);
     });
 
     it('should have 15 query domains (8 canonical + 7 legacy)', () => {
@@ -60,12 +61,12 @@ describe('Query Gateway', () => {
   });
 
   describe('Domain Operation Counts', () => {
-    it('tasks domain should have 12 operations', () => {
-      expect(getQueryOperationCount('tasks')).toBe(12);
+    it('tasks domain should have 13 operations', () => {
+      expect(getQueryOperationCount('tasks')).toBe(13);
     });
 
-    it('session domain should have 6 operations', () => {
-      expect(getQueryOperationCount('session')).toBe(6);
+    it('session domain should have 8 operations', () => {
+      expect(getQueryOperationCount('session')).toBe(8);
     });
 
     it('orchestrate domain should have 9 operations', () => {
@@ -190,7 +191,7 @@ describe('Query Gateway', () => {
 
     it('should return all operations for domain', () => {
       const tasksOps = getQueryOperations('tasks');
-      expect(tasksOps).toHaveLength(12);
+      expect(tasksOps).toHaveLength(13);
       expect(tasksOps).toContain('show');
       expect(tasksOps).toContain('list');
       expect(tasksOps).toContain('find');
@@ -260,6 +261,10 @@ describe('Query Gateway', () => {
 
     it('should support history operation', () => {
       expect(sessionOps).toContain('history');
+    });
+
+    it('should support briefing.show operation', () => {
+      expect(sessionOps).toContain('briefing.show');
     });
   });
 

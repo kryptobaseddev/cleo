@@ -162,8 +162,8 @@ describe('CLEO-INJECTION MVI tiers (T4717)', () => {
       expect(standardContent).toContain('--auto-focus');
     });
 
-    it('includes RCSD-IVTR Lifecycle section', () => {
-      expect(standardContent).toContain('RCSD');
+    it('includes RCASD-IVTR+C Lifecycle section', () => {
+      expect(standardContent).toContain('RCASD-IVTR+C');
       expect(standardContent).toContain('Lifecycle');
     });
 

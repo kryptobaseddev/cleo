@@ -1,58 +1,166 @@
 # CLEO Protocol
 
-Use `cleo_query` (reads) and `cleo_mutate` (writes) via MCP. CLI fallback: `ct`.
+Version: 2.0.0
+Status: ACTIVE
 
-## Core Operations
+<!-- MVI Progressive Disclosure: minimal -> standard -> orchestrator -->
 
-| Tool | Domain | Operation | Key Params | Use |
-|------|--------|-----------|------------|-----|
-| query | `tasks` | `find` | `{ query }` | Search tasks |
-| query | `tasks` | `show` | `{ taskId }` | Full task details |
-| query | `session` | `status` | — | Current session |
-| query | `admin` | `dash` | — | Project overview |
-| mutate | `tasks` | `add` | `{ title, description }` | Create task |
-| mutate | `tasks` | `complete` | `{ taskId }` | Mark done |
-| mutate | `tasks` | `start` | `{ taskId }` | Begin work |
-| mutate | `session` | `start` | `{ scope, name, autoStart }` | Start session |
-| mutate | `session` | `end` | `{ note? }` | End session |
+<!-- TIER:minimal -->
+## CLEO Identity
+
+You are a CLEO protocol agent. Use MCP-first operations:
+- `cleo_query` for reads
+- `cleo_mutate` for writes
+
+## MCP Tools
+
+`cleo_query` examples:
+- `tasks show`
+- `tasks find`
+- `tasks list`
+
+`cleo_mutate` examples:
+- `tasks add`
+- `tasks update`
+- `tasks complete`
 
 ## CLI Fallback
 
-```bash
-ct find "query"                  # search tasks
-ct show T1234                    # full details
-ct show T1234 --field title      # single field, plain text (no JSON parsing)
-ct add "Task title"              # create task
-ct done T1234                    # complete task
-```
-
-## Session (required for multi-step work)
+Use `ct` when MCP is unavailable.
 
 ```bash
-ct session list                                              # CHECK FIRST
-ct session resume <id>                                       # resume existing
-ct session start --scope epic:T001 --auto-focus --name "X"  # or start new
-ct session end --note "summary"                              # ALWAYS end
+ct find "query"
+ct show T1234
+ct add "Task title"
+ct done T1234
 ```
 
-## Errors
+## Error Handling
 
-Never ignore exit codes. `"success": false` = failure.
-Exit 4 = not found. Exit 6 = validation. Exit 10 = parent not found.
-Exit 11 = depth exceeded (max 3). Exit 12 = sibling limit. Escape `$` as `\$`.
+Always check `success` and exit code values. Treat non-zero exit code as failure.
 
-## More Operations
+## Task Discovery
 
-```bash
-ct ops                # Tier 0 operations (this list)
-ct ops --tier 1       # + memory and check domains
-ct ops --tier 2       # all operations
-```
-
-Or via MCP: `cleo_query({ domain: "admin", operation: "help", params: { tier: 1 } })`
-
-For session protocol, RCSD pipeline, orchestrator patterns: load the `ct-cleo` skill.
+Prefer `find` first, then `show` for details.
 
 ## Time Estimates Prohibited
 
-Use `small` / `medium` / `large` sizing only. Never estimate hours, days, or weeks.
+Agents MUST NOT provide hours/days/week estimates. Use `small`, `medium`, `large` sizing.
+<!-- /TIER:minimal -->
+
+<!-- TIER:standard -->
+## Session Protocol
+
+Use session operations to start and end work:
+- MCP `session` operations (`start`, `end`)
+- CLI `ct session` commands
+
+```bash
+ct session list
+ct session start --scope epic:T001 --auto-focus --name "Work Session"
+ct session end --note "summary"
+```
+
+## RCASD-IVTR+C Lifecycle
+
+Canonical name is RCASD. Legacy references may still mention RCSD for compatibility.
+
+Lifecycle protocols:
+- Research
+- Consensus
+- Specification
+- Decomposition
+- Implementation
+- Contribution
+- Release
+- Artifact Publish
+- Provenance
+
+Record lifecycle artifacts in `MANIFEST.jsonl`.
+
+## Token System
+
+Use Token placeholders such as `{{TASK_ID}}` during composition.
+
+## Skill Ecosystem
+
+Load focused skills for complex workflows, including `ct-orchestrator`.
+
+## Release Workflow
+
+Use CLI release flow:
+
+```bash
+ct release ship patch
+```
+<!-- /TIER:standard -->
+
+<!-- TIER:orchestrator -->
+## Architecture Overview
+
+CLEO uses a 2-tier orchestration model: orchestrator control + delegated execution.
+
+## ORC Constraints
+
+- ORC-001
+- ORC-002
+- ORC-003
+- ORC-004
+- ORC-005
+- ORC-006
+- ORC-007
+- ORC-008
+
+## BASE Constraints
+
+- BASE-001
+- BASE-002
+- BASE-003
+- BASE-004
+- BASE-005
+- BASE-006
+- BASE-007
+
+## Spawn Pipeline
+
+Orchestrate subagent sequencing using `orchestrate` planning operations:
+- `analyze`
+- `ready`
+- `next`
+
+## Protocol Stack
+
+Apply the protocol stack in order with explicit gate checks.
+
+## Token Pre-Resolution
+
+All orchestration token payloads must satisfy `tokenResolution.fullyResolved` before execution.
+
+## Lifecycle Gate Enforcement
+
+Support both strict and advisory gate modes.
+
+## Anti-Patterns
+
+### Orchestrator Anti-Patterns
+
+Avoid speculative spawning, gate skipping, and hidden state mutation.
+
+### Subagent Anti-Patterns
+
+Avoid direct release actions, protocol bypass, and unmanaged context growth.
+
+## Subagent Lifecycle
+
+Subagent flow:
+- SPAWN
+- INJECT
+- EXECUTE
+- OUTPUT
+- RETURN
+<!-- /TIER:orchestrator -->
+
+## References
+
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
+- `docs/specs/VERB-STANDARDS.md`

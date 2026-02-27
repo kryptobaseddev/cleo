@@ -76,7 +76,7 @@ export interface SkillManifest {
 // Protocol Types
 // ============================================================================
 
-/** RCSD-IVTR protocol types. */
+/** RCASD-IVTR+C protocol types. */
 export type SkillProtocolType =
   | 'research'
   | 'consensus'
@@ -302,7 +302,7 @@ export interface ManifestEntry {
   file: string;
   title: string;
   date: string;
-  status: 'complete' | 'partial' | 'blocked' | 'archived';
+  status: 'completed' | 'partial' | 'blocked' | 'archived';
   agent_type?: string;
   topics: string[];
   key_findings: string[];

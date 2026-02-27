@@ -9,7 +9,7 @@
  * - Layer 1: Schema validation (JSON Schema, format constraints)
  * - Layer 2: Semantic validation (business rules, anti-hallucination)
  * - Layer 3: Referential validation (cross-entity integrity)
- * - Layer 4: Protocol validation (RCSD-IVTR lifecycle)
+ * - Layer 4: Protocol validation (RCASD-IVTR+C lifecycle)
  *
  * Reference: docs/specs/MCP-SERVER-SPECIFICATION.md Section 8
  */
@@ -27,6 +27,7 @@ import {
 } from './verification-gates.js';
 import { ErrorSeverity } from './exit-codes.js';
 import { ProtocolEnforcer } from './protocol-enforcement.js';
+import { TASK_STATUSES, MANIFEST_STATUSES } from '../../store/status-registry.js';
 
 /**
  * Layer 1: Schema Validation
@@ -151,8 +152,7 @@ export async function validateLayer1Schema(
   // Status validation
   if (context.params?.status) {
     const status = context.params.status as string;
-    const validStatuses = ['pending', 'active', 'blocked', 'done', 'cancelled', 'archived'];
-    if (!validStatuses.includes(status)) {
+    if (!(TASK_STATUSES as readonly string[]).includes(status)) {
       violations.push({
         layer: GateLayer.SCHEMA,
         severity: ErrorSeverity.ERROR,
@@ -160,8 +160,8 @@ export async function validateLayer1Schema(
         message: `Invalid status: ${status}`,
         field: 'status',
         value: status,
-        constraint: `Must be one of: ${validStatuses.join(', ')}`,
-        fix: `Use one of: ${validStatuses.join(', ')}`,
+        constraint: `Must be one of: ${TASK_STATUSES.join(', ')}`,
+        fix: `Use one of: ${TASK_STATUSES.join(', ')}`,
       });
     }
   }
@@ -487,7 +487,7 @@ export async function validateLayer3Referential(
 /**
  * Layer 4: Protocol Validation
  *
- * Validates RCSD-IVTR lifecycle compliance and protocol requirements.
+ * Validates RCASD-IVTR+C lifecycle compliance and protocol requirements.
  * Checks lifecycle gates, protocol-specific rules, provenance tags.
  */
 export async function validateLayer4Protocol(
@@ -561,7 +561,7 @@ export async function validateLayer4Protocol(
 
       // Status enum validation
       const status = manifestEntry.status as string;
-      if (!['complete', 'partial', 'blocked'].includes(status)) {
+      if (!(MANIFEST_STATUSES as readonly string[]).includes(status)) {
         violations.push({
           layer: GateLayer.PROTOCOL,
           severity: ErrorSeverity.ERROR,
@@ -569,8 +569,8 @@ export async function validateLayer4Protocol(
           message: `Invalid manifest status: ${status}`,
           field: 'manifestEntry.status',
           value: status,
-          constraint: 'Must be: complete, partial, or blocked',
-          fix: 'Set status to complete, partial, or blocked',
+          constraint: 'Must be: completed, partial, or blocked',
+          fix: 'Set status to completed, partial, or blocked',
         });
       }
     }
@@ -634,8 +634,8 @@ export const VALIDATION_RULES = {
   TITLE_MAX_LENGTH: 100,
   DESCRIPTION_MIN_LENGTH: 10,
   DESCRIPTION_MAX_LENGTH: 1000,
-  VALID_STATUSES: ['pending', 'active', 'blocked', 'done', 'cancelled', 'archived'] as const,
-  VALID_MANIFEST_STATUSES: ['complete', 'partial', 'blocked'] as const,
+  VALID_STATUSES: TASK_STATUSES,
+  VALID_MANIFEST_STATUSES: MANIFEST_STATUSES,
   VALID_AGENT_TYPES: [
     'research', 'analysis', 'specification', 'implementation',
     'testing', 'validation', 'documentation', 'release',

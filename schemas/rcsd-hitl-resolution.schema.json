@@ -22,7 +22,10 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "const": "https://cleo-dev.com/schemas/v1/rcsd-hitl-resolution.schema.json",
+      "enum": [
+        "https://cleo-dev.com/schemas/v1/rcsd-hitl-resolution.schema.json",
+        "https://cleo-dev.com/schemas/v1/rcasd-hitl-resolution.schema.json"
+      ],
       "description": "Self-referencing schema URI for validation"
     },
     "hitlResolutionId": {
