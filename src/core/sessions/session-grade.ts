@@ -221,9 +221,9 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
       (e.domain === 'tools' && (e.operation === 'skill.show' || e.operation === 'skill.list')) ||
       (e.domain === 'skills' && (e.operation === 'list' || e.operation === 'show')),
   );
-  // gateway is stored as 'query'/'mutate' (normalized) or legacy 'cleo_query'/'cleo_mutate'
+  // gateway is stored as 'cleo_query'/'cleo_mutate' in the audit log
   const mcpQueryCalls = sessionEntries.filter(
-    e => e.metadata?.gateway === 'cleo_query' || e.metadata?.gateway === 'query',
+    e => e.metadata?.gateway === 'cleo_query',
   );
 
   let disclosureScore = 0;

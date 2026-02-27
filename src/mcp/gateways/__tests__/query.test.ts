@@ -30,9 +30,9 @@ describe('Query Gateway', () => {
       expect(total).toBeGreaterThan(0);
     });
 
-    it('should have 15 query domains (8 canonical + 7 legacy)', () => {
+    it('should have 16 query domains (9 canonical + 7 legacy)', () => {
       const domains = getQueryDomains();
-      expect(domains).toHaveLength(15);
+      expect(domains).toHaveLength(16);
       expect(domains).toEqual([
         // Canonical domains
         'tasks',
@@ -43,6 +43,7 @@ describe('Query Gateway', () => {
         'pipeline',
         'admin',
         'tools',
+        'nexus',
         // Legacy aliases (backward compat)
         'research',
         'lifecycle',
@@ -161,7 +162,7 @@ describe('Query Gateway', () => {
     it('should have all query domains in enum', () => {
       const tool = registerQueryTool();
       const enumValues = tool.inputSchema.properties.domain.enum;
-      expect(enumValues).toHaveLength(15);
+      expect(enumValues).toHaveLength(16);
       expect(enumValues).toEqual(getQueryDomains());
     });
 

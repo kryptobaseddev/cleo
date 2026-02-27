@@ -1615,6 +1615,30 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['query'],
   },
+
+  // ---------------------------------------------------------------------------
+  // nexus — BRAIN Network placeholder (all ops return E_NOT_IMPLEMENTED)
+  // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'status',
+    description: 'nexus.status (query) — BRAIN Network status [not yet implemented]',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'connect',
+    description: 'nexus.connect (mutate) — connect to BRAIN Network [not yet implemented]',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
 ];
 
 // ---------------------------------------------------------------------------

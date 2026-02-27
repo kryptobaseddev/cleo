@@ -190,6 +190,14 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'provider.inject',      // Inject content into provider instruction files
   ],
 
+  // ── Canonical: nexus (BRAIN Network placeholder) ───────────────────
+  nexus: [
+    // Placeholder — NexusHandler returns E_NOT_IMPLEMENTED for all ops.
+    // Entries here allow domain routing to reach the handler without
+    // triggering E_INVALID_DOMAIN at the gateway validation layer.
+    'connect',        // Connect to BRAIN network (not yet implemented)
+  ],
+
   // ── Legacy aliases (backward compat) ───────────────────────────────
   research: [
     'inject',          // Get protocol injection
