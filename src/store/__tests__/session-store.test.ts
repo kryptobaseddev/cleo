@@ -264,72 +264,72 @@ describe('SQLite session-store', () => {
     });
   });
 
-  // === Focus operations ===
+  // === Task work operations ===
 
-  describe('setFocus', () => {
-    it('sets focus on a task', async () => {
-      const { createSession, setFocus, getFocus } = await import('../session-store.js');
+  describe('startTask', () => {
+    it('starts work on a task', async () => {
+      const { createSession, startTask, getCurrentTask } = await import('../session-store.js');
       await createSession(makeSession({ id: 'sess-001' }));
 
-      await setFocus('sess-001', 'T001');
+      await startTask('sess-001', 'T001');
 
-      const focus = await getFocus('sess-001');
-      expect(focus.taskId).toBe('T001');
-      expect(focus.since).toBeDefined();
+      const current = await getCurrentTask('sess-001');
+      expect(current.taskId).toBe('T001');
+      expect(current.since).toBeDefined();
     });
 
-    it('updates focus when set again', async () => {
-      const { createSession, setFocus, getFocus } = await import('../session-store.js');
+    it('updates current task when set again', async () => {
+      const { createSession, startTask, getCurrentTask } = await import('../session-store.js');
       await createSession(makeSession({ id: 'sess-001' }));
 
-      await setFocus('sess-001', 'T001');
-      await setFocus('sess-001', 'T002');
+      await startTask('sess-001', 'T001');
+      await startTask('sess-001', 'T002');
 
-      const focus = await getFocus('sess-001');
-      expect(focus.taskId).toBe('T002');
+      const current = await getCurrentTask('sess-001');
+      expect(current.taskId).toBe('T002');
     });
   });
 
-  describe('getFocus', () => {
-    it('returns null taskId when no focus is set', async () => {
-      const { createSession, getFocus } = await import('../session-store.js');
+  describe('getCurrentTask', () => {
+    it('returns null taskId when no task is started', async () => {
+      const { createSession, getCurrentTask } = await import('../session-store.js');
       await createSession(makeSession({ id: 'sess-001' }));
 
-      const focus = await getFocus('sess-001');
-      expect(focus.taskId).toBeNull();
+      const current = await getCurrentTask('sess-001');
+      expect(current.taskId).toBeNull();
     });
 
     it('returns null for non-existent session', async () => {
-      const { getFocus } = await import('../session-store.js');
-      const focus = await getFocus('nonexistent');
-      expect(focus.taskId).toBeNull();
-      expect(focus.since).toBeNull();
+      const { getCurrentTask } = await import('../session-store.js');
+      const current = await getCurrentTask('nonexistent');
+      expect(current.taskId).toBeNull();
+      expect(current.since).toBeNull();
     });
   });
 
-  describe('clearFocus', () => {
-    it('clears the current focus', async () => {
-      const { createSession, setFocus, clearFocus, getFocus } = await import('../session-store.js');
+  describe('stopTask', () => {
+    it('stops the current task', async () => {
+      const { createSession, startTask, stopTask, getCurrentTask } = await import('../session-store.js');
       await createSession(makeSession({ id: 'sess-001' }));
-      await setFocus('sess-001', 'T001');
+      await startTask('sess-001', 'T001');
 
-      await clearFocus('sess-001');
+      await stopTask('sess-001');
 
-      const focus = await getFocus('sess-001');
-      expect(focus.taskId).toBeNull();
+      const current = await getCurrentTask('sess-001');
+      expect(current.taskId).toBeNull();
     });
   });
 
-  describe('focusHistory', () => {
-    it('records focus changes in history', async () => {
-      const { createSession, setFocus, focusHistory } = await import('../session-store.js');
+  describe('workHistory', () => {
+    it('records task work changes in history', async () => {
+      const { createSession, startTask, workHistory } = await import('../session-store.js');
       await createSession(makeSession({ id: 'sess-001' }));
 
-      await setFocus('sess-001', 'T001');
-      await setFocus('sess-001', 'T002');
-      await setFocus('sess-001', 'T003');
+      await startTask('sess-001', 'T001');
+      await startTask('sess-001', 'T002');
+      await startTask('sess-001', 'T003');
 
-      const history = await focusHistory('sess-001');
+      const history = await workHistory('sess-001');
       // History should contain entries for T001, T002, T003
       // Ordered by setAt descending
       expect(history.length).toBeGreaterThanOrEqual(3);
@@ -337,22 +337,22 @@ describe('SQLite session-store', () => {
     });
 
     it('respects limit parameter', async () => {
-      const { createSession, setFocus, focusHistory } = await import('../session-store.js');
+      const { createSession, startTask, workHistory } = await import('../session-store.js');
       await createSession(makeSession({ id: 'sess-001' }));
 
-      await setFocus('sess-001', 'T001');
-      await setFocus('sess-001', 'T002');
-      await setFocus('sess-001', 'T003');
+      await startTask('sess-001', 'T001');
+      await startTask('sess-001', 'T002');
+      await startTask('sess-001', 'T003');
 
-      const history = await focusHistory('sess-001', 2);
+      const history = await workHistory('sess-001', 2);
       expect(history).toHaveLength(2);
     });
 
     it('returns empty array for no history', async () => {
-      const { createSession, focusHistory } = await import('../session-store.js');
+      const { createSession, workHistory } = await import('../session-store.js');
       await createSession(makeSession({ id: 'sess-001' }));
 
-      const history = await focusHistory('sess-001');
+      const history = await workHistory('sess-001');
       expect(history).toEqual([]);
     });
   });

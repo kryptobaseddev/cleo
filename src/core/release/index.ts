@@ -65,12 +65,6 @@ export function validateVersion(version: string): void {
   }
 }
 
-/**
- * Validate version format (legacy alias).
- * @deprecated Use validateVersion instead.
- * @task T4467
- */
-export const validateSemver = validateVersion;
 
 /**
  * Normalize version string (strip leading v).

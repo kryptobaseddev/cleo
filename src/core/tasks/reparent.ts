@@ -28,18 +28,12 @@ export interface ReparentOptions {
   policy?: HierarchyPolicy;
 }
 
-/** @deprecated Use ReparentOptions */
-export type ReparentTaskOptions = ReparentOptions;
-
 /** Result of a reparent operation. */
 export interface ReparentResult {
   oldParent: string | null;
   newParent: string | null;
   newType: string;
 }
-
-/** @deprecated Use ReparentResult */
-export type ReparentTaskResult = ReparentResult;
 
 /**
  * Reparent a task within a TaskFile.

@@ -336,8 +336,8 @@ export type { RecordAssumptionParams } from './assumptions.js';
 export { computeHandoff, persistHandoff, getHandoff, getLastHandoff, computeDebrief } from './handoff.js';
 export type { HandoffData, ComputeHandoffOptions, DebriefData, ComputeDebriefOptions, GitState, DebriefDecision } from './handoff.js';
 export { computeBriefing } from './briefing.js';
-export type { SessionBriefing, BriefingOptions, BriefingTask, BriefingBug, BriefingBlockedTask, BriefingEpic, CurrentTaskInfo, CurrentFocus, LastSessionInfo, PipelineStageInfo } from './briefing.js';
-export type { TaskWorkStateExt, FocusState, TaskFileExt, DecisionRecord, AssumptionRecord } from './types.js';
+export type { SessionBriefing, BriefingOptions, BriefingTask, BriefingBug, BriefingBlockedTask, BriefingEpic, CurrentTaskInfo, LastSessionInfo, PipelineStageInfo } from './briefing.js';
+export type { TaskWorkStateExt, TaskFileExt, DecisionRecord, AssumptionRecord } from './types.js';
 export type { Session as SessionRecord } from '../../types/session.js';
 export { SessionView } from './session-view.js';
 

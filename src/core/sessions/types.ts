@@ -78,14 +78,11 @@ export interface TaskWorkStateExt {
   primarySession: string | null;
 }
 
-/** @deprecated Use TaskWorkStateExt instead. */
-export type FocusState = TaskWorkStateExt;
-
 /**
  * Task file structure (subset for session operations).
  */
 export interface TaskFileExt {
-  focus?: FocusState;
+  focus?: TaskWorkStateExt;
   _meta?: {
     schemaVersion: string;
     checksum?: string;

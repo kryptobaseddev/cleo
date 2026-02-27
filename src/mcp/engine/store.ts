@@ -51,9 +51,8 @@ function getLockPriority(filePath: string): number {
 /**
  * Read a JSON file, returning parsed content or null if not found.
  *
- * @deprecated For task/session/archive data, use getStore() from '../../store/index.js'
- * instead. This function should only be used for config, template, and metadata reads
- * that are not domain data. See T4657 for the migration plan.
+ * For task/session/archive data, prefer getStore() from '../../store/index.js'.
+ * This function is used for config, template, and metadata reads.
  * @task T4657
  * @epic T4654
  */
@@ -143,9 +142,8 @@ export function readLogFileEntries(filePath: string): Record<string, unknown>[] 
  *
  * Pattern: write temp -> backup original -> rename temp to target
  *
- * @deprecated For task/session/archive data, use getStore() from '../../store/index.js'
- * instead. This function should only be used for config, template, and metadata writes
- * that are not domain data. See T4657 for the migration plan.
+ * For task/session/archive data, prefer getStore() from '../../store/index.js'.
+ * This function is used for config, template, and metadata writes.
  * @task T4657
  * @epic T4654
  * @param filePath - Target file path
@@ -361,7 +359,6 @@ export function isProjectInitialized(projectRoot: string): boolean {
 /**
  * Resolve the project root directory.
  * Checks CLEO_ROOT env, then falls back to cwd.
- * @deprecated Use getProjectRoot() from '../../core/paths.js' instead.
  */
 export function resolveProjectRoot(): string {
   return process.env.CLEO_ROOT || process.cwd();

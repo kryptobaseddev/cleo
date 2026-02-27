@@ -175,9 +175,6 @@ export interface TaskWorkState {
   primarySession?: string | null;
 }
 
-/** @deprecated Use TaskWorkState instead. */
-export type FocusState = TaskWorkState;
-
 /** Root tasks.json structure. */
 export interface TaskFile {
   version: string;
@@ -185,7 +182,6 @@ export interface TaskFile {
   lastUpdated: string;
   _meta: FileMeta;
   taskWork?: TaskWorkState;
-  /** @deprecated Use taskWork instead. */
   focus?: TaskWorkState;
   tasks: Task[];
   labels?: Record<string, string[]>;
