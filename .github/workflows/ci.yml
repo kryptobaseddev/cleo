@@ -31,7 +31,7 @@ jobs:
           node-version: ${{ matrix.node }}
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Type check
         run: npx tsc --noEmit
@@ -93,7 +93,7 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies and build
-        run: npm install && npm run build
+        run: npm ci && npm run build
 
       - name: Test npm link (simulates global install)
         run: |
