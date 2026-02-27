@@ -1,0 +1,564 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-research-output.schema.json",
+  "title": "RCSD Research Output",
+  "description": "Schema for research phase output in the RCSD pipeline. Captures multi-source research findings, evidence chains, and confidence assessments.",
+  "type": "object",
+  "required": ["$schema", "_meta", "query", "status", "sources", "findings"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/rcsd-research-output.schema.json",
+      "description": "Self-referencing schema URI for validation"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Research output metadata",
+      "required": ["researchId", "taskId", "shortName", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "researchId": {
+          "type": "string",
+          "pattern": "^res_[a-f0-9]{8}$",
+          "description": "Unique research operation identifier"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Anchoring task ID"
+        },
+        "shortName": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{3,25}$",
+          "description": "Short identifier for this research"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "default": "1.0.0",
+          "description": "Research output version"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When research began"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When research finished"
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Research duration in seconds"
+        }
+      }
+    },
+    "query": {
+      "type": "object",
+      "description": "Research query specification",
+      "required": ["original"],
+      "additionalProperties": false,
+      "properties": {
+        "original": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500,
+          "description": "Original research query from task"
+        },
+        "expanded": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "description": "Expanded search queries derived from original"
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "description": "Target domains for research focus"
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Terms or domains explicitly excluded"
+        },
+        "context": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Additional context for research interpretation"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "in_progress", "completed", "failed", "partial"],
+      "description": "Research operation status"
+    },
+    "sources": {
+      "type": "object",
+      "description": "Source tracking and citation management",
+      "required": ["searched", "used", "citations"],
+      "additionalProperties": false,
+      "properties": {
+        "searched": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total sources searched/considered"
+        },
+        "used": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sources actually used in findings"
+        },
+        "byTool": {
+          "type": "object",
+          "description": "Source counts by research tool",
+          "additionalProperties": false,
+          "properties": {
+            "tavily": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Sources from Tavily web search"
+            },
+            "context7": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Sources from Context7 library docs"
+            },
+            "webFetch": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Sources from direct URL extraction"
+            },
+            "reddit": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Sources from Reddit discussions"
+            },
+            "codebase": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Sources from existing codebase"
+            }
+          }
+        },
+        "citations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/citation"
+          },
+          "description": "All citations referenced in findings"
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/definitions/finding"
+      },
+      "description": "Individual research findings with evidence"
+    },
+    "themes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/theme"
+      },
+      "description": "Recurring themes identified across findings"
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/contradiction"
+      },
+      "description": "Conflicting information requiring resolution"
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/gap"
+      },
+      "description": "Identified knowledge gaps requiring further research"
+    },
+    "actionableItems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/actionableItem"
+      },
+      "description": "Concrete recommendations derived from research"
+    },
+    "confidence": {
+      "type": "object",
+      "description": "Overall research confidence assessment",
+      "required": ["overall"],
+      "additionalProperties": false,
+      "properties": {
+        "overall": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Overall confidence score (0.0-1.0)"
+        },
+        "factors": {
+          "type": "object",
+          "description": "Factors contributing to confidence assessment",
+          "additionalProperties": false,
+          "properties": {
+            "sourceQuality": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Quality/authority of sources"
+            },
+            "sourceDiversity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Diversity of source types and perspectives"
+            },
+            "evidenceStrength": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Strength of evidence for claims"
+            },
+            "consistency": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Agreement across sources"
+            },
+            "recency": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "How current the information is"
+            }
+          }
+        },
+        "caveats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "description": "Important limitations or uncertainties"
+        }
+      }
+    },
+    "rawData": {
+      "type": "object",
+      "description": "Optional raw data from research tools (for debugging/audit)",
+      "properties": {
+        "tavilyResponses": {
+          "type": "array",
+          "description": "Raw Tavily API responses"
+        },
+        "context7Responses": {
+          "type": "array",
+          "description": "Raw Context7 API responses"
+        },
+        "extractedContent": {
+          "type": "array",
+          "description": "Raw extracted URL content"
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "citation": {
+      "type": "object",
+      "required": ["id", "type", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^cite_[a-f0-9]{6}$",
+          "description": "Unique citation identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["web", "documentation", "article", "discussion", "codebase", "book", "paper"],
+          "description": "Source type classification"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Source title"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Source URL (if applicable)"
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Author or organization"
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Publication/access date"
+        },
+        "reliability": {
+          "type": "string",
+          "enum": ["high", "medium", "low", "unknown"],
+          "description": "Source reliability assessment"
+        },
+        "tool": {
+          "type": "string",
+          "enum": ["tavily", "context7", "webFetch", "reddit", "codebase", "manual"],
+          "description": "Tool used to retrieve this source"
+        },
+        "excerpt": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Key excerpt from source"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["id", "claim", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^find_[a-f0-9]{6}$",
+          "description": "Unique finding identifier"
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500,
+          "description": "The claim or fact discovered"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["citationId", "quote"],
+            "additionalProperties": false,
+            "properties": {
+              "citationId": {
+                "type": "string",
+                "pattern": "^cite_[a-f0-9]{6}$",
+                "description": "Reference to source citation"
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Supporting quote from source"
+              },
+              "weight": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Evidence weight (0.0-1.0)"
+              }
+            }
+          },
+          "description": "Evidence supporting this finding"
+        },
+        "sourceCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of sources supporting this finding"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence in this specific finding"
+        },
+        "relevance": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Relevance to original query"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["fact", "best-practice", "pattern", "warning", "opinion", "requirement"],
+          "description": "Finding classification"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "description": "Tags for categorization"
+        }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "required": ["id", "name", "findingIds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^theme_[a-f0-9]{4}$",
+          "description": "Unique theme identifier"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Theme name"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Theme description"
+        },
+        "findingIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^find_[a-f0-9]{6}$"
+          },
+          "minItems": 2,
+          "description": "Findings contributing to this theme"
+        },
+        "strength": {
+          "type": "string",
+          "enum": ["strong", "moderate", "weak"],
+          "description": "Theme strength based on evidence"
+        }
+      }
+    },
+    "contradiction": {
+      "type": "object",
+      "required": ["id", "description", "findingIds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^contra_[a-f0-9]{4}$",
+          "description": "Unique contradiction identifier"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Description of the contradiction"
+        },
+        "findingIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^find_[a-f0-9]{6}$"
+          },
+          "minItems": 2,
+          "description": "Conflicting finding IDs"
+        },
+        "resolution": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Proposed resolution (if any)"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "significant", "minor"],
+          "description": "Impact severity of contradiction"
+        },
+        "requiresConsensus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether consensus validation is needed"
+        }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "required": ["id", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^gap_[a-f0-9]{4}$",
+          "description": "Unique gap identifier"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Description of knowledge gap"
+        },
+        "importance": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"],
+          "description": "Importance of filling this gap"
+        },
+        "suggestedSources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "description": "Suggested sources to investigate"
+        },
+        "blocksFindings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^find_[a-f0-9]{6}$"
+          },
+          "description": "Findings affected by this gap"
+        }
+      }
+    },
+    "actionableItem": {
+      "type": "object",
+      "required": ["id", "action", "priority"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^action_[a-f0-9]{4}$",
+          "description": "Unique action identifier"
+        },
+        "action": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Recommended action"
+        },
+        "rationale": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Why this action is recommended"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"],
+          "description": "Action priority"
+        },
+        "basedOn": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^find_[a-f0-9]{6}$"
+          },
+          "description": "Findings supporting this recommendation"
+        },
+        "effort": {
+          "type": "string",
+          "enum": ["small", "medium", "large"],
+          "description": "Estimated effort (NOT time)"
+        }
+      }
+    }
+  }
+}

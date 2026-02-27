@@ -1,0 +1,722 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v2/contribution.schema.json",
+  "schemaVersion": "2.0.0",
+  "title": "Multi-Agent Contribution",
+  "description": "Schema for validating agent session contributions in multi-agent research workflows. Implements CONTRIB-001 through CONTRIB-015 RFC 2119 requirements. v2.0.0 introduces JSON-first format with numeric confidence scores, structured evidence references, and enhanced conflict resolution.",
+  "type": "object",
+  "required": ["$schema", "_meta", "sessionId", "epicId", "taskId", "markerLabel", "researchOutputs", "decisions"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Self-referencing schema URI for validation"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Contribution metadata for tracking and audit",
+      "required": ["contributionId", "createdAt", "agentId"],
+      "additionalProperties": false,
+      "properties": {
+        "contributionId": {
+          "type": "string",
+          "pattern": "^contrib_[a-f0-9]{8}$",
+          "description": "Unique contribution identifier. Format: contrib_{8 hex chars}"
+        },
+        "protocolVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "default": "2.0.0",
+          "description": "Contribution protocol version (semver)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When contribution was created (ISO 8601)"
+        },
+        "completedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When contribution was finalized (ISO 8601). Null if incomplete."
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]{1,50}$",
+          "description": "Identifier for the contributing agent (e.g., 'opus-1', 'sonnet-worker-2')"
+        },
+        "checksum": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{16}$",
+          "description": "SHA-256 truncated hash (16 hex chars) for integrity verification"
+        },
+        "consensusReady": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether contribution is ready for consensus computation"
+        }
+      }
+    },
+
+    "sessionId": {
+      "type": "string",
+      "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
+      "description": "MUST match active CLEO session ID. Format: session_YYYYMMDD_HHMMSS_6hex. (CONTRIB-001)"
+    },
+    "sessionLabel": {
+      "type": "string",
+      "pattern": "^[Ss]ession [A-Z]$",
+      "description": "Human-readable session label (e.g., 'Session A', 'Session B')"
+    },
+
+    "epicId": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "MUST reference existing parent epic task ID. (CONTRIB-001)"
+    },
+    "epicTitle": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 200,
+      "description": "Parent epic title for context"
+    },
+
+    "taskId": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "MUST be the contribution task ID created under epicId. (CONTRIB-001)"
+    },
+
+    "markerLabel": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 3,
+      "maxLength": 50,
+      "description": "MUST be present on task for discovery across sessions. (CONTRIB-002)"
+    },
+
+    "researchOutputs": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/definitions/researchOutput"
+      },
+      "description": "MUST list ALL research files created during this session. (CONTRIB-003, CONTRIB-004)"
+    },
+
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/decision"
+      },
+      "description": "MUST document decisions on ALL key questions defined in protocol. (CONTRIB-005, CONTRIB-007)"
+    },
+
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/conflict"
+      },
+      "default": [],
+      "description": "MUST flag explicit conflicts with baseline session. (CONTRIB-006, CONTRIB-010)"
+    },
+
+    "baselineReference": {
+      "type": "object",
+      "description": "Reference to baseline session for conflict comparison",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
+          "description": "Baseline session identifier"
+        },
+        "sessionLabel": {
+          "type": "string",
+          "pattern": "^[Ss]ession [A-Z]$",
+          "description": "Baseline session label (e.g., 'Session A')"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Baseline contribution task ID"
+        },
+        "contributionId": {
+          "type": "string",
+          "pattern": "^contrib_[a-f0-9]{8}$",
+          "description": "Baseline contribution ID for cross-reference"
+        }
+      }
+    },
+
+    "status": {
+      "type": "string",
+      "enum": ["draft", "complete", "validated", "merged"],
+      "default": "draft",
+      "description": "Contribution lifecycle status"
+    },
+
+    "completionNote": {
+      "type": ["string", "null"],
+      "maxLength": 2000,
+      "description": "Summary note when marking contribution complete"
+    },
+
+    "validation": {
+      "type": "object",
+      "description": "Validation results against CONTRIB-XXX requirements",
+      "additionalProperties": false,
+      "properties": {
+        "passed": {
+          "type": "boolean",
+          "description": "Whether all MUST requirements were satisfied"
+        },
+        "checkedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When validation was performed"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/validationResult"
+          },
+          "description": "Individual requirement validation results"
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "researchOutput": {
+      "type": "object",
+      "description": "A research file produced during this session",
+      "required": ["filePath", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "filePath": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_./-]+\\.md$",
+          "description": "Relative path to research output file. SHOULD follow YYYY-MM-DD_topic-slug.md pattern. (CONTRIB-012)"
+        },
+        "researchId": {
+          "type": "string",
+          "pattern": "^research_[a-f0-9]{8}$",
+          "description": "Research manifest ID for cross-reference"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["analysis", "research", "specification", "synthesis", "comparison", "notes"],
+          "description": "Output file type classification"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Document title"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When file was created"
+        },
+        "linkedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When file was linked to task via notes (CONTRIB-004)"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Brief summary of file contents"
+        }
+      }
+    },
+
+    "evidence": {
+      "type": "object",
+      "description": "Evidence reference supporting a decision or position",
+      "required": ["section"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Relative path to source file"
+        },
+        "section": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Section identifier or description"
+        },
+        "quote": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Exact quote supporting the decision"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Line number for code references"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL for external sources"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["code", "documentation", "research", "external"],
+          "description": "Evidence classification"
+        }
+      },
+      "anyOf": [
+        { "required": ["file"] },
+        { "required": ["url"] }
+      ]
+    },
+
+    "decision": {
+      "type": "object",
+      "description": "A decision point documented with rationale and evidence. (CONTRIB-005, CONTRIB-007)",
+      "required": ["questionId", "question", "answer", "confidence", "rationale", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "questionId": {
+          "type": "string",
+          "pattern": "^[A-Z]+-\\d{3}$",
+          "description": "Unique question identifier from decision matrix (e.g., 'RCSD-001')"
+        },
+        "question": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 300,
+          "description": "The decision question being answered"
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1000,
+          "description": "MUST NOT use vague or ambiguous language. (CONTRIB-011)"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence score 0.0-1.0. Ranges: 0.90-1.00 (very high), 0.70-0.89 (high), 0.50-0.69 (medium), 0.30-0.49 (low), 0.00-0.29 (tentative)"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 2000,
+          "description": "MUST include rationale for decision. (CONTRIB-007)"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/evidence"
+          },
+          "minItems": 1,
+          "description": "MUST include evidence supporting decision. SHOULD reference specific sections. (CONTRIB-007, CONTRIB-013)"
+        },
+        "uncertaintyNote": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "SHOULD explain uncertainty when confidence < 0.7. (CONTRIB-015)"
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/alternative"
+          },
+          "description": "Alternative options considered and why rejected"
+        }
+      }
+    },
+
+    "alternative": {
+      "type": "object",
+      "description": "An alternative option that was considered but rejected",
+      "required": ["option", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "option": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Alternative option considered"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Reason for not choosing this option"
+        }
+      }
+    },
+
+    "sessionPosition": {
+      "type": "object",
+      "description": "A session's position on a conflicting question",
+      "required": ["position", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
+          "description": "Session identifier (only for otherSession)"
+        },
+        "sessionLabel": {
+          "type": "string",
+          "pattern": "^[Ss]ession [A-Z]$",
+          "description": "Human-readable session label"
+        },
+        "contributionId": {
+          "type": "string",
+          "pattern": "^contrib_[a-f0-9]{8}$",
+          "description": "Contribution ID for cross-reference"
+        },
+        "position": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1000,
+          "description": "Session's position on the question"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence in this position (0.0-1.0)"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/evidence"
+          },
+          "description": "Evidence supporting this position"
+        }
+      }
+    },
+
+    "resolutionVote": {
+      "type": "object",
+      "description": "A vote on a proposed resolution",
+      "required": ["agentId", "vote"],
+      "additionalProperties": false,
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]{1,50}$",
+          "description": "Voting agent identifier"
+        },
+        "vote": {
+          "type": "string",
+          "enum": ["accept", "reject", "abstain"],
+          "description": "Vote decision"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence in vote (0.0-1.0)"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Vote rationale"
+        }
+      }
+    },
+
+    "resolution": {
+      "type": "object",
+      "description": "Conflict resolution proposal and voting state",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "proposed", "accepted", "rejected"],
+          "description": "Resolution status"
+        },
+        "proposedBy": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]{1,50}$",
+          "description": "Agent who proposed the resolution"
+        },
+        "proposedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When resolution was proposed"
+        },
+        "proposal": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Detailed resolution proposal"
+        },
+        "resolutionType": {
+          "type": "string",
+          "enum": ["merge", "choose-a", "choose-b", "new", "defer", "escalate"],
+          "description": "Type of resolution: merge (combine), choose-a (this session), choose-b (other session), new (neither), defer (postpone), escalate (HITL)"
+        },
+        "votes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/resolutionVote"
+          },
+          "description": "Agent votes on proposed resolution"
+        },
+        "resolvedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When resolution was accepted/rejected"
+        },
+        "finalDecision": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "The accepted resolution text"
+        }
+      }
+    },
+
+    "conflict": {
+      "type": "object",
+      "description": "A conflict with baseline session requiring resolution. (CONTRIB-006, CONTRIB-010, CONTRIB-014)",
+      "required": ["questionId", "conflictId", "severity", "conflictType", "thisSession", "otherSession", "rationale", "requiresConsensus"],
+      "additionalProperties": false,
+      "properties": {
+        "questionId": {
+          "type": "string",
+          "pattern": "^[A-Z]+-\\d{3}$",
+          "description": "Question ID where conflict exists"
+        },
+        "conflictId": {
+          "type": "string",
+          "pattern": "^conflict_[a-f0-9]{8}$",
+          "description": "Unique conflict identifier"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Impact severity: critical (mutually exclusive, MUST resolve), high (significant impact, SHOULD resolve), medium (both viable, MAY defer), low (minor preference)"
+        },
+        "conflictType": {
+          "type": "string",
+          "enum": ["contradiction", "partial-overlap", "scope-difference", "priority-difference", "evidence-conflict"],
+          "description": "Conflict classification: contradiction (mutually exclusive), partial-overlap (partial agreement), scope-difference (different interpretation), priority-difference (ranking disagreement), evidence-conflict (same evidence, different conclusions)"
+        },
+        "thisSession": {
+          "$ref": "#/definitions/sessionPosition",
+          "description": "This session's position on the question"
+        },
+        "otherSession": {
+          "allOf": [
+            { "$ref": "#/definitions/sessionPosition" },
+            { "required": ["sessionId"] }
+          ],
+          "description": "Baseline session's position (requires sessionId)"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 1000,
+          "description": "MUST include rationale for why positions differ. (CONTRIB-010)"
+        },
+        "resolution": {
+          "$ref": "#/definitions/resolution",
+          "description": "SHOULD propose resolution when conflict identified. (CONTRIB-014)"
+        },
+        "requiresConsensus": {
+          "type": "boolean",
+          "description": "Whether this conflict requires multi-session consensus"
+        },
+        "escalatedToHITL": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether conflict has been escalated to human review"
+        }
+      }
+    },
+
+    "validationResult": {
+      "type": "object",
+      "description": "Result of validating a single CONTRIB-XXX requirement",
+      "required": ["requirementId", "passed"],
+      "additionalProperties": false,
+      "properties": {
+        "requirementId": {
+          "type": "string",
+          "pattern": "^CONTRIB-\\d{3}$",
+          "description": "RFC 2119 requirement identifier"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["MUST", "MUST NOT", "SHOULD"],
+          "description": "RFC 2119 requirement level"
+        },
+        "passed": {
+          "type": "boolean",
+          "description": "Whether requirement was satisfied"
+        },
+        "message": {
+          "type": ["string", "null"],
+          "maxLength": 300,
+          "description": "Explanation for pass/fail"
+        },
+        "checkedFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "JSON paths checked for this requirement"
+        }
+      }
+    }
+  },
+
+  "examples": [
+    {
+      "$schema": "https://cleo-dev.com/schemas/v2/contribution.schema.json",
+      "_meta": {
+        "contributionId": "contrib_a1b2c3d4",
+        "protocolVersion": "2.0.0",
+        "createdAt": "2026-01-26T14:00:00Z",
+        "completedAt": null,
+        "agentId": "opus-1",
+        "checksum": null,
+        "consensusReady": false
+      },
+      "sessionId": "session_20260126_140000_abc123",
+      "epicId": "T2308",
+      "taskId": "T2315",
+      "markerLabel": "protocol-v2-contrib",
+      "researchOutputs": [],
+      "decisions": [
+        {
+          "questionId": "PROTO-001",
+          "question": "Should contributions use JSON or YAML format?",
+          "answer": "JSON with strict schema validation",
+          "confidence": 0.95,
+          "rationale": "JSON has better tooling support, stricter parsing, and native jq integration in CLEO.",
+          "evidence": [
+            {
+              "file": "lib/validation.sh",
+              "section": "validate_json_schema",
+              "type": "code"
+            }
+          ]
+        }
+      ],
+      "conflicts": [],
+      "status": "draft"
+    },
+    {
+      "$schema": "https://cleo-dev.com/schemas/v2/contribution.schema.json",
+      "_meta": {
+        "contributionId": "contrib_b2c3d4e5",
+        "protocolVersion": "2.0.0",
+        "createdAt": "2026-01-26T15:00:00Z",
+        "completedAt": "2026-01-26T16:30:00Z",
+        "agentId": "sonnet-2",
+        "checksum": "a1b2c3d4e5f6a7b8",
+        "consensusReady": true
+      },
+      "sessionId": "session_20260126_150000_def456",
+      "sessionLabel": "Session B",
+      "epicId": "T2204",
+      "epicTitle": "RCSD Integration Research Consolidation",
+      "taskId": "T2216",
+      "markerLabel": "rcsd-consensus-contrib",
+      "researchOutputs": [
+        {
+          "filePath": "claudedocs/research-outputs/2026-01-26_rcsd-architecture-analysis.md",
+          "researchId": "research_f1e2d3c4",
+          "type": "analysis",
+          "title": "RCSD Architecture Options Analysis",
+          "createdAt": "2026-01-26T15:15:00Z",
+          "linkedAt": "2026-01-26T15:20:00Z",
+          "summary": "Comparative analysis of single-file vs split-file codebase map architectures"
+        }
+      ],
+      "decisions": [
+        {
+          "questionId": "RCSD-001",
+          "question": "Codebase Map Architecture: Single JSON file or split files?",
+          "answer": "Single .cleo/codebase/codebase-map.json with internal sections for component types",
+          "confidence": 0.85,
+          "rationale": "Single file simplifies atomic updates and validation. Split files add merge complexity without proportional benefit at typical project sizes (<10K files).",
+          "evidence": [
+            {
+              "file": "lib/file-ops.sh",
+              "section": "atomic_write function",
+              "line": 142,
+              "quote": "Atomic pattern: temp -> validate -> backup -> rename",
+              "type": "code"
+            },
+            {
+              "file": "docs/specs/FILE-LOCKING-SPEC.md",
+              "section": "Part 4: Atomic Operations",
+              "type": "documentation"
+            }
+          ],
+          "alternatives": [
+            {
+              "option": "Split into codebase-map-{type}.json per component type",
+              "reason": "Adds merge complexity and potential race conditions without proportional benefit"
+            }
+          ]
+        }
+      ],
+      "conflicts": [
+        {
+          "questionId": "RCSD-001",
+          "conflictId": "conflict_c3d4e5f6",
+          "severity": "high",
+          "conflictType": "contradiction",
+          "thisSession": {
+            "position": "Single JSON file architecture",
+            "confidence": 0.85,
+            "evidence": [
+              {
+                "file": "lib/file-ops.sh",
+                "section": "atomic_write function",
+                "type": "code"
+              }
+            ]
+          },
+          "otherSession": {
+            "sessionId": "session_20260126_120000_abc123",
+            "sessionLabel": "Session A",
+            "contributionId": "contrib_a1b2c3d4",
+            "position": "Split files per component type (scripts.json, libs.json, tests.json)",
+            "confidence": 0.75,
+            "evidence": [
+              {
+                "file": "claudedocs/research-outputs/2026-01-26_session-a-analysis.md",
+                "section": "Architecture Recommendations",
+                "type": "research"
+              }
+            ]
+          },
+          "rationale": "Session A prioritized parallel editing capability; this session prioritizes atomic consistency. Both are valid concerns with different tradeoffs.",
+          "resolution": {
+            "status": "proposed",
+            "proposedBy": "sonnet-2",
+            "proposedAt": "2026-01-26T16:00:00Z",
+            "proposal": "Use single file with internal locking; add split-file mode as future config option for large repos",
+            "resolutionType": "merge",
+            "votes": []
+          },
+          "requiresConsensus": true,
+          "escalatedToHITL": false
+        }
+      ],
+      "baselineReference": {
+        "sessionId": "session_20260126_120000_abc123",
+        "sessionLabel": "Session A",
+        "taskId": "T2215",
+        "contributionId": "contrib_a1b2c3d4"
+      },
+      "status": "complete",
+      "completionNote": "Full analysis complete. One high-severity conflict on architecture requiring consensus."
+    }
+  ]
+}

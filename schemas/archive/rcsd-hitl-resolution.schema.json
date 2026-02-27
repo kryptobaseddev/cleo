@@ -1,0 +1,216 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-hitl-resolution.schema.json",
+  "title": "RCSD HITL Resolution",
+  "description": "Schema for RCSD human-in-the-loop resolution records. Captures the trigger, decision, reviewer, timestamps, and resulting pipeline actions.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "hitlResolutionId",
+    "taskId",
+    "shortName",
+    "stage",
+    "trigger",
+    "decision",
+    "reviewer",
+    "timestamps",
+    "effects"
+  ],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/rcsd-hitl-resolution.schema.json",
+      "description": "Self-referencing schema URI for validation"
+    },
+    "hitlResolutionId": {
+      "type": "string",
+      "pattern": "^HR-\\d{3,}$",
+      "description": "Unique HITL resolution identifier (e.g., HR-001)"
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^T\\d{3,}$",
+      "description": "Anchoring task ID (e.g., T500)"
+    },
+    "shortName": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,25}$",
+      "description": "Kebab-case short name derived from task title"
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["research", "consensus", "spec", "decompose"],
+      "description": "Pipeline stage where HITL intervention occurred"
+    },
+    "trigger": {
+      "type": "object",
+      "description": "Trigger details that required human review",
+      "required": ["reasonCode", "reasonText", "claimIds", "recommendations"],
+      "additionalProperties": false,
+      "properties": {
+        "reasonCode": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Machine-readable reason code"
+        },
+        "reasonText": {
+          "type": "string",
+          "minLength": 10,
+          "description": "Human-readable explanation of the trigger"
+        },
+        "claimIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Claim IDs involved in the HITL request"
+        },
+        "recommendations": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/recommendation" },
+          "minItems": 1,
+          "description": "Recommended changes or actions"
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "description": "Decision taken by the human reviewer",
+      "required": ["selectedOptionId", "selectedOptionText", "requiresFollowupStage"],
+      "additionalProperties": false,
+      "properties": {
+        "selectedOptionId": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Identifier for the selected option"
+        },
+        "selectedOptionText": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Human-readable decision summary"
+        },
+        "justification": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional justification for the decision"
+        },
+        "requiresFollowupStage": {
+          "type": "string",
+          "enum": ["research", "consensus", "spec", "decompose", "none"],
+          "description": "Stage that must be re-run as a result of the decision"
+        }
+      }
+    },
+    "reviewer": {
+      "type": "object",
+      "description": "Reviewer identity details",
+      "required": ["id", "displayName", "authProvider"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Reviewer ID (user or service)"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reviewer display name"
+        },
+        "authProvider": {
+          "type": "string",
+          "minLength": 2,
+          "description": "Authentication provider name"
+        }
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "description": "Creation and decision timestamps",
+      "required": ["createdAt", "decidedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "HITL request creation time (ISO 8601)"
+        },
+        "decidedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Decision time (ISO 8601)"
+        }
+      }
+    },
+    "effects": {
+      "type": "object",
+      "description": "Pipeline actions and artifacts produced by the decision",
+      "required": ["pipelineAction", "updates", "artifactLinks"],
+      "additionalProperties": false,
+      "properties": {
+        "pipelineAction": {
+          "type": "string",
+          "enum": ["resume", "pause", "rollback_to_stage"],
+          "description": "Pipeline action to take after decision"
+        },
+        "updates": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/updateOperation" },
+          "description": "Manifest or artifact updates applied as a result of the decision"
+        },
+        "artifactLinks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Relative paths or filenames of artifacts affected"
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "recommendation": {
+      "type": "object",
+      "required": ["type", "priority", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Recommendation type (e.g., spec-requirement)"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Recommendation priority"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Recommendation text"
+        }
+      }
+    },
+    "updateOperation": {
+      "type": "object",
+      "required": ["target", "path", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target file or artifact to update"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JSON pointer or key path to update"
+        },
+        "value": {
+          "description": "Replacement value"
+        }
+      }
+    }
+  }
+}

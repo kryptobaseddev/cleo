@@ -1,0 +1,246 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/critical-path.schema.json",
+  "title": "Claude-TODO Critical Path Analysis Response",
+  "description": "Schema for critical path analysis output from blockers analyze command",
+  "type": "object",
+  "required": ["_meta", "summary", "criticalPath"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Schema URL for validation"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Response metadata",
+      "required": ["command", "timestamp", "version"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "json",
+          "description": "Output format identifier"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+",
+          "description": "cleo version (semver)"
+        },
+        "command": {
+          "type": "string",
+          "const": "blockers analyze",
+          "description": "Command name that generated this response"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 UTC timestamp of response generation"
+        },
+        "execution_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Execution time in milliseconds (optional)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "description": "Summary statistics about blocked tasks and analysis",
+      "required": ["blockedCount"],
+      "properties": {
+        "blockedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of blocked tasks"
+        },
+        "maxChainDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum dependency chain depth"
+        },
+        "totalImpactedTasks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total tasks affected by blockers"
+        },
+        "criticalPathLength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Length of the critical path"
+        },
+        "bottleneckCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of identified bottlenecks"
+        }
+      },
+      "additionalProperties": false
+    },
+    "criticalPath": {
+      "type": "object",
+      "description": "The task at the root of the longest dependency chain",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^T\\d{3}$",
+          "description": "Task ID at critical path root"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the critical path task"
+        },
+        "chainDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Depth of the dependency chain"
+        },
+        "impactCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks impacted by this task"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total path length"
+        },
+        "path": {
+          "type": "array",
+          "description": "Ordered list of tasks in the critical path",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T\\d{3}$"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "active", "blocked", "done"]
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "bottlenecks": {
+      "type": "array",
+      "description": "Tasks blocking multiple other tasks",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^T\\d{3}$",
+            "description": "ID of the bottleneck task"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title of the bottleneck task"
+          },
+          "impactCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Number of tasks blocked by this task"
+          },
+          "blockedTasks": {
+            "type": "array",
+            "description": "List of task IDs blocked by this bottleneck",
+            "items": {
+              "type": "string",
+              "pattern": "^T\\d{3}$"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "recommendations": {
+      "type": "object",
+      "description": "Prioritized action recommendations",
+      "properties": {
+        "highImpact": {
+          "type": "array",
+          "description": "High-impact tasks to prioritize",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T\\d{3}$"
+              },
+              "title": {
+                "type": "string"
+              },
+              "impactCount": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "quickWins": {
+          "type": "array",
+          "description": "Tasks with short dependency chains",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T\\d{3}$"
+              },
+              "title": {
+                "type": "string"
+              },
+              "chainDepth": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "blockedTasks": {
+      "type": "array",
+      "description": "List of all blocked tasks with details",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^T\\d{3}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "blockedBy": {
+            "type": "string"
+          },
+          "chainDepth": {
+            "type": "integer"
+          },
+          "impactCount": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

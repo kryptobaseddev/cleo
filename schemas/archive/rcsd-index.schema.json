@@ -1,0 +1,384 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-index.schema.json",
+  "title": "RCSD Pipeline Master Index",
+  "description": "Master index for Research-Consensus-Spec-Decompose pipeline. Tracks all RCSD artifacts, task anchoring, authority mapping, and pipeline state. LLM-agent-first design.",
+  "type": "object",
+  "required": ["$schema", "_meta", "authorities", "taskAnchored", "specs", "reports"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/rcsd-index.schema.json",
+      "description": "Self-referencing schema URI for validation"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Index metadata for version tracking, integrity, and summary statistics",
+      "required": ["version", "lastUpdated", "totals"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version of the RCSD index format"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last index update"
+        },
+        "totals": {
+          "type": "object",
+          "description": "Aggregate counts for quick status queries",
+          "required": ["tasks", "specs", "reports", "activeResearch", "pendingConsensus"],
+          "additionalProperties": false,
+          "properties": {
+            "tasks": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total task-anchored RCSD directories"
+            },
+            "specs": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total generated specifications"
+            },
+            "reports": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total implementation reports"
+            },
+            "activeResearch": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Research operations currently in progress"
+            },
+            "pendingConsensus": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Research outputs awaiting consensus validation"
+            }
+          }
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16,64}$",
+          "description": "SHA-256 (truncated or full) for integrity verification"
+        }
+      }
+    },
+    "authorities": {
+      "type": "object",
+      "description": "Domain to authoritative specification mapping. Query: 'What is the authoritative source for domain X?'",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+\\.md$",
+          "description": "Filename of authoritative spec for this domain"
+        }
+      }
+    },
+    "taskAnchored": {
+      "type": "object",
+      "description": "Task ID to RCSD artifact mapping. Primary lookup for task-driven workflows.",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^T\\d{3,}$": {
+          "$ref": "#/definitions/taskAnchor"
+        }
+      }
+    },
+    "specs": {
+      "type": "array",
+      "description": "All generated specification documents with metadata",
+      "items": {
+        "$ref": "#/definitions/specEntry"
+      }
+    },
+    "reports": {
+      "type": "array",
+      "description": "All implementation reports tracking spec progress",
+      "items": {
+        "$ref": "#/definitions/reportEntry"
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "description": "Active pipeline status tracking for in-flight operations",
+      "additionalProperties": false,
+      "properties": {
+        "activeOperations": {
+          "type": "array",
+          "description": "Currently running RCSD pipeline operations",
+          "items": {
+            "$ref": "#/definitions/pipelineOperation"
+          }
+        },
+        "queuedTasks": {
+          "type": "array",
+          "description": "Tasks queued for RCSD processing",
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          }
+        },
+        "lastCompleted": {
+          "type": "object",
+          "description": "Most recently completed pipeline run",
+          "additionalProperties": false,
+          "properties": {
+            "taskId": {
+              "type": "string",
+              "pattern": "^T\\d{3,}$"
+            },
+            "stage": {
+              "$ref": "#/definitions/pipelineStage"
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    },
+    "recentChanges": {
+      "type": "array",
+      "description": "Last 20 changes for audit trail and change tracking",
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/definitions/changeEntry"
+      }
+    }
+  },
+
+  "definitions": {
+    "pipelineStage": {
+      "type": "string",
+      "enum": ["initialized", "research", "consensus", "spec", "decompose", "complete"],
+      "description": "RCSD pipeline stages: initialized (directory created), research (gathering sources), consensus (validating findings), spec (generating specification), decompose (creating subtasks), complete (pipeline finished)"
+    },
+    "taskAnchor": {
+      "type": "object",
+      "description": "Task-anchored RCSD artifact reference",
+      "required": ["shortName", "directory", "pipelineStage"],
+      "additionalProperties": false,
+      "properties": {
+        "shortName": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{3,25}$",
+          "description": "Kebab-case identifier derived from task title"
+        },
+        "directory": {
+          "type": "string",
+          "pattern": "^T\\d{3,}_[a-z0-9-]+$",
+          "description": "Directory name: TXXX_short-name"
+        },
+        "spec": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-SPEC\\.md$",
+          "description": "Generated specification filename (if exists)"
+        },
+        "report": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-IMPLEMENTATION-REPORT\\.md$",
+          "description": "Implementation report filename (if exists)"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "paused", "completed", "failed", "archived"],
+          "description": "Current status of this RCSD artifact set"
+        },
+        "pipelineStage": {
+          "$ref": "#/definitions/pipelineStage"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this task anchor was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last modification timestamp"
+        }
+      }
+    },
+    "specEntry": {
+      "type": "object",
+      "description": "Specification document metadata",
+      "required": ["file", "version", "status", "domain", "taskId", "lastUpdated"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-SPEC\\.md$",
+          "description": "Specification filename"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version of the specification"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "APPROVED", "ACTIVE", "IMMUTABLE", "DEPRECATED"],
+          "description": "Document lifecycle status"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Primary domain this spec covers"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["core-system", "feature", "integration", "process", "enhancement"],
+          "description": "Organizational category"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Originating task ID"
+        },
+        "shortName": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{3,25}$",
+          "description": "Short identifier for the spec"
+        },
+        "synopsis": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "One-sentence purpose summary"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last modification timestamp"
+        },
+        "consensusVerdict": {
+          "type": "string",
+          "enum": ["HIGH_CONFIDENCE", "MEDIUM_CONFIDENCE", "LOW_CONFIDENCE", "CONTESTED"],
+          "description": "Consensus validation outcome that generated this spec"
+        },
+        "implementationReport": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-IMPLEMENTATION-REPORT\\.md$",
+          "description": "Associated implementation report filename"
+        }
+      }
+    },
+    "reportEntry": {
+      "type": "object",
+      "description": "Implementation report metadata",
+      "required": ["file", "relatedSpec", "taskId", "progress", "lastUpdated"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-IMPLEMENTATION-REPORT\\.md$",
+          "description": "Report filename"
+        },
+        "relatedSpec": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+-SPEC\\.md$",
+          "description": "Specification this report tracks"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Originating task ID"
+        },
+        "progress": {
+          "type": "string",
+          "pattern": "^(\\d{1,3}%|\\d+/\\d+|Varies|N/A)$",
+          "description": "Progress indicator (percentage, fraction, or status)"
+        },
+        "phase": {
+          "type": "string",
+          "description": "Current implementation phase"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last modification timestamp"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Brief status note"
+        }
+      }
+    },
+    "pipelineOperation": {
+      "type": "object",
+      "description": "Active pipeline operation tracking",
+      "required": ["operationId", "taskId", "stage", "startedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "pattern": "^op_[a-f0-9]{8}$",
+          "description": "Unique operation identifier"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Task being processed"
+        },
+        "stage": {
+          "$ref": "#/definitions/pipelineStage"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When operation started"
+        },
+        "progress": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Completion percentage"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Current status message"
+        }
+      }
+    },
+    "changeEntry": {
+      "type": "object",
+      "description": "Audit trail entry for index changes",
+      "required": ["timestamp", "taskId", "changeType", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When change occurred"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "Affected task ID"
+        },
+        "changeType": {
+          "type": "string",
+          "enum": ["Initialized", "ResearchComplete", "ConsensusComplete", "SpecGenerated", "ReportCreated", "StageAdvanced", "StatusChange", "Archived"],
+          "description": "Type of change"
+        },
+        "stage": {
+          "$ref": "#/definitions/pipelineStage"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Human-readable change description"
+        }
+      }
+    }
+  }
+}
