@@ -4,7 +4,7 @@
  * @task T2918
  * @epic T2908
  *
- * Validates RCSD-IVTR lifecycle compliance with exit codes 60-70.
+ * Validates RCASD-IVTR+C lifecycle compliance with exit codes 60-70.
  * Intercepts domain operations to enforce protocol requirements before execution.
  *
  * Reference: lib/protocol-validation.sh, docs/specs/MCP-SERVER-SPECIFICATION.md
@@ -16,7 +16,7 @@ import { DomainRequest, DomainResponse } from './router.js';
 import { ExitCode } from './exit-codes.js';
 
 /**
- * Protocol types aligned with RCSD-IVTR lifecycle
+ * Protocol types aligned with RCASD-IVTR+C lifecycle
  */
 export enum ProtocolType {
   RESEARCH = 'research',
@@ -51,9 +51,10 @@ const PROTOCOL_EXIT_CODES: Record<ProtocolType, ExitCode> = {
 const LIFECYCLE_GATES: Record<string, string[]> = {
   research: [],
   consensus: ['research'],
-  specification: ['research', 'consensus'],
-  decomposition: ['research', 'consensus', 'specification'],
-  implementation: ['research', 'consensus', 'specification', 'decomposition'],
+    architecture_decision: ['research', 'consensus'],
+    specification: ['research', 'consensus', 'architecture_decision'],
+    decomposition: ['research', 'specification', 'architecture_decision'],
+    implementation: ['research', 'specification', 'decomposition', 'architecture_decision'],
   contribution: [], // Cross-cutting: no strict prerequisites
   validation: ['implementation'],
   testing: ['implementation', 'validation'],
@@ -161,7 +162,7 @@ export class ProtocolEnforcer {
   async checkLifecycleGate(
     _taskId: string,
     targetStage: string,
-    rcsdManifest?: Record<string, unknown>
+    lifecycleManifest?: Record<string, unknown>
   ): Promise<{
     passed: boolean;
     missingPrerequisites: string[];
@@ -169,19 +170,19 @@ export class ProtocolEnforcer {
   }> {
     const prerequisites = LIFECYCLE_GATES[targetStage] || [];
 
-    if (!rcsdManifest) {
+    if (!lifecycleManifest) {
       // No manifest available - warn but allow
       return {
         passed: true,
         missingPrerequisites: [],
-        message: 'No RCSD manifest found - skipping gate check',
+        message: 'No RCASD manifest found (legacy RCSD path) - skipping gate check',
       };
     }
 
     const missingPrerequisites: string[] = [];
 
     for (const prereq of prerequisites) {
-      const stageStatus = rcsdManifest[prereq];
+      const stageStatus = lifecycleManifest[prereq];
       if (stageStatus !== 'completed' && stageStatus !== 'skipped') {
         missingPrerequisites.push(prereq);
       }

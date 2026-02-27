@@ -130,9 +130,9 @@ Tier 1: CLEO-SUBAGENT (universal executor)
 - **MUST** complete via `ct complete`
 - **MUST** start a task before work
 
-**Protocol Types (7)**: Research, Consensus, Specification, Decomposition, Implementation, Contribution, Release
+**Protocol Types (9)**: Research, Consensus, Specification, Decomposition, Implementation, Contribution, Release, Validation, Testing
 
-**Lifecycle**: RCSD Pipeline (Research → Consensus → Spec → Decompose) → Execution (Implementation → Contribution → Release)
+**Lifecycle**: RCASD-IVTR+C Pipeline (Research → Consensus → Architecture Decision → Specification → Decomposition) → (Implementation → Validation → Testing → Release) + Contribution (cross-cutting)
 
 Full architecture: `~/.cleo/docs/CLEO-INJECTION.md`
 Full lifecycle spec: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`

@@ -11,7 +11,10 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "const": "https://cleo-dev.com/schemas/v1/rcsd-consensus-report.schema.json",
+      "enum": [
+        "https://cleo-dev.com/schemas/v1/rcsd-consensus-report.schema.json",
+        "https://cleo-dev.com/schemas/v1/rcasd-consensus-report.schema.json"
+      ],
       "description": "Self-referencing schema URI for validation"
     },
     "_meta": {

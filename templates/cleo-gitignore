@@ -36,7 +36,10 @@ context-states/
 # Research artifacts (agent working data)
 research/
 
-# RCSD pipeline state (generated per-epic)
+# RCASD lifecycle state (generated per-epic)
+rcasd/
+
+# Legacy RCSD path (backward compatibility)
 rcsd/
 
 # Session working files

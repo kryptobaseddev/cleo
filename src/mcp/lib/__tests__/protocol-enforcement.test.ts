@@ -22,7 +22,7 @@ describe('ProtocolEnforcer', () => {
         file: 'output.md',
         date: '2026-02-03',
         title: 'Research findings',
-        status: 'complete',
+        status: 'completed',
         agent_type: 'research',
         key_findings: ['Finding 1', 'Finding 2', 'Finding 3'],
         sources: ['source1.md'],
@@ -40,7 +40,7 @@ describe('ProtocolEnforcer', () => {
         file: 'output.md',
         date: '2026-02-03',
         title: 'Research findings',
-        status: 'complete',
+        status: 'completed',
         agent_type: 'research',
         key_findings: [],
         linked_tasks: ['T2918'],
@@ -57,7 +57,7 @@ describe('ProtocolEnforcer', () => {
         file: 'output.md',
         date: '2026-02-03',
         title: 'Research findings',
-        status: 'complete',
+        status: 'completed',
         agent_type: 'implementation',
         key_findings: ['Finding 1', 'Finding 2', 'Finding 3'],
         linked_tasks: ['T2918'],
@@ -200,6 +200,7 @@ describe('ProtocolEnforcer', () => {
       const rcsdManifest = {
         research: 'completed',
         consensus: 'completed',
+        architecture_decision: 'completed',
         specification: 'completed',
         decomposition: 'completed',
       };
@@ -212,14 +213,15 @@ describe('ProtocolEnforcer', () => {
     it('should fail when prerequisites missing', async () => {
       const rcsdManifest = {
         research: 'completed',
-        consensus: 'pending',
+        consensus: 'completed',
+        architecture_decision: 'pending',
         specification: 'pending',
         decomposition: 'pending',
       };
 
       const result = await enforcer.checkLifecycleGate('T2918', 'implementation', rcsdManifest);
       expect(result.passed).toBe(false);
-      expect(result.missingPrerequisites).toContain('consensus');
+      expect(result.missingPrerequisites).toContain('architecture_decision');
       expect(result.missingPrerequisites).toContain('specification');
     });
 
@@ -227,6 +229,7 @@ describe('ProtocolEnforcer', () => {
       const rcsdManifest = {
         research: 'completed',
         consensus: 'skipped',
+        architecture_decision: 'skipped',
         specification: 'completed',
         decomposition: 'completed',
       };
@@ -238,7 +241,7 @@ describe('ProtocolEnforcer', () => {
     it('should pass with no manifest', async () => {
       const result = await enforcer.checkLifecycleGate('T2918', 'implementation', undefined);
       expect(result.passed).toBe(true);
-      expect(result.message).toContain('No RCSD manifest');
+      expect(result.message).toContain('No RCASD manifest');
     });
   });
 

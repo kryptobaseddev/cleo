@@ -9,7 +9,7 @@
  * @ref T4801 - SQLite schema with lifecycle tables
  * @ref T4800 - Pipeline state machine
  * @ref T4804 - Gate/evidence recording stubs
- * @ref T4798 - RCSD-IVTR lifecycle
+ * @ref T4798 - RCASD-IVTR+C lifecycle
  *
  * Functions:
  * - findResumablePipelines(): Query active pipelines from SQLite
@@ -47,11 +47,8 @@ import { validateStage, getNextStage } from './stages.js';
 // TYPE DEFINITIONS
 // =============================================================================
 
-/**
- * Database stage status values from schema.
- * @ref T4801
- */
-type DbStageStatus = 'pending' | 'active' | 'blocked' | 'completed' | 'skipped';
+import type { StageStatus as DbStageStatus, PipelineStatus } from '../../store/status-registry.js';
+import { STAGE_STATUS_ICONS } from '../../store/status-registry.js';
 
 /**
  * Resumable pipeline information returned to callers.
@@ -70,7 +67,7 @@ export interface ResumablePipeline {
   currentStage: Stage;
 
   /** Pipeline status */
-  status: 'active' | 'completed' | 'aborted';
+  status: PipelineStatus;
 
   /** When the pipeline started */
   startedAt: Date;
@@ -502,8 +499,8 @@ function calculateResumePriority(
   const priorityOrder = { critical: 1, high: 2, medium: 3, low: 4 };
   const priorityValue = priorityOrder[priority as keyof typeof priorityOrder] || 4;
 
-  // Active stages get higher priority (lower number)
-  const statusModifier = stageStatus === 'active' ? 0 : stageStatus === 'blocked' ? 10 : 5;
+  // In-progress stages get higher priority (lower number)
+  const statusModifier = stageStatus === 'in_progress' ? 0 : stageStatus === 'blocked' ? 10 : 5;
 
   return priorityValue + statusModifier;
 }
@@ -675,7 +672,7 @@ export async function loadPipelineContext(
 /**
  * Resume a specific stage in a pipeline.
  *
- * Updates the stage status from 'blocked' or 'pending' to 'active',
+ * Updates the stage status from 'blocked' or 'not_started' to 'in_progress',
  * records the transition, and returns the resume result.
  *
  * @param taskId - The task ID
@@ -750,26 +747,26 @@ export async function resumeStage(
     warnings.push(`Resuming already-completed stage ${validatedStage}`);
   }
 
-  if (previousStatus === 'active') {
+  if (previousStatus === 'in_progress') {
     return {
       success: true,
       taskId,
       stage: validatedStage,
       previousStatus,
-      newStatus: 'active',
+      newStatus: 'in_progress',
       resumedAt: new Date(),
-      message: `Stage ${validatedStage} is already active`,
+      message: `Stage ${validatedStage} is already in progress`,
       warnings: [],
     };
   }
 
   const now = new Date();
 
-  // Update stage status to active
+  // Update stage status to in_progress
   await db
     .update(schema.lifecycleStages)
     .set({
-      status: 'active',
+      status: 'in_progress',
       startedAt: now.toISOString(),
       blockedAt: null,
       blockReason: null,
@@ -809,7 +806,7 @@ export async function resumeStage(
     taskId,
     stage: validatedStage,
     previousStatus,
-    newStatus: 'active',
+    newStatus: 'in_progress',
     resumedAt: now,
     message: `Resumed ${taskId} at stage ${validatedStage}`,
     warnings,
@@ -840,7 +837,7 @@ export async function resumeStage(
  *
  * @task T4805
  * @ref T4801 - Queries lifecycle_pipelines, lifecycle_stages tables
- * @ref T4798 - Implements RCSD-IVTR resume logic
+ * @ref T4798 - Implements RCASD-IVTR+C resume logic
  */
 export async function autoResume(cwd?: string): Promise<AutoResumeResult> {
   const db = await getDb(cwd);
@@ -891,15 +888,15 @@ export async function autoResume(cwd?: string): Promise<AutoResumeResult> {
 
     // Score based on stage status
     switch (stageStatus) {
-      case 'active':
+      case 'in_progress':
         score = 100;
-        reason = 'Stage already active';
+        reason = 'Stage already in progress';
         break;
       case 'blocked':
         score = 70;
         reason = 'Blocked stage can be unblocked';
         break;
-      case 'pending':
+      case 'not_started':
         score = 40;
         reason = 'Pending stage ready to start';
         break;
@@ -1122,8 +1119,8 @@ export async function checkSessionResume(
   if (filtered.length === 1 && options.autoResume) {
     const candidate = filtered[0];
 
-    // Only auto-resume if stage is active, blocked, or pending
-    if (['active', 'blocked', 'pending'].includes(candidate.stageStatus)) {
+    // Only auto-resume if stage is in_progress, blocked, or not_started
+    if (['in_progress', 'blocked', 'not_started'].includes(candidate.stageStatus)) {
       try {
         await resumeStage(
           candidate.taskId,
@@ -1181,7 +1178,7 @@ export function formatResumeSummary(pipelines: ResumablePipeline[]): string {
   const lines: string[] = [`Found ${pipelines.length} resumable pipeline(s):`, ''];
 
   pipelines.forEach((p, index) => {
-    const statusIcon = p.stageStatus === 'active' ? '▶' : p.stageStatus === 'blocked' ? '⏸' : '⏹';
+    const statusIcon = STAGE_STATUS_ICONS[p.stageStatus] ?? STAGE_STATUS_ICONS.not_started;
     const priorityIcon = p.taskTitle.toLowerCase().includes('critical')
       ? '🔴'
       : p.taskTitle.toLowerCase().includes('high')

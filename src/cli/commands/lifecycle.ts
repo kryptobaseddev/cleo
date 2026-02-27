@@ -5,12 +5,12 @@
  */
 
 import { Command } from 'commander';
-import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 
 export function registerLifecycleCommand(program: Command): void {
   const lifecycle = program
     .command('lifecycle')
-    .description('RCSD pipeline lifecycle management');
+    .description('RCASD-IVTR+C lifecycle pipeline management');
 
   lifecycle
     .command('show <epicId>')
@@ -64,9 +64,7 @@ export function registerLifecycleCommand(program: Command): void {
           process.exit(80);
         }
       } else {
-        const { cliError } = await import('../renderers/index.js');
-        cliError(result.error?.message ?? 'Gate check failed', result.error?.exitCode ?? 1);
-        process.exit(result.error?.exitCode ?? 1);
+        handleRawError(result, { command: 'lifecycle', operation: 'pipeline.stage.validate' });
       }
     });
 }

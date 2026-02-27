@@ -1,7 +1,7 @@
 /**
  * Canonical SQLite Pipeline State Machine
  * 
- * Main pipeline operations for the unified RCSD-IVTR lifecycle.
+ * Main pipeline operations for the unified RCASD-IVTR+C lifecycle.
  * Replaces the scattered _manifest.json approach with a transactional
  * Drizzle ORM implementation using cleo.db.
  * 

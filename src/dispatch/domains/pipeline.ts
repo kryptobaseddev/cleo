@@ -6,7 +6,7 @@
  * native engine functions.
  *
  * Sub-domains:
- *   stage.*   - RCSD-IVTR lifecycle stage management
+ *   stage.*   - RCASD-IVTR+C lifecycle stage management
  *   release.* - Release lifecycle (prepare, changelog, commit, tag, push)
  *
  * @epic T4820
@@ -15,6 +15,9 @@
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { getLogger } from '../../core/logger.js';
+
+const logger = getLogger('domain:pipeline');
 import {
   lifecycleStatus,
   lifecycleHistory,
@@ -391,10 +394,12 @@ export class PipelineHandler implements DomainHandler {
     error: unknown,
     startTime: number,
   ): DispatchResponse {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error({ gateway, domain: 'pipeline', operation, err: error }, message);
     return this.errorResponse(
       gateway, operation,
       'E_INTERNAL_ERROR',
-      error instanceof Error ? error.message : String(error),
+      message,
       startTime,
     );
   }
