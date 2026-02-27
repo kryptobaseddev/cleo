@@ -176,10 +176,9 @@ __pycache__/
 .fuse_hidden*
 installed-skills.json
 
-# Local tool configuration and root-level npm lockfile noise
+# Local tool configuration
 .mcp.json
 opencode.json
-/package-lock.json
 
 # ============================================================
 # SQLite Runtime Files — MUST NEVER be tracked in git
