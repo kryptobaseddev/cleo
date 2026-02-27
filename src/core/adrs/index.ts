@@ -12,4 +12,7 @@ export type { AdrValidationError, AdrValidationResult } from './validate.js';
 export { syncAdrsToDb } from './sync.js';
 export { listAdrs } from './list.js';
 export { showAdr } from './show.js';
-export type { AdrFrontmatter, AdrRecord, AdrSyncResult, AdrListResult } from './types.js';
+export { findAdrs } from './find.js';
+export { linkPipelineAdr } from './link-pipeline.js';
+export type { PipelineAdrLinkResult } from './link-pipeline.js';
+export type { AdrFrontmatter, AdrRecord, AdrSyncResult, AdrListResult, AdrFindResult } from './types.js';

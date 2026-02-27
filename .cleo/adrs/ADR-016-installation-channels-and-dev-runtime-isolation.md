@@ -5,6 +5,9 @@
 **Accepted**: 2026-02-25
 **Related Tasks**: T4881, T4882, T4883, T4884, T4885, T4886, T4887, T4888
 **Related ADRs**: ADR-008, ADR-011, ADR-015
+**Summary**: Defines three CLEO installation channels (npm global, npm local, dev symlink) and establishes runtime isolation between dev and production instances. Prevents the dev source tree from affecting production .cleo/ data.
+**Keywords**: installation, channels, npm, global, local, dev, symlink, runtime-isolation, npm-link
+**Topics**: admin, tools, security
 
 ---
 

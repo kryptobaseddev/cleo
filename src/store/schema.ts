@@ -346,6 +346,10 @@ export const architectureDecisions = sqliteTable('architecture_decisions', {
   gateStatus: text('gate_status', { enum: GATE_STATUSES }),
   amendsId: text('amends_id'),
   filePath: text('file_path').notNull().default(''),
+  // ADR-017 §5.4 cognitive search columns (T4942)
+  summary: text('summary'),
+  keywords: text('keywords'),
+  topics: text('topics'),
 }, (table) => [
   index('idx_arch_decisions_status').on(table.status),
 ]);

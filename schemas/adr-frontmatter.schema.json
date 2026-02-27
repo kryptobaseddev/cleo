@@ -54,6 +54,18 @@
       "type": "string",
       "enum": ["pending", "passed", "waived"],
       "description": "Current gate status."
+    },
+    "Summary": {
+      "type": "string",
+      "description": "1-3 sentence plain-language description of the decision. Enables cognitive search across ADRs without reading full content."
+    },
+    "Keywords": {
+      "type": "string",
+      "description": "Comma-separated freeform tags (e.g., 'sqlite, storage, migration'). Used for fuzzy search."
+    },
+    "Topics": {
+      "type": "string",
+      "description": "Comma-separated canonical CLEO domain tags from: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, storage, testing, migration, naming, security, performance."
     }
   },
   "additionalProperties": false

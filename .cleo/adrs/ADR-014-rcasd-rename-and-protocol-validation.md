@@ -4,6 +4,9 @@
 **Status**: proposed
 **Related ADRs**: ADR-006, ADR-008, ADR-012
 **Related Tasks**: T4855, T4856, T4857, T4858, T4859
+**Summary**: Renames the RCSD pipeline to RCASD (Research→Consensus→ADR→Spec→Decompose) to make the ADR stage explicit in the lifecycle. Adds protocol output validation to ensure pipeline stage artifacts meet format requirements.
+**Keywords**: rcasd, rcsd, pipeline, protocol, validation, lifecycle, stages, rename
+**Topics**: pipeline, lifecycle, admin, check
 
 ---
 

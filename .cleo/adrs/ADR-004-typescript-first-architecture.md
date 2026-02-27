@@ -4,6 +4,9 @@
 **Status**: accepted
 **Accepted**: 2026-02-16
 **Related Tasks**: T4628, T4554
+**Summary**: Migrates CLEO from 185+ Bash shell scripts (133,000 lines) to a TypeScript-first architecture. All new functionality is implemented in TypeScript under src/. Bash scripts in scripts/ and lib/ are deprecated and pending removal.
+**Keywords**: typescript, bash, migration, architecture, shared-core, esm, commander
+**Topics**: admin, tools, naming
 
 ## Context
 
@@ -34,7 +37,7 @@ The resulting module structure:
 src/
   cli/           # CLI entry point and 74 command registrations (Commander.js)
     commands/    # Thin command handlers: parse args -> call core -> format output
-  core/          # Shared business logic (tasks, sessions, focus, lifecycle, etc.)
+  core/          # Shared business logic (tasks, sessions, task-work, lifecycle, etc.)
   mcp/           # MCP server with domain routing and engine adapters
     domains/     # MCP tool definitions and routing
     engine/      # Adapters from MCP protocol to src/core/ functions

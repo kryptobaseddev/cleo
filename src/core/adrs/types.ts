@@ -19,6 +19,10 @@ export interface AdrFrontmatter {
   'Related Tasks'?: string;
   Gate?: 'HITL' | 'automated';
   'Gate Status'?: 'pending' | 'passed' | 'waived';
+  // ADR-017 §5.4 cognitive search fields (T4942)
+  Summary?: string;
+  Keywords?: string;
+  Topics?: string;
 }
 
 export interface AdrRecord {
@@ -43,5 +47,22 @@ export interface AdrListResult {
     date: string;
     filePath: string;
   }>;
+  total: number;
+}
+
+export interface AdrFindResult {
+  adrs: Array<{
+    id: string;
+    title: string;
+    status: string;
+    date: string;
+    filePath: string;
+    summary?: string;
+    keywords?: string;
+    topics?: string;
+    score: number;
+    matchedFields: string[];
+  }>;
+  query: string;
   total: number;
 }

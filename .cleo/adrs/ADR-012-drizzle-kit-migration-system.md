@@ -6,6 +6,9 @@
 **Amends**: ADR-006 Section 4 (replaces manual SQL with schema.ts-generated DDL), ADR-010 Sections 5.2/7.5 (fulfills drizzle-kit adoption recommendation)
 **Related Tasks**: T4817, T4837
 **Related ADRs**: ADR-006, ADR-010
+**Summary**: Adopts drizzle-kit as the DDL migration management tool. schema.ts is the single source of truth for DB schema; drizzle-kit generate produces migration.sql + snapshot.json pairs. Manual SQL migrations are forbidden. Custom migrations require --custom flag for CHECK constraint changes.
+**Keywords**: drizzle-kit, migration, schema, ddl, generate, snapshot, check-constraint, custom
+**Topics**: storage, migration, schema, admin
 
 ---
 

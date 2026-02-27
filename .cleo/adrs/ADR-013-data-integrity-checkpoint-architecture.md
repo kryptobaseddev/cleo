@@ -6,6 +6,9 @@
 **Gate Status**: pending
 **Related Tasks**: T4867, T4868, T4869
 **Related ADRs**: ADR-006, ADR-010
+**Summary**: Addresses two critical bugs in git-checkpoint.ts that pollute the project git history. Proposes isolating .cleo/ checkpoint commits to a dedicated git worktree or orphan branch to prevent history contamination.
+**Keywords**: git, checkpoint, data-integrity, atomic, backup, isolation, git-history
+**Topics**: storage, security, admin
 
 ---
 
