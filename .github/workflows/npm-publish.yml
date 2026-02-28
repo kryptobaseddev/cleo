@@ -29,6 +29,19 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Validate CalVer (YYYY.M.PATCH)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG_YEAR=$(echo "$VERSION" | cut -d. -f1)
+          TAG_MONTH=$(echo "$VERSION" | cut -d. -f2)
+          CURRENT_YEAR=$(date -u +%Y)
+          CURRENT_MONTH=$(date -u +%-m)
+          echo "package.json version: ${VERSION} | Current: ${CURRENT_YEAR}.${CURRENT_MONTH}"
+          if [[ "$TAG_YEAR" != "$CURRENT_YEAR" || "$TAG_MONTH" != "$CURRENT_MONTH" ]]; then
+            echo "ERROR: Version ${TAG_YEAR}.${TAG_MONTH} does not match current year.month ${CURRENT_YEAR}.${CURRENT_MONTH}"
+            exit 1
+          fi
+
       - run: npm ci
 
       - run: npm run build
@@ -42,19 +55,8 @@ jobs:
       - name: Determine dist-tag
         id: tag
         env:
-          EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "tag=$INPUT_TAG" >> $GITHUB_OUTPUT
-          elif [[ "$RELEASE_TAG" == *"-alpha"* ]] || [[ "$RELEASE_TAG" == *"-dev"* ]]; then
-            echo "tag=dev" >> $GITHUB_OUTPUT
-          elif [[ "$RELEASE_TAG" == *"-beta"* ]] || [[ "$RELEASE_TAG" == *"-rc"* ]]; then
-            echo "tag=beta" >> $GITHUB_OUTPUT
-          else
-            echo "tag=latest" >> $GITHUB_OUTPUT
-          fi
+        run: echo "tag=$INPUT_TAG" >> $GITHUB_OUTPUT
 
       - name: Publish to npm (OIDC Trusted Publishing)
         run: npm publish --tag ${{ steps.tag.outputs.tag }} --access public
