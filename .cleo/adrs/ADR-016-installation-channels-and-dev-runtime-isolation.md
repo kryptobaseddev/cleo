@@ -3,11 +3,11 @@
 **Date**: 2026-02-25
 **Status**: accepted
 **Accepted**: 2026-02-25
-**Related Tasks**: T4881, T4882, T4883, T4884, T4885, T4886, T4887, T4888
-**Related ADRs**: ADR-008, ADR-011, ADR-015
-**Summary**: Defines three CLEO installation channels (npm global, npm local, dev symlink) and establishes runtime isolation between dev and production instances. Prevents the dev source tree from affecting production .cleo/ data.
-**Keywords**: installation, channels, npm, global, local, dev, symlink, runtime-isolation, npm-link
-**Topics**: admin, tools, security
+**Related Tasks**: T4881, T4882, T4883, T4884, T4885, T4886, T4887, T4888, T5063
+**Related ADRs**: ADR-008, ADR-011, ADR-012, ADR-015
+**Summary**: Defines three CLEO installation channels (npm global, npm local, dev symlink), establishes runtime isolation between dev and production instances, and specifies the CI/CD release pipeline with CalVer enforcement and OIDC trusted publishing.
+**Keywords**: installation, channels, npm, global, local, dev, symlink, runtime-isolation, npm-link, calver, oidc, trusted-publishing, release, ci-cd
+**Topics**: admin, tools, security, release
 
 ---
 
@@ -121,3 +121,79 @@ CLEO SHALL standardize on three runtime channels:
 - Raw `npm link` uses package `bin` mappings and can expose `cleo`/`ct` names.
 - Contributors requiring strict dev isolation MUST use the channel-aware installer dev flow (`./install.sh --dev`) so `cleo-dev` / `cleo-mcp-dev` are configured.
 - Diagnostics (`cleo env info` / `admin.runtime`) SHOULD warn when dev channel is invoked via `cleo` instead of `cleo-dev`.
+
+---
+
+## 8. Release Pipeline
+
+### 8.1 Versioning Scheme
+
+CLEO uses **Calendar Versioning (CalVer)** with format `YYYY.M.PATCH`:
+
+- `YYYY` — four-digit year
+- `M` — month (no leading zero)
+- `PATCH` — sequential patch number within the month, starting at 0
+
+Pre-release suffixes follow semver conventions appended to the CalVer base:
+
+- `-alpha.N` — early development, unstable
+- `-dev.N` — development snapshots
+- `-beta.N` — feature-complete, testing
+- `-rc.N` — release candidate
+
+### 8.2 CalVer Enforcement
+
+The CI pipeline SHALL reject any release where the tag's year and month do not match the current UTC date. This prevents publishing future-dated or back-dated versions.
+
+- `v2026.2.8` pushed in February 2026 — allowed
+- `v2026.3.0` pushed in February 2026 — **rejected**
+- `v2026.2.8-rc.1` pushed in February 2026 — allowed (CalVer validates `YYYY.M` prefix only)
+
+### 8.3 Workflow Architecture
+
+The release pipeline uses a single-workflow design in `.github/workflows/release.yml` with three sequential jobs:
+
+```
+git tag vYYYY.M.PATCH → git push origin vYYYY.M.PATCH
+    ↓
+release.yml (triggered by tag push matching v[0-9]+.[0-9]+.[0-9]+*)
+    ├── Job 1: release         — Build, validate, create GitHub Release
+    ├── Job 2: publish-npm     — npm publish via OIDC (needs: release)
+    └── Job 3: publish-mcp    — MCP Registry publish (needs: publish-npm)
+```
+
+A manual fallback workflow exists at `.github/workflows/npm-publish.yml` for re-publishing without creating a new release. It requires explicit dist-tag selection (dev/beta/latest).
+
+### 8.4 npm Authentication (OIDC Trusted Publishing)
+
+CLEO SHALL use npm OIDC Trusted Publishing for all npm publishes. This eliminates long-lived `NPM_TOKEN` secrets.
+
+Requirements:
+- GitHub Actions workflow permission: `id-token: write`
+- Node.js 24+ (ships with npm >= 11.5.1 which supports OIDC)
+- `registry-url: 'https://registry.npmjs.org'` in `actions/setup-node`
+- Trusted Publisher configured on npmjs.com linking `@cleocode/cleo` to the repository and workflow filename
+
+The `--provenance` flag is NOT required — provenance is automatically generated with trusted publishing.
+
+Classic npm tokens and granular access tokens with write permissions are deprecated by npm (90-day max lifetime enforced since December 2025). OIDC trusted publishing is the only supported long-term authentication method.
+
+### 8.5 npm Dist-Tag Mapping
+
+| Tag suffix | GitHub Release | npm dist-tag |
+|------------|---------------|-------------|
+| *(none)* | release | `latest` |
+| `-rc.N` | prerelease | `beta` |
+| `-beta.N` | prerelease | `beta` |
+| `-alpha.N` | prerelease | `dev` |
+| `-dev.N` | prerelease | `dev` |
+
+GitHub Releases are automatically marked as prerelease when the tag contains a hyphen.
+
+### 8.6 CI Workflow Summary
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yml` | Push to `main`/`develop`, PRs | Type check, test, build, verify |
+| `release.yml` | Tag push `v*.*.*` | GitHub Release + npm + MCP Registry |
+| `npm-publish.yml` | Manual dispatch only | Backup re-publish with explicit dist-tag |
