@@ -58,10 +58,8 @@ jobs:
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      - name: Publish to npm
-        run: npm publish --tag ${{ steps.tag.outputs.tag }} --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (OIDC Trusted Publishing)
+        run: npm publish --tag ${{ steps.tag.outputs.tag }} --access public
 
   publish-mcp-registry:
     name: Publish to MCP Registry
