@@ -37,15 +37,15 @@ describe('MCP server auto-install verification (T4695)', () => {
       expect((entry.args as string[])![0]).toContain('dist/mcp/index.js');
     });
 
-    it('prod-npm mode generates cleo-mcp command', () => {
+    it('prod-npm mode generates npx cleo mcp command', () => {
       const entry = generateMcpServerEntry({ mode: 'prod-npm', source: null });
-      expect(entry.command).toBe('cleo-mcp');
-      expect(entry.args).toEqual([]);
+      expect(entry.command).toBe('npx');
+      expect(entry.args).toEqual(['-y', '@cleocode/cleo@latest', 'mcp']);
     });
 
-    it('unknown mode falls back to cleo-mcp', () => {
+    it('unknown mode falls back to npx cleo mcp', () => {
       const entry = generateMcpServerEntry({ mode: 'unknown', source: null });
-      expect(entry.command).toBe('cleo-mcp');
+      expect(entry.command).toBe('npx');
     });
   });
 

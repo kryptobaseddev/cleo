@@ -74,11 +74,11 @@ function detectFromDataRoot(dataRoot: string): RuntimeChannel | null {
 function getExpectedNaming(channel: RuntimeChannel): { cli: string; mcp: string; server: string } {
   switch (channel) {
     case 'dev':
-      return { cli: 'cleo-dev', mcp: 'cleo-mcp-dev', server: 'cleo-dev' };
+      return { cli: 'cleo-dev', mcp: 'cleo-dev mcp', server: 'cleo-dev' };
     case 'beta':
-      return { cli: 'cleo-beta', mcp: 'cleo-mcp-beta', server: 'cleo-beta' };
+      return { cli: 'cleo-beta', mcp: 'cleo-beta mcp', server: 'cleo-beta' };
     default:
-      return { cli: 'cleo', mcp: 'cleo-mcp', server: 'cleo' };
+      return { cli: 'cleo', mcp: 'cleo mcp', server: 'cleo' };
   }
 }
 
@@ -203,9 +203,6 @@ export async function getRuntimeDiagnostics(options?: { detailed?: boolean }): P
       'ct',
       'cleo-dev',
       'cleo-beta',
-      'cleo-mcp',
-      'cleo-mcp-dev',
-      'cleo-mcp-beta',
     ];
     const entries = await Promise.all(binNames.map(async (name) => [name, await resolveBinaryPath(name)] as const));
     result.binaries = Object.fromEntries(entries.map(([name, path]) => [name, path ?? 'not found']));

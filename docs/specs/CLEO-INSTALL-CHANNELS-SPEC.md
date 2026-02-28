@@ -54,14 +54,14 @@ Define a canonical installation and runtime model for CLEO across stable, beta, 
 
 ## Install Matrix (Contract)
 
-- `stable`: commands `cleo`, `ct`, `cleo-mcp`; server `cleo`; data `~/.cleo`
-- `beta`: commands `cleo-beta`, optional `ct-beta`, `cleo-mcp-beta`; server `cleo-beta`; data `~/.cleo-beta` recommended
-- `dev`: commands `cleo-dev`, `cleo-mcp-dev`; server `cleo-dev`; data `~/.cleo-dev`; no `ct`
+- `stable`: commands `cleo`, `ct`; MCP via `cleo mcp`; server `cleo`; data `~/.cleo`
+- `beta`: commands `cleo-beta`, optional `ct-beta`; MCP via `cleo-beta mcp`; server `cleo-beta`; data `~/.cleo-beta` recommended
+- `dev`: commands `cleo-dev`; MCP via `cleo-dev mcp`; server `cleo-dev`; data `~/.cleo-dev`; no `ct`
 
 ## `npm link` Contributor Caveat
 
 - Raw `npm link` follows `package.json` bin mappings and may expose `cleo`/`ct`.
-- For strict dev isolation, contributors MUST run `./install.sh --dev` so channel-aware links are created (`cleo-dev`, `cleo-mcp-dev`).
+- For strict dev isolation, contributors MUST run `./install.sh --dev` so channel-aware links are created (`cleo-dev`).
 - `npm link` remains valid for local testing of package bins, but it is not the canonical isolated dev-channel setup.
 
 ## Operational Requirements

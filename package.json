@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.2.8",
+  "version": "2026.2.9",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "mcpName": "io.github.kryptobaseddev/cleo-mcp-server",
   "type": "module",
@@ -11,8 +11,7 @@
   },
   "bin": {
     "cleo": "dist/cli/index.js",
-    "ct": "dist/cli/index.js",
-    "cleo-mcp": "dist/mcp/index.js"
+    "ct": "dist/cli/index.js"
   },
   "repository": {
     "type": "git",
