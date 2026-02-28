@@ -84,6 +84,7 @@ export interface CurrentTaskInfo {
   id: string;
   title: string;
   status: string;
+  blockedBy?: string[];
 }
 
 /**
@@ -97,6 +98,7 @@ export interface SessionBriefing {
   blockedTasks: BriefingBlockedTask[];
   activeEpics: BriefingEpic[];
   pipelineStage?: PipelineStageInfo;
+  warnings?: string[];
 }
 
 /**
@@ -177,6 +179,14 @@ export async function computeBriefing(
   // 7. Pipeline stage (optional - may not be available)
   const pipelineStage = computePipelineStage(current);
 
+  // Compute warnings
+  const warnings: string[] = [];
+  if (currentTaskInfo?.blockedBy?.length) {
+    warnings.push(
+      `Focused task ${currentTaskInfo.id} is blocked by: ${currentTaskInfo.blockedBy.join(', ')}`,
+    );
+  }
+
   return {
     lastSession,
     currentTask: currentTaskInfo,
@@ -185,6 +195,7 @@ export async function computeBriefing(
     blockedTasks,
     activeEpics,
     ...(pipelineStage && { pipelineStage }),
+    ...(warnings.length > 0 && { warnings }),
   };
 }
 
@@ -325,15 +336,28 @@ function computeCurrentTask(
   if (!focusTaskId) return null;
 
   const task = taskMap.get(focusTaskId) as
-    | { id: string; title: string; status: string }
+    | { id: string; title: string; status: string; depends?: string[] }
     | undefined;
   if (!task) return null;
 
-  return {
+  const info: CurrentTaskInfo = {
     id: task.id,
     title: task.title,
     status: task.status,
   };
+
+  // Check for unresolved dependencies on the focused task
+  if (task.depends?.length) {
+    const unresolved = task.depends.filter(depId => {
+      const dep = taskMap.get(depId) as { status?: string } | undefined;
+      return dep && dep.status !== 'done' && dep.status !== 'cancelled';
+    });
+    if (unresolved.length > 0) {
+      info.blockedBy = unresolved;
+    }
+  }
+
+  return info;
 }
 
 /**
