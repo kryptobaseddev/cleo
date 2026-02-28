@@ -30,6 +30,34 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building release for version: $VERSION"
 
+      - name: Validate CalVer (YYYY.M.PATCH)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Extract year and month from version
+          TAG_YEAR=$(echo "$VERSION" | cut -d. -f1)
+          TAG_MONTH=$(echo "$VERSION" | cut -d. -f2)
+
+          # Get current UTC year and month
+          CURRENT_YEAR=$(date -u +%Y)
+          CURRENT_MONTH=$(date -u +%-m)
+
+          echo "Tag: ${TAG_YEAR}.${TAG_MONTH}.x"
+          echo "Now: ${CURRENT_YEAR}.${CURRENT_MONTH}"
+
+          if [[ "$TAG_YEAR" != "$CURRENT_YEAR" ]]; then
+            echo "ERROR: Tag year ${TAG_YEAR} does not match current year ${CURRENT_YEAR}"
+            exit 1
+          fi
+
+          if [[ "$TAG_MONTH" != "$CURRENT_MONTH" ]]; then
+            echo "ERROR: Tag month ${TAG_MONTH} does not match current month ${CURRENT_MONTH}"
+            echo "CalVer requires YYYY.M.PATCH where M is the current month"
+            exit 1
+          fi
+
+          echo "CalVer validated: ${TAG_YEAR}.${TAG_MONTH} matches current date"
+
       - name: Install dependencies
         run: npm ci
 
