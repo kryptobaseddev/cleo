@@ -1,8 +1,6 @@
-name: Publish to npm & MCP Registry
+name: Publish to npm & MCP Registry (Manual)
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
