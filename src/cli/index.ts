@@ -368,16 +368,19 @@ program.hook('preAction', (thisCommand) => {
   }
 });
 
-// Handle --mcp-server flag: start MCP stdio server instead of CLI (W5)
-// Must check argv before Commander.js parses to support: npx @cleocode/cleo --mcp-server
-if (process.argv.includes('--mcp-server')) {
-  import('../mcp/index.js').then((m: Record<string, unknown>) => {
-    const fn = (m['main'] ?? m['startMcpServer']) as (() => void) | undefined;
-    if (typeof fn === 'function') fn();
-  }).catch((err: unknown) => {
-    process.stderr.write(`Failed to start MCP server: ${err}\n`);
-    process.exit(1);
-  });
+// Start MCP server: `cleo mcp` (canonical invocation for all AI agents).
+// Agent configs use: npx -y @cleocode/cleo@latest mcp
+// Spawns dist/mcp/index.js with inherited stdio for MCP protocol (stdin/stdout JSON-RPC).
+// Checked before Commander.js parses to avoid "unknown command" errors.
+if (process.argv[2] === 'mcp') {
+  const mcpPath = join(import.meta.dirname ?? '', '..', 'mcp', 'index.js');
+  const { spawn } = await import('node:child_process');
+  const child = spawn(
+    process.execPath,
+    ['--disable-warning=ExperimentalWarning', mcpPath],
+    { stdio: 'inherit' },
+  );
+  child.on('exit', (code) => process.exit(code ?? 0));
 } else {
   program.parse();
 }
