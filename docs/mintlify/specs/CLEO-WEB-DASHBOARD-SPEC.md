@@ -1,7 +1,7 @@
 > **SUPERSEDED**: This document has been superseded by [CLEO-WEB-API-SPEC.md](../../specs/CLEO-WEB-API-SPEC.md) (v2.0.0, 2026-02-27).
 > This document is retained for historical reference only. It references legacy architecture
-> (DomainRouter, JSON file storage, chokidar file watching, mcp-server/src/web/) that has been
-> replaced by the /dispatch endpoint pattern, SQLite storage, smart polling, and src/web/.
+> (DomainRouter, JSON file storage, chokidar file watching, legacy mcp-server/src/web/) that has been
+> replaced by the /dispatch endpoint pattern, SQLite storage, smart polling, and `src/web/`.
 > Do NOT use this document for implementation decisions.
 
 # CLEO Web Dashboard - Architecture & Feature Specification
@@ -38,20 +38,20 @@ Browser (localhost:3456)
     |
     | HTTP REST + WebSocket
     v
-Fastify Web Server (mcp-server/src/web/)
+Fastify Web Server (src/web/)
     |
     | Direct import (in-process, no exec)
     v
-MCP Domain Handlers (mcp-server/src/domains/)
+MCP Domain Handlers (src/mcp/domains/)
     |
     | Native engine or CLI exec
     v
 CLEO Data Files (~/.cleo/ + ./.cleo/)
 ```
 
-The web server is part of the `@cleocode/mcp-server` package. It imports domain handlers directly -- same code path as MCP tool calls, but served over HTTP instead of stdio.
+The web server is part of the `@cleocode/cleo` package. It imports domain handlers directly -- same code path as MCP tool calls, but served over HTTP instead of stdio.
 
-### 2.2 Why Inside mcp-server/
+### 2.2 Why Inside the Package
 
 - Domain handlers already have query/mutate for all 10 domains (123 operations)
 - Native engine implementations avoid CLI exec overhead for critical paths
@@ -66,7 +66,7 @@ cleo web start [--port 3456]
     v
 ~/.cleo/scripts/web.sh
     |
-    | node mcp-server/dist/web/index.js --port 3456
+    | node dist/web/index.js --port 3456
     v
 Fastify server bound to 127.0.0.1:3456
     |
@@ -351,9 +351,8 @@ Events emitted on file change (via chokidar):
 ## 6. File Structure
 
 ```
-mcp-server/
-  src/
-    web/
+src/
+  web/
       index.ts              # Entry point (startServer)
       server.ts             # Fastify setup, middleware, static serving
       routes/
@@ -524,5 +523,5 @@ The dashboard can leverage all 162 MCP domain operations across 10 domains:
 
 - **UI/UX Specification**: [CLEO-WEB-DASHBOARD-UI.md](./CLEO-WEB-DASHBOARD-UI.md)
 - **Epic**: T4284 (CLEO Nexus Command Center WebUI)
-- **MCP Server**: `mcp-server/src/domains/` (domain handlers)
+- **MCP Server**: `src/mcp/domains/` (domain handlers)
 - **Data Schema**: `schemas/todo.schema.json`, `schemas/config.schema.json`

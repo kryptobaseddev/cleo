@@ -42,24 +42,24 @@ DIGITS ::= [0-9]{3,}
 
 ### 1.2 The Six Guarantees
 
-| # | Guarantee | Rationale |
-|---|-----------|-----------|
-| 1 | **UNIQUE** | No two tasks ever share an ID |
-| 2 | **IMMUTABLE** | ID never changes after creation |
-| 3 | **STABLE** | ID remains valid regardless of hierarchy changes |
-| 4 | **SEQUENTIAL** | IDs increment monotonically (no gaps required) |
-| 5 | **REFERENCEABLE** | Safe to use in git commits, docs, external systems |
-| 6 | **RECOVERABLE** | Archive lookup always resolves historical IDs |
+| #   | Guarantee         | Rationale                                          |
+| --- | ----------------- | -------------------------------------------------- |
+| 1   | **UNIQUE**        | No two tasks ever share an ID                      |
+| 2   | **IMMUTABLE**     | ID never changes after creation                    |
+| 3   | **STABLE**        | ID remains valid regardless of hierarchy changes   |
+| 4   | **SEQUENTIAL**    | IDs increment monotonically (no gaps required)     |
+| 5   | **REFERENCEABLE** | Safe to use in git commits, docs, external systems |
+| 6   | **RECOVERABLE**   | Archive lookup always resolves historical IDs      |
 
 ### 1.3 What IDs Are NOT
 
-| Anti-Pattern | Why Rejected |
-|--------------|--------------|
-| **NOT hierarchical** | `T001.1.2` violates stability guarantee |
-| **NOT semantic** | `AUTH-001` couples identity to categorization |
-| **NOT random** | UUIDs are LLM-hostile (hallucination risk) |
-| **NOT reusable** | Deleted IDs are retired permanently |
-| **NOT zero-padded variably** | Always minimum 3 digits, expand as needed |
+| Anti-Pattern                 | Why Rejected                                  |
+| ---------------------------- | --------------------------------------------- |
+| **NOT hierarchical**         | `T001.1.2` violates stability guarantee       |
+| **NOT semantic**             | `AUTH-001` couples identity to categorization |
+| **NOT random**               | UUIDs are LLM-hostile (hallucination risk)    |
+| **NOT reusable**             | Deleted IDs are retired permanently           |
+| **NOT zero-padded variably** | Always minimum 3 digits, expand as needed     |
 
 ---
 
@@ -68,6 +68,7 @@ DIGITS ::= [0-9]{3,}
 ### 2.1 The Temptation
 
 Hierarchical IDs (`T001.1.2`) appear beneficial:
+
 - Instant visual hierarchy
 - Self-documenting references
 - O(1) ancestry lookup via string parsing
@@ -94,6 +95,7 @@ T001.1.1 must become... T002.1? T002.1.1?
 **Finding 2: Violates Database Normalization**
 
 Hierarchical IDs encode hierarchy in identity, violating 1NF:
+
 - Multiple facts in single field (parent chain + position)
 - Update anomalies cascade
 - Data duplication (path repeated in every descendant)
@@ -156,13 +158,13 @@ Linear's success validates: **IDs identify, relationships describe.**
 
 ### 3.3 Hierarchy Operations
 
-| Operation | Flat ID + parentId | Hierarchical ID |
-|-----------|-------------------|-----------------|
-| Get parent | `task.parentId` | `id.split('.').slice(0,-1).join('.')` |
-| Move task | `update parentId` | **Rename ID + all descendants** |
-| Delete parent | Orphan detection | **ID invalidation cascade** |
-| Reference stability | 100% | 0% on restructure |
-| Migration | Optional field add | **Breaking change** |
+| Operation           | Flat ID + parentId | Hierarchical ID                       |
+| ------------------- | ------------------ | ------------------------------------- |
+| Get parent          | `task.parentId`    | `id.split('.').slice(0,-1).join('.')` |
+| Move task           | `update parentId`  | **Rename ID + all descendants**       |
+| Delete parent       | Orphan detection   | **ID invalidation cascade**           |
+| Reference stability | 100%               | 0% on restructure                     |
+| Migration           | Optional field add | **Breaking change**                   |
 
 ### 3.4 Display Hierarchy (CLI Sugar)
 
@@ -237,7 +239,7 @@ T001 [epic] Authentication System
     },
     {
       "rule": "MAX_SIBLINGS",
-      "description": "Maximum 7 children per parent",
+      "description": "Maximum children per parent is configurable via hierarchy.maxSiblings (0 = unlimited)",
       "errorCode": 12,
       "severity": "error"
     },
@@ -325,7 +327,7 @@ cleo exists T042 --quiet && cleo complete T042
   "error": "TASK_NOT_FOUND",
   "code": 1,
   "requestedId": "T999",
-  "validIdRange": {"min": "T001", "max": "T042"},
+  "validIdRange": { "min": "T001", "max": "T042" },
   "suggestion": "Use 'cleo list --format json' to get valid IDs",
   "recoveryCommand": "cleo list --status pending"
 }
@@ -351,6 +353,7 @@ done
 ### 6.1 The Problem
 
 Multiple LLM agents working on same project:
+
 - Agent A creates task → T043
 - Agent B creates task → T043 (CONFLICT!)
 
@@ -366,6 +369,7 @@ Multiple LLM agents working on same project:
 ```
 
 **Atomic ID generation**:
+
 ```bash
 # file-ops.sh::get_next_id()
 1. Acquire file lock
@@ -378,6 +382,7 @@ Multiple LLM agents working on same project:
 ### 6.3 Conflict Resolution
 
 If collision detected (checksum mismatch):
+
 ```bash
 1. Re-read file (fresh state)
 2. Regenerate ID with new counter
@@ -414,12 +419,12 @@ cleo migrate run --auto
 
 ### 7.2 Zero Breaking Changes
 
-| What | Before | After |
-|------|--------|-------|
-| Task T042 | `{"id": "T042", ...}` | `{"id": "T042", "type": "task", "parentId": null, ...}` |
-| Git refs | `"Fixes T042"` | Still valid |
-| Scripts | `grep T042` | Still works |
-| External links | `project.dev/T042` | Still resolves |
+| What           | Before                | After                                                   |
+| -------------- | --------------------- | ------------------------------------------------------- |
+| Task T042      | `{"id": "T042", ...}` | `{"id": "T042", "type": "task", "parentId": null, ...}` |
+| Git refs       | `"Fixes T042"`        | Still valid                                             |
+| Scripts        | `grep T042`           | Still works                                             |
+| External links | `project.dev/T042`    | Still resolves                                          |
 
 ### 7.3 Rollback Capability
 
@@ -481,13 +486,13 @@ cleo show T001 --include-archive
 
 ### 8.4 External System Integration
 
-| System | Reference Pattern | Stability |
-|--------|-------------------|-----------|
-| Git commits | `"Fixes T042"` | Eternal |
-| Documentation | `See [T042]` | Eternal |
-| URLs | `/tasks/T042` | Eternal |
-| Jira links | `EXT-123 → T042` | Eternal |
-| Slack/Discord | `working on T042` | Eternal |
+| System        | Reference Pattern | Stability |
+| ------------- | ----------------- | --------- |
+| Git commits   | `"Fixes T042"`    | Eternal   |
+| Documentation | `See [T042]`      | Eternal   |
+| URLs          | `/tasks/T042`     | Eternal   |
+| Jira links    | `EXT-123 → T042`  | Eternal   |
+| Slack/Discord | `working on T042` | Eternal   |
 
 ---
 
@@ -495,11 +500,11 @@ cleo show T001 --include-archive
 
 ### 9.1 Three Types Only
 
-| Type | Definition | Can Have Children | Can Have Parent |
-|------|------------|-------------------|-----------------|
-| **epic** | Strategic initiative requiring decomposition | Yes (7 max) | No |
-| **task** | Primary work unit | Yes (7 max) | Yes |
-| **subtask** | Atomic operation | No | Yes |
+| Type        | Definition                                   | Can Have Children | Can Have Parent |
+| ----------- | -------------------------------------------- | ----------------- | --------------- |
+| **epic**    | Strategic initiative requiring decomposition | Yes (7 max)       | No              |
+| **task**    | Primary work unit                            | Yes (7 max)       | Yes             |
+| **subtask** | Atomic operation                             | No                | Yes             |
 
 ### 9.2 Type Selection Algorithm
 
@@ -530,11 +535,11 @@ def is_atomic(scope):
 
 ### 9.3 Why NOT Feature/Story
 
-| Rejected | Rationale |
-|----------|-----------|
-| **Feature** | SAFe/enterprise artifact; semantic overlap with Epic |
-| **Story** | Scrum ceremony; implies user personas; agents don't need personas |
-| **Initiative** | Portfolio-level; outside project scope |
+| Rejected       | Rationale                                                         |
+| -------------- | ----------------------------------------------------------------- |
+| **Feature**    | SAFe/enterprise artifact; semantic overlap with Epic              |
+| **Story**      | Scrum ceremony; implies user personas; agents don't need personas |
+| **Initiative** | Portfolio-level; outside project scope                            |
 
 ---
 
@@ -553,11 +558,11 @@ NEVER USE:
 
 ### 10.2 Size Dimensions
 
-| Size | File Scope | Complexity | Context Risk |
-|------|------------|------------|--------------|
-| **small** | 1-2 files | Straightforward | Minimal |
-| **medium** | 3-7 files | Moderate decisions | Contained |
-| **large** | 8+ files | Architectural | High → **MUST DECOMPOSE** |
+| Size       | File Scope | Complexity         | Context Risk              |
+| ---------- | ---------- | ------------------ | ------------------------- |
+| **small**  | 1-2 files  | Straightforward    | Minimal                   |
+| **medium** | 3-7 files  | Moderate decisions | Contained                 |
+| **large**  | 8+ files   | Architectural      | High → **MUST DECOMPOSE** |
 
 ### 10.3 Large Triggers Decomposition
 
@@ -578,20 +583,20 @@ Action: Decompose into medium/small tasks before proceeding
 
 ### 11.1 Hard Limits
 
-| Constraint | Value | Rationale |
-|------------|-------|-----------|
-| Max depth | 3 | Organizational; deeper = navigation overhead |
-| Max siblings | 0 (unlimited) | LLM agents don't need cognitive limits |
-| Min ID digits | 3 | `T001` not `T1` |
-| ID pattern | `^T\d{3,}$` | Simple, bounded, unmistakable |
+| Constraint    | Value         | Rationale                                    |
+| ------------- | ------------- | -------------------------------------------- |
+| Max depth     | 3             | Organizational; deeper = navigation overhead |
+| Max siblings  | 0 (unlimited) | LLM agents don't need cognitive limits       |
+| Min ID digits | 3             | `T001` not `T1`                              |
+| ID pattern    | `^T\d{3,}$`   | Simple, bounded, unmistakable                |
 
 ### 11.2 Soft Limits (Warnings)
 
-| Constraint | Threshold | Action |
-|------------|-----------|--------|
-| Tasks in epic | >7 | Warning: "Consider splitting epic" |
-| Pending tasks | >50 | Warning: "Review and archive stale tasks" |
-| Active tasks | >1 | Error: "Only ONE active task allowed" |
+| Constraint    | Threshold | Action                                    |
+| ------------- | --------- | ----------------------------------------- |
+| Tasks in epic | >7        | Warning: "Consider splitting epic"        |
+| Pending tasks | >50       | Warning: "Review and archive stale tasks" |
+| Active tasks  | >1        | Error: "Only ONE active task allowed"     |
 
 ---
 
@@ -623,18 +628,18 @@ EXIT_ID_COLLISION=22          # ID generation conflict
 
 All JSON error responses use `E_` prefix convention:
 
-| Exit Code | String Code | Description |
-|-----------|-------------|-------------|
-| 4 | `E_TASK_NOT_FOUND` | Task ID does not exist |
-| 10 | `E_PARENT_NOT_FOUND` | Parent task does not exist |
-| 11 | `E_DEPTH_EXCEEDED` | Would exceed max depth (3) |
-| 12 | `E_SIBLING_LIMIT` | Parent has max children (7) |
-| 13 | `E_INVALID_PARENT_TYPE` | Subtask cannot have children |
-| 14 | `E_CIRCULAR_REFERENCE` | Would create ancestry loop |
-| 15 | `E_ORPHAN_DETECTED` | parentId points to missing task |
-| 20 | `E_CHECKSUM_MISMATCH` | Stale data detected |
-| 21 | `E_CONCURRENT_MODIFICATION` | Multi-agent conflict |
-| 22 | `E_ID_COLLISION` | ID already exists |
+| Exit Code | String Code                 | Description                            |
+| --------- | --------------------------- | -------------------------------------- |
+| 4         | `E_TASK_NOT_FOUND`          | Task ID does not exist                 |
+| 10        | `E_PARENT_NOT_FOUND`        | Parent task does not exist             |
+| 11        | `E_DEPTH_EXCEEDED`          | Would exceed max depth (3)             |
+| 12        | `E_SIBLING_LIMIT`           | Parent exceeded configured child limit |
+| 13        | `E_INVALID_PARENT_TYPE`     | Subtask cannot have children           |
+| 14        | `E_CIRCULAR_REFERENCE`      | Would create ancestry loop             |
+| 15        | `E_ORPHAN_DETECTED`         | parentId points to missing task        |
+| 20        | `E_CHECKSUM_MISMATCH`       | Stale data detected                    |
+| 21        | `E_CONCURRENT_MODIFICATION` | Multi-agent conflict                   |
+| 22        | `E_ID_COLLISION`            | ID already exists                      |
 
 ---
 
@@ -710,37 +715,37 @@ This specification defines WHAT MUST be implemented. The Implementation Report t
 
 ### A. Adversarial Analysis Summary
 
-| Perspective | Finding | Impact on Design |
-|-------------|---------|------------------|
-| Devil's Advocate | Hierarchical IDs provide instant visual context | Mitigated by `--tree` display |
-| Linear Advocate | IDs should identify, not encode | Confirmed: flat IDs |
-| Database Architect | Hierarchical violates 1NF, creates anomalies | Confirmed: flat + parentId |
-| LLM Expert | Bounded ID space reduces hallucination | Confirmed: `T\d{3,}` pattern |
-| Migration Specialist | Hierarchical = breaking change | Confirmed: additive fields only |
+| Perspective          | Finding                                         | Impact on Design                |
+| -------------------- | ----------------------------------------------- | ------------------------------- |
+| Devil's Advocate     | Hierarchical IDs provide instant visual context | Mitigated by `--tree` display   |
+| Linear Advocate      | IDs should identify, not encode                 | Confirmed: flat IDs             |
+| Database Architect   | Hierarchical violates 1NF, creates anomalies    | Confirmed: flat + parentId      |
+| LLM Expert           | Bounded ID space reduces hallucination          | Confirmed: `T\d{3,}` pattern    |
+| Migration Specialist | Hierarchical = breaking change                  | Confirmed: additive fields only |
 
 ### B. Industry Precedents
 
-| System | ID Pattern | Hierarchy Method | Success |
-|--------|------------|------------------|---------|
-| Linear | PROJ-123 | Parent field | Beat Jira |
-| GitHub | #123 | Flat | Industry standard |
-| Git | SHA (40 char) | Parent commits | Universal |
-| Jira | PROJ-123 | Complex hierarchy | Declining |
+| System | ID Pattern    | Hierarchy Method  | Success           |
+| ------ | ------------- | ----------------- | ----------------- |
+| Linear | PROJ-123      | Parent field      | Beat Jira         |
+| GitHub | #123          | Flat              | Industry standard |
+| Git    | SHA (40 char) | Parent commits    | Universal         |
+| Jira   | PROJ-123      | Complex hierarchy | Declining         |
 
 ### C. Rejected Alternatives
 
-| Alternative | Why Rejected |
-|-------------|--------------|
-| UUIDs | LLM-hostile, high hallucination risk |
-| Hash IDs | Unpredictable, requires lookup |
-| Hierarchical IDs | Violates stability, complex migration |
-| Semantic IDs | Couples identity to categorization |
-| Zero-padded variable | Inconsistent pattern |
+| Alternative          | Why Rejected                          |
+| -------------------- | ------------------------------------- |
+| UUIDs                | LLM-hostile, high hallucination risk  |
+| Hash IDs             | Unpredictable, requires lookup        |
+| Hierarchical IDs     | Violates stability, complex migration |
+| Semantic IDs         | Couples identity to categorization    |
+| Zero-padded variable | Inconsistent pattern                  |
 
 ### D. Version History
 
-| Version | Date | Author | Change |
-|---------|------|--------|--------|
+| Version     | Date       | Author             | Change                 |
+| ----------- | ---------- | ------------------ | ---------------------- |
 | 1.0.0 FINAL | 2025-01-17 | LLM Research Panel | Initial immutable spec |
 
 ---
@@ -765,13 +770,13 @@ This specification establishes the **permanent ID system** for cleo:
 
 ## Related Specifications
 
-| Document | Relationship |
-|----------|--------------|
-| **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for specification standards |
-| **[TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md)** | Hierarchy features; defers to this spec for ID design |
-| **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | CLI output formats, JSON envelopes, exit codes implementation |
-| **[LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md](LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md)** | Tracks implementation status against this spec |
+| Document                                                                                                     | Relationship                                                  |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)**                                                     | **AUTHORITATIVE** for specification standards                 |
+| **[TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md)**                                                         | Hierarchy features; defers to this spec for ID design         |
+| **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)**                                                       | CLI output formats, JSON envelopes, exit codes implementation |
+| **[LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md](LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md)** | Tracks implementation status against this spec                |
 
 ---
 
-*End of Specification*
+_End of Specification_

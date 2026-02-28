@@ -83,11 +83,11 @@ CLEO uses a **shared-core** architecture where both MCP and CLI are thin wrapper
 
 ```
 MCP Gateway (2 tools) ──► src/mcp/domains/ ──► src/mcp/engine/ ──► src/core/ ◄── src/cli/commands/
-     cleo_query (93 ops)                                                              (80+ commands)
-     cleo_mutate (71 ops)
+     cleo_query (97 ops)                                                              (80+ commands)
+     cleo_mutate (80 ops)
 ```
 
-- **MCP is PRIMARY**: 2 tools, 164 operations across 10 canonical domains (~1,800 tokens)
+- **MCP is PRIMARY**: 2 tools, 177 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 80+ commands for human use and fallback
 - **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
 - **Canonical operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
@@ -308,8 +308,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/gateways/query.ts` - 93 query operations (CANONICAL operation registry)
-- `src/mcp/gateways/mutate.ts` - 71 mutate operations (CANONICAL operation registry)
+- `src/mcp/gateways/query.ts` - 97 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 80 mutate operations (CANONICAL operation registry)
 - `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing)
 - `src/mcp/engine/` - Engine adapters (MCP params → core calls)
 - `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing matrix
@@ -343,8 +343,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/store/lock.ts` - File locking
 
 ### Canonical Specifications
-- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 164 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
-- `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 177 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
+- `docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
 - `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns
 
@@ -388,12 +388,17 @@ Before any task operation, validate:
 
 ### Exit Code Ranges
 - `0` - Success
-- `1-59` - General errors
-- `60-67` - Protocol violations (research, consensus, spec, etc.)
-- `68-70` - Validation/testing violations
-- `75-79` - Lifecycle gate errors
-- `80-84` - Verification gate codes
-- `85-99` - Nexus codes
+- `1-9` - General errors (input, file, validation, config)
+- `10-19` - Hierarchy errors (parent, depth, siblings, circular)
+- `20-29` - Concurrency errors (checksum, concurrent modification)
+- `30-39` - Session errors (scope, claimed, required)
+- `40-47` - Verification errors (gate, agent, rounds)
+- `50-54` - Context safeguard (warning through emergency)
+- `60-67` - Orchestrator errors (protocol missing, spawn validation, handoff)
+- `70-79` - Nexus errors (not initialized, project not found, sync)
+- `80-84` - Lifecycle enforcement (gate failed, audit missing, transition invalid)
+- `85-89` - Artifact publish (validation, build, publish, rollback)
+- `90-94` - Provenance (config, signing key, signature, digest)
 - `100+` - Special conditions (not errors)
 
 ### Error Response Pattern (TypeScript)
@@ -411,20 +416,30 @@ if (!validationResult.success) {
 
 ### Protocol Enforcement
 
-**Exit codes 60-67**: Protocol violations
+**Exit codes 60-67**: Orchestrator errors
 
-CLEO enforces protocol compliance for agent-generated outputs:
+These codes are raised by the orchestration layer during multi-agent coordination:
 
-| Code | Protocol | Description |
-|------|----------|-------------|
-| 60 | Research | Missing key_findings or code modifications |
-| 61 | Consensus | Invalid voting matrix or confidence scores |
-| 62 | Specification | Missing RFC 2119 keywords or version |
-| 63 | Decomposition | Too many siblings or unclear descriptions |
-| 64 | Implementation | Missing @task tags on new functions |
-| 65 | Contribution | Missing @task/@contribution tags |
-| 66 | Release | Invalid semver or missing changelog |
-| 67 | Generic | Unknown protocol or generic violation |
+| Code | Name | Description |
+|------|------|-------------|
+| 60 | PROTOCOL_MISSING | Required protocol not found for spawn |
+| 61 | INVALID_RETURN_MESSAGE | Subagent returned malformed output |
+| 62 | MANIFEST_ENTRY_MISSING | Required manifest entry not appended |
+| 63 | SPAWN_VALIDATION_FAILED | Pre-spawn validation checks failed |
+| 64 | AUTONOMOUS_BOUNDARY | Agent exceeded autonomous action boundary |
+| 65 | HANDOFF_REQUIRED | Task requires human-in-the-loop handoff |
+| 66 | RESUME_FAILED | Session resume from checkpoint failed |
+| 67 | CONCURRENT_SESSION | Conflicting concurrent session detected |
+
+**Exit codes 80-84**: Lifecycle enforcement
+
+| Code | Name | Description |
+|------|------|-------------|
+| 80 | LIFECYCLE_GATE_FAILED | RCSD pipeline gate check failed |
+| 81 | AUDIT_MISSING | Required audit trail entry missing |
+| 82 | CIRCULAR_VALIDATION | Circular validation dependency detected |
+| 83 | LIFECYCLE_TRANSITION_INVALID | Invalid lifecycle stage transition |
+| 84 | PROVENANCE_REQUIRED | Provenance metadata required but missing |
 
 **Validation functions**: `src/validation/` and `src/core/compliance/`
 
@@ -462,6 +477,21 @@ Format: `<type>: <summary>`
 - Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`
 - Scopes: `chore(docs):`, `fix(validation):`, etc.
 - Keep summaries under 50 characters
+
+### Branching Strategy (Git Flow)
+
+CLEO uses Git Flow with branch-to-channel mapping:
+
+| Branch | Purpose | PR target | npm dist-tag |
+|--------|---------|-----------|-------------|
+| `main` | Stable releases | — | `@latest` |
+| `develop` | Integration / beta | `main` (for releases) | `@beta` |
+| `feature/*` | New features | `develop` | — |
+| `fix/*` | Bug fixes | `develop` | — |
+| hotfix branches | Critical fixes | `main` directly | `@latest` |
+
+**Normal workflow**: `feature/foo` → PR to `develop` → PR `develop` to `main` → tag stable release
+**Hotfix workflow**: `fix/critical` → PR to `main` → tag stable → merge `main` back to `develop`
 
 ### Branch Naming
 - `feature/description`

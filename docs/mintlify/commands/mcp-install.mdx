@@ -20,7 +20,7 @@ cleo mcp-install [OPTIONS]
 
 Scans your system for installed AI coding tools, displays what it found, and writes the appropriate MCP server configuration for each tool. Supports 12 tools across 6 config formats (standard JSON, OpenCode JSON, VS Code JSON, Zed JSONC, Codex TOML, Goose YAML).
 
-By default, uses `npx` mode which runs the published `@cleocode/mcp-server` package. Use `--mode local` to point configs at a local development build instead.
+By default, uses `npx` mode which runs `@cleocode/cleo` via `npx -y @cleocode/cleo@latest mcp`. Use `--mode local` to point configs at a local development build instead.
 
 ## Options
 

@@ -51,7 +51,7 @@ Both interfaces now share a single execution path through `src/core/`.
 
 ### Neutral
 
-- The old `mcp-server/` directory still exists with its own package.json and test infrastructure, pending full deprecation
+- The old `mcp-server/` directory has been removed. `src/mcp/` is the sole MCP implementation
 - MCP domain files (`src/mcp/domains/*.ts`) remain as the routing layer between MCP tool definitions and engine adapters
 
 ## References

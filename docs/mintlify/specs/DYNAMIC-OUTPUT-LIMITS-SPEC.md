@@ -89,7 +89,7 @@ All fields are **REQUIRED** when the `pagination` key is present:
 
 ### 2.3 Schema Reference
 
-The pagination object conforms to `mcp-server/schemas/common/pagination.schema.json`:
+The pagination object conforms to `schemas/common/pagination.schema.json`:
 
 ```json
 {
@@ -235,7 +235,7 @@ For errors, use `output_error_envelope` for lightweight error envelopes, or the 
 ## References
 
 - **Implementation**: `lib/json-output.sh`
-- **MCP Pagination Schema**: `mcp-server/schemas/common/pagination.schema.json`
+- **MCP Pagination Schema**: `schemas/common/pagination.schema.json`
 - **LLM-Agent-First Spec**: `docs/developer/specifications/LLM-AGENT-FIRST.mdx`
 - **CLI Output Reference**: `docs/reference/cli-output-formats.md`
 - **Epic**: T1432 (JSON Output System with Smart Pagination)
