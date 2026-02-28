@@ -72,7 +72,10 @@
       "enabled": false,
       "remote": "origin",
       "requireCleanTree": true,
-      "allowedBranches": ["main", "master"]
+      "allowedBranches": [
+        "main",
+        "master"
+      ]
     },
     "changelog": {
       "enabled": true,
@@ -96,7 +99,7 @@
     "mode": "advisory"
   },
   "hierarchy": {
-    "maxSiblings": 60
+    "maxSiblings": 0
   },
   "storage": {
     "engine": "sqlite"
