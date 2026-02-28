@@ -1200,7 +1200,7 @@ export function registerMutateTool() {
   return {
     name: 'cleo_mutate',
     description:
-      'CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation.',
+      'CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation. Use cleo_query with domain "admin", operation "help" first to discover available operations.',
     inputSchema: {
       type: 'object',
       required: ['domain', 'operation'],
@@ -1212,7 +1212,7 @@ export function registerMutateTool() {
         },
         operation: {
           type: 'string',
-          description: 'Domain-specific write operation (see operation matrix)',
+          description: 'Domain-specific write operation. Call cleo_query admin.help to see the full operation matrix. Common: tasks.add, tasks.update, tasks.complete, session.start, session.end',
         },
         params: {
           type: 'object',
