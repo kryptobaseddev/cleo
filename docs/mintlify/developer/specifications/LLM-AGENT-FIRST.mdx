@@ -17,26 +17,26 @@ icon: "file-code"
 
 This specification uses RFC 2119 keywords to indicate requirement levels:
 
-| Keyword | Meaning |
-|---------|---------|
-| **MUST** | Absolute requirement. Non-compliance is a specification violation. |
-| **MUST NOT** | Absolute prohibition. |
-| **SHALL** | Equivalent to MUST. |
-| **SHOULD** | Recommended but not mandatory. Valid reasons may exist to ignore. |
-| **SHOULD NOT** | Discouraged but not prohibited. |
-| **MAY** | Optional. Implementations can choose to include or omit. |
+| Keyword        | Meaning                                                            |
+| -------------- | ------------------------------------------------------------------ |
+| **MUST**       | Absolute requirement. Non-compliance is a specification violation. |
+| **MUST NOT**   | Absolute prohibition.                                              |
+| **SHALL**      | Equivalent to MUST.                                                |
+| **SHOULD**     | Recommended but not mandatory. Valid reasons may exist to ignore.  |
+| **SHOULD NOT** | Discouraged but not prohibited.                                    |
+| **MAY**        | Optional. Implementations can choose to include or omit.           |
 
 ---
 
 ## Related Specifications
 
-| Document | Relationship |
-|----------|--------------|
-| **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for specification standards |
-| **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | **AUTHORITATIVE** for task ID format, validation, error codes 10-22 |
-| **[TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md)** | Hierarchy features (type, parentId, size) affecting JSON output |
-| **[RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md)** | Uses: RCSD commands (consensus, spec, decompose) MUST follow this spec |
-| **[LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md](LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md)** | Tracks implementation status against all LLM specs |
+| Document                                                                                                     | Relationship                                                           |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)**                                                     | **AUTHORITATIVE** for specification standards                          |
+| **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)**                                   | **AUTHORITATIVE** for task ID format, validation, error codes 10-22    |
+| **[TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md)**                                                         | Hierarchy features (type, parentId, size) affecting JSON output        |
+| **[RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md)**                                                           | Uses: RCSD commands (consensus, spec, decompose) MUST follow this spec |
+| **[LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md](LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md)** | Tracks implementation status against all LLM specs                     |
 
 ---
 
@@ -48,18 +48,19 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 
 ### Core Principles
 
-| Principle | Requirement |
-|-----------|-------------|
-| **JSON by Default** | All commands MUST default to JSON output |
-| **Human Opt-In** | Human-readable output via explicit `--human` flag |
-| **Structured Errors** | All errors MUST return JSON with error codes |
-| **Consistent Flags** | All commands MUST support `--format` and `--quiet` |
-| **Documented Exit Codes** | Every exit code MUST be a defined constant |
-| **Schema Validation** | All JSON MUST include `$schema` field |
+| Principle                 | Requirement                                        |
+| ------------------------- | -------------------------------------------------- |
+| **JSON by Default**       | All commands MUST default to JSON output           |
+| **Human Opt-In**          | Human-readable output via explicit `--human` flag  |
+| **Structured Errors**     | All errors MUST return JSON with error codes       |
+| **Consistent Flags**      | All commands MUST support `--format` and `--quiet` |
+| **Documented Exit Codes** | Every exit code MUST be a defined constant         |
+| **Schema Validation**     | All JSON MUST include `$schema` field              |
 
 ### Reference Implementation
 
 **`analyze.sh`** exemplifies the gold standard for LLM-agent-first design:
+
 - **JSON output is DEFAULT** (human requires explicit `--human` flag)
 - Comprehensive `_meta` envelope with version, timestamp, algorithm
 - Structured recommendations with `action_order`, `recommendation.command`
@@ -71,52 +72,52 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 
 ### All Commands (34 total)
 
-| # | Command | Script | Category | Requirements |
-|---|---------|--------|----------|--------------|
-| 1 | `add` | `add.sh` | Write | JSON output, `--format`, `--quiet` |
-| 2 | `analyze` | `analyze.sh` | Read | JSON default, `--human` opt-in |
-| 3 | `archive` | `archive.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 4 | `backup` | `backup.sh` | Maintenance | JSON output, `--format`, `--quiet` |
-| 5 | `blockers` | `blockers.sh` | Read | JSON output, `--format`, `--quiet` |
-| 6 | `complete` | `complete.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 7 | `commands` | `commands.sh` | Read | JSON default, `--human` opt-in, filters |
-| 8 | `config` | `config.sh` | Maintenance | JSON output, `--format`, `--quiet` |
-| 9 | `dash` | `dash.sh` | Read | JSON output, `--format`, `--quiet` |
-| 10 | `deps` | `deps.sh` | Read | JSON output, `--format`, `--quiet` |
-| 11 | `exists` | `exists.sh` | Read | JSON output, `--format`, `--quiet` |
-| 12 | `export` | `export.sh` | Read | Multi-format, `--quiet` |
-| 13 | `extract` | `extract.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 14 | `find` | `find.sh` | Read | JSON output, `--format`, `--quiet`, fuzzy search |
-| 15 | `focus` | `focus.sh` | Write | JSON output, `--format`, `--quiet` |
-| 16 | `history` | `history.sh` | Read | JSON output, `--format`, `--quiet` |
-| 17 | `init` | `init.sh` | Setup | JSON output, `--format`, `--quiet` |
-| 18 | `inject` | `inject.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 19 | `labels` | `labels.sh` | Read | JSON output, `--format`, `--quiet` |
-| 20 | `list` | `list.sh` | Read | JSON output, `--format`, `--quiet` |
-| 21 | `log` | `log.sh` | Read | JSON output, `--format`, `--quiet` |
-| 22 | `migrate` | `migrate.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 23 | `migrate-backups` | `migrate-backups.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 24 | `next` | `next.sh` | Read | JSON output, `--format`, `--quiet` |
-| 25 | `phase` | `phase.sh` | Write | JSON output, `--format`, `--quiet` |
-| 26 | `phases` | `phases.sh` | Read | JSON output, `--format`, `--quiet` |
-| 27 | `research` | `research.sh` | Read | JSON output, `--format`, `--quiet`, Context7 integration |
-| 28 | `restore` | `restore.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 29 | `session` | `session.sh` | Write | JSON output, `--format`, `--quiet` |
-| 30 | `show` | `show.sh` | Read | JSON output, `--format`, `--quiet` |
-| 31 | `stats` | `stats.sh` | Read | JSON output, `--format`, `--quiet` |
-| 32 | `sync` | `sync.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 33 | `update` | `update.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 34 | `validate` | `validate.sh` | Maintenance | JSON output, `--format`, `--quiet` |
+| #   | Command           | Script               | Category    | Requirements                                             |
+| --- | ----------------- | -------------------- | ----------- | -------------------------------------------------------- |
+| 1   | `add`             | `add.sh`             | Write       | JSON output, `--format`, `--quiet`                       |
+| 2   | `analyze`         | `analyze.sh`         | Read        | JSON default, `--human` opt-in                           |
+| 3   | `archive`         | `archive.sh`         | Write       | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 4   | `backup`          | `backup.sh`          | Maintenance | JSON output, `--format`, `--quiet`                       |
+| 5   | `blockers`        | `blockers.sh`        | Read        | JSON output, `--format`, `--quiet`                       |
+| 6   | `complete`        | `complete.sh`        | Write       | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 7   | `commands`        | `commands.sh`        | Read        | JSON default, `--human` opt-in, filters                  |
+| 8   | `config`          | `config.sh`          | Maintenance | JSON output, `--format`, `--quiet`                       |
+| 9   | `dash`            | `dash.sh`            | Read        | JSON output, `--format`, `--quiet`                       |
+| 10  | `deps`            | `deps.sh`            | Read        | JSON output, `--format`, `--quiet`                       |
+| 11  | `exists`          | `exists.sh`          | Read        | JSON output, `--format`, `--quiet`                       |
+| 12  | `export`          | `export.sh`          | Read        | Multi-format, `--quiet`                                  |
+| 13  | `extract`         | `extract.sh`         | Sync        | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 14  | `find`            | `find.sh`            | Read        | JSON output, `--format`, `--quiet`, fuzzy search         |
+| 15  | `focus`           | `focus.sh`           | Write       | JSON output, `--format`, `--quiet`                       |
+| 16  | `history`         | `history.sh`         | Read        | JSON output, `--format`, `--quiet`                       |
+| 17  | `init`            | `init.sh`            | Setup       | JSON output, `--format`, `--quiet`                       |
+| 18  | `inject`          | `inject.sh`          | Sync        | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 19  | `labels`          | `labels.sh`          | Read        | JSON output, `--format`, `--quiet`                       |
+| 20  | `list`            | `list.sh`            | Read        | JSON output, `--format`, `--quiet`                       |
+| 21  | `log`             | `log.sh`             | Read        | JSON output, `--format`, `--quiet`                       |
+| 22  | `migrate`         | `migrate.sh`         | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 23  | `migrate-backups` | `migrate-backups.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 24  | `next`            | `next.sh`            | Read        | JSON output, `--format`, `--quiet`                       |
+| 25  | `phase`           | `phase.sh`           | Write       | JSON output, `--format`, `--quiet`                       |
+| 26  | `phases`          | `phases.sh`          | Read        | JSON output, `--format`, `--quiet`                       |
+| 27  | `research`        | `research.sh`        | Read        | JSON output, `--format`, `--quiet`, Context7 integration |
+| 28  | `restore`         | `restore.sh`         | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 29  | `session`         | `session.sh`         | Write       | JSON output, `--format`, `--quiet`                       |
+| 30  | `show`            | `show.sh`            | Read        | JSON output, `--format`, `--quiet`                       |
+| 31  | `stats`           | `stats.sh`           | Read        | JSON output, `--format`, `--quiet`                       |
+| 32  | `sync`            | `sync.sh`            | Sync        | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 33  | `update`          | `update.sh`          | Write       | JSON output, `--format`, `--quiet`, `--dry-run`          |
+| 34  | `validate`        | `validate.sh`        | Maintenance | JSON output, `--format`, `--quiet`                       |
 
 ### Command Categories
 
-| Category | Commands | Special Requirements |
-|----------|----------|---------------------|
-| **Write** | add, archive, complete, focus, phase, session, update | MUST return created/updated object, MUST support `--dry-run` |
-| **Read** | analyze, blockers, commands, dash, deps, exists, export, find, history, labels, list, log, next, phases, research, show, stats | MUST support filtering, MUST return structured data |
-| **Sync** | extract, inject, sync | MUST support `--dry-run`, MUST report conflicts |
-| **Maintenance** | backup, config, init, migrate, migrate-backups, restore, validate | MUST report status, SHOULD support `--dry-run` |
-| **Setup** | init | MUST be idempotent |
+| Category        | Commands                                                                                                                       | Special Requirements                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| **Write**       | add, archive, complete, focus, phase, session, update                                                                          | MUST return created/updated object, MUST support `--dry-run` |
+| **Read**        | analyze, blockers, commands, dash, deps, exists, export, find, history, labels, list, log, next, phases, research, show, stats | MUST support filtering, MUST return structured data          |
+| **Sync**        | extract, inject, sync                                                                                                          | MUST support `--dry-run`, MUST report conflicts              |
+| **Maintenance** | backup, config, init, migrate, migrate-backups, restore, validate                                                              | MUST report status, SHOULD support `--dry-run`               |
+| **Setup**       | init                                                                                                                           | MUST be idempotent                                           |
 
 ---
 
@@ -126,13 +127,13 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 
 **Impact**: Agents need consistent JSON envelope across all commands
 
-| Command | Current Output | Required Fix |
-|---------|----------------|--------------|
-| `add` | Has JSON but missing `$schema` | Add schema, standardize envelope |
-| `update` | Has JSON but inconsistent | Standardize envelope |
-| `complete` | Has JSON output | Standardize envelope |
-| `archive` | Has JSON output | Standardize envelope |
-| `phase` subcommands | Partial JSON | Complete JSON for all subcommands |
+| Command             | Current Output                 | Required Fix                      |
+| ------------------- | ------------------------------ | --------------------------------- |
+| `add`               | Has JSON but missing `$schema` | Add schema, standardize envelope  |
+| `update`            | Has JSON but inconsistent      | Standardize envelope              |
+| `complete`          | Has JSON output                | Standardize envelope              |
+| `archive`           | Has JSON output                | Standardize envelope              |
+| `phase` subcommands | Partial JSON                   | Complete JSON for all subcommands |
 
 **Required JSON Output** (v0.17.0 hierarchy fields):
 
@@ -188,6 +189,7 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 **Current Issue**: Not all scripts call `resolve_format()` or respect its result.
 
 **Required Behavior (LLM-Agent-First)**:
+
 ```bash
 # Default fallback: JSON by default (LLM-Agent-First)
 if [[ -z "$resolved_format" ]]; then
@@ -204,6 +206,7 @@ fi
 **Current Status**: Error JSON implemented in `lib/error-json.sh`
 
 **Error JSON Envelope** (IMPLEMENTED):
+
 ```json
 // Task not found
 {
@@ -240,11 +243,12 @@ fi
 **`phase.sh`** subcommands MUST output JSON when `--format json` is specified.
 
 **Required for each subcommand**:
+
 ```json
 // phase show --format json
 {
   "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
-  "_meta": {"command": "phase show", "timestamp": "..."},
+  "_meta": { "command": "phase show", "timestamp": "..." },
   "success": true,
   "currentPhase": {
     "slug": "core",
@@ -260,19 +264,19 @@ fi
 
 **Conflict Matrix**:
 
-| Short Flag | Conflicting Uses | Resolution |
-|------------|------------------|------------|
-| `-f` | `--format` (7 commands) vs `--files` (update) | Keep `-f` for `--format`, `--files` long-form only |
-| `-n` | `--notes` (3 commands) vs `--count` (next) | Keep `-n` for `--notes`, use `-c` for `--count` |
+| Short Flag | Conflicting Uses                              | Resolution                                         |
+| ---------- | --------------------------------------------- | -------------------------------------------------- |
+| `-f`       | `--format` (7 commands) vs `--files` (update) | Keep `-f` for `--format`, `--files` long-form only |
+| `-n`       | `--notes` (3 commands) vs `--count` (next)    | Keep `-n` for `--notes`, use `-c` for `--count`    |
 
 **Missing Universal Flags**:
 
-| Flag | Current Coverage | Target |
-|------|-----------------|--------|
-| `--format` | 17/32 (53%) | 100% |
-| `--quiet` | 21/32 (66%) | 100% |
-| `--verbose` | 2/32 (6%) | All display commands |
-| `--dry-run` | 3/32 (9%) | All write operations |
+| Flag        | Current Coverage | Target               |
+| ----------- | ---------------- | -------------------- |
+| `--format`  | 17/32 (53%)      | 100%                 |
+| `--quiet`   | 21/32 (66%)      | 100%                 |
+| `--verbose` | 2/32 (6%)        | All display commands |
+| `--dry-run` | 3/32 (9%)        | All write operations |
 
 ---
 
@@ -283,6 +287,7 @@ fi
 **File**: `lib/exit-codes.sh`
 
 **Exit Code Ranges**:
+
 - `0`: Success
 - `1-9`: General errors
 - `10-19`: Hierarchy errors (see LLM-TASK-ID-SYSTEM-DESIGN-SPEC)
@@ -292,66 +297,66 @@ fi
 
 #### Complete Exit Code Table
 
-| Code | Constant | Meaning | Recoverable | Example |
-|------|----------|---------|-------------|---------|
-| **General (0-9)** |
-| 0 | `EXIT_SUCCESS` | Operation completed successfully | N/A | Task created |
-| 1 | `EXIT_GENERAL_ERROR` | Unspecified error | Yes | Unknown failure |
-| 2 | `EXIT_INVALID_INPUT` | Invalid user input/arguments | Yes | Missing required arg |
-| 3 | `EXIT_FILE_ERROR` | File system operation failed | No | Permission denied |
-| 4 | `EXIT_NOT_FOUND` | Requested resource not found | Yes | Task ID not found |
-| 5 | `EXIT_DEPENDENCY_ERROR` | Missing dependency | No | jq not installed |
-| 6 | `EXIT_VALIDATION_ERROR` | Data validation failed | Yes | Schema violation |
-| 7 | `EXIT_LOCK_TIMEOUT` | Failed to acquire lock | Yes | Concurrent write |
-| 8 | `EXIT_CONFIG_ERROR` | Configuration error | Yes | Invalid config |
-| **Hierarchy (10-19)** |
-| 10 | `EXIT_PARENT_NOT_FOUND` | parentId references non-existent task | Yes | --parent T999 invalid |
-| 11 | `EXIT_DEPTH_EXCEEDED` | Max hierarchy depth (3) exceeded | Yes | Too deeply nested |
-| 12 | `EXIT_SIBLING_LIMIT` | Max siblings exceeded (if configured) | Yes | Parent at configured limit |
-| 13 | `EXIT_INVALID_PARENT_TYPE` | subtask cannot have children | Yes | subtask as parent |
-| 14 | `EXIT_CIRCULAR_REFERENCE` | Task would be ancestor of itself | No | Cycle detected |
-| 15 | `EXIT_ORPHAN_DETECTED` | Task has invalid parentId | Yes | Parent was deleted |
+| Code                    | Constant                       | Meaning                               | Recoverable | Example                              |
+| ----------------------- | ------------------------------ | ------------------------------------- | ----------- | ------------------------------------ |
+| **General (0-9)**       |
+| 0                       | `EXIT_SUCCESS`                 | Operation completed successfully      | N/A         | Task created                         |
+| 1                       | `EXIT_GENERAL_ERROR`           | Unspecified error                     | Yes         | Unknown failure                      |
+| 2                       | `EXIT_INVALID_INPUT`           | Invalid user input/arguments          | Yes         | Missing required arg                 |
+| 3                       | `EXIT_FILE_ERROR`              | File system operation failed          | No          | Permission denied                    |
+| 4                       | `EXIT_NOT_FOUND`               | Requested resource not found          | Yes         | Task ID not found                    |
+| 5                       | `EXIT_DEPENDENCY_ERROR`        | Missing dependency                    | No          | jq not installed                     |
+| 6                       | `EXIT_VALIDATION_ERROR`        | Data validation failed                | Yes         | Schema violation                     |
+| 7                       | `EXIT_LOCK_TIMEOUT`            | Failed to acquire lock                | Yes         | Concurrent write                     |
+| 8                       | `EXIT_CONFIG_ERROR`            | Configuration error                   | Yes         | Invalid config                       |
+| **Hierarchy (10-19)**   |
+| 10                      | `EXIT_PARENT_NOT_FOUND`        | parentId references non-existent task | Yes         | --parent T999 invalid                |
+| 11                      | `EXIT_DEPTH_EXCEEDED`          | Max hierarchy depth (3) exceeded      | Yes         | Too deeply nested                    |
+| 12                      | `EXIT_SIBLING_LIMIT`           | Max siblings exceeded (if configured) | Yes         | Parent at configured limit           |
+| 13                      | `EXIT_INVALID_PARENT_TYPE`     | subtask cannot have children          | Yes         | subtask as parent                    |
+| 14                      | `EXIT_CIRCULAR_REFERENCE`      | Task would be ancestor of itself      | No          | Cycle detected                       |
+| 15                      | `EXIT_ORPHAN_DETECTED`         | Task has invalid parentId             | Yes         | Parent was deleted                   |
 | **Concurrency (20-29)** |
-| 20 | `EXIT_CHECKSUM_MISMATCH` | File modified externally | Yes | Retry operation |
-| 21 | `EXIT_CONCURRENT_MODIFICATION` | Multi-agent conflict | Yes | Retry with backoff |
-| 22 | `EXIT_ID_COLLISION` | ID generation conflict | Yes | Regenerate ID |
-| **Session (30-39)** |
-| 30 | `EXIT_SESSION_EXISTS` | Session already active for scope | Yes | Use existing session or end it first |
-| 31 | `EXIT_SESSION_NOT_FOUND` | Session ID not found | Yes | List sessions, start new |
-| 32 | `EXIT_SCOPE_CONFLICT` | Scope overlaps with existing session | Yes | Use different scope |
-| 33 | `EXIT_SCOPE_INVALID` | Invalid scope format or empty | Yes | Check scope syntax |
-| 34 | `EXIT_TASK_NOT_IN_SCOPE` | Task outside session scope | Yes | Focus task within scope |
-| 35 | `EXIT_TASK_CLAIMED` | Task active in another session | Yes | Choose different task |
-| 36 | `EXIT_SESSION_REQUIRED` | Operation requires active session | Yes | Start session first |
-| 37 | `EXIT_SESSION_CLOSE_BLOCKED` | Cannot close - tasks incomplete | Yes | Complete or remove tasks |
-| 38 | `EXIT_FOCUS_REQUIRED` | Operation requires active task | Yes | Start a task first |
-| 39 | `EXIT_NOTES_REQUIRED` | Session notes required | Yes | Provide notes |
-| **Special (100+)** |
-| 100 | `EXIT_NO_DATA` | No data to process (not error) | N/A | Empty query result |
-| 101 | `EXIT_ALREADY_EXISTS` | Resource already exists | N/A | Task ID exists |
-| 102 | `EXIT_NO_CHANGE` | No changes needed | N/A | Update was no-op |
+| 20                      | `EXIT_CHECKSUM_MISMATCH`       | File modified externally              | Yes         | Retry operation                      |
+| 21                      | `EXIT_CONCURRENT_MODIFICATION` | Multi-agent conflict                  | Yes         | Retry with backoff                   |
+| 22                      | `EXIT_ID_COLLISION`            | ID generation conflict                | Yes         | Regenerate ID                        |
+| **Session (30-39)**     |
+| 30                      | `EXIT_SESSION_EXISTS`          | Session already active for scope      | Yes         | Use existing session or end it first |
+| 31                      | `EXIT_SESSION_NOT_FOUND`       | Session ID not found                  | Yes         | List sessions, start new             |
+| 32                      | `EXIT_SCOPE_CONFLICT`          | Scope overlaps with existing session  | Yes         | Use different scope                  |
+| 33                      | `EXIT_SCOPE_INVALID`           | Invalid scope format or empty         | Yes         | Check scope syntax                   |
+| 34                      | `EXIT_TASK_NOT_IN_SCOPE`       | Task outside session scope            | Yes         | Focus task within scope              |
+| 35                      | `EXIT_TASK_CLAIMED`            | Task active in another session        | Yes         | Choose different task                |
+| 36                      | `EXIT_SESSION_REQUIRED`        | Operation requires active session     | Yes         | Start session first                  |
+| 37                      | `EXIT_SESSION_CLOSE_BLOCKED`   | Cannot close - tasks incomplete       | Yes         | Complete or remove tasks             |
+| 38                      | `EXIT_FOCUS_REQUIRED`          | Operation requires active task        | Yes         | Start a task first                   |
+| 39                      | `EXIT_NOTES_REQUIRED`          | Session notes required                | Yes         | Provide notes                        |
+| **Special (100+)**      |
+| 100                     | `EXIT_NO_DATA`                 | No data to process (not error)        | N/A         | Empty query result                   |
+| 101                     | `EXIT_ALREADY_EXISTS`          | Resource already exists               | N/A         | Task ID exists                       |
+| 102                     | `EXIT_NO_CHANGE`               | No changes needed                     | N/A         | Update was no-op                     |
 
 #### Exit Code Semantics (AUTHORITATIVE)
 
 Commands **MUST** use the following exit codes:
 
-| Scenario | Exit Code | Error Code |
-|----------|-----------|------------|
-| Task not found | 4 | `E_TASK_NOT_FOUND` |
-| Invalid task ID format | 2 | `E_TASK_INVALID_ID` |
-| File not readable | 3 | `E_FILE_READ_ERROR` |
-| Missing required argument | 2 | `E_INPUT_MISSING` |
-| JSON schema validation failed | 6 | `E_VALIDATION_SCHEMA` |
-| Parent task not found (hierarchy) | 10 | `E_PARENT_NOT_FOUND` |
-| Would create circular reference | 14 | `E_CIRCULAR_REFERENCE` |
-| Lock acquisition timeout | 7 | N/A (no E_ code) |
-| Empty query result | 100 | N/A (not an error) |
-| Session not found | 31 | `E_SESSION_NOT_FOUND` |
-| Scope conflicts with existing session | 32 | `E_SCOPE_CONFLICT` |
-| Task outside session scope | 34 | `E_TASK_NOT_IN_SCOPE` |
-| Task claimed by another session | 35 | `E_TASK_CLAIMED` |
-| Session required for operation | 36 | `E_SESSION_REQUIRED` |
-| Active task required for operation | 38 | `E_ACTIVE_TASK_REQUIRED` |
+| Scenario                              | Exit Code | Error Code               |
+| ------------------------------------- | --------- | ------------------------ |
+| Task not found                        | 4         | `E_TASK_NOT_FOUND`       |
+| Invalid task ID format                | 2         | `E_TASK_INVALID_ID`      |
+| File not readable                     | 3         | `E_FILE_READ_ERROR`      |
+| Missing required argument             | 2         | `E_INPUT_MISSING`        |
+| JSON schema validation failed         | 6         | `E_VALIDATION_SCHEMA`    |
+| Parent task not found (hierarchy)     | 10        | `E_PARENT_NOT_FOUND`     |
+| Would create circular reference       | 14        | `E_CIRCULAR_REFERENCE`   |
+| Lock acquisition timeout              | 7         | N/A (no E\_ code)        |
+| Empty query result                    | 100       | N/A (not an error)       |
+| Session not found                     | 31        | `E_SESSION_NOT_FOUND`    |
+| Scope conflicts with existing session | 32        | `E_SCOPE_CONFLICT`       |
+| Task outside session scope            | 34        | `E_TASK_NOT_IN_SCOPE`    |
+| Task claimed by another session       | 35        | `E_TASK_CLAIMED`         |
+| Session required for operation        | 36        | `E_SESSION_REQUIRED`     |
+| Active task required for operation    | 38        | `E_ACTIVE_TASK_REQUIRED` |
 
 ### 3.2 Error Code Standard (AUTHORITATIVE)
 
@@ -361,72 +366,72 @@ Commands **MUST** use the following exit codes:
 
 #### Complete Error Code Table (29 codes)
 
-| Category | Code | Exit Code | Description |
-|----------|------|-----------|-------------|
-| **Task Errors** |
-| | `E_TASK_NOT_FOUND` | 4 | Task ID does not exist |
-| | `E_TASK_ALREADY_EXISTS` | 101 | Task ID already exists |
-| | `E_TASK_INVALID_ID` | 2 | Task ID format is invalid |
-| | `E_TASK_INVALID_STATUS` | 2 | Status value not in enum |
-| **File Errors** |
-| | `E_FILE_NOT_FOUND` | 4 | File does not exist |
-| | `E_FILE_READ_ERROR` | 3 | Cannot read file |
-| | `E_FILE_WRITE_ERROR` | 3 | Cannot write file |
-| | `E_FILE_PERMISSION` | 3 | Permission denied |
-| **Validation Errors** |
-| | `E_VALIDATION_SCHEMA` | 6 | JSON schema validation failed |
-| | `E_VALIDATION_CHECKSUM` | 6 | Checksum mismatch |
-| | `E_VALIDATION_REQUIRED` | 6 | Required field missing |
-| **Input Errors** |
-| | `E_INPUT_MISSING` | 2 | Required argument missing |
-| | `E_INPUT_INVALID` | 2 | Argument value invalid |
-| | `E_INPUT_FORMAT` | 2 | Argument format incorrect |
-| **Dependency Errors** |
-| | `E_DEPENDENCY_MISSING` | 5 | Required tool not installed |
-| | `E_DEPENDENCY_VERSION` | 5 | Tool version incompatible |
-| **Phase Errors** |
-| | `E_PHASE_NOT_FOUND` | 4 | Phase slug does not exist |
-| | `E_PHASE_INVALID` | 2 | Phase definition invalid |
-| **Session Errors** |
-| | `E_SESSION_ACTIVE` | 101 | Session already active (legacy) |
-| | `E_SESSION_NOT_ACTIVE` | 4 | No active session (legacy) |
-| | `E_SESSION_EXISTS` | 30 | Session already active for scope |
-| | `E_SESSION_NOT_FOUND` | 31 | Session ID not found |
-| | `E_SCOPE_CONFLICT` | 32 | Scope overlaps with existing session |
-| | `E_SCOPE_INVALID` | 33 | Invalid scope format or empty |
-| | `E_TASK_NOT_IN_SCOPE` | 34 | Task outside session scope |
-| | `E_TASK_CLAIMED` | 35 | Task active in another session |
-| | `E_SESSION_REQUIRED` | 36 | Operation requires active session |
-| | `E_SESSION_CLOSE_BLOCKED` | 37 | Cannot close session - tasks incomplete |
-| | `E_ACTIVE_TASK_REQUIRED` | 38 | Operation requires active task |
-| | `E_NOTES_REQUIRED` | 39 | Session notes required |
-| **General Errors** |
-| | `E_UNKNOWN` | 1 | Unknown/unspecified error |
-| | `E_NOT_INITIALIZED` | 4 | Project not initialized |
-| **Hierarchy Errors** |
-| | `E_PARENT_NOT_FOUND` | 10 | Parent task does not exist |
-| | `E_DEPTH_EXCEEDED` | 11 | Hierarchy depth limit exceeded |
-| | `E_SIBLING_LIMIT` | 12 | Sibling limit exceeded |
-| | `E_INVALID_PARENT_TYPE` | 13 | Parent type cannot have children |
-| | `E_CIRCULAR_REFERENCE` | 14 | Would create cycle |
-| | `E_ORPHAN_DETECTED` | 15 | Task references invalid parent |
+| Category               | Code                        | Exit Code | Description                             |
+| ---------------------- | --------------------------- | --------- | --------------------------------------- |
+| **Task Errors**        |
+|                        | `E_TASK_NOT_FOUND`          | 4         | Task ID does not exist                  |
+|                        | `E_TASK_ALREADY_EXISTS`     | 101       | Task ID already exists                  |
+|                        | `E_TASK_INVALID_ID`         | 2         | Task ID format is invalid               |
+|                        | `E_TASK_INVALID_STATUS`     | 2         | Status value not in enum                |
+| **File Errors**        |
+|                        | `E_FILE_NOT_FOUND`          | 4         | File does not exist                     |
+|                        | `E_FILE_READ_ERROR`         | 3         | Cannot read file                        |
+|                        | `E_FILE_WRITE_ERROR`        | 3         | Cannot write file                       |
+|                        | `E_FILE_PERMISSION`         | 3         | Permission denied                       |
+| **Validation Errors**  |
+|                        | `E_VALIDATION_SCHEMA`       | 6         | JSON schema validation failed           |
+|                        | `E_VALIDATION_CHECKSUM`     | 6         | Checksum mismatch                       |
+|                        | `E_VALIDATION_REQUIRED`     | 6         | Required field missing                  |
+| **Input Errors**       |
+|                        | `E_INPUT_MISSING`           | 2         | Required argument missing               |
+|                        | `E_INPUT_INVALID`           | 2         | Argument value invalid                  |
+|                        | `E_INPUT_FORMAT`            | 2         | Argument format incorrect               |
+| **Dependency Errors**  |
+|                        | `E_DEPENDENCY_MISSING`      | 5         | Required tool not installed             |
+|                        | `E_DEPENDENCY_VERSION`      | 5         | Tool version incompatible               |
+| **Phase Errors**       |
+|                        | `E_PHASE_NOT_FOUND`         | 4         | Phase slug does not exist               |
+|                        | `E_PHASE_INVALID`           | 2         | Phase definition invalid                |
+| **Session Errors**     |
+|                        | `E_SESSION_ACTIVE`          | 101       | Session already active (legacy)         |
+|                        | `E_SESSION_NOT_ACTIVE`      | 4         | No active session (legacy)              |
+|                        | `E_SESSION_EXISTS`          | 30        | Session already active for scope        |
+|                        | `E_SESSION_NOT_FOUND`       | 31        | Session ID not found                    |
+|                        | `E_SCOPE_CONFLICT`          | 32        | Scope overlaps with existing session    |
+|                        | `E_SCOPE_INVALID`           | 33        | Invalid scope format or empty           |
+|                        | `E_TASK_NOT_IN_SCOPE`       | 34        | Task outside session scope              |
+|                        | `E_TASK_CLAIMED`            | 35        | Task active in another session          |
+|                        | `E_SESSION_REQUIRED`        | 36        | Operation requires active session       |
+|                        | `E_SESSION_CLOSE_BLOCKED`   | 37        | Cannot close session - tasks incomplete |
+|                        | `E_ACTIVE_TASK_REQUIRED`    | 38        | Operation requires active task          |
+|                        | `E_NOTES_REQUIRED`          | 39        | Session notes required                  |
+| **General Errors**     |
+|                        | `E_UNKNOWN`                 | 1         | Unknown/unspecified error               |
+|                        | `E_NOT_INITIALIZED`         | 4         | Project not initialized                 |
+| **Hierarchy Errors**   |
+|                        | `E_PARENT_NOT_FOUND`        | 10        | Parent task does not exist              |
+|                        | `E_DEPTH_EXCEEDED`          | 11        | Hierarchy depth limit exceeded          |
+|                        | `E_SIBLING_LIMIT`           | 12        | Configured sibling limit exceeded       |
+|                        | `E_INVALID_PARENT_TYPE`     | 13        | Parent type cannot have children        |
+|                        | `E_CIRCULAR_REFERENCE`      | 14        | Would create cycle                      |
+|                        | `E_ORPHAN_DETECTED`         | 15        | Task references invalid parent          |
 | **Concurrency Errors** |
-| | `E_CHECKSUM_MISMATCH` | 20 | File modified during operation |
-| | `E_CONCURRENT_MODIFICATION` | 21 | Multi-agent conflict detected |
-| | `E_ID_COLLISION` | 22 | Generated ID already exists |
+|                        | `E_CHECKSUM_MISMATCH`       | 20        | File modified during operation          |
+|                        | `E_CONCURRENT_MODIFICATION` | 21        | Multi-agent conflict detected           |
+|                        | `E_ID_COLLISION`            | 22        | Generated ID already exists             |
 
 ### 3.3 JSON Schema Standard
 
 #### Schema Files
 
-| Schema | File | Status | Purpose |
-|--------|------|--------|---------|
-| Task Data | `schemas/todo.schema.json` | EXISTS | Task/project data validation |
-| Archive | `schemas/archive.schema.json` | EXISTS | Archived tasks validation |
-| Log | `schemas/log.schema.json` | EXISTS | Audit log validation |
-| Config | `schemas/config.schema.json` | EXISTS | Configuration validation |
-| Response | `schemas/output.schema.json` | EXISTS | Success response envelope |
-| Error | `schemas/error.schema.json` | EXISTS | Error response envelope |
+| Schema        | File                                | Status | Purpose                         |
+| ------------- | ----------------------------------- | ------ | ------------------------------- |
+| Task Data     | `schemas/todo.schema.json`          | EXISTS | Task/project data validation    |
+| Archive       | `schemas/archive.schema.json`       | EXISTS | Archived tasks validation       |
+| Log           | `schemas/log.schema.json`           | EXISTS | Audit log validation            |
+| Config        | `schemas/config.schema.json`        | EXISTS | Configuration validation        |
+| Response      | `schemas/output.schema.json`        | EXISTS | Success response envelope       |
+| Error         | `schemas/error.schema.json`         | EXISTS | Error response envelope         |
 | Critical Path | `schemas/critical-path.schema.json` | EXISTS | Critical path analysis response |
 
 #### Response Schema (`schemas/output.schema.json`)
@@ -439,25 +444,25 @@ Commands **MUST** use the following exit codes:
   "type": "object",
   "required": ["_meta", "success"],
   "properties": {
-    "$schema": {"type": "string"},
+    "$schema": { "type": "string" },
     "_meta": {
       "type": "object",
       "required": ["command", "timestamp", "version"],
       "properties": {
-        "format": {"type": "string", "const": "json"},
-        "version": {"type": "string"},
-        "command": {"type": "string"},
-        "timestamp": {"type": "string", "format": "date-time"},
-        "checksum": {"type": "string"},
-        "execution_ms": {"type": "integer", "minimum": 0}
+        "format": { "type": "string", "const": "json" },
+        "version": { "type": "string" },
+        "command": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "checksum": { "type": "string" },
+        "execution_ms": { "type": "integer", "minimum": 0 }
       }
     },
-    "success": {"type": "boolean"},
-    "summary": {"type": "object"},
+    "success": { "type": "boolean" },
+    "summary": { "type": "object" },
     "data": {},
-    "task": {"type": "object"},
-    "tasks": {"type": "array"},
-    "warnings": {"type": "array"}
+    "task": { "type": "object" },
+    "tasks": { "type": "array" },
+    "warnings": { "type": "array" }
   }
 }
 ```
@@ -472,28 +477,28 @@ Commands **MUST** use the following exit codes:
   "type": "object",
   "required": ["_meta", "success", "error"],
   "properties": {
-    "$schema": {"type": "string"},
+    "$schema": { "type": "string" },
     "_meta": {
       "type": "object",
       "required": ["command", "timestamp", "version"],
       "properties": {
-        "format": {"type": "string", "const": "json"},
-        "version": {"type": "string"},
-        "command": {"type": "string"},
-        "timestamp": {"type": "string", "format": "date-time"}
+        "format": { "type": "string", "const": "json" },
+        "version": { "type": "string" },
+        "command": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
       }
     },
-    "success": {"const": false},
+    "success": { "const": false },
     "error": {
       "type": "object",
       "required": ["code", "message", "exitCode"],
       "properties": {
-        "code": {"type": "string", "pattern": "^E_[A-Z_]+$"},
-        "message": {"type": "string"},
-        "exitCode": {"type": "integer", "minimum": 1},
-        "recoverable": {"type": "boolean"},
-        "suggestion": {"type": ["string", "null"]},
-        "context": {"type": "object"}
+        "code": { "type": "string", "pattern": "^E_[A-Z_]+$" },
+        "message": { "type": "string" },
+        "exitCode": { "type": "integer", "minimum": 1 },
+        "recoverable": { "type": "boolean" },
+        "suggestion": { "type": ["string", "null"] },
+        "context": { "type": "object" }
       }
     }
   }
@@ -523,38 +528,38 @@ All JSON outputs **MUST** follow this envelope:
 
 #### Required `_meta` Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `format` | string | **MUST** | Always `"json"` for JSON output |
-| `version` | string | **MUST** | cleo version (e.g., `"0.17.0"`) |
-| `command` | string | **MUST** | Command name (e.g., `"add"`, `"list"`) |
-| `timestamp` | string | **MUST** | ISO-8601 UTC timestamp |
-| `checksum` | string | MAY | SHA256 of file for integrity |
-| `execution_ms` | integer | MAY | Execution time in milliseconds |
+| Field          | Type    | Required | Description                            |
+| -------------- | ------- | -------- | -------------------------------------- |
+| `format`       | string  | **MUST** | Always `"json"` for JSON output        |
+| `version`      | string  | **MUST** | cleo version (e.g., `"0.17.0"`)        |
+| `command`      | string  | **MUST** | Command name (e.g., `"add"`, `"list"`) |
+| `timestamp`    | string  | **MUST** | ISO-8601 UTC timestamp                 |
+| `checksum`     | string  | MAY      | SHA256 of file for integrity           |
+| `execution_ms` | integer | MAY      | Execution time in milliseconds         |
 
 ### 3.5 Universal Flag Standard (AUTHORITATIVE)
 
-| Flag | Long Form | Purpose | Default | Commands |
-|------|-----------|---------|---------|----------|
-| `-f` | `--format` | Output format | `json` | ALL |
-| `-q` | `--quiet` | Suppress non-essential output | false | ALL |
-| `-v` | `--verbose` | Detailed output | false | ALL read commands |
-| | `--human` | Force human-readable text | false | ALL |
-| | `--json` | Force JSON (shortcut for `--format json`) | N/A (already default) | ALL |
-| | `--dry-run` | Preview changes | false | ALL write commands |
-| | `--force` | Skip confirmations | false | Destructive commands |
+| Flag | Long Form   | Purpose                                   | Default               | Commands             |
+| ---- | ----------- | ----------------------------------------- | --------------------- | -------------------- |
+| `-f` | `--format`  | Output format                             | `json`                | ALL                  |
+| `-q` | `--quiet`   | Suppress non-essential output             | false                 | ALL                  |
+| `-v` | `--verbose` | Detailed output                           | false                 | ALL read commands    |
+|      | `--human`   | Force human-readable text                 | false                 | ALL                  |
+|      | `--json`    | Force JSON (shortcut for `--format json`) | N/A (already default) | ALL                  |
+|      | `--dry-run` | Preview changes                           | false                 | ALL write commands   |
+|      | `--force`   | Skip confirmations                        | false                 | Destructive commands |
 
 **LLM-Agent-First Principle**: JSON is the default output format. Use `--human` to get human-readable text output. The `--json` flag exists for explicit clarity but is redundant since JSON is already the default.
 
 #### Format Values
 
-| Format | Description | Use Case |
-|--------|-------------|----------|
-| `text` | Human-readable colored output | Interactive terminal |
-| `json` | Machine-readable JSON envelope | Agent automation |
-| `jsonl` | JSON Lines (one object per line) | Streaming/logging |
-| `markdown` | Markdown formatted | Documentation |
-| `table` | ASCII table | Terminal display |
+| Format     | Description                      | Use Case             |
+| ---------- | -------------------------------- | -------------------- |
+| `text`     | Human-readable colored output    | Interactive terminal |
+| `json`     | Machine-readable JSON envelope   | Agent automation     |
+| `jsonl`    | JSON Lines (one object per line) | Streaming/logging    |
+| `markdown` | Markdown formatted               | Documentation        |
+| `table`    | ASCII table                      | Terminal display     |
 
 ---
 
@@ -564,11 +569,11 @@ All JSON outputs **MUST** follow this envelope:
 
 All commands **MUST** source these libraries:
 
-| Library | Purpose | Required By |
-|---------|---------|-------------|
-| `lib/exit-codes.sh` | Standardized exit code constants | ALL commands |
-| `lib/error-json.sh` | Format-aware error output | ALL commands |
-| `lib/output-format.sh` | TTY-aware format resolution | ALL commands |
+| Library                | Purpose                          | Required By  |
+| ---------------------- | -------------------------------- | ------------ |
+| `lib/exit-codes.sh`    | Standardized exit code constants | ALL commands |
+| `lib/error-json.sh`    | Format-aware error output        | ALL commands |
+| `lib/output-format.sh` | TTY-aware format resolution      | ALL commands |
 
 ### Library Integration Pattern
 
@@ -603,32 +608,56 @@ COMMAND_NAME="<command>"
 ### JSON Output Examples
 
 #### `add` Command Output
+
 ```json
 {
   "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
-  "_meta": {"format": "json", "version": "0.17.0", "command": "add", "timestamp": "..."},
+  "_meta": {
+    "format": "json",
+    "version": "0.17.0",
+    "command": "add",
+    "timestamp": "..."
+  },
   "success": true,
-  "task": {"id": "T042", "type": "task", "parentId": null, "title": "...", "status": "pending"}
+  "task": {
+    "id": "T042",
+    "type": "task",
+    "parentId": null,
+    "title": "...",
+    "status": "pending"
+  }
 }
 ```
 
 #### `update` Command Output
+
 ```json
 {
   "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
-  "_meta": {"format": "json", "version": "0.17.0", "command": "update", "timestamp": "..."},
+  "_meta": {
+    "format": "json",
+    "version": "0.17.0",
+    "command": "update",
+    "timestamp": "..."
+  },
   "success": true,
   "taskId": "T042",
-  "changes": {"priority": {"before": "medium", "after": "high"}},
-  "task": {"id": "T042", "priority": "high", "...": "..."}
+  "changes": { "priority": { "before": "medium", "after": "high" } },
+  "task": { "id": "T042", "priority": "high", "...": "..." }
 }
 ```
 
 #### `complete` Command Output
+
 ```json
 {
   "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
-  "_meta": {"format": "json", "version": "0.17.0", "command": "complete", "timestamp": "..."},
+  "_meta": {
+    "format": "json",
+    "version": "0.17.0",
+    "command": "complete",
+    "timestamp": "..."
+  },
   "success": true,
   "taskId": "T042",
   "completedAt": "2025-12-17T10:00:00Z",
@@ -639,6 +668,7 @@ COMMAND_NAME="<command>"
 ### Subcommand Requirements (e.g., `phase.sh`)
 
 Commands with subcommands **MUST**:
+
 - Accept `--format` flag **before** the subcommand
 - Each subcommand **MUST** respect the FORMAT variable
 - Each subcommand **MUST** output proper JSON envelope
@@ -649,19 +679,20 @@ Write commands **MUST** validate all inputs before modifying state:
 
 #### Field Length Limits
 
-| Field | Max Length | Error Code |
-|-------|------------|------------|
-| title | 120 chars | `E_INPUT_INVALID` |
-| description | 2000 chars | `E_INPUT_INVALID` |
-| notes (each) | 5000 chars | `E_INPUT_INVALID` |
-| blockedBy reason | 300 chars | `E_INPUT_INVALID` |
-| sessionNote | 2500 chars | `E_INPUT_INVALID` |
-| label name | 50 chars | `E_INPUT_INVALID` |
-| phase slug | 30 chars | `E_INPUT_INVALID` |
+| Field            | Max Length | Error Code        |
+| ---------------- | ---------- | ----------------- |
+| title            | 120 chars  | `E_INPUT_INVALID` |
+| description      | 2000 chars | `E_INPUT_INVALID` |
+| notes (each)     | 5000 chars | `E_INPUT_INVALID` |
+| blockedBy reason | 300 chars  | `E_INPUT_INVALID` |
+| sessionNote      | 2500 chars | `E_INPUT_INVALID` |
+| label name       | 50 chars   | `E_INPUT_INVALID` |
+| phase slug       | 30 chars   | `E_INPUT_INVALID` |
 
 #### Validation Order
 
 Commands **MUST** validate in this order:
+
 1. Required arguments present (`E_INPUT_MISSING`)
 2. Format/type validation (`E_INPUT_FORMAT`)
 3. Length validation (`E_INPUT_INVALID`)
@@ -670,6 +701,7 @@ Commands **MUST** validate in this order:
 #### Validation Response
 
 Failed validation **MUST** return immediately (fail-fast) with:
+
 - Specific error code
 - Field name in error message
 - Actual vs. allowed value info
@@ -678,20 +710,20 @@ Failed validation **MUST** return immediately (fail-fast) with:
 
 Commands with `--dry-run` **MUST** follow these semantics:
 
-| Behavior | With --dry-run | Without --dry-run |
-|----------|----------------|-------------------|
-| Validation | Full | Full |
-| File locking | None | Full |
-| State modification | None | Full |
-| JSON output | Full (with `dryRun: true`) | Full |
-| Exit code | Same as real | Same |
+| Behavior           | With --dry-run             | Without --dry-run |
+| ------------------ | -------------------------- | ----------------- |
+| Validation         | Full                       | Full              |
+| File locking       | None                       | Full              |
+| State modification | None                       | Full              |
+| JSON output        | Full (with `dryRun: true`) | Full              |
+| Exit code          | Same as real               | Same              |
 
 #### Dry-Run Output
 
 ```json
 {
   "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
-  "_meta": {"format": "json", "version": "0.17.0", "command": "add"},
+  "_meta": { "format": "json", "version": "0.17.0", "command": "add" },
   "success": true,
   "dryRun": true,
   "wouldCreate": {
@@ -707,13 +739,13 @@ Dry-run mode allows agents to validate inputs without side effects.
 
 Write commands **MUST** be idempotent where feasible to support agent retries without side effects:
 
-| Command | Idempotency | Mechanism |
-|---------|-------------|-----------|
-| `add` | SHOULD | Detect duplicate title+phase within 60s window, return existing task |
-| `update` | MUST | Updating with identical values returns `EXIT_NO_CHANGE` (102) |
-| `complete` | MUST | Completing already-done task returns `EXIT_NO_CHANGE` (102) |
-| `archive` | MUST | Re-archiving already-archived tasks is a no-op |
-| `restore` | MUST | Restoring already-active task returns `EXIT_NO_CHANGE` (102) |
+| Command    | Idempotency | Mechanism                                                            |
+| ---------- | ----------- | -------------------------------------------------------------------- |
+| `add`      | SHOULD      | Detect duplicate title+phase within 60s window, return existing task |
+| `update`   | MUST        | Updating with identical values returns `EXIT_NO_CHANGE` (102)        |
+| `complete` | MUST        | Completing already-done task returns `EXIT_NO_CHANGE` (102)          |
+| `archive`  | MUST        | Re-archiving already-archived tasks is a no-op                       |
+| `restore`  | MUST        | Restoring already-active task returns `EXIT_NO_CHANGE` (102)         |
 
 #### Duplicate Detection for `add`
 
@@ -738,7 +770,7 @@ Example response:
 ```json
 {
   "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
-  "_meta": {"format": "json", "version": "0.17.0", "command": "complete"},
+  "_meta": { "format": "json", "version": "0.17.0", "command": "complete" },
   "success": true,
   "noChange": true,
   "message": "Task T042 is already complete"
@@ -757,12 +789,12 @@ The following operations are inherently non-idempotent and **MUST** be documente
 
 Agents **SHOULD** implement retry logic for recoverable errors with exponential backoff:
 
-| Exit Code | Name | Max Retries | Initial Delay | Backoff Factor |
-|:---------:|------|:-----------:|:-------------:|:--------------:|
-| 7 | `EXIT_LOCK_TIMEOUT` | 3 | 100ms | 2x |
-| 20 | `EXIT_CHECKSUM_MISMATCH` | 5 | 50ms | 1.5x |
-| 21 | `EXIT_CONCURRENT_MODIFICATION` | 5 | 100ms | 2x |
-| 22 | `EXIT_ID_COLLISION` | 3 | 0ms | immediate regenerate |
+| Exit Code | Name                           | Max Retries | Initial Delay |    Backoff Factor    |
+| :-------: | ------------------------------ | :---------: | :-----------: | :------------------: |
+|     7     | `EXIT_LOCK_TIMEOUT`            |      3      |     100ms     |          2x          |
+|    20     | `EXIT_CHECKSUM_MISMATCH`       |      5      |     50ms      |         1.5x         |
+|    21     | `EXIT_CONCURRENT_MODIFICATION` |      5      |     100ms     |          2x          |
+|    22     | `EXIT_ID_COLLISION`            |      3      |      0ms      | immediate regenerate |
 
 #### Retry Algorithm
 
@@ -788,6 +820,7 @@ def is_recoverable(code):
 #### ID Collision Handling (Exit Code 22)
 
 For `EXIT_ID_COLLISION`, agents **SHOULD**:
+
 1. Extract the colliding ID from error JSON
 2. Regenerate a new ID (or let CLI auto-generate)
 3. Retry immediately without delay
@@ -860,12 +893,12 @@ CLEO_FORMAT=json ct list | jq -e '._meta' || echo "FAIL: env var should work"
 
 ### 6.4 Test Coverage Requirements
 
-| Category | Minimum Coverage | Commands |
-|----------|-----------------|----------|
-| Exit codes | 100% of defined codes | All |
-| JSON envelope | All required fields | All JSON-enabled |
-| Error JSON | All error codes used | All |
-| Flag parsing | All flags | All |
+| Category      | Minimum Coverage        | Commands           |
+| ------------- | ----------------------- | ------------------ |
+| Exit codes    | 100% of defined codes   | All                |
+| JSON envelope | All required fields     | All JSON-enabled   |
+| Error JSON    | All error codes used    | All                |
+| Flag parsing  | All flags               | All                |
 | TTY detection | Auto-detect + overrides | All format-enabled |
 
 ---
@@ -917,15 +950,15 @@ ct complete T001 | jq '.cycleTimeDays'
 
 ### Required Metrics for Full Compliance
 
-| Metric | Required Value |
-|--------|----------------|
-| Agent workflow steps per mutation | 1x (command returns result) |
-| Commands requiring explicit `--format json` | 0/32 (auto-detect via TTY) |
-| Error handling method | JSON with `E_` error codes |
-| Write confirmation in response | YES (full object returned) |
-| Exit code coverage | 100% (all codes are constants) |
-| `$schema` field presence | 100% of JSON outputs |
-| `_meta` envelope presence | 100% of JSON outputs |
+| Metric                                      | Required Value                 |
+| ------------------------------------------- | ------------------------------ |
+| Agent workflow steps per mutation           | 1x (command returns result)    |
+| Commands requiring explicit `--format json` | 0/32 (auto-detect via TTY)     |
+| Error handling method                       | JSON with `E_` error codes     |
+| Write confirmation in response              | YES (full object returned)     |
+| Exit code coverage                          | 100% (all codes are constants) |
+| `$schema` field presence                    | 100% of JSON outputs           |
+| `_meta` envelope presence                   | 100% of JSON outputs           |
 
 ### Compliance Definition
 
@@ -946,42 +979,42 @@ A command is **fully compliant** when it:
 
 All commands **MUST** meet these requirements:
 
-| Command | JSON | Quiet | Format | Dry-Run | exit-codes | error-json | resolve_format |
-|---------|------|-------|--------|---------|------------|------------|----------------|
-| add | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| analyze | ✅ | N/A | ✅ | N/A | ✅ | ✅ | ✅ |
-| archive | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| backup | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| blockers | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| complete | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| commands | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| config | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| dash | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| deps | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| exists | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| export | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| extract | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| find | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| focus | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| history | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| init | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| inject | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| labels | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| list | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| log | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| migrate | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| migrate-backups | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| next | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| phase | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| phases | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| research | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| restore | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| session | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| show | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| stats | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
-| sync | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| update | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| validate | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
+| Command         | JSON | Quiet | Format | Dry-Run | exit-codes | error-json | resolve_format |
+| --------------- | ---- | ----- | ------ | ------- | ---------- | ---------- | -------------- |
+| add             | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| analyze         | ✅   | N/A   | ✅     | N/A     | ✅         | ✅         | ✅             |
+| archive         | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| backup          | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| blockers        | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| complete        | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| commands        | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| config          | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| dash            | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| deps            | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| exists          | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| export          | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| extract         | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| find            | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| focus           | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| history         | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| init            | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| inject          | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| labels          | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| list            | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| log             | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| migrate         | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| migrate-backups | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| next            | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| phase           | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| phases          | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| research        | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| restore         | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| session         | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| show            | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| stats           | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
+| sync            | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| update          | ✅   | ✅    | ✅     | ✅      | ✅         | ✅         | ✅             |
+| validate        | ✅   | ✅    | ✅     | N/A     | ✅         | ✅         | ✅             |
 
 **Legend**: ✅ = REQUIRED | N/A = Not Applicable for this command type
 
@@ -1171,14 +1204,14 @@ main "$@"
 
 ### Breaking Change Policy
 
-| Change Type | Policy | Deprecation Period |
-|-------------|--------|-------------------|
-| Exit code value changes | MUST NOT change within major version | 2 major versions |
-| Error code string changes | MUST NOT change within major version | 2 major versions |
-| JSON field removal | MUST NOT remove within major version | 2 major versions |
-| Flag removal | MUST NOT remove within major version | 1 major version |
-| JSON field rename | Add new, deprecate old | 2 major versions |
-| Default behavior change | Document clearly, consider `--legacy` flag | 1 major version |
+| Change Type               | Policy                                     | Deprecation Period |
+| ------------------------- | ------------------------------------------ | ------------------ |
+| Exit code value changes   | MUST NOT change within major version       | 2 major versions   |
+| Error code string changes | MUST NOT change within major version       | 2 major versions   |
+| JSON field removal        | MUST NOT remove within major version       | 2 major versions   |
+| Flag removal              | MUST NOT remove within major version       | 1 major version    |
+| JSON field rename         | Add new, deprecate old                     | 2 major versions   |
+| Default behavior change   | Document clearly, consider `--legacy` flag | 1 major version    |
 
 ### Deprecation Process
 
@@ -1190,6 +1223,7 @@ main "$@"
 ### Deprecation Registry
 
 Maintain a deprecation registry in `docs/DEPRECATIONS.md` tracking:
+
 - Deprecated item (exit code, error code, flag, field)
 - Version deprecated
 - Replacement (if any)
@@ -1199,15 +1233,15 @@ This ensures API stability for LLM agents while allowing long-term evolution.
 
 ### JSON Stability Guarantees
 
-| Field | Stability |
-|-------|-----------|
-| `$schema` | Stable (version in URL) |
-| `_meta.version` | Stable |
-| `_meta.command` | Stable |
-| `_meta.timestamp` | Stable |
-| `success` | Stable |
-| `error.code` | Stable within major version |
-| `error.exitCode` | Stable within major version |
+| Field                   | Stability                   |
+| ----------------------- | --------------------------- |
+| `$schema`               | Stable (version in URL)     |
+| `_meta.version`         | Stable                      |
+| `_meta.command`         | Stable                      |
+| `_meta.timestamp`       | Stable                      |
+| `success`               | Stable                      |
+| `error.code`            | Stable within major version |
+| `error.exitCode`        | Stable within major version |
 | Command-specific fields | See individual command docs |
 
 ---
@@ -1222,12 +1256,14 @@ Use this checklist to validate each command's compliance:
 ## Command: <name>
 
 ### Foundation
+
 - [ ] Sources `lib/exit-codes.sh`
 - [ ] Sources `lib/error-json.sh`
 - [ ] Sources `lib/output-format.sh`
 - [ ] Sets `COMMAND_NAME` variable
 
 ### Flags
+
 - [ ] Has `--format` flag
 - [ ] Has `--quiet` flag
 - [ ] Has `--json` shortcut
@@ -1236,6 +1272,7 @@ Use this checklist to validate each command's compliance:
 - [ ] (Write commands) Has `--dry-run`
 
 ### JSON Output
+
 - [ ] Includes `$schema` field
 - [ ] Includes `_meta.format` field
 - [ ] Includes `_meta.version` field
@@ -1245,17 +1282,20 @@ Use this checklist to validate each command's compliance:
 - [ ] (Task operations) Includes hierarchy fields
 
 ### Exit Codes
+
 - [ ] Uses constants (no magic numbers)
 - [ ] Returns 0 on success
 - [ ] Returns correct code on each error type
 - [ ] Documents exit codes in help
 
 ### Errors
+
 - [ ] Uses `output_error()` for errors
 - [ ] Uses correct `E_` error codes
 - [ ] Includes suggestions where helpful
 
 ### Testing
+
 - [ ] Has exit code tests
 - [ ] Has JSON structure tests
 - [ ] Has TTY detection tests
@@ -1297,35 +1337,35 @@ echo "Results: $PASS passed, $FAIL failed"
 
 ### Required Library Files
 
-| File | Purpose |
-|------|---------|
-| `lib/exit-codes.sh` | Exit code constants (17 codes) |
-| `lib/error-json.sh` | Error JSON output (29 error codes) |
+| File                   | Purpose                              |
+| ---------------------- | ------------------------------------ |
+| `lib/exit-codes.sh`    | Exit code constants (17 codes)       |
+| `lib/error-json.sh`    | Error JSON output (29 error codes)   |
 | `lib/output-format.sh` | Format resolution with TTY detection |
-| `lib/hierarchy.sh` | Hierarchy validation functions |
+| `lib/hierarchy.sh`     | Hierarchy validation functions       |
 
 ### Required Schema Files
 
-| File | Purpose |
-|------|---------|
-| `schemas/todo.schema.json` | Task data schema |
-| `schemas/archive.schema.json` | Archive data schema |
-| `schemas/log.schema.json` | Audit log schema |
-| `schemas/config.schema.json` | Configuration schema |
-| `schemas/output.schema.json` | Success response envelope |
-| `schemas/error.schema.json` | Error response envelope |
+| File                                | Purpose                         |
+| ----------------------------------- | ------------------------------- |
+| `schemas/todo.schema.json`          | Task data schema                |
+| `schemas/archive.schema.json`       | Archive data schema             |
+| `schemas/log.schema.json`           | Audit log schema                |
+| `schemas/config.schema.json`        | Configuration schema            |
+| `schemas/output.schema.json`        | Success response envelope       |
+| `schemas/error.schema.json`         | Error response envelope         |
 | `schemas/critical-path.schema.json` | Critical path analysis response |
 
 ### Reference Implementations
 
 These commands exemplify best practices:
 
-| File | Why Study It |
-|------|--------------|
-| `scripts/analyze.sh` | **Gold standard** - JSON default, `--human` flag |
-| `scripts/exists.sh` | Perfect exit codes pattern |
-| `scripts/list.sh` | Comprehensive JSON envelope |
-| `scripts/validate.sh` | `--fix` and JSON patterns |
+| File                  | Why Study It                                     |
+| --------------------- | ------------------------------------------------ |
+| `scripts/analyze.sh`  | **Gold standard** - JSON default, `--human` flag |
+| `scripts/exists.sh`   | Perfect exit codes pattern                       |
+| `scripts/list.sh`     | Comprehensive JSON envelope                      |
+| `scripts/validate.sh` | `--fix` and JSON patterns                        |
 
 ---
 
@@ -1407,29 +1447,29 @@ Commands returning arrays **SHOULD** include a `pagination` object in the JSON e
 }
 ```
 
-The `pagination` object conforms to `mcp-server/schemas/common/pagination.schema.json`. All four fields (`total`, `limit`, `offset`, `hasMore`) are **REQUIRED** when the `pagination` key is present.
+The `pagination` object conforms to `schemas/common/pagination.schema.json`. All four fields (`total`, `limit`, `offset`, `hasMore`) are **REQUIRED** when the `pagination` key is present.
 
 ### 14.2 Smart Default Limits
 
 Each command type has a context-optimized default page size via `get_default_limit()` in `lib/json-output.sh`:
 
-| Command | Default | Override |
-|---------|:-------:|----------|
-| `list` / `tasks` | 50 | `--limit N` |
-| `session list` | 10 | `--limit N` |
-| `find` / `search` | 10 | `--limit N` |
-| `log` | 20 | `--limit N` |
-| `archive` | 25 | `--limit N` |
-| Others | 50 | `--limit N` |
+| Command           | Default | Override    |
+| ----------------- | :-----: | ----------- |
+| `list` / `tasks`  |   50    | `--limit N` |
+| `session list`    |   10    | `--limit N` |
+| `find` / `search` |   10    | `--limit N` |
+| `log`             |   20    | `--limit N` |
+| `archive`         |   25    | `--limit N` |
+| Others            |   50    | `--limit N` |
 
 Use `--limit 0` to disable pagination and retrieve all items.
 
 ### 14.3 Pagination Flags
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--limit N` | integer | Smart default | Maximum items to return (0 = unlimited) |
-| `--offset N` | integer | 0 | Number of items to skip |
+| Flag         | Type    | Default       | Description                             |
+| ------------ | ------- | ------------- | --------------------------------------- |
+| `--limit N`  | integer | Smart default | Maximum items to return (0 = unlimited) |
+| `--offset N` | integer | 0             | Number of items to skip                 |
 
 Commands that support pagination **MUST** document these flags in their `###CLEO` header block.
 
@@ -1462,21 +1502,21 @@ fi
 
 All pagination functionality is centralized in `lib/json-output.sh`:
 
-| Function | Purpose |
-|----------|---------|
-| `output_success` | Standard non-paginated success envelope |
-| `output_error_envelope` | Lightweight error envelope |
-| `output_paginated` | Paginated success envelope with metadata |
-| `apply_pagination` | Slice a JSON array by limit/offset |
-| `get_pagination_meta` | Generate pagination metadata object |
-| `get_default_limit` | Smart default limit by command type |
-| `compact_task` | Strip verbose fields from tasks |
-| `compact_session` | Strip verbose fields from sessions |
+| Function                | Purpose                                  |
+| ----------------------- | ---------------------------------------- |
+| `output_success`        | Standard non-paginated success envelope  |
+| `output_error_envelope` | Lightweight error envelope               |
+| `output_paginated`      | Paginated success envelope with metadata |
+| `apply_pagination`      | Slice a JSON array by limit/offset       |
+| `get_pagination_meta`   | Generate pagination metadata object      |
+| `get_default_limit`     | Smart default limit by command type      |
+| `compact_task`          | Strip verbose fields from tasks          |
+| `compact_session`       | Strip verbose fields from sessions       |
 
 **Full specification**: [DYNAMIC-OUTPUT-LIMITS-SPEC.md](DYNAMIC-OUTPUT-LIMITS-SPEC.md)
 
 ---
 
-*Specification v3.4 - Authoritative Standard for LLM-Agent-First CLI Design*
-*Applicable to: cleo and any LLM-agent-first CLI project*
-*Last updated: 2026-02-10*
+_Specification v3.4 - Authoritative Standard for LLM-Agent-First CLI Design_
+_Applicable to: cleo and any LLM-agent-first CLI project_
+_Last updated: 2026-02-10_

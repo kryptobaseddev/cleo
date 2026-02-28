@@ -20,20 +20,18 @@ Implementation operation counts and live operation matrices MUST be sourced from
 - `src/mcp/gateways/query.ts`
 - `src/mcp/gateways/mutate.ts`
 
-As of v0.98.2 deployment (T4492), implementation expected counts are:
+As of 2026-02-27, implementation counts are:
 
-- `cleo_query`: 75
-- `cleo_mutate`: 65
-- Total: 140 (across 11 domains)
+- `cleo_query`: 97 (across 10 canonical domains)
+- `cleo_mutate`: 80 (across 10 canonical domains)
+- Total: 177
 
-The original core contract matrix (96 operations) remains the baseline model; implementation includes documented parity extensions and new domains (issues, skills, providers).
-
-> **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries (93+71=164) are the canonical count for deployed operations.
+> **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries are the canonical count for deployed operations. Legacy domain aliases (research, lifecycle, validate, release, system, issues, skills, providers) still route to canonical domains.
 
 ### 1.1 Design Goals
 
 1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 80+ tools (~32,500 tokens) = 94% reduction
-2. **Full Capability Access**: All 164 operations accessible through domain routing across 10 canonical domains
+2. **Full Capability Access**: All 177 operations accessible through domain routing across 10 canonical domains
 3. **Safety by Design**: Read operations cannot mutate state
 4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
@@ -46,33 +44,31 @@ The original core contract matrix (96 operations) remains the baseline model; im
 │                                                                                  │
 │   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
 │   │         cleo_query              │    │         cleo_mutate             │    │
-│   │      (75 Read Operations)       │    │      (65 Write Operations)      │    │
+│   │      (97 Read Operations)       │    │      (80 Write Operations)      │    │
 │   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
 └────────────────────┼──────────────────────────────────────┼──────────────────────┘
                      │                                      │
                      ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                             DOMAIN ROUTER (11 Domains)                           │
-│    tasks │ session │ orchestrate │ research │ lifecycle │ validate │ release    │
-│                       + system │ issues │ skills │ providers                      │
+│                        DOMAIN ROUTER (10 Canonical Domains)                      │
+│  tasks │ session │ orchestrate │ memory │ check │ pipeline │ admin │ tools      │
+│                              + nexus │ sharing                                   │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                          │
                                          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           PROTOCOL ENFORCEMENT LAYER                             │
-│  RCSD: Research(60) → Consensus(61) → Specification(62) → Decomposition(63)     │
-│  IVTR: Implementation(64) → Validation(68) → Testing(69/70) → Release(66)       │
-│                         + Contribution(65) cross-cutting                         │
+│  Orchestrator errors: 60-67  │  Lifecycle gates: 80-84  │  Provenance: 90-94   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                             src/core/ (shared business logic)                    │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                          │
                                          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                             CLI LAYER (80+ commands)                             │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                         │
-                                         ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         LIB LAYER (99 modules, 280+ functions)                   │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,6 +81,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 **Purpose**: All read-only operations for discovery, status, analysis, and validation checks.
 
 **Characteristics**:
+
 - MUST NOT modify any state
 - Results MAY be cached
 - Safe to retry without side effects
@@ -102,7 +99,18 @@ The original core contract matrix (96 operations) remains the baseline model; im
     "properties": {
       "domain": {
         "type": "string",
-        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "system", "issues", "skills", "providers"],
+        "enum": [
+          "tasks",
+          "session",
+          "orchestrate",
+          "memory",
+          "check",
+          "pipeline",
+          "admin",
+          "tools",
+          "nexus",
+          "sharing"
+        ],
         "description": "Functional domain to query"
       },
       "operation": {
@@ -119,132 +127,132 @@ The original core contract matrix (96 operations) remains the baseline model; im
 }
 ```
 
-#### 2.1.2 Operations by Domain (75 Total)
+#### 2.1.2 Operations by Domain (97 Total)
 
 ##### tasks (12 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `show` | Get single task details | `taskId` | Full task object |
-| `list` | List tasks with filters | `parent?`, `status?`, `limit?` | Task array |
-| `find` | Fuzzy search tasks | `query`, `limit?` | Minimal task array |
-| `exists` | Check task existence | `taskId` | Boolean |
-| `tree` | Hierarchical task view | `rootId?`, `depth?` | Tree structure |
-| `blockers` | Get blocking tasks | `taskId` | Blocker array |
-| `depends` | Get dependencies | `taskId`, `direction?` | Dependency graph |
-| `analyze` | Triage analysis | `epicId?` | Priority recommendations |
-| `next` | Next task suggestion | `epicId?`, `count?` | Suggested tasks |
-| `relates` | Query task relationships | `taskId` | Related task array |
-| `complexity.estimate` | Deterministic complexity scoring | `taskId` | Complexity metrics |
-| `current` | Get currently active task | - | Task ID or null |
+| Operation             | Description                      | Parameters                     | Returns                  |
+| --------------------- | -------------------------------- | ------------------------------ | ------------------------ |
+| `show`                | Get single task details          | `taskId`                       | Full task object         |
+| `list`                | List tasks with filters          | `parent?`, `status?`, `limit?` | Task array               |
+| `find`                | Fuzzy search tasks               | `query`, `limit?`              | Minimal task array       |
+| `exists`              | Check task existence             | `taskId`                       | Boolean                  |
+| `tree`                | Hierarchical task view           | `rootId?`, `depth?`            | Tree structure           |
+| `blockers`            | Get blocking tasks               | `taskId`                       | Blocker array            |
+| `depends`             | Get dependencies                 | `taskId`, `direction?`         | Dependency graph         |
+| `analyze`             | Triage analysis                  | `epicId?`                      | Priority recommendations |
+| `next`                | Next task suggestion             | `epicId?`, `count?`            | Suggested tasks          |
+| `relates`             | Query task relationships         | `taskId`                       | Related task array       |
+| `complexity.estimate` | Deterministic complexity scoring | `taskId`                       | Complexity metrics       |
+| `current`             | Get currently active task        | -                              | Task ID or null          |
 
 ##### session (6 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `status` | Current session status | - | Session object |
-| `list` | List all sessions | `active?` | Session array |
-| `show` | Session details | `sessionId` | Full session object |
-| `history` | Session history | `limit?` | History array |
-| `decision.log` | Decision audit log | `sessionId?` | Decision array |
-| `context.drift` | Session context drift | `sessionId?` | Drift analysis |
+| Operation       | Description            | Parameters   | Returns             |
+| --------------- | ---------------------- | ------------ | ------------------- |
+| `status`        | Current session status | -            | Session object      |
+| `list`          | List all sessions      | `active?`    | Session array       |
+| `show`          | Session details        | `sessionId`  | Full session object |
+| `history`       | Session history        | `limit?`     | History array       |
+| `decision.log`  | Decision audit log     | `sessionId?` | Decision array      |
+| `context.drift` | Session context drift  | `sessionId?` | Drift analysis      |
 
 ##### orchestrate (10 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `status` | Orchestrator status | `epicId` | Orchestration state |
-| `next` | Next task to spawn | `epicId` | Task + skill recommendation |
-| `ready` | Parallel-safe tasks | `epicId` | Task IDs in current wave |
-| `analyze` | Dependency analysis | `epicId` | Wave structure + critical path |
-| `context` | Context usage check | `tokens?` | Context budget status |
-| `waves` | Wave computation | `epicId` | Parallel execution waves |
-| `skill.list` | Available skills | `filter?` | Skill definitions |
-| `bootstrap` | Brain state bootstrap | `epicId?` | Full startup context |
-| `unblock.opportunities` | Unblocking analysis | `epicId?` | Unblock recommendations |
-| `critical.path` | Longest dependency chain | `epicId` | Critical path analysis |
+| Operation               | Description              | Parameters | Returns                        |
+| ----------------------- | ------------------------ | ---------- | ------------------------------ |
+| `status`                | Orchestrator status      | `epicId`   | Orchestration state            |
+| `next`                  | Next task to spawn       | `epicId`   | Task + skill recommendation    |
+| `ready`                 | Parallel-safe tasks      | `epicId`   | Task IDs in current wave       |
+| `analyze`               | Dependency analysis      | `epicId`   | Wave structure + critical path |
+| `context`               | Context usage check      | `tokens?`  | Context budget status          |
+| `waves`                 | Wave computation         | `epicId`   | Parallel execution waves       |
+| `skill.list`            | Available skills         | `filter?`  | Skill definitions              |
+| `bootstrap`             | Brain state bootstrap    | `epicId?`  | Full startup context           |
+| `unblock.opportunities` | Unblocking analysis      | `epicId?`  | Unblock recommendations        |
+| `critical.path`         | Longest dependency chain | `epicId`   | Critical path analysis         |
 
 ##### research (8 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `show` | Research entry details | `researchId` | Full entry |
-| `list` | List research entries | `epicId?`, `status?` | Entry array |
-| `find` | Find research | `query`, `confidence?` | Matched entries |
-| `pending` | Pending research | `epicId?` | Entries needing follow-up |
-| `stats` | Research statistics | `epicId?` | Aggregated metrics |
-| `manifest.read` | Read manifest entries | `filter?`, `limit?` | JSONL entries |
-| `contradictions` | Find conflicting findings | `epicId?` | Contradiction array |
-| `superseded` | Find superseded entries | `epicId?` | Superseded array |
+| Operation        | Description               | Parameters             | Returns                   |
+| ---------------- | ------------------------- | ---------------------- | ------------------------- |
+| `show`           | Research entry details    | `researchId`           | Full entry                |
+| `list`           | List research entries     | `epicId?`, `status?`   | Entry array               |
+| `find`           | Find research             | `query`, `confidence?` | Matched entries           |
+| `pending`        | Pending research          | `epicId?`              | Entries needing follow-up |
+| `stats`          | Research statistics       | `epicId?`              | Aggregated metrics        |
+| `manifest.read`  | Read manifest entries     | `filter?`, `limit?`    | JSONL entries             |
+| `contradictions` | Find conflicting findings | `epicId?`              | Contradiction array       |
+| `superseded`     | Find superseded entries   | `epicId?`              | Superseded array          |
 
 ##### lifecycle (5 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `validate` | Check stage prerequisites | `taskId`, `targetStage` | Gate status |
-| `status` | Current lifecycle state | `taskId` or `epicId` | Stage progression |
-| `history` | Stage transition history | `taskId` | Transition log |
-| `gates` | All gate statuses | `taskId` | Gate status array |
-| `prerequisites` | Required prior stages | `targetStage` | Prerequisite list |
+| Operation       | Description               | Parameters              | Returns           |
+| --------------- | ------------------------- | ----------------------- | ----------------- |
+| `validate`      | Check stage prerequisites | `taskId`, `targetStage` | Gate status       |
+| `status`        | Current lifecycle state   | `taskId` or `epicId`    | Stage progression |
+| `history`       | Stage transition history  | `taskId`                | Transition log    |
+| `gates`         | All gate statuses         | `taskId`                | Gate status array |
+| `prerequisites` | Required prior stages     | `targetStage`           | Prerequisite list |
 
 ##### validate (10 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `schema` | JSON Schema validation | `fileType`, `filePath?` | Validation result |
-| `protocol` | Protocol compliance | `taskId`, `protocolType` | Violations + score |
-| `task` | Anti-hallucination check | `taskId`, `checkMode` | Rule violations |
-| `manifest` | Manifest entry check | `entry` or `taskId` | Integrity status |
-| `output` | Output file validation | `taskId`, `filePath` | Content validation |
-| `compliance.summary` | Aggregated compliance | `scope?`, `since?` | Summary metrics |
-| `compliance.violations` | List violations | `severity?`, `protocol?` | Violation array |
-| `test.status` | Test suite status | `taskId?` | Pass/fail counts |
-| `test.coverage` | Coverage metrics | `taskId?` | Coverage percentages |
-| `coherence.check` | Task graph consistency | `scope?` | Coherence result |
+| Operation               | Description              | Parameters               | Returns              |
+| ----------------------- | ------------------------ | ------------------------ | -------------------- |
+| `schema`                | JSON Schema validation   | `fileType`, `filePath?`  | Validation result    |
+| `protocol`              | Protocol compliance      | `taskId`, `protocolType` | Violations + score   |
+| `task`                  | Anti-hallucination check | `taskId`, `checkMode`    | Rule violations      |
+| `manifest`              | Manifest entry check     | `entry` or `taskId`      | Integrity status     |
+| `output`                | Output file validation   | `taskId`, `filePath`     | Content validation   |
+| `compliance.summary`    | Aggregated compliance    | `scope?`, `since?`       | Summary metrics      |
+| `compliance.violations` | List violations          | `severity?`, `protocol?` | Violation array      |
+| `test.status`           | Test suite status        | `taskId?`                | Pass/fail counts     |
+| `test.coverage`         | Coverage metrics         | `taskId?`                | Coverage percentages |
+| `coherence.check`       | Task graph consistency   | `scope?`                 | Coherence result     |
 
 ##### system (14 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `version` | CLEO version | - | Version string |
-| `health` | Health check | - | Health status |
-| `config.get` | Get config value | `key` | Config value |
-| `stats` | Project statistics | - | Task/session stats |
-| `context` | Context window info | - | Token usage |
-| `job.status` | Get background job status | `jobId` | Job status |
-| `job.list` | List background jobs | `status?` | Job array |
-| `dash` | Project overview dashboard | - | Dashboard data |
-| `roadmap` | Roadmap generation | `epicId?` | Roadmap structure |
-| `labels` | Label listing and stats | `filter?` | Label array |
-| `compliance` | Compliance metrics | `scope?` | Metrics object |
-| `log` | Audit log entries | `limit?`, `since?` | Log entries |
-| `archive.stats` | Archive analytics | - | Archive metrics |
-| `sequence` | ID sequence inspection | - | Sequence state |
+| Operation       | Description                | Parameters         | Returns            |
+| --------------- | -------------------------- | ------------------ | ------------------ |
+| `version`       | CLEO version               | -                  | Version string     |
+| `health`        | Health check               | -                  | Health status      |
+| `config.get`    | Get config value           | `key`              | Config value       |
+| `stats`         | Project statistics         | -                  | Task/session stats |
+| `context`       | Context window info        | -                  | Token usage        |
+| `job.status`    | Get background job status  | `jobId`            | Job status         |
+| `job.list`      | List background jobs       | `status?`          | Job array          |
+| `dash`          | Project overview dashboard | -                  | Dashboard data     |
+| `roadmap`       | Roadmap generation         | `epicId?`          | Roadmap structure  |
+| `labels`        | Label listing and stats    | `filter?`          | Label array        |
+| `compliance`    | Compliance metrics         | `scope?`           | Metrics object     |
+| `log`           | Audit log entries          | `limit?`, `since?` | Log entries        |
+| `archive.stats` | Archive analytics          | -                  | Archive metrics    |
+| `sequence`      | ID sequence inspection     | -                  | Sequence state     |
 
 ##### issues (1 operation)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `diagnostics` | System diagnostics for bug reports | - | Diagnostics data |
+| Operation     | Description                        | Parameters | Returns          |
+| ------------- | ---------------------------------- | ---------- | ---------------- |
+| `diagnostics` | System diagnostics for bug reports | -          | Diagnostics data |
 
 ##### skills (6 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `list` | List available skills | `filter?` | Skill array |
-| `show` | Skill details | `skillId` | Full skill object |
-| `find` | Find skills | `query` | Matched skills |
-| `dispatch` | Simulate skill dispatch | `taskId` | Dispatch recommendation |
-| `verify` | Validate skill frontmatter | `skillId` | Validation result |
-| `dependencies` | Skill dependency tree | `skillId` | Dependency graph |
+| Operation      | Description                | Parameters | Returns                 |
+| -------------- | -------------------------- | ---------- | ----------------------- |
+| `list`         | List available skills      | `filter?`  | Skill array             |
+| `show`         | Skill details              | `skillId`  | Full skill object       |
+| `find`         | Find skills                | `query`    | Matched skills          |
+| `dispatch`     | Simulate skill dispatch    | `taskId`   | Dispatch recommendation |
+| `verify`       | Validate skill frontmatter | `skillId`  | Validation result       |
+| `dependencies` | Skill dependency tree      | `skillId`  | Dependency graph        |
 
 ##### providers (3 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `list` | List all registered providers | - | Provider array |
-| `detect` | Detect installed providers | - | Detection result |
-| `inject.status` | Check injection status | `providerId?` | Injection status |
+| Operation       | Description                   | Parameters    | Returns          |
+| --------------- | ----------------------------- | ------------- | ---------------- |
+| `list`          | List all registered providers | -             | Provider array   |
+| `detect`        | Detect installed providers    | -             | Detection result |
+| `inject.status` | Check injection status        | `providerId?` | Injection status |
 
 ---
 
@@ -253,6 +261,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 **Purpose**: All state-modifying operations for task management, orchestration, and system changes.
 
 **Characteristics**:
+
 - MUST be idempotent where possible
 - MUST validate before committing
 - MUST log to audit trail
@@ -270,7 +279,18 @@ The original core contract matrix (96 operations) remains the baseline model; im
     "properties": {
       "domain": {
         "type": "string",
-        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "release", "system", "issues", "skills", "providers"],
+        "enum": [
+          "tasks",
+          "session",
+          "orchestrate",
+          "memory",
+          "check",
+          "pipeline",
+          "admin",
+          "tools",
+          "nexus",
+          "sharing"
+        ],
         "description": "Functional domain to mutate"
       },
       "operation": {
@@ -287,127 +307,127 @@ The original core contract matrix (96 operations) remains the baseline model; im
 }
 ```
 
-#### 2.2.2 Operations by Domain (65 Total)
+#### 2.2.2 Operations by Domain (80 Total)
 
 ##### tasks (14 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `add` | Create new task | `title`, `description`, `parent?`, `depends?`, `priority?`, `labels?` | Created task |
-| `update` | Update task fields | `taskId`, `title?`, `description?`, `status?`, `priority?`, `notes?` | Updated task |
-| `complete` | Mark task done | `taskId`, `notes?`, `archive?` | Completion status |
-| `delete` | Delete task | `taskId`, `force?` | Deletion status |
-| `archive` | Archive done tasks | `taskId?`, `before?` | Archived count |
-| `restore` | Restore from archive | `taskId` | Restored task |
-| `reparent` | Change task parent | `taskId`, `newParent` | Updated hierarchy |
-| `promote` | Promote subtask to task | `taskId` | Promoted task |
-| `reorder` | Reorder siblings | `taskId`, `position` | New order |
-| `reopen` | Reopen completed task | `taskId` | Reopened task |
-| `relates.add` | Add task relationship | `taskId`, `relatedId`, `type?` | Relationship confirmation |
-| `uncancel` | Restore cancelled tasks | `taskId` | Restored task |
-| `start` | Start working on task (set focus) | `taskId` | Focus confirmation |
-| `stop` | Stop working on task (clear focus) | - | Clear confirmation |
+| Operation     | Description                        | Parameters                                                            | Returns                   |
+| ------------- | ---------------------------------- | --------------------------------------------------------------------- | ------------------------- |
+| `add`         | Create new task                    | `title`, `description`, `parent?`, `depends?`, `priority?`, `labels?` | Created task              |
+| `update`      | Update task fields                 | `taskId`, `title?`, `description?`, `status?`, `priority?`, `notes?`  | Updated task              |
+| `complete`    | Mark task done                     | `taskId`, `notes?`, `archive?`                                        | Completion status         |
+| `delete`      | Delete task                        | `taskId`, `force?`                                                    | Deletion status           |
+| `archive`     | Archive done tasks                 | `taskId?`, `before?`                                                  | Archived count            |
+| `restore`     | Restore from archive               | `taskId`                                                              | Restored task             |
+| `reparent`    | Change task parent                 | `taskId`, `newParent`                                                 | Updated hierarchy         |
+| `promote`     | Promote subtask to task            | `taskId`                                                              | Promoted task             |
+| `reorder`     | Reorder siblings                   | `taskId`, `position`                                                  | New order                 |
+| `reopen`      | Reopen completed task              | `taskId`                                                              | Reopened task             |
+| `relates.add` | Add task relationship              | `taskId`, `relatedId`, `type?`                                        | Relationship confirmation |
+| `uncancel`    | Restore cancelled tasks            | `taskId`                                                              | Restored task             |
+| `start`       | Start working on task (set focus)  | `taskId`                                                              | Focus confirmation        |
+| `stop`        | Stop working on task (clear focus) | -                                                                     | Clear confirmation        |
 
 ##### session (7 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `start` | Start new session | `scope`, `name?`, `autoStart?` | Session object |
-| `end` | End current session | `notes?` | Session summary |
-| `resume` | Resume existing session | `sessionId` | Resumed session |
-| `suspend` | Suspend session | `notes?` | Suspended status |
-| `gc` | Garbage collect sessions | `olderThan?` | Cleaned count |
-| `record.decision` | Record a decision | `decision`, `rationale`, `taskId?` | Decision record |
-| `record.assumption` | Record an assumption | `assumption`, `basis`, `taskId?` | Assumption record |
+| Operation           | Description              | Parameters                         | Returns           |
+| ------------------- | ------------------------ | ---------------------------------- | ----------------- |
+| `start`             | Start new session        | `scope`, `name?`, `autoStart?`     | Session object    |
+| `end`               | End current session      | `notes?`                           | Session summary   |
+| `resume`            | Resume existing session  | `sessionId`                        | Resumed session   |
+| `suspend`           | Suspend session          | `notes?`                           | Suspended status  |
+| `gc`                | Garbage collect sessions | `olderThan?`                       | Cleaned count     |
+| `record.decision`   | Record a decision        | `decision`, `rationale`, `taskId?` | Decision record   |
+| `record.assumption` | Record an assumption     | `assumption`, `basis`, `taskId?`   | Assumption record |
 
 ##### orchestrate (5 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `start` | Initialize orchestration | `epicId` | Full startup state |
-| `spawn` | Generate spawn prompt | `taskId`, `skill?`, `model?` | Spawn prompt + metadata |
-| `validate` | Validate spawn readiness | `taskId` | Validation result |
-| `parallel.start` | Start parallel wave | `epicId`, `wave` | Wave tasks |
-| `parallel.end` | End parallel wave | `epicId`, `wave` | Wave completion |
+| Operation        | Description              | Parameters                   | Returns                 |
+| ---------------- | ------------------------ | ---------------------------- | ----------------------- |
+| `start`          | Initialize orchestration | `epicId`                     | Full startup state      |
+| `spawn`          | Generate spawn prompt    | `taskId`, `skill?`, `model?` | Spawn prompt + metadata |
+| `validate`       | Validate spawn readiness | `taskId`                     | Validation result       |
+| `parallel.start` | Start parallel wave      | `epicId`, `wave`             | Wave tasks              |
+| `parallel.end`   | End parallel wave        | `epicId`, `wave`             | Wave completion         |
 
 ##### research (4 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `inject` | Get protocol injection | `protocolType`, `taskId?`, `variant?` | Protocol block |
-| `link` | Link research to task | `researchId`, `taskId`, `relationship?` | Link confirmation |
-| `manifest.append` | Append manifest entry | `entry`, `validateFile?` | Entry confirmation |
-| `manifest.archive` | Archive old entries | `beforeDate?`, `moveFiles?` | Archive count |
+| Operation          | Description            | Parameters                              | Returns            |
+| ------------------ | ---------------------- | --------------------------------------- | ------------------ |
+| `inject`           | Get protocol injection | `protocolType`, `taskId?`, `variant?`   | Protocol block     |
+| `link`             | Link research to task  | `researchId`, `taskId`, `relationship?` | Link confirmation  |
+| `manifest.append`  | Append manifest entry  | `entry`, `validateFile?`                | Entry confirmation |
+| `manifest.archive` | Archive old entries    | `beforeDate?`, `moveFiles?`             | Archive count      |
 
 ##### lifecycle (5 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `record` | Record stage completion | `taskId`, `stage`, `status`, `notes?` | Progress confirmation |
-| `skip` | Skip optional stage | `taskId`, `stage`, `reason` | Skip confirmation |
-| `reset` | Reset stage (emergency) | `taskId`, `stage`, `reason` | Reset confirmation |
-| `gate.pass` | Mark gate as passed | `taskId`, `gateName`, `agent`, `notes?` | Gate status |
-| `gate.fail` | Mark gate as failed | `taskId`, `gateName`, `reason` | Gate status |
+| Operation   | Description             | Parameters                              | Returns               |
+| ----------- | ----------------------- | --------------------------------------- | --------------------- |
+| `record`    | Record stage completion | `taskId`, `stage`, `status`, `notes?`   | Progress confirmation |
+| `skip`      | Skip optional stage     | `taskId`, `stage`, `reason`             | Skip confirmation     |
+| `reset`     | Reset stage (emergency) | `taskId`, `stage`, `reason`             | Reset confirmation    |
+| `gate.pass` | Mark gate as passed     | `taskId`, `gateName`, `agent`, `notes?` | Gate status           |
+| `gate.fail` | Mark gate as failed     | `taskId`, `gateName`, `reason`          | Gate status           |
 
 ##### validate (2 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `compliance.record` | Record compliance check | `taskId`, `result` | Record confirmation |
-| `test.run` | Execute test suite | `scope?`, `pattern?`, `parallel?` | Test results |
+| Operation           | Description             | Parameters                        | Returns             |
+| ------------------- | ----------------------- | --------------------------------- | ------------------- |
+| `compliance.record` | Record compliance check | `taskId`, `result`                | Record confirmation |
+| `test.run`          | Execute test suite      | `scope?`, `pattern?`, `parallel?` | Test results        |
 
 ##### release (7 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `prepare` | Prepare release | `version`, `type` | Preparation status |
-| `changelog` | Generate changelog | `version`, `sections?` | Changelog content |
-| `commit` | Create release commit | `version`, `files?` | Commit hash |
-| `tag` | Create git tag | `version`, `message?` | Tag name |
-| `push` | Push to remote | `version`, `remote?` | Push status |
-| `gates.run` | Run release gates | `gates?` | Gate results |
-| `rollback` | Rollback release | `version`, `reason` | Rollback status |
+| Operation   | Description           | Parameters             | Returns            |
+| ----------- | --------------------- | ---------------------- | ------------------ |
+| `prepare`   | Prepare release       | `version`, `type`      | Preparation status |
+| `changelog` | Generate changelog    | `version`, `sections?` | Changelog content  |
+| `commit`    | Create release commit | `version`, `files?`    | Commit hash        |
+| `tag`       | Create git tag        | `version`, `message?`  | Tag name           |
+| `push`      | Push to remote        | `version`, `remote?`   | Push status        |
+| `gates.run` | Run release gates     | `gates?`               | Gate results       |
+| `rollback`  | Rollback release      | `version`, `reason`    | Rollback status    |
 
 ##### system (11 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `init` | Initialize CLEO | `projectType?`, `detect?` | Init status |
-| `config.set` | Set config value | `key`, `value` | Set confirmation |
-| `backup` | Create backup | `type?`, `note?` | Backup path |
-| `restore` | Restore from backup | `backupId` | Restore status |
-| `migrate` | Run migrations | `version?`, `dryRun?` | Migration result |
-| `sync` | Sync with TodoWrite | `direction?` | Sync result |
-| `cleanup` | Cleanup stale data | `type`, `olderThan?` | Cleanup count |
-| `job.cancel` | Cancel background job | `jobId` | Cancellation status |
-| `safestop` | Graceful agent shutdown | `reason?` | Shutdown confirmation |
-| `uncancel` | Restore cancelled tasks | `taskId` | Restored task |
-| `inject.generate` | Generate MVI injection | `level?`, `format?` | Injection content |
+| Operation         | Description             | Parameters                | Returns               |
+| ----------------- | ----------------------- | ------------------------- | --------------------- |
+| `init`            | Initialize CLEO         | `projectType?`, `detect?` | Init status           |
+| `config.set`      | Set config value        | `key`, `value`            | Set confirmation      |
+| `backup`          | Create backup           | `type?`, `note?`          | Backup path           |
+| `restore`         | Restore from backup     | `backupId`                | Restore status        |
+| `migrate`         | Run migrations          | `version?`, `dryRun?`     | Migration result      |
+| `sync`            | Sync with TodoWrite     | `direction?`              | Sync result           |
+| `cleanup`         | Cleanup stale data      | `type`, `olderThan?`      | Cleanup count         |
+| `job.cancel`      | Cancel background job   | `jobId`                   | Cancellation status   |
+| `safestop`        | Graceful agent shutdown | `reason?`                 | Shutdown confirmation |
+| `uncancel`        | Restore cancelled tasks | `taskId`                  | Restored task         |
+| `inject.generate` | Generate MVI injection  | `level?`, `format?`       | Injection content     |
 
 ##### issues (3 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `create.bug` | File a bug report | `title`, `body`, `labels?` | Issue object |
+| Operation        | Description       | Parameters                 | Returns      |
+| ---------------- | ----------------- | -------------------------- | ------------ |
+| `create.bug`     | File a bug report | `title`, `body`, `labels?` | Issue object |
 | `create.feature` | Request a feature | `title`, `body`, `labels?` | Issue object |
-| `create.help` | Ask a question | `title`, `body` | Issue object |
+| `create.help`    | Ask a question    | `title`, `body`            | Issue object |
 
 ##### skills (6 operations)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `install` | Install a skill | `skillId`, `source?` | Install status |
-| `uninstall` | Uninstall a skill | `skillId` | Uninstall status |
-| `enable` | Enable a skill | `skillId` | Enable status |
-| `disable` | Disable a skill | `skillId` | Disable status |
-| `configure` | Configure a skill | `skillId`, `config` | Configuration result |
-| `refresh` | Refresh skill registry | - | Refresh status |
+| Operation   | Description            | Parameters           | Returns              |
+| ----------- | ---------------------- | -------------------- | -------------------- |
+| `install`   | Install a skill        | `skillId`, `source?` | Install status       |
+| `uninstall` | Uninstall a skill      | `skillId`            | Uninstall status     |
+| `enable`    | Enable a skill         | `skillId`            | Enable status        |
+| `disable`   | Disable a skill        | `skillId`            | Disable status       |
+| `configure` | Configure a skill      | `skillId`, `config`  | Configuration result |
+| `refresh`   | Refresh skill registry | -                    | Refresh status       |
 
 ##### providers (1 operation)
 
-| Operation | Description | Parameters | Returns |
-|-----------|-------------|------------|---------|
-| `inject` | Inject content into provider instruction files | `providerId`, `content?` | Injection result |
+| Operation | Description                                    | Parameters               | Returns          |
+| --------- | ---------------------------------------------- | ------------------------ | ---------------- |
+| `inject`  | Inject content into provider instruction files | `providerId`, `content?` | Injection result |
 
 ---
 
@@ -472,7 +492,9 @@ For batch operations that partially succeed:
 
 ```json
 {
-  "_meta": { /* ... */ },
+  "_meta": {
+    /* ... */
+  },
   "success": true,
   "partial": true,
   "data": {
@@ -483,7 +505,10 @@ For batch operations that partially succeed:
     "failed": [
       {
         "taskId": "T2407",
-        "error": { "code": "E_BLOCKED", "message": "Task has unresolved dependencies" }
+        "error": {
+          "code": "E_BLOCKED",
+          "message": "Task has unresolved dependencies"
+        }
       }
     ]
   }
@@ -529,92 +554,92 @@ Implementation ────► Validation ────► Testing ────�
 
 #### 4.2.1 Research Protocol (Exit Code 60)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| RSCH-001 | MUST | NOT implement code or modify codebase |
-| RSCH-002 | SHOULD | Document all sources with citations |
-| RSCH-004 | MUST | Append entry to MANIFEST.jsonl |
-| RSCH-006 | MUST | Include 3-7 key findings in manifest |
-| RSCH-007 | MUST | Set `agent_type: "research"` |
+| ID       | Level  | Requirement                           |
+| -------- | ------ | ------------------------------------- |
+| RSCH-001 | MUST   | NOT implement code or modify codebase |
+| RSCH-002 | SHOULD | Document all sources with citations   |
+| RSCH-004 | MUST   | Append entry to MANIFEST.jsonl        |
+| RSCH-006 | MUST   | Include 3-7 key findings in manifest  |
+| RSCH-007 | MUST   | Set `agent_type: "research"`          |
 
 #### 4.2.2 Consensus Protocol (Exit Code 61)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| CONS-001 | MUST | Use voting matrix with ≥2 options |
-| CONS-003 | MUST | Include confidence scores (0.0-1.0) |
-| CONS-004 | MUST | Meet 50% weighted threshold for PROVEN |
-| CONS-006 | MUST | Escalate to HITL when threshold not reached |
-| CONS-007 | MUST | Set `agent_type: "analysis"` |
+| ID       | Level | Requirement                                 |
+| -------- | ----- | ------------------------------------------- |
+| CONS-001 | MUST  | Use voting matrix with ≥2 options           |
+| CONS-003 | MUST  | Include confidence scores (0.0-1.0)         |
+| CONS-004 | MUST  | Meet 50% weighted threshold for PROVEN      |
+| CONS-006 | MUST  | Escalate to HITL when threshold not reached |
+| CONS-007 | MUST  | Set `agent_type: "analysis"`                |
 
 #### 4.2.3 Specification Protocol (Exit Code 62)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| SPEC-001 | MUST | Use RFC 2119 keywords (MUST/SHOULD/MAY) |
-| SPEC-002 | MUST | Include version number (semver) |
-| SPEC-003 | SHOULD | Define scope and authority |
-| SPEC-004 | SHOULD | Include conformance criteria |
-| SPEC-007 | MUST | Set `agent_type: "specification"` |
+| ID       | Level  | Requirement                             |
+| -------- | ------ | --------------------------------------- |
+| SPEC-001 | MUST   | Use RFC 2119 keywords (MUST/SHOULD/MAY) |
+| SPEC-002 | MUST   | Include version number (semver)         |
+| SPEC-003 | SHOULD | Define scope and authority              |
+| SPEC-004 | SHOULD | Include conformance criteria            |
+| SPEC-007 | MUST   | Set `agent_type: "specification"`       |
 
 #### 4.2.4 Decomposition Protocol (Exit Code 63)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| DCMP-001 | MUST | Follow MECE principle |
-| DCMP-002 | MUST | Map dependencies (no cycles) |
-| DCMP-003 | MUST | Respect max depth 3 (epic→task→subtask) |
-| DCMP-004 | MUST | Verify atomicity for leaf tasks |
-| DCMP-005 | MUST NOT | Include time estimates |
-| DCMP-006 | MUST | Max 7 siblings per parent |
-| DCMP-007 | MUST | Set `agent_type: "specification"` |
+| ID       | Level    | Requirement                                     |
+| -------- | -------- | ----------------------------------------------- |
+| DCMP-001 | MUST     | Follow MECE principle                           |
+| DCMP-002 | MUST     | Map dependencies (no cycles)                    |
+| DCMP-003 | MUST     | Respect max depth 3 (epic→task→subtask)         |
+| DCMP-004 | MUST     | Verify atomicity for leaf tasks                 |
+| DCMP-005 | MUST NOT | Include time estimates                          |
+| DCMP-006 | MUST     | Respect `hierarchy.maxSiblings` (0 = unlimited) |
+| DCMP-007 | MUST     | Set `agent_type: "specification"`               |
 
 #### 4.2.5 Implementation Protocol (Exit Code 64)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| IMPL-003 | MUST | Include @task provenance tags |
-| IMPL-004 | SHOULD | Pass all tests |
-| IMPL-006 | SHOULD | Follow project code style |
-| IMPL-007 | MUST | Set `agent_type: "implementation"` |
+| ID       | Level  | Requirement                        |
+| -------- | ------ | ---------------------------------- |
+| IMPL-003 | MUST   | Include @task provenance tags      |
+| IMPL-004 | SHOULD | Pass all tests                     |
+| IMPL-006 | SHOULD | Follow project code style          |
+| IMPL-007 | MUST   | Set `agent_type: "implementation"` |
 
 #### 4.2.6 Contribution Protocol (Exit Code 65)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| CONT-001 | MUST | Follow commit message conventions |
-| CONT-002 | MUST | Include provenance tags (@task/@session) |
-| CONT-003 | MUST | Pass validation gates before merge |
-| CONT-005 | SHOULD | Flag conflicts with other sessions |
-| CONT-007 | MUST | Set `agent_type: "implementation"` |
+| ID       | Level  | Requirement                              |
+| -------- | ------ | ---------------------------------------- |
+| CONT-001 | MUST   | Follow commit message conventions        |
+| CONT-002 | MUST   | Include provenance tags (@task/@session) |
+| CONT-003 | MUST   | Pass validation gates before merge       |
+| CONT-005 | SHOULD | Flag conflicts with other sessions       |
+| CONT-007 | MUST   | Set `agent_type: "implementation"`       |
 
 #### 4.2.7 Release Protocol (Exit Code 66)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| RLSE-001 | MUST | Follow semver (major.minor.patch) |
-| RLSE-002 | MUST | Include changelog entry |
-| RLSE-003 | SHOULD | Pass all tests |
-| RLSE-004 | MUST | Git tag matches version |
-| RLSE-007 | MUST | Set `agent_type: "documentation"` |
+| ID       | Level  | Requirement                       |
+| -------- | ------ | --------------------------------- |
+| RLSE-001 | MUST   | Follow semver (major.minor.patch) |
+| RLSE-002 | MUST   | Include changelog entry           |
+| RLSE-003 | SHOULD | Pass all tests                    |
+| RLSE-004 | MUST   | Git tag matches version           |
+| RLSE-007 | MUST   | Set `agent_type: "documentation"` |
 
 #### 4.2.8 Validation Protocol (Exit Code 68)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| VALID-001 | MUST | Verify output matches spec |
-| VALID-002 | MUST | Execute test suite |
-| VALID-003 | MUST | Check protocol compliance |
-| VALID-006 | MUST | Set `agent_type: "validation"` |
+| ID        | Level | Requirement                    |
+| --------- | ----- | ------------------------------ |
+| VALID-001 | MUST  | Verify output matches spec     |
+| VALID-002 | MUST  | Execute test suite             |
+| VALID-003 | MUST  | Check protocol compliance      |
+| VALID-006 | MUST  | Set `agent_type: "validation"` |
 
 #### 4.2.9 Testing Protocol (Exit Codes 69/70)
 
-| ID | Level | Requirement |
-|----|-------|-------------|
-| TEST-001 | MUST | Use configured test framework |
-| TEST-004 | MUST | Achieve 100% pass rate |
-| TEST-005 | MUST | Cover all MUST requirements |
-| TEST-007 | MUST | Set `agent_type: "testing"` |
+| ID       | Level | Requirement                   |
+| -------- | ----- | ----------------------------- |
+| TEST-001 | MUST  | Use configured test framework |
+| TEST-004 | MUST  | Achieve 100% pass rate        |
+| TEST-005 | MUST  | Cover all MUST requirements   |
+| TEST-007 | MUST  | Set `agent_type: "testing"`   |
 
 Exit code 69 = tests skipped/incomplete, 70 = coverage insufficient.
 
@@ -634,11 +659,13 @@ implementation ──GATE──► validation ──GATE──► testing ──
 ```
 
 **Gate Check Behavior**:
+
 - `completed` → proceed to next stage
 - `skipped` → proceed (for optional stages)
 - `pending` → BLOCKED (exit 75: E_LIFECYCLE_GATE_FAILED)
 
 **Enforcement Modes** (configurable in `.cleo/config.json`):
+
 - `strict`: Block spawn on gate failure (default)
 - `advisory`: Warn but proceed
 - `off`: Skip all checks (emergency only)
@@ -649,82 +676,82 @@ implementation ──GATE──► validation ──GATE──► testing ──
 
 ### 5.1 General Errors (1-9)
 
-| Code | Constant | Description |
-|------|----------|-------------|
-| 0 | SUCCESS | Operation completed successfully |
-| 1 | E_GENERAL | General error |
-| 2 | E_INVALID_INPUT | Invalid parameters |
-| 3 | E_FILE_ERROR | File read/write error |
-| 4 | E_NOT_FOUND | Resource not found |
-| 5 | E_DEPENDENCY | Missing dependency |
-| 6 | E_VALIDATION | Validation failed |
-| 7 | E_RETRYABLE | Transient error, retry with backoff |
+| Code | Constant        | Description                         |
+| ---- | --------------- | ----------------------------------- |
+| 0    | SUCCESS         | Operation completed successfully    |
+| 1    | E_GENERAL       | General error                       |
+| 2    | E_INVALID_INPUT | Invalid parameters                  |
+| 3    | E_FILE_ERROR    | File read/write error               |
+| 4    | E_NOT_FOUND     | Resource not found                  |
+| 5    | E_DEPENDENCY    | Missing dependency                  |
+| 6    | E_VALIDATION    | Validation failed                   |
+| 7    | E_RETRYABLE     | Transient error, retry with backoff |
 
 ### 5.2 Hierarchy Errors (10-19)
 
-| Code | Constant | Description |
-|------|----------|-------------|
-| 10 | E_PARENT_NOT_FOUND | Parent task does not exist |
-| 11 | E_DEPTH_EXCEEDED | Max hierarchy depth (3) exceeded |
-| 12 | E_SIBLING_LIMIT | Max siblings (7) exceeded |
-| 13 | E_CIRCULAR_DEP | Circular dependency detected |
+| Code | Constant           | Description                       |
+| ---- | ------------------ | --------------------------------- |
+| 10   | E_PARENT_NOT_FOUND | Parent task does not exist        |
+| 11   | E_DEPTH_EXCEEDED   | Max hierarchy depth (3) exceeded  |
+| 12   | E_SIBLING_LIMIT    | Configured sibling limit exceeded |
+| 13   | E_CIRCULAR_DEP     | Circular dependency detected      |
 
 ### 5.3 Session Errors (30-39)
 
-| Code | Constant | Description |
-|------|----------|-------------|
-| 38 | E_ACTIVE_TASK_REQUIRED | Active task must be set |
-| 100 | E_SESSION_DISCOVERY | Session scope discovery mode |
+| Code | Constant               | Description                  |
+| ---- | ---------------------- | ---------------------------- |
+| 38   | E_ACTIVE_TASK_REQUIRED | Active task must be set      |
+| 100  | E_SESSION_DISCOVERY    | Session scope discovery mode |
 
 ### 5.4 Gate Errors (40-49)
 
-| Code | Constant | Description |
-|------|----------|-------------|
-| 40 | E_GATE_UPDATE_FAILED | Cannot update gate status |
-| 41 | E_VERIFICATION_LOCKED | Gate state locked |
-| 42 | E_INVALID_GATE | Unknown gate name |
-| 43 | E_INVALID_AGENT | Invalid agent ID |
+| Code | Constant              | Description               |
+| ---- | --------------------- | ------------------------- |
+| 40   | E_GATE_UPDATE_FAILED  | Cannot update gate status |
+| 41   | E_VERIFICATION_LOCKED | Gate state locked         |
+| 42   | E_INVALID_GATE        | Unknown gate name         |
+| 43   | E_INVALID_AGENT       | Invalid agent ID          |
 
 ### 5.5 Context Errors (50-59)
 
-| Code | Constant | Description |
-|------|----------|-------------|
-| 50 | E_CONTEXT_CRITICAL | Context budget critical |
-| 51 | E_CONTEXT_HIGH | Context budget high |
-| 52 | E_CONTEXT_MEDIUM | Context budget medium |
+| Code | Constant           | Description             |
+| ---- | ------------------ | ----------------------- |
+| 50   | E_CONTEXT_CRITICAL | Context budget critical |
+| 51   | E_CONTEXT_HIGH     | Context budget high     |
+| 52   | E_CONTEXT_MEDIUM   | Context budget medium   |
 
 ### 5.6 Protocol Violations (60-70)
 
-| Code | Constant | Protocol |
-|------|----------|----------|
-| 60 | E_PROTOCOL_RESEARCH | Research violations |
-| 61 | E_PROTOCOL_CONSENSUS | Consensus violations |
-| 62 | E_PROTOCOL_SPECIFICATION | Specification violations |
-| 63 | E_PROTOCOL_DECOMPOSITION | Decomposition violations |
-| 64 | E_PROTOCOL_IMPLEMENTATION | Implementation violations |
-| 65 | E_PROTOCOL_CONTRIBUTION | Contribution violations |
-| 66 | E_PROTOCOL_RELEASE | Release violations |
-| 67 | E_PROTOCOL_GENERIC | Generic protocol violation |
-| 68 | E_PROTOCOL_VALIDATION | Validation violations |
-| 69 | E_TESTS_SKIPPED | Tests not run/incomplete |
-| 70 | E_COVERAGE_INSUFFICIENT | Coverage below threshold |
+| Code | Constant                  | Protocol                   |
+| ---- | ------------------------- | -------------------------- |
+| 60   | E_PROTOCOL_RESEARCH       | Research violations        |
+| 61   | E_PROTOCOL_CONSENSUS      | Consensus violations       |
+| 62   | E_PROTOCOL_SPECIFICATION  | Specification violations   |
+| 63   | E_PROTOCOL_DECOMPOSITION  | Decomposition violations   |
+| 64   | E_PROTOCOL_IMPLEMENTATION | Implementation violations  |
+| 65   | E_PROTOCOL_CONTRIBUTION   | Contribution violations    |
+| 66   | E_PROTOCOL_RELEASE        | Release violations         |
+| 67   | E_PROTOCOL_GENERIC        | Generic protocol violation |
+| 68   | E_PROTOCOL_VALIDATION     | Validation violations      |
+| 69   | E_TESTS_SKIPPED           | Tests not run/incomplete   |
+| 70   | E_COVERAGE_INSUFFICIENT   | Coverage below threshold   |
 
 ### 5.7 Lifecycle Errors (75-79)
 
-| Code | Constant | Description |
-|------|----------|-------------|
-| 75 | E_LIFECYCLE_GATE_FAILED | Prerequisites not met |
-| 76 | E_AUDIT_MISSING | Required audit missing |
-| 77 | E_CIRCULAR_VALIDATION | Circular dependency in validation |
-| 78 | E_LIFECYCLE_TRANSITION_INVALID | Invalid state transition |
-| 79 | E_PROVENANCE_REQUIRED | Provenance tags missing |
+| Code | Constant                       | Description                       |
+| ---- | ------------------------------ | --------------------------------- |
+| 75   | E_LIFECYCLE_GATE_FAILED        | Prerequisites not met             |
+| 76   | E_AUDIT_MISSING                | Required audit missing            |
+| 77   | E_CIRCULAR_VALIDATION          | Circular dependency in validation |
+| 78   | E_LIFECYCLE_TRANSITION_INVALID | Invalid state transition          |
+| 79   | E_PROVENANCE_REQUIRED          | Provenance tags missing           |
 
 ### 5.8 Special Codes (100+)
 
-| Code | Constant | Description |
-|------|----------|-------------|
-| 100 | E_SESSION_DISCOVERY | Not an error - discovery mode |
-| 101 | E_DUPLICATE_ID | Duplicate ID found |
+| Code | Constant            | Description                   |
+| ---- | ------------------- | ----------------------------- |
+| 100  | E_SESSION_DISCOVERY | Not an error - discovery mode |
+| 101  | E_DUPLICATE_ID      | Duplicate ID found            |
 
 ---
 
@@ -738,32 +765,44 @@ implementation ──GATE──► validation ──GATE──► testing ──
 
 #### 6.1.1 Required Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique entry ID (format: `T####-slug`) |
-| `file` | string | Relative path to output file |
-| `title` | string | Human-readable title |
-| `date` | string | ISO 8601 date (YYYY-MM-DD) |
-| `status` | enum | `complete`, `partial`, `blocked` |
-| `agent_type` | string | Protocol type used |
-| `topics` | array | Category tags (3-7 items) |
-| `key_findings` | array | Key outcomes (3-7 items for research) |
-| `actionable` | boolean | Whether findings are actionable |
+| Field          | Type    | Description                            |
+| -------------- | ------- | -------------------------------------- |
+| `id`           | string  | Unique entry ID (format: `T####-slug`) |
+| `file`         | string  | Relative path to output file           |
+| `title`        | string  | Human-readable title                   |
+| `date`         | string  | ISO 8601 date (YYYY-MM-DD)             |
+| `status`       | enum    | `complete`, `partial`, `blocked`       |
+| `agent_type`   | string  | Protocol type used                     |
+| `topics`       | array   | Category tags (3-7 items)              |
+| `key_findings` | array   | Key outcomes (3-7 items for research)  |
+| `actionable`   | boolean | Whether findings are actionable        |
 
 #### 6.1.2 Optional Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `needs_followup` | array | Task IDs requiring follow-up |
-| `linked_tasks` | array | Related task IDs |
-| `confidence` | number | Confidence score (0.0-1.0) |
-| `file_checksum` | string | SHA256 of output file |
-| `duration_seconds` | integer | Wall-clock completion time |
+| Field              | Type    | Description                  |
+| ------------------ | ------- | ---------------------------- |
+| `needs_followup`   | array   | Task IDs requiring follow-up |
+| `linked_tasks`     | array   | Related task IDs             |
+| `confidence`       | number  | Confidence score (0.0-1.0)   |
+| `file_checksum`    | string  | SHA256 of output file        |
+| `duration_seconds` | integer | Wall-clock completion time   |
 
 #### 6.1.3 Example Entry
 
 ```json
-{"id":"T2405-token-resolution","file":"lib/token-inject.sh","title":"Enhanced Token Pre-Resolution","date":"2026-01-26","status":"complete","agent_type":"implementation","topics":["token","injection","orchestrator"],"key_findings":["Added 30+ new tokens","Implemented ti_set_full_context()"],"actionable":true,"needs_followup":[],"linked_tasks":["T2392","T2405"]}
+{
+  "id": "T2405-token-resolution",
+  "file": "lib/token-inject.sh",
+  "title": "Enhanced Token Pre-Resolution",
+  "date": "2026-01-26",
+  "status": "complete",
+  "agent_type": "implementation",
+  "topics": ["token", "injection", "orchestrator"],
+  "key_findings": ["Added 30+ new tokens", "Implemented ti_set_full_context()"],
+  "actionable": true,
+  "needs_followup": [],
+  "linked_tasks": ["T2392", "T2405"]
+}
 ```
 
 ### 6.2 Output File Structure
@@ -806,14 +845,14 @@ implemented ──► testsPassed ──► qaPassed ──► cleanupDone ─�
 
 ### 7.2 Gate Definitions
 
-| Gate | Agent | Depends On | Description |
-|------|-------|------------|-------------|
-| `implemented` | coder | (none) | Code implementation complete |
-| `testsPassed` | testing | implemented | All tests passing |
-| `qaPassed` | qa | testsPassed | QA review approved |
-| `cleanupDone` | cleanup | qaPassed | Code cleanup finished |
-| `securityPassed` | security | cleanupDone | Security audit passed |
-| `documented` | docs | securityPassed | Documentation complete |
+| Gate             | Agent    | Depends On     | Description                  |
+| ---------------- | -------- | -------------- | ---------------------------- |
+| `implemented`    | coder    | (none)         | Code implementation complete |
+| `testsPassed`    | testing  | implemented    | All tests passing            |
+| `qaPassed`       | qa       | testsPassed    | QA review approved           |
+| `cleanupDone`    | cleanup  | qaPassed       | Code cleanup finished        |
+| `securityPassed` | security | cleanupDone    | Security audit passed        |
+| `documented`     | docs     | securityPassed | Documentation complete       |
 
 ### 7.3 Gate Status Values
 
@@ -832,30 +871,30 @@ When a gate fails, all downstream gates reset to `null` and must be re-attempted
 
 ### 8.1 Task Anti-Hallucination
 
-| Rule | Check | Severity |
-|------|-------|----------|
-| ID Uniqueness | Unique across todo.json AND archive | Error |
-| Title/Description | Both present AND different content | Error |
-| Status Enum | Must be valid status value | Error |
-| No Future Timestamps | created/updated <= now | Error |
-| No Duplicate Descriptions | Description not already in system | Error |
-| Title Length | 5-100 characters | Error |
-| Description Length | 10-1000 characters | Warning |
-| Parent Exists | If parent specified, must exist | Error |
-| Hierarchy Depth | Max 3 levels | Error |
-| Sibling Limit | Max 7 per parent | Error |
+| Rule                      | Check                               | Severity |
+| ------------------------- | ----------------------------------- | -------- |
+| ID Uniqueness             | Unique across todo.json AND archive | Error    |
+| Title/Description         | Both present AND different content  | Error    |
+| Status Enum               | Must be valid status value          | Error    |
+| No Future Timestamps      | created/updated <= now              | Error    |
+| No Duplicate Descriptions | Description not already in system   | Error    |
+| Title Length              | 5-100 characters                    | Error    |
+| Description Length        | 10-1000 characters                  | Warning  |
+| Parent Exists             | If parent specified, must exist     | Error    |
+| Hierarchy Depth           | Max 3 levels                        | Error    |
+| Sibling Limit             | Max 7 per parent                    | Error    |
 
 ### 8.2 Manifest Validation
 
-| Rule | Check | Severity |
-|------|-------|----------|
-| Valid JSON | Single-line, properly escaped | Error |
-| ID Format | Matches `^T\d{3,}-[a-z0-9-]+$` | Error |
-| Date Format | ISO 8601 YYYY-MM-DD | Error |
-| Status Enum | One of allowed values | Error |
-| File Exists | Referenced file readable | Error |
-| Key Findings Count | 3-7 items (for research) | Error |
-| Agent Type Valid | Known protocol type | Error |
+| Rule               | Check                          | Severity |
+| ------------------ | ------------------------------ | -------- |
+| Valid JSON         | Single-line, properly escaped  | Error    |
+| ID Format          | Matches `^T\d{3,}-[a-z0-9-]+$` | Error    |
+| Date Format        | ISO 8601 YYYY-MM-DD            | Error    |
+| Status Enum        | One of allowed values          | Error    |
+| File Exists        | Referenced file readable       | Error    |
+| Key Findings Count | 3-7 items (for research)       | Error    |
+| Agent Type Valid   | Known protocol type            | Error    |
 
 ### 8.3 Protocol Validation
 
@@ -887,6 +926,7 @@ async function retryOperation(operation, maxAttempts = 3) {
 ### 9.2 Non-Recoverable Errors
 
 Exit codes 75, 78, 79 require human intervention:
+
 - Lifecycle gates cannot be bypassed
 - Invalid transitions must be reversed
 - Provenance requirements cannot be waived
@@ -904,7 +944,10 @@ All errors include actionable fix suggestions:
     "fix": "Create a new parent task to group related work",
     "alternatives": [
       { "action": "List siblings", "command": "cleo list --parent T001" },
-      { "action": "Create new epic", "command": "cleo add \"New Epic\" --type epic" }
+      {
+        "action": "Create new epic",
+        "command": "cleo add \"New Epic\" --type epic"
+      }
     ]
   }
 }
@@ -917,6 +960,7 @@ All errors include actionable fix suggestions:
 ### 10.1 Transport
 
 The MCP server supports:
+
 - **stdio**: Primary transport for local Claude Code integration
 - **StreamableHTTP**: For remote/shared access (future)
 
@@ -929,6 +973,7 @@ MCP Request → Domain Router → CLI Command → Bash Library → Response Form
 ```
 
 This ensures:
+
 - Single source of truth for business logic
 - CLI tests cover MCP behavior
 - Backward compatibility maintained
@@ -936,6 +981,7 @@ This ensures:
 ### 10.3 Atomic Operations
 
 All write operations MUST use the atomic pattern:
+
 1. Write to temporary file
 2. Validate content
 3. Create backup of original
@@ -962,12 +1008,13 @@ Current expected implementation totals:
 ### 10.5 Thread Safety
 
 Concurrent operations are protected via flock on critical files:
+
 - `.cleo/todo.json.lock`
 - `.cleo/MANIFEST.jsonl.lock`
 
 ### 10.6 CLI-MCP Parity Documentation Policy
 
-Parity findings MUST be documented in canonical specifications, not in ad hoc working notes under `mcp-server/docs/`.
+Parity findings MUST be documented in canonical specifications, not in ad hoc working notes.
 
 Required policy:
 
@@ -998,28 +1045,28 @@ These are implementation-alignment concerns. Canonical behavior remains CLI-sema
 const result = await cleo_query({
   domain: "tasks",
   operation: "find",
-  params: { query: "authentication" }
+  params: { query: "authentication" },
 });
 
 // 2. Get task details
 const task = await cleo_query({
   domain: "tasks",
   operation: "show",
-  params: { taskId: "T2405" }
+  params: { taskId: "T2405" },
 });
 
 // 3. Set focus
 await cleo_mutate({
   domain: "tasks",
   operation: "start",
-  params: { taskId: "T2405" }
+  params: { taskId: "T2405" },
 });
 
 // 4. Complete task
 await cleo_mutate({
   domain: "tasks",
   operation: "complete",
-  params: { taskId: "T2405", notes: "Implemented successfully" }
+  params: { taskId: "T2405", notes: "Implemented successfully" },
 });
 ```
 
@@ -1030,28 +1077,28 @@ await cleo_mutate({
 const startup = await cleo_mutate({
   domain: "orchestrate",
   operation: "start",
-  params: { epicId: "T2400" }
+  params: { epicId: "T2400" },
 });
 
 // 2. Check lifecycle prerequisites
 const lifecycle = await cleo_query({
   domain: "lifecycle",
   operation: "validate",
-  params: { taskId: "T2405", targetStage: "implementation" }
+  params: { taskId: "T2405", targetStage: "implementation" },
 });
 
 // 3. Generate spawn prompt
 const spawn = await cleo_mutate({
   domain: "orchestrate",
   operation: "spawn",
-  params: { taskId: "T2405", skill: "ct-task-executor" }
+  params: { taskId: "T2405", skill: "ct-task-executor" },
 });
 
 // 4. Validate protocol compliance after completion
 const validation = await cleo_query({
   domain: "validate",
   operation: "protocol",
-  params: { taskId: "T2405", protocolType: "implementation" }
+  params: { taskId: "T2405", protocolType: "implementation" },
 });
 ```
 
@@ -1062,41 +1109,41 @@ const validation = await cleo_query({
 const gates = await cleo_mutate({
   domain: "release",
   operation: "gates.run",
-  params: { gates: ["tests", "lint", "security"] }
+  params: { gates: ["tests", "lint", "security"] },
 });
 
 // 2. Prepare release
 await cleo_mutate({
   domain: "release",
   operation: "prepare",
-  params: { version: "1.2.0", type: "minor" }
+  params: { version: "1.2.0", type: "minor" },
 });
 
 // 3. Generate changelog
 await cleo_mutate({
   domain: "release",
   operation: "changelog",
-  params: { version: "1.2.0" }
+  params: { version: "1.2.0" },
 });
 
 // 4. Create commit and tag
 await cleo_mutate({
   domain: "release",
   operation: "commit",
-  params: { version: "1.2.0" }
+  params: { version: "1.2.0" },
 });
 
 await cleo_mutate({
   domain: "release",
   operation: "tag",
-  params: { version: "1.2.0" }
+  params: { version: "1.2.0" },
 });
 
 // 5. Push
 await cleo_mutate({
   domain: "release",
   operation: "push",
-  params: { version: "1.2.0" }
+  params: { version: "1.2.0" },
 });
 ```
 
@@ -1155,6 +1202,7 @@ In `.cleo/config.json`:
 ### 13.1 Input Validation
 
 All inputs MUST be validated:
+
 - Task IDs: Pattern `^T[0-9]+$`
 - Paths: No traversal (`..`), within project root
 - Content: Size limits, no control characters
@@ -1163,6 +1211,7 @@ All inputs MUST be validated:
 ### 13.2 Permission Model
 
 The two-gateway design enables permission separation:
+
 - **Read-only access**: Grant `cleo_query` only
 - **Full access**: Grant both gateways
 - **Audit trail**: All mutations logged
@@ -1170,6 +1219,7 @@ The two-gateway design enables permission separation:
 ### 13.3 Rate Limiting
 
 Recommended limits:
+
 - Query operations: 100/minute
 - Mutate operations: 30/minute
 - Spawn operations: 10/minute
@@ -1182,56 +1232,56 @@ Recommended limits:
 
 #### cleo_query Domains
 
-| Domain | Operations |
-|--------|------------|
-| tasks | show, list, find, exists, tree, blockers, depends, analyze, next, relates, complexity.estimate, current |
-| session | status, list, show, history, decision.log, context.drift |
-| orchestrate | status, next, ready, analyze, context, waves, skill.list, bootstrap, unblock.opportunities, critical.path |
-| research | show, list, find, pending, stats, manifest.read, contradictions, superseded |
-| lifecycle | validate, status, history, gates, prerequisites |
-| validate | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage, coherence.check |
-| system | version, health, config.get, stats, context, job.status, job.list, dash, roadmap, labels, compliance, log, archive.stats, sequence |
-| issues | diagnostics |
-| skills | list, show, find, dispatch, verify, dependencies |
-| providers | list, detect, inject.status |
+| Domain      | Operations                                                                                                                         |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| tasks       | show, list, find, exists, tree, blockers, depends, analyze, next, relates, complexity.estimate, current                            |
+| session     | status, list, show, history, decision.log, context.drift                                                                           |
+| orchestrate | status, next, ready, analyze, context, waves, skill.list, bootstrap, unblock.opportunities, critical.path                          |
+| research    | show, list, find, pending, stats, manifest.read, contradictions, superseded                                                        |
+| lifecycle   | validate, status, history, gates, prerequisites                                                                                    |
+| validate    | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage, coherence.check   |
+| system      | version, health, config.get, stats, context, job.status, job.list, dash, roadmap, labels, compliance, log, archive.stats, sequence |
+| issues      | diagnostics                                                                                                                        |
+| skills      | list, show, find, dispatch, verify, dependencies                                                                                   |
+| providers   | list, detect, inject.status                                                                                                        |
 
 #### cleo_mutate Domains
 
-| Domain | Operations |
-|--------|------------|
-| tasks | add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, relates.add, uncancel, start, stop |
-| session | start, end, resume, suspend, gc, record.decision, record.assumption |
-| orchestrate | start, spawn, validate, parallel.start, parallel.end |
-| research | inject, link, manifest.append, manifest.archive |
-| lifecycle | record, skip, reset, gate.pass, gate.fail |
-| validate | compliance.record, test.run |
-| release | prepare, changelog, commit, tag, push, gates.run, rollback |
-| system | init, config.set, backup, restore, migrate, sync, cleanup, job.cancel, safestop, uncancel, inject.generate |
-| issues | create.bug, create.feature, create.help |
-| skills | install, uninstall, enable, disable, configure, refresh |
-| providers | inject |
+| Domain      | Operations                                                                                                              |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------- |
+| tasks       | add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, relates.add, uncancel, start, stop |
+| session     | start, end, resume, suspend, gc, record.decision, record.assumption                                                     |
+| orchestrate | start, spawn, validate, parallel.start, parallel.end                                                                    |
+| research    | inject, link, manifest.append, manifest.archive                                                                         |
+| lifecycle   | record, skip, reset, gate.pass, gate.fail                                                                               |
+| validate    | compliance.record, test.run                                                                                             |
+| release     | prepare, changelog, commit, tag, push, gates.run, rollback                                                              |
+| system      | init, config.set, backup, restore, migrate, sync, cleanup, job.cancel, safestop, uncancel, inject.generate              |
+| issues      | create.bug, create.feature, create.help                                                                                 |
+| skills      | install, uninstall, enable, disable, configure, refresh                                                                 |
+| providers   | inject                                                                                                                  |
 
 ### Appendix B: Exit Code Summary
 
-| Range | Category | Retryable |
-|-------|----------|-----------|
-| 0 | Success | N/A |
-| 1-9 | General errors | Some (7) |
-| 10-19 | Hierarchy errors | No |
-| 30-39 | Session errors | No |
-| 40-49 | Gate errors | No |
-| 50-59 | Context errors | Yes |
-| 60-70 | Protocol violations | Some (60-63) |
-| 75-79 | Lifecycle errors | No |
-| 100+ | Special (not errors) | N/A |
+| Range | Category             | Retryable    |
+| ----- | -------------------- | ------------ |
+| 0     | Success              | N/A          |
+| 1-9   | General errors       | Some (7)     |
+| 10-19 | Hierarchy errors     | No           |
+| 30-39 | Session errors       | No           |
+| 40-49 | Gate errors          | No           |
+| 50-59 | Context errors       | Yes          |
+| 60-70 | Protocol violations  | Some (60-63) |
+| 75-79 | Lifecycle errors     | No           |
+| 100+  | Special (not errors) | N/A          |
 
 ### Appendix C: Token Budget
 
-| Approach | Tools | Tokens | % of 200K |
-|----------|-------|--------|-----------|
-| Flat CLI (80+ commands) | 80+ | ~40,000 | 20.0% |
-| 8 Gateways | 8 | ~4,000 | 2.0% |
-| **2 Gateways (this spec)** | **2** | **~1,800** | **0.9%** |
+| Approach                   | Tools | Tokens     | % of 200K |
+| -------------------------- | ----- | ---------- | --------- |
+| Flat CLI (80+ commands)    | 80+   | ~40,000    | 20.0%     |
+| 8 Gateways                 | 8     | ~4,000     | 2.0%      |
+| **2 Gateways (this spec)** | **2** | **~1,800** | **0.9%**  |
 
 ---
 

@@ -12,16 +12,16 @@ CLEO implements **protocol enforcement** to ensure all agent-generated outputs c
 
 ### Exit Codes
 
-| Code | Protocol | Description |
-|------|----------|-------------|
-| 60 | Research | Research protocol violation |
-| 61 | Consensus | Consensus protocol violation |
-| 62 | Specification | Specification protocol violation |
-| 63 | Decomposition | Decomposition protocol violation |
-| 64 | Implementation | Implementation protocol violation |
-| 65 | Contribution | Contribution protocol violation |
-| 66 | Release | Release protocol violation |
-| 67 | Generic | Unknown protocol or generic violation |
+| Code | Protocol       | Description                           |
+| ---- | -------------- | ------------------------------------- |
+| 60   | Research       | Research protocol violation           |
+| 61   | Consensus      | Consensus protocol violation          |
+| 62   | Specification  | Specification protocol violation      |
+| 63   | Decomposition  | Decomposition protocol violation      |
+| 64   | Implementation | Implementation protocol violation     |
+| 65   | Contribution   | Contribution protocol violation       |
+| 66   | Release        | Release protocol violation            |
+| 67   | Generic        | Unknown protocol or generic violation |
 
 ### Common Commands
 
@@ -55,13 +55,14 @@ When you complete a task using a protocol-specific workflow:
 
 ### Validation Modes
 
-| Mode | Strictness | Use Case |
-|------|-----------|----------|
-| **Default** | Errors only | Normal operations |
-| **Strict** | Errors + warnings | Pre-release validation |
-| **CI/CD** | Strict + blocking | Automated pipelines |
+| Mode        | Strictness        | Use Case               |
+| ----------- | ----------------- | ---------------------- |
+| **Default** | Errors only       | Normal operations      |
+| **Strict**  | Errors + warnings | Pre-release validation |
+| **CI/CD**   | Strict + blocking | Automated pipelines    |
 
 Enable strict mode:
+
 ```bash
 cleo research validate T1234 --strict
 ```
@@ -73,18 +74,21 @@ cleo research validate T1234 --strict
 ### 1. Research Protocol (RSCH)
 
 **Required manifest fields:**
+
 - `agent_type: "research"`
 - `key_findings: [...]` (3-7 items)
 - `topics: [...]` (1+ items)
 - `sources: [...]` (strict mode only)
 
 **Constraints:**
+
 - **RSCH-001**: MUST NOT modify code files
 - **RSCH-002**: SHOULD include sources (warning in strict)
 - **RSCH-006**: MUST have 3-7 key_findings
 - **RSCH-007**: MUST set agent_type to "research"
 
 **Example violation:**
+
 ```json
 {
   "valid": false,
@@ -100,6 +104,7 @@ cleo research validate T1234 --strict
 ```
 
 **Fix:**
+
 ```bash
 # Add more key findings to manifest entry
 jq '.key_findings += ["Additional insight from research"]' MANIFEST.jsonl
@@ -110,22 +115,25 @@ jq '.key_findings += ["Additional insight from research"]' MANIFEST.jsonl
 ### 2. Consensus Protocol (CONS)
 
 **Required manifest fields:**
+
 - `agent_type: "consensus"`
 - `voting_matrix: {...}` with options, votes, confidence scores
 
 **Constraints:**
+
 - **CONS-001**: MUST have 2+ options
 - **CONS-003**: Confidence scores must be 0-100
 - **CONS-004**: MUST meet 60% confidence threshold
 - **CONS-007**: MUST set agent_type to "consensus"
 
 **Example voting matrix:**
+
 ```json
 {
   "options": ["approach-a", "approach-b"],
   "votes": {
-    "approach-a": {"confidence": 75, "agents": ["agent-1", "agent-2"]},
-    "approach-b": {"confidence": 45, "agents": ["agent-3"]}
+    "approach-a": { "confidence": 75, "agents": ["agent-1", "agent-2"] },
+    "approach-b": { "confidence": 45, "agents": ["agent-3"] }
   },
   "winner": "approach-a",
   "threshold_met": true
@@ -137,17 +145,20 @@ jq '.key_findings += ["Additional insight from research"]' MANIFEST.jsonl
 ### 3. Specification Protocol (SPEC)
 
 **Required manifest fields:**
+
 - `agent_type: "specification"`
 - `version: "x.y.z"`
 - `rfc2119_keywords: true` (file must contain MUST/SHOULD/MAY)
 
 **Constraints:**
+
 - **SPEC-001**: MUST use RFC 2119 keywords
 - **SPEC-002**: MUST include version field
 - **SPEC-003**: SHOULD include authority section (strict)
 - **SPEC-007**: MUST set agent_type to "specification"
 
 **RFC 2119 keywords:**
+
 - MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT
 - SHOULD, SHOULD NOT, RECOMMENDED
 - MAY, OPTIONAL
@@ -157,13 +168,15 @@ jq '.key_findings += ["Additional insight from research"]' MANIFEST.jsonl
 ### 4. Decomposition Protocol (DCMP)
 
 **Required data:**
+
 - Parent epic ID
 - Child task IDs array
 - Task hierarchy validation
 
 **Constraints:**
+
 - **DCMP-004**: Child descriptions SHOULD be clear (strict)
-- **DCMP-006**: MUST NOT exceed 7 siblings per parent
+- **DCMP-006**: Siblings MUST respect `hierarchy.maxSiblings` (0 = unlimited)
 - **DCMP-007**: MUST set agent_type to "decomposition"
 
 ---
@@ -171,14 +184,17 @@ jq '.key_findings += ["Additional insight from research"]' MANIFEST.jsonl
 ### 5. Implementation Protocol (IMPL)
 
 **Required manifest fields:**
+
 - `agent_type: "implementation"`
 - `functions_added: [...]` with @task tags
 
 **Constraints:**
+
 - **IMPL-003**: New functions MUST have @task tags
 - **IMPL-007**: MUST set agent_type to "implementation"
 
 **Example @task tag:**
+
 ```bash
 # Validate user input
 # @task T1234
@@ -195,14 +211,17 @@ validate_input() {
 ### 6. Contribution Protocol (CONT)
 
 **Required manifest fields:**
+
 - `agent_type: "contribution"`
 - `functions_tagged: [...]` with @task and @contribution tags
 
 **Constraints:**
+
 - **CONT-002**: Functions MUST have @task tags
 - **CONT-007**: MUST set agent_type to "contribution"
 
 **Example contribution tag:**
+
 ```bash
 # Enhanced validation with caching
 # @task T2345
@@ -218,10 +237,12 @@ validate_with_cache() {
 ### 7. Release Protocol (RLSE)
 
 **Required data:**
+
 - Version string (semver)
 - Changelog entry
 
 **Constraints:**
+
 - **RLSE-001**: Version MUST be valid semver (x.y.z)
 - **RLSE-002**: MUST include changelog entry
 - **RLSE-007**: MUST set agent_type to "release"
@@ -269,6 +290,7 @@ git commit --no-verify -m "emergency hotfix"
 ```
 
 **Bypasses are logged** to `.cleo/bypass-log.json`:
+
 ```json
 {
   "timestamp": "2026-01-28T09:30:00Z",
@@ -287,6 +309,7 @@ git commit --no-verify -m "emergency hotfix"
 ### Error: Exit code 60-67
 
 **Diagnosis:**
+
 ```bash
 # Check validation output
 cleo research validate T1234 --verbose
@@ -296,6 +319,7 @@ jq '.violations' < /tmp/validation-result.json
 ```
 
 **Resolution:**
+
 1. Read violation messages
 2. Update manifest entry or output file
 3. Re-run validation
@@ -306,12 +330,14 @@ jq '.violations' < /tmp/validation-result.json
 ### Error: Missing @task tags
 
 **Symptom:**
+
 ```
 IMPL-003 violation: New functions must have @task tags
 Found 3 new functions without tags
 ```
 
 **Fix:**
+
 ```bash
 # Add @task tag to each new function
 # Before:
@@ -331,11 +357,13 @@ my_function() {
 ### Error: Insufficient key_findings
 
 **Symptom:**
+
 ```
 RSCH-006 violation: key_findings must contain 3-7 items (found: 2)
 ```
 
 **Fix:**
+
 ```bash
 # Edit MANIFEST.jsonl and add findings
 jq '.key_findings += ["Additional research finding"]' MANIFEST.jsonl
@@ -346,11 +374,13 @@ jq '.key_findings += ["Additional research finding"]' MANIFEST.jsonl
 ### Error: Invalid semver format
 
 **Symptom:**
+
 ```
 RLSE-001 violation: Version must be valid semver (found: "v1.2")
 ```
 
 **Fix:**
+
 ```bash
 # Use proper semver format
 cleo release --version 1.2.0  # Not "v1.2" or "1.2"
@@ -392,6 +422,7 @@ jobs:
 Enforcement score = `(passed_requirements / total_requirements) * 100`
 
 **Thresholds:**
+
 - **≥90%**: Excellent enforcement
 - **60-89%**: Acceptable enforcement
 - **<60%**: Failed enforcement (blocks completion)

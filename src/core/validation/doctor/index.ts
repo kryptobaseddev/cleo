@@ -13,6 +13,7 @@ export {
   checkAtReferenceResolution,
   checkNodeVersion,
   checkRootGitignore,
+  checkCoreFilesNotIgnored,
   runAllGlobalChecks,
   calculateHealthStatus,
 } from './checks.js';

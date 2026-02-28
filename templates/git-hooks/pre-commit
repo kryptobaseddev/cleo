@@ -1,15 +1,13 @@
 #!/bin/sh
-# Pre-commit guardrails — reject SQLite runtime files.
-#
-# SQLite WAL/SHM/journal files are runtime artifacts that must never be
-# committed. They can corrupt the database when checked out on another
-# machine. This covers tasks.db, brain.db, and any future SQLite databases.
+# Pre-commit guardrails:
+#   1. Reject SQLite WAL/SHM files (data corruption risk).
+#   2. Block commits when core CLEO files are gitignored (data integrity).
 #
 # Installation: Automatically installed via `cleo init`
 
 set -e
 
-# ── WAL/SHM/journal files ─────────────────────────────────────────────
+# ── 1. WAL/SHM/journal files ──────────────────────────────────────────
 BAD_FILES=$(git diff --cached --name-only | grep -E '\.(db-wal|db-shm|db-journal)$' || true)
 
 if [ -n "$BAD_FILES" ]; then
@@ -18,5 +16,25 @@ if [ -n "$BAD_FILES" ]; then
   echo ""
   echo "These are runtime files that must never be tracked in git."
   echo "To fix: git rm --cached <file>"
+  exit 1
+fi
+
+# ── 2. Core file gitignore protection ─────────────────────────────────
+PROTECTED_FILES=".cleo/tasks.db .cleo/config.json .cleo/.gitignore .cleo/project-info.json .cleo/project-context.json"
+IGNORED_CORE=""
+
+for f in $PROTECTED_FILES; do
+  if [ -f "$f" ] && git check-ignore -q "$f" 2>/dev/null; then
+    IGNORED_CORE="$IGNORED_CORE $f"
+  fi
+done
+
+if [ -n "$IGNORED_CORE" ]; then
+  echo "ERROR: Critical CLEO files are being ignored by .gitignore:"
+  echo "$IGNORED_CORE"
+  echo ""
+  echo "These files MUST be tracked by git for CLEO data integrity."
+  echo "Check .gitignore and .cleo/.gitignore for rules ignoring these files."
+  echo "To fix: remove the ignore rule, then: git add <file>"
   exit 1
 fi

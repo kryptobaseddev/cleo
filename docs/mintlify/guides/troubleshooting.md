@@ -14,9 +14,9 @@
 
 | Scenario | Cause | Likelihood |
 |----------|-------|------------|
-| Duplicate in archive | Manual JSON editing | Common |
-| Same ID in todo + archive | Interrupted archive operation | Rare |
-| Sequence counter drift | Direct file edits, restore from backup | Uncommon |
+| Duplicate in archive | Manual database editing | Common |
+| Same ID in active + archive | Interrupted archive operation | Rare |
+| Sequence counter drift | Direct database edits, restore from backup | Uncommon |
 | Multiple duplicates | Data corruption, merge conflicts | Very rare |
 
 ### Diagnosis
@@ -29,8 +29,8 @@ cleo validate
 
 Look for errors like:
 ```
-[ERROR] Duplicate task IDs found in todo.json: T001
-[ERROR] IDs exist in both todo.json and archive: T005
+[ERROR] Duplicate task IDs found: T001
+[ERROR] IDs exist in both active tasks and archive: T005
 ```
 
 #### Step 2: Check sequence status
@@ -61,7 +61,7 @@ For each duplicate, choose:
 
 For cross-file duplicates:
 1. **Keep active** - Remove from archive (default)
-2. **Keep archived** - Remove from todo.json
+2. **Keep archived** - Remove from active tasks
 3. **Rename archived** - Append `-archived` suffix
 
 #### Option 2: Non-interactive repair
@@ -84,7 +84,7 @@ Only fixes sequence counter, doesn't resolve existing duplicates.
 
 ### Prevention Best Practices
 
-1. **Never edit JSON files directly** - Use CLI commands only
+1. **Never edit data files directly** - Use CLI commands only
 2. **Don't restore partial backups** - Use `cleo restore` instead
 3. **Run validation after migrations** - `cleo validate`
 4. **Keep sequence file** - Don't delete `.cleo/.sequence`
@@ -183,7 +183,7 @@ cleo validate --fix-orphans delete  # Delete orphaned tasks
 cleo validate-protocol T1234 --verbose
 
 # Check manifest entry
-jq 'select(.id == "T1234-output")' .cleo/agent-outputs/MANIFEST.jsonl
+cleo show T1234 --verbose
 
 # Verify protocol requirements
 cleo protocol show research  # or: consensus, specification, etc.
@@ -196,10 +196,8 @@ cleo protocol show research  # or: consensus, specification, etc.
 # Check if code was modified (RSCH-001)
 git diff --name-only HEAD | grep -E '\.(sh|js|py)$'
 
-# Add more key_findings (RSCH-006)
-jq '.key_findings += ["Additional research finding"]' MANIFEST.jsonl
-
-# Ensure 3-7 key findings in manifest
+# Ensure 3-7 key findings in manifest entry
+# Update the research output file with additional findings
 ```
 
 **For implementation violations (exit 64):**
@@ -354,7 +352,7 @@ parse error: Invalid JSON
 **Fix:**
 ```bash
 # Backup corrupted registry
-mv ~/.cleo/projects-registry.json ~/.cleo/projects-registry.json.backup
+cp ~/.cleo/nexus.db ~/.cleo/nexus.db.backup
 
 # Reinitialize
 cleo nexus init
@@ -424,7 +422,7 @@ unset SKILL_DISPATCH_DEBUG ORCHESTRATOR_SPAWN_DEBUG SUBAGENT_INJECT_DEBUG
 **Debug steps:**
 ```bash
 export SKILL_DISPATCH_DEBUG=1
-cleo show T001 --format json | jq '.task.labels, .task.title'
+cleo show T001 --format json
 # Check if labels or title keywords match expected skill triggers
 ```
 

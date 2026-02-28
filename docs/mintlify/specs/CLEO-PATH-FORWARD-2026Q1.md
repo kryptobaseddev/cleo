@@ -30,7 +30,7 @@ The MCP server now operates as a standalone cross-platform engine, removing the 
 - **Native TypeScript engine** with 29 operations running cross-platform without Bash
 - **Two-tool CQRS gateway**: `cleo_query` (reads) and `cleo_mutate` (writes) across 8 domains (tasks, session, orchestrate, research, lifecycle, validate, release, system)
 - **Hybrid routing**: native TypeScript for core operations, transparent CLI fallback for advanced operations
-- **Capability matrix** (`mcp-server/src/engine/capability-matrix.ts`) defining native vs CLI-backed operations
+- **Capability matrix** (`src/mcp/engine/capability-matrix.ts`) defining native vs CLI-backed operations
 - **Structured error contracts** with `error.fix` suggestions and `error.alternatives` arrays
 
 **Native operation coverage (v0.91.0):**
@@ -206,7 +206,7 @@ This specification covers MCP-first principle rationale, capability matrix, prog
 | Task | Title | Status | Depends |
 |------|-------|--------|---------|
 | T4341 | Publish @cleocode/caamp v0.2.0 to npm | Pending | -- |
-| T4342 | Add @cleocode/caamp ^0.2.0 dependency to mcp-server | Pending | T4341 |
+| T4342 | Add @cleocode/caamp ^0.2.0 as dependency | Pending | T4341 |
 | T4343 | Evaluate extracting T4334 native engine modules into caamp | Pending | T4334, T4342 |
 
 ### 5.3 Shared TypeScript Foundation Opportunity
@@ -340,7 +340,7 @@ Every aspect of this path forward prioritizes agent consumption:
 | T4344 | EPIC: lib/ Hierarchy Refactor | Active |
 | T4352 | EPIC: Manifest Hierarchy + Path Query Engine | Queued |
 | T4341 | Publish @cleocode/caamp v0.2.0 to npm | Pending |
-| T4342 | Add @cleocode/caamp to mcp-server | Pending (blocked) |
+| T4342 | Add @cleocode/caamp as dependency | Pending (blocked) |
 | T2021 | TypeScript Rewrite | Deferred (gated on T2112) |
 | T2112 | Bash Stabilization | Not passed |
 

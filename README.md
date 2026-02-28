@@ -11,8 +11,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.2.6-blue.svg" alt="Version"></a>
-  <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.2.9-blue.svg" alt="Version"></a>
+  <a href="docs/mintlify/developer/specifications/LLM-AGENT-FIRST.mdx"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
 
@@ -133,7 +133,8 @@ Or if installed globally (`npm install -g @cleocode/cleo`):
 {
   "mcpServers": {
     "cleo": {
-      "command": "cleo-mcp"
+      "command": "cleo",
+      "args": ["mcp"]
     }
   }
 }
@@ -141,7 +142,7 @@ Or if installed globally (`npm install -g @cleocode/cleo`):
 
 Supports: Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex
 
-- Canonical MCP contract: [`docs/specs/MCP-SERVER-SPECIFICATION.md`](docs/specs/MCP-SERVER-SPECIFICATION.md)
+- Canonical MCP contract: [`docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md`](docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md)
 - MCP source: [`src/mcp/`](src/mcp/) (gateways, domains, engine)
 - Operation matrix: `src/mcp/gateways/query.ts` and `src/mcp/gateways/mutate.ts`
 
@@ -161,15 +162,15 @@ cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes"
 cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
 ```
 
-10 canonical domains, 164 operations (93 query + 71 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+10 canonical domains, 177 operations (97 query + 80 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
 
 ### Source of Truth Hierarchy
 
 1. [`docs/concepts/vision.md`](docs/concepts/vision.md) - immutable product vision
-2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
+2. [`docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md`](docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
 3. [`README.md`](README.md) - operational public contract
-4. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
-5. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
+4. [`docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
+5. [`docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
 
 ---
 
@@ -249,9 +250,9 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 
 CLEO supports three runtime channels:
 
-- **Stable**: production users (`cleo`, `cleo-mcp`, optional `ct`)
-- **Beta**: prerelease validation (`cleo-beta`, `cleo-mcp-beta`, optional `ct-beta`)
-- **Dev**: contributor-isolated runtime (`cleo-dev`, `cleo-mcp-dev`, no `ct`)
+- **Stable**: production users (`cleo`, optional `ct`; MCP via `cleo mcp`)
+- **Beta**: prerelease validation (`cleo-beta`, optional `ct-beta`; MCP via `cleo-beta mcp`)
+- **Dev**: contributor-isolated runtime (`cleo-dev`, no `ct`; MCP via `cleo-dev mcp`)
 
 The dev channel is designed to run in parallel with stable and should use isolated data (`~/.cleo-dev`).
 
@@ -1221,7 +1222,7 @@ Target metrics (optimized for 1000+ tasks):
 | **Installation** | [Installer Architecture](docs/guides/installer-architecture.md) · [Migration Guide](docs/guides/installer-migration.md) |
 | **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) |
 | **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flows](docs/architecture/DATA-FLOWS.md) · [2-Tier Subagent](docs/architecture/CLEO-SUBAGENT.md) |
-| **Specifications** | [LLM-Agent-First Spec](docs/specs/LLM-AGENT-FIRST-SPEC.md) · [Task ID System](docs/specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) · [Hierarchy Spec](docs/specs/TASK-HIERARCHY-SPEC.md) |
+| **Specifications** | [LLM-Agent-First Spec](docs/mintlify/developer/specifications/LLM-AGENT-FIRST.mdx) · [Task ID System](docs/mintlify/developer/specifications/LLM-TASK-ID-SYSTEM-DESIGN.mdx) · [Hierarchy Spec](docs/mintlify/developer/specifications/TASK-HIERARCHY.mdx) |
 | **Integration** | [Claude Code Guide](docs/integration/CLAUDE-CODE.md) · [CI/CD Integration](docs/ci-cd-integration.md) · [Orchestrator Protocol](docs/guides/ORCHESTRATOR-PROTOCOL.md) |
 
 **Complete documentation**: [docs/INDEX.md](docs/INDEX.md)
@@ -1299,6 +1300,6 @@ See [LICENSING_FAQ.md](LICENSING_FAQ.md) for details.
 <p align="center">
   <a href="docs/INDEX.md">Documentation</a> ·
   <a href="docs/guides/design-philosophy.md">Design Philosophy</a> ·
-  <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md">LLM-Agent-First Spec</a> ·
+  <a href="docs/mintlify/developer/specifications/LLM-AGENT-FIRST.mdx">LLM-Agent-First Spec</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>

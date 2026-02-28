@@ -21,6 +21,7 @@ import type { Task } from '../../types/task.js';
 // Core module imports for accessor-based operations
 import { addTask as coreAddTask } from '../../core/tasks/add.js';
 import { updateTask as coreUpdateTask } from '../../core/tasks/update.js';
+import { completeTask as coreCompleteTask } from '../../core/tasks/complete.js';
 import { deleteTask as coreDeleteTask } from '../../core/tasks/delete.js';
 import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
 import { showTask as coreShowTask } from '../../core/tasks/show.js';
@@ -387,11 +388,22 @@ export async function taskComplete(
   projectRoot: string,
   taskId: string,
   notes?: string
-): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
-  return taskUpdate(projectRoot, taskId, {
-    status: 'done',
-    notes: notes || undefined,
-  });
+): Promise<EngineResult<{ task: TaskRecord; autoCompleted?: string[]; unblockedTasks?: Array<{ id: string; title: string }> }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await coreCompleteTask({ taskId, notes }, undefined, accessor);
+    return {
+      success: true,
+      data: {
+        task: taskToRecord(result.task),
+        ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
+        ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
+      },
+    };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    return { success: false, error: { code: 'E_COMPLETE_FAILED', message } };
+  }
 }
 
 /**

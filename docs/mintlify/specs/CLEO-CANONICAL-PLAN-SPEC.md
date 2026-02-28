@@ -53,7 +53,7 @@ The Bash-to-TypeScript migration is substantially progressed:
 | **SQLite store layer** | Complete (6 tables) | `src/store/sqlite.ts`, `src/store/schema.ts` |
 | **Task engine** | Complete (13 operations) | `src/core/tasks/` -- add, show, list, find, complete, update, delete, archive, deps, analyze, labels, hierarchy, relates |
 | **Session engine** | Complete (5 operations) | `src/core/sessions/` -- start, end, resume, status, list |
-| **System engine** | Complete (7 operations) | `mcp-server/src/engine/system-engine.ts` |
+| **System engine** | Complete (7 operations) | `src/mcp/engine/system-engine.ts` |
 | **8 brain operations** | Complete | MCP native engine operational |
 | **CLI commands** | 76 exist, 50 unregistered | `src/cli/commands/` -- registration in `src/cli/index.ts` pending |
 | **All 79 Bash scripts** | TS equivalents exist | T4567 confirmed full porting |
@@ -66,12 +66,12 @@ The V2 architecture follows a "Salesforce DX sibling" pattern with two interface
 ```
 src/cli/commands/*.ts  -->  src/core/*  -->  src/store/*   (CLI path: 100% compliant)
                                 ^
-mcp-server/src/domains/ -->  mcp-server/src/engine/*        (MCP path: parallel engine)
+src/mcp/domains/       -->  src/mcp/engine/*        (MCP path: parallel engine)
 ```
 
 **CLI layer**: 100% shared-core compliant. All 16 registered commands properly delegate to `src/core/` modules (T4565 verified).
 
-**MCP server layer**: Operates via independent engine at `mcp-server/src/engine/`. This creates duplicate implementations for task CRUD (8 ops), session management (4 ops), and separate data access layers. The engine was intentionally created to allow MCP to function without the Bash CLI, but future unification with `src/core/` is needed (see Remediation in T4565/T4566 report).
+**MCP server layer**: Operates via engine at `src/mcp/engine/`. The MCP engine delegates to `src/core/` shared-core modules through the CQRS dispatch layer (ADR-003, ADR-008). The legacy `mcp-server/` directory has been archived and replaced by `src/mcp/`.
 
 ### 2.3 Engine and Operations
 
@@ -258,7 +258,7 @@ These are now supporting references under this canonical layer.
 | D1-D6 rationale and original constraints | `claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md` |
 | Parallel-tracks migration authority and convergence criteria | `docs/specs/CLEO-MIGRATION-DOCTRINE.md` |
 | LAFS-native architecture design and conformance rules | `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` |
-| Code-verified operation counts and engine status | `mcp-server/src/engine/capability-matrix.ts`, `mcp-server/src/gateways/query.ts`, `mcp-server/src/gateways/mutate.ts`, `mcp-server/package.json` |
+| Code-verified operation counts and engine status | `src/mcp/engine/capability-matrix.ts`, `src/mcp/gateways/query.ts`, `src/mcp/gateways/mutate.ts`, `package.json` |
 | Shared-core compliance audit (CLI 100%, MCP 0%) | `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` |
 | Documentation inventory (1,778 files) | `.cleo/agent-outputs/T4557-documentation-audit-report.md` |
 | Bash deprecation status (all 79+106 ported to TS) | T4567 bash deprecation analysis |

@@ -562,7 +562,7 @@ Protocol injection prepares the full prompt context for a subagent spawn, combin
 **What gets converted first**: Provider registry lookup and detection. These are the most-called functions (54 combined across both files) and have the cleanest 1:1 mapping to CAAMP. Every other domain depends on provider data.
 
 **Steps**:
-1. Add `@cleocode/caamp` as a dependency to `mcp-server/package.json`
+1. Add `@cleocode/caamp` as a dependency to `package.json`
 2. Create a thin TypeScript adapter layer (`src/providers.ts`) that wraps CAAMP's registry functions with any CLEO-specific logic (path resolution, legacy alias handling)
 3. Create a Node CLI entrypoint (`bin/cleo-providers`) that bash scripts can call during transition
 4. Update `lib/agent-registry.sh` and `lib/agent-config.sh` to delegate to the Node entrypoint via `node -e` or the CLI wrapper

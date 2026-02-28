@@ -38,6 +38,8 @@ import {
   startTask,
   stopTask,
 } from '../../core/task-work/index.js';
+import { CleoError } from '../../core/errors.js';
+import { getExitCodeName } from '../../types/exit-codes.js';
 import { engineError, type EngineResult } from './_error.js';
 
 // Re-export types for consumers
@@ -167,6 +169,12 @@ export async function taskStart(
       data: { taskId: result.taskId, previousTask: result.previousTask },
     };
   } catch (err: unknown) {
+    if (err instanceof CleoError) {
+      const stringCode = `E_${getExitCodeName(err.code)}`;
+      return engineError(stringCode, err.message, {
+        ...(err.fix && { fix: err.fix }),
+      });
+    }
     const message = (err as Error).message;
     const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED';
     return engineError(code, message);
