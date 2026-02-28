@@ -5,6 +5,14 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.2.7] - 2026-02-28
+
+### Bug Fixes
+
+- **Fixed audit_log missing dispatch columns migration (T5063)** — The `audit_log` table schema defined 17 columns including 9 dispatch layer columns, but the migration chain only created 8. A migration referenced as `20260225200000` was never committed. This caused `core-parity.test.ts` `taskCreate` test to fail consistently on fresh databases because drizzle generates INSERT SQL for all 17 schema columns. Fixed with a custom drizzle-kit migration using table rebuild pattern for idempotency. Test suite: 2779/2780 → 2884/2884 (100%).
+
+---
+
 ## [2026.2.6] - 2026-02-27
 
 ### Major Features
