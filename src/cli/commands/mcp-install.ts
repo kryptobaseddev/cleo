@@ -2,7 +2,7 @@
  * CLI mcp-install command - env-aware MCP server configuration via CAAMP.
  *
  * Detects installed providers via CAAMP, generates the appropriate
- * cleo-mcp server entry based on env mode, and installs to all
+ * cleo MCP server entry based on env mode, and installs to all
  * detected provider configs.
  *
  * @task T4676

@@ -5,11 +5,13 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [2026.2.8] - 2026-02-28
+## [2026.2.9] - 2026-02-28
 
 ### Bug Fixes
 
 - **Fixed critical npm install failure — drizzle-orm/zod ERR_PACKAGE_PATH_NOT_EXPORTED** — The npm-published package was completely broken on install. The `drizzle-orm` dependency used `^1.0.0-beta.15` which npm resolved to `1.0.0-beta.9-e89174b` due to semver pre-release alphanumeric sorting ranking hash-suffixed versions higher than numeric identifiers (`9-e89174b` > `15`). This version lacks the `./zod` export, causing all CLI and MCP operations to crash immediately. Fixed by pinning to exact version `1.0.0-beta.15-859cf75`. Both `drizzle-orm` and `drizzle-kit` are now pinned.
+
+- **Added `cleo mcp` subcommand for MCP server launch** — All AI agent configs use `npx -y @cleocode/cleo@latest mcp`, but `mcp` was not a CLI subcommand (the binary is `cleo-mcp`). Added `mcp` as a pre-parse argv check that spawns `dist/mcp/index.js` with inherited stdio, enabling all agents to launch the MCP server via the standard `cleo mcp` invocation. The `--mcp-server` flag is preserved for backward compatibility.
 
 ---
 

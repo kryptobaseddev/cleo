@@ -98,8 +98,8 @@ The standard JSON configuration block is:
 {
   "mcpServers": {
     "cleo": {
-      "command": "cleo-mcp",
-      "args": []
+      "command": "npx",
+      "args": ["-y", "@cleocode/cleo@latest", "mcp"]
     }
   }
 }
@@ -321,8 +321,8 @@ Or in the MCP server configuration:
 {
   "mcpServers": {
     "cleo": {
-      "command": "cleo-mcp",
-      "args": [],
+      "command": "npx",
+      "args": ["-y", "@cleocode/cleo@latest", "mcp"],
       "env": {
         "CLEO_MCP_TIMEOUT": "60000"
       }

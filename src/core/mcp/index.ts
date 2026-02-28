@@ -67,7 +67,7 @@ export function detectEnvMode(): McpEnvMode {
  *
  * Returns a config object compatible with CAAMP's McpServerConfig:
  * - dev-ts: { command: 'node', args: ['<source>/dist/mcp/index.js'] }
- * - prod-npm: { command: 'cleo-mcp', args: [] }
+ * - prod-npm: { command: 'npx', args: ['-y', '@cleocode/cleo@latest', 'mcp'] }
  *
  * @task T4584
  */
@@ -80,10 +80,10 @@ export function generateMcpServerEntry(env: McpEnvMode): Record<string, unknown>
     };
   }
 
-  // prod-npm or unknown: use globally installed binary
+  // prod-npm or unknown: canonical npx invocation
   return {
-    command: 'cleo-mcp',
-    args: [],
+    command: 'npx',
+    args: ['-y', '@cleocode/cleo@latest', 'mcp'],
     env: {},
   };
 }
