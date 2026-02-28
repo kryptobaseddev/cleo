@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.2.6",
+  "version": "2026.2.7",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "mcpName": "io.github.kryptobaseddev/cleo-mcp-server",
   "type": "module",
