@@ -11,6 +11,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { TaskFile } from '../../types/task.js';
 import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
+import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Result of getting current task. */
@@ -79,6 +80,16 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
       ExitCode.NOT_FOUND,
       `Task not found: ${taskId}`,
       { fix: `Use 'cleo find "${taskId}"' to search` },
+    );
+  }
+
+  // Block starting a task with unresolved dependencies
+  const unresolvedDeps = getUnresolvedDeps(taskId, data.tasks);
+  if (unresolvedDeps.length > 0) {
+    throw new CleoError(
+      ExitCode.DEPENDENCY_ERROR,
+      `Task ${taskId} is blocked by unresolved dependencies: ${unresolvedDeps.join(', ')}`,
+      { fix: `Complete blockers first: ${unresolvedDeps.map(d => `cleo complete ${d}`).join(', ')}` },
     );
   }
 

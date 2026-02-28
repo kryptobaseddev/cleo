@@ -10,6 +10,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
 import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
+import { getDependents, getUnresolvedDeps } from './dependency-check.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
   safeSaveTaskFile,
@@ -27,6 +28,7 @@ export interface CompleteTaskOptions {
 export interface CompleteTaskResult {
   task: Task;
   autoCompleted?: string[];
+  unblockedTasks?: Array<{ id: string; title: string }>;
 }
 
 /**
@@ -160,5 +162,20 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
     });
   }
 
-  return { task, ...(autoCompleted.length > 0 && { autoCompleted }) };
+  // Compute newly unblocked tasks: dependents whose deps are now all satisfied
+  const dependents = getDependents(options.taskId, data.tasks);
+  const unblockedTasks: Array<{ id: string; title: string }> = [];
+  for (const dep of dependents) {
+    if (dep.status === 'done' || dep.status === 'cancelled') continue;
+    const stillUnresolved = getUnresolvedDeps(dep.id, data.tasks);
+    if (stillUnresolved.length === 0) {
+      unblockedTasks.push({ id: dep.id, title: dep.title });
+    }
+  }
+
+  return {
+    task,
+    ...(autoCompleted.length > 0 && { autoCompleted }),
+    ...(unblockedTasks.length > 0 && { unblockedTasks }),
+  };
 }
