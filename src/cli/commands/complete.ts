@@ -37,6 +37,9 @@ export function registerCompleteCommand(program: Command): void {
       if ((data?.autoCompleted as unknown[] | undefined)?.length) {
         output['autoCompleted'] = data['autoCompleted'];
       }
+      if ((data?.unblockedTasks as unknown[] | undefined)?.length) {
+        output['unblockedTasks'] = data['unblockedTasks'];
+      }
 
       cliOutput(output, { command: 'complete', operation: 'tasks.complete' });
     });

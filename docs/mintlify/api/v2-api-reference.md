@@ -55,18 +55,22 @@ src/
 Structured error class carrying exit codes and fix suggestions.
 
 ```typescript
-import { CleoError } from './errors.js';
+import { CleoError } from "./errors.js";
 
 class CleoError extends Error {
   readonly code: ExitCode;
   readonly fix?: string;
   readonly alternatives?: Array<{ action: string; command: string }>;
 
-  constructor(code: ExitCode, message: string, options?: {
-    fix?: string;
-    alternatives?: Array<{ action: string; command: string }>;
-    cause?: unknown;
-  });
+  constructor(
+    code: ExitCode,
+    message: string,
+    options?: {
+      fix?: string;
+      alternatives?: Array<{ action: string; command: string }>;
+      cause?: unknown;
+    },
+  );
 
   toJSON(): Record<string, unknown>;
 }
@@ -77,7 +81,7 @@ class CleoError extends Error {
 LAFS-compliant output functions.
 
 ```typescript
-import { formatOutput, formatSuccess, formatError } from './output.js';
+import { formatOutput, formatSuccess, formatError } from "./output.js";
 
 // Types
 interface LafsSuccess<T = unknown> {
@@ -112,20 +116,20 @@ XDG-compliant path resolution. Respects `CLEO_HOME` and `CLEO_DIR` environment v
 
 ```typescript
 import {
-  getCleoHome,         // Global CLEO home (~/.cleo)
-  getCleoDir,          // Project CLEO dir (.cleo)
-  getCleoDirAbsolute,  // Absolute path to project .cleo
-  getProjectRoot,      // Project root directory
-  resolveProjectPath,  // Resolve project-relative path
-  getTodoPath,         // .cleo/todo.json
-  getConfigPath,       // .cleo/config.json
-  getSessionsPath,     // .cleo/sessions.json
-  getArchivePath,      // .cleo/todo-archive.json
-  getLogPath,          // .cleo/todo-log.jsonl
-  getBackupDir,        // .cleo/backups/operational
+  getCleoHome, // Global CLEO home (~/.cleo)
+  getCleoDir, // Project CLEO dir (.cleo)
+  getCleoDirAbsolute, // Absolute path to project .cleo
+  getProjectRoot, // Project root directory
+  resolveProjectPath, // Resolve project-relative path
+  getTodoPath, // .cleo/todo.json
+  getConfigPath, // .cleo/config.json
+  getSessionsPath, // .cleo/sessions.json
+  getArchivePath, // .cleo/todo-archive.json
+  getLogPath, // .cleo/todo-log.jsonl
+  getBackupDir, // .cleo/backups/operational
   getGlobalConfigPath, // ~/.cleo/config.json
-  isAbsolutePath,      // Check if path is absolute
-} from './paths.js';
+  isAbsolutePath, // Check if path is absolute
+} from "./paths.js";
 ```
 
 All path functions accept an optional `cwd?: string` parameter.
@@ -135,7 +139,7 @@ All path functions accept an optional `cwd?: string` parameter.
 Cascading configuration with source tracking.
 
 ```typescript
-import { loadConfig, getConfigValue } from './config.js';
+import { loadConfig, getConfigValue } from "./config.js";
 
 // Load merged config from all sources
 async function loadConfig(cwd?: string): Promise<CleoConfig>;
@@ -155,11 +159,11 @@ async function getConfigValue<T>(
 interface CleoConfig {
   version: string;
   output: {
-    defaultFormat: 'json' | 'text' | 'jsonl' | 'markdown' | 'table';
+    defaultFormat: "json" | "text" | "jsonl" | "markdown" | "table";
     showColor: boolean;
     showUnicode: boolean;
     showProgressBars: boolean;
-    dateFormat: 'relative' | 'iso' | 'short' | 'long';
+    dateFormat: "relative" | "iso" | "short" | "long";
   };
   backup: {
     maxOperationalBackups: number;
@@ -167,8 +171,8 @@ interface CleoConfig {
     compressionEnabled: boolean;
   };
   hierarchy: {
-    maxDepth: number;      // default: 3
-    maxSiblings: number;   // default: 7
+    maxDepth: number; // default: 3
+    maxSiblings: number; // default: 0 (unlimited)
     cascadeDelete: boolean;
   };
   session: {
@@ -177,7 +181,7 @@ interface CleoConfig {
     multiSession: boolean;
   };
   lifecycle: {
-    mode: 'strict' | 'advisory' | 'off';
+    mode: "strict" | "advisory" | "off";
   };
 }
 ```
@@ -187,7 +191,11 @@ interface CleoConfig {
 JSON Schema validation powered by ajv with format support.
 
 ```typescript
-import { validateAgainstSchema, validateAgainstSchemaFile, checkSchema } from './schema.js';
+import {
+  validateAgainstSchema,
+  validateAgainstSchemaFile,
+  checkSchema,
+} from "./schema.js";
 
 // Validate data against inline schema (throws CleoError on failure)
 function validateAgainstSchema(
@@ -203,10 +211,7 @@ async function validateAgainstSchemaFile(
 ): Promise<void>;
 
 // Non-throwing validation, returns error messages
-function checkSchema(
-  data: unknown,
-  schema: Record<string, unknown>,
-): string[];
+function checkSchema(data: unknown, schema: Record<string, unknown>): string[];
 ```
 
 ---
@@ -216,18 +221,18 @@ function checkSchema(
 ### addTask
 
 ```typescript
-import { addTask } from './tasks/index.js';
+import { addTask } from "./tasks/index.js";
 
 interface AddTaskOptions {
   title: string;
   description?: string;
-  priority?: 'critical' | 'high' | 'medium' | 'low';
+  priority?: "critical" | "high" | "medium" | "low";
   parentId?: string;
   depends?: string[];
   labels?: string[];
   phase?: string;
-  size?: 'small' | 'medium' | 'large';
-  type?: 'epic' | 'task' | 'subtask' | 'bug' | 'feature';
+  size?: "small" | "medium" | "large";
+  type?: "epic" | "task" | "subtask" | "bug" | "feature";
 }
 
 interface AddTaskResult {
@@ -237,13 +242,16 @@ interface AddTaskResult {
   parentId?: string;
 }
 
-async function addTask(options: AddTaskOptions, cwd?: string): Promise<AddTaskResult>;
+async function addTask(
+  options: AddTaskOptions,
+  cwd?: string,
+): Promise<AddTaskResult>;
 ```
 
 ### listTasks
 
 ```typescript
-import { listTasks } from './tasks/index.js';
+import { listTasks } from "./tasks/index.js";
 
 interface ListTasksOptions {
   status?: string;
@@ -260,13 +268,16 @@ interface ListTasksResult {
   pagination: { limit: number; offset: number; hasMore: boolean };
 }
 
-async function listTasks(options?: ListTasksOptions, cwd?: string): Promise<ListTasksResult>;
+async function listTasks(
+  options?: ListTasksOptions,
+  cwd?: string,
+): Promise<ListTasksResult>;
 ```
 
 ### showTask
 
 ```typescript
-import { showTask } from './tasks/index.js';
+import { showTask } from "./tasks/index.js";
 
 interface TaskDetail {
   task: Task;
@@ -281,7 +292,7 @@ async function showTask(taskId: string, cwd?: string): Promise<TaskDetail>;
 ### findTasks
 
 ```typescript
-import { findTasks } from './tasks/index.js';
+import { findTasks } from "./tasks/index.js";
 
 interface FindTasksOptions {
   query: string;
@@ -301,13 +312,16 @@ interface FindTasksResult {
   total: number;
 }
 
-async function findTasks(options: FindTasksOptions, cwd?: string): Promise<FindTasksResult>;
+async function findTasks(
+  options: FindTasksOptions,
+  cwd?: string,
+): Promise<FindTasksResult>;
 ```
 
 ### completeTask
 
 ```typescript
-import { completeTask } from './tasks/index.js';
+import { completeTask } from "./tasks/index.js";
 
 interface CompleteTaskOptions {
   taskId: string;
@@ -321,13 +335,16 @@ interface CompleteTaskResult {
   archived: boolean;
 }
 
-async function completeTask(options: CompleteTaskOptions, cwd?: string): Promise<CompleteTaskResult>;
+async function completeTask(
+  options: CompleteTaskOptions,
+  cwd?: string,
+): Promise<CompleteTaskResult>;
 ```
 
 ### updateTask
 
 ```typescript
-import { updateTask } from './tasks/index.js';
+import { updateTask } from "./tasks/index.js";
 
 interface UpdateTaskOptions {
   taskId: string;
@@ -347,13 +364,16 @@ interface UpdateTaskResult {
   updated: string[];
 }
 
-async function updateTask(options: UpdateTaskOptions, cwd?: string): Promise<UpdateTaskResult>;
+async function updateTask(
+  options: UpdateTaskOptions,
+  cwd?: string,
+): Promise<UpdateTaskResult>;
 ```
 
 ### deleteTask
 
 ```typescript
-import { deleteTask } from './tasks/index.js';
+import { deleteTask } from "./tasks/index.js";
 
 interface DeleteTaskOptions {
   taskId: string;
@@ -366,13 +386,16 @@ interface DeleteTaskResult {
   childrenDeleted: string[];
 }
 
-async function deleteTask(options: DeleteTaskOptions, cwd?: string): Promise<DeleteTaskResult>;
+async function deleteTask(
+  options: DeleteTaskOptions,
+  cwd?: string,
+): Promise<DeleteTaskResult>;
 ```
 
 ### archiveTasks
 
 ```typescript
-import { archiveTasks } from './tasks/index.js';
+import { archiveTasks } from "./tasks/index.js";
 
 interface ArchiveTasksOptions {
   status?: string;
@@ -384,7 +407,10 @@ interface ArchiveTasksResult {
   count: number;
 }
 
-async function archiveTasks(options?: ArchiveTasksOptions, cwd?: string): Promise<ArchiveTasksResult>;
+async function archiveTasks(
+  options?: ArchiveTasksOptions,
+  cwd?: string,
+): Promise<ArchiveTasksResult>;
 ```
 
 ### Validation Helpers
@@ -406,7 +432,7 @@ import {
   getNextPosition,
   findRecentDuplicate,
   logOperation,
-} from './tasks/index.js';
+} from "./tasks/index.js";
 ```
 
 ---
@@ -422,11 +448,11 @@ import {
   listSessions,
   gcSessions,
   parseScope,
-} from './sessions/index.js';
+} from "./sessions/index.js";
 
 interface StartSessionOptions {
   name: string;
-  scope: string;        // "epic:T001" or "global"
+  scope: string; // "epic:T001" or "global"
   autoStart?: boolean;
   focus?: string;
   agent?: string;
@@ -442,12 +468,24 @@ interface ListSessionsOptions {
   limit?: number;
 }
 
-async function startSession(options: StartSessionOptions, cwd?: string): Promise<Session>;
-async function endSession(options?: EndSessionOptions, cwd?: string): Promise<Session>;
+async function startSession(
+  options: StartSessionOptions,
+  cwd?: string,
+): Promise<Session>;
+async function endSession(
+  options?: EndSessionOptions,
+  cwd?: string,
+): Promise<Session>;
 async function sessionStatus(cwd?: string): Promise<Session | null>;
 async function resumeSession(sessionId: string, cwd?: string): Promise<Session>;
-async function listSessions(options?: ListSessionsOptions, cwd?: string): Promise<Session[]>;
-async function gcSessions(maxAgeHours?: number, cwd?: string): Promise<{ orphaned: string[]; removed: string[] }>;
+async function listSessions(
+  options?: ListSessionsOptions,
+  cwd?: string,
+): Promise<Session[]>;
+async function gcSessions(
+  maxAgeHours?: number,
+  cwd?: string,
+): Promise<{ orphaned: string[]; removed: string[] }>;
 function parseScope(scopeStr: string): SessionScope;
 ```
 
@@ -461,7 +499,7 @@ import {
   setFocus,
   clearFocus,
   getFocusHistory,
-} from './focus/index.js';
+} from "./focus/index.js";
 
 interface FocusShowResult {
   currentTask: string | null;
@@ -483,7 +521,9 @@ interface FocusHistoryEntry {
 
 async function showFocus(cwd?: string): Promise<FocusShowResult>;
 async function setFocus(taskId: string, cwd?: string): Promise<FocusSetResult>;
-async function clearFocus(cwd?: string): Promise<{ previousTask: string | null }>;
+async function clearFocus(
+  cwd?: string,
+): Promise<{ previousTask: string | null }>;
 async function getFocusHistory(cwd?: string): Promise<FocusHistoryEntry[]>;
 ```
 
@@ -553,7 +593,12 @@ LAFS envelope type definitions for structured output.
 Atomic JSON file operations with backup support.
 
 ```typescript
-import { readJson, readJsonRequired, saveJson, computeChecksum } from './store/json.js';
+import {
+  readJson,
+  readJsonRequired,
+  saveJson,
+  computeChecksum,
+} from "./store/json.js";
 
 // Read JSON file, returns null if not found
 async function readJson<T>(path: string): Promise<T | null>;

@@ -1,11 +1,11 @@
-# ADR-007: CLEO Domain Architecture — 9-Domain Shared-Core Model
+# ADR-007: CLEO Domain Architecture — 10-Domain Shared-Core Model
 
 **Date**: 2026-02-22
 **Status**: accepted
 **Accepted**: 2026-02-25
 **Related ADRs**: ADR-006, ADR-008, ADR-009
 **Related Tasks**: T4772, T4820, T4813, T4894
-**Summary**: Consolidates CLEO's dispatch architecture into 9 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus. All MCP and CLI operations must use these domain namespaces with dot-notation. Admin domain owns ADR management operations (adr.list, adr.show, adr.find, adr.sync, adr.validate).
+**Summary**: Consolidates CLEO's dispatch architecture into 10 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing (sharing added by ADR-015). All MCP and CLI operations must use these domain namespaces with dot-notation. Admin domain owns ADR management operations (adr.list, adr.show, adr.find, adr.sync, adr.validate).
 **Keywords**: domains, dispatch, mcp, cli, operations, admin, tasks, session, pipeline, nexus, orchestrate
 **Topics**: admin, orchestrate, tasks, session, naming
 
@@ -89,11 +89,11 @@ The following domain models were evaluated during T4797 research:
 
 ## 3. Decision
 
-**CLEO SHALL consolidate 11 MCP domains into 9 intent-based domains** (8 project-local + 1 global) aligned with CLEO's Brain/Memory identity, progressive disclosure tiers, RCSD-IVTR pipeline, and BRAIN specification forward compatibility.
+**CLEO SHALL consolidate 11 MCP domains into 10 intent-based domains** (9 project-local + 1 global) aligned with CLEO's Brain/Memory identity, progressive disclosure tiers, RCSD-IVTR pipeline, and BRAIN specification forward compatibility. (Originally 9 domains; the sharing domain was added by ADR-015.)
 
 **ADDITIONALLY, CLEO SHALL mandate that ALL operations (CLI and MCP) MUST route through the unified CQRS dispatch layer** at `src/dispatch/`, eliminating the parallel DomainRouter architecture.
 
-### 3.1 The 9 Canonical Domains
+### 3.1 The 10 Canonical Domains
 
 | # | Domain | Purpose | Brain Metaphor | CLEO Pillar | Tier | Ops |
 |---|--------|---------|---------------|-------------|------|-----|
@@ -106,8 +106,9 @@ The following domain models were evaluated during T4797 research:
 | 7 | **tools** | Skills, providers, issue management | Capabilities | Interoperable Interfaces | 2 | ~20 |
 | 8 | **admin** | System config, backup, migration, observability | Autonomic System | Infrastructure | 2 | ~20 |
 | 9 | **nexus** | Cross-project search, knowledge transfer, federation | Hive Network | Network Intelligence | 2 | 0 (future) |
+| 10 | **sharing** | Git allowlist, sharing status, sync (added by ADR-015) | Social Memory | Interoperable Interfaces | 1 | ~10 |
 
-**Total**: ~138 operations (down from ~140, with 4+ duplicates removed)
+**Total**: ~148 operations (10 canonical domains; sharing domain added by ADR-015)
 
 ### 3.2 Unified Entry Point Architecture
 

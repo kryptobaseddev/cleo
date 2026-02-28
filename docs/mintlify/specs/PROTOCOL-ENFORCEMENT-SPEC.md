@@ -3,8 +3,21 @@
 **Version**: 1.0.0
 **Status**: ACTIVE
 **Created**: 2026-01-28
-**Updated**: 2026-01-28
+**Updated**: 2026-02-27
 **Author**: Protocol Specification Agent (T2688)
+
+---
+
+> **Exit Code Correction (2026-02-27)**: This spec originally mapped exit codes 60-67 to
+> individual protocol types (Research=60, Consensus=61, etc.). The implemented TypeScript
+> exit codes (`src/types/exit-codes.ts`) define 60-67 as **Orchestrator Errors**
+> (PROTOCOL_MISSING=60, INVALID_RETURN_MESSAGE=61, MANIFEST_ENTRY_MISSING=62,
+> SPAWN_VALIDATION_FAILED=63, AUTONOMOUS_BOUNDARY=64, HANDOFF_REQUIRED=65,
+> RESUME_FAILED=66, CONCURRENT_SESSION=67). Lifecycle enforcement uses codes 80-84.
+> Protocol-specific validation is handled at a higher level through the compliance system
+> (`src/core/compliance/`), not through per-protocol exit codes. References to
+> `lib/protocol-validation.sh` below describe the original Bash-era design; the current
+> TypeScript implementation lives in `src/core/validation/` and `src/core/compliance/`.
 
 ---
 
@@ -28,10 +41,10 @@ This specification defines the **dual-layer enforcement architecture** for CLEO 
 This specification is **AUTHORITATIVE** for:
 
 - Enforcement architecture (ENFC-001 to ENFC-010)
-- Validation function signatures (VFUNC-*)
+- Validation function signatures (VFUNC-\*)
 - Protocol violation exit codes (60-67)
-- Bypass policies and audit trails (BYPS-*)
-- Testing requirements for enforcement (TEST-*)
+- Bypass policies and audit trails (BYPS-\*)
+- Testing requirements for enforcement (TEST-\*)
 
 This specification **DEFERS TO**:
 
@@ -59,28 +72,29 @@ This specification incorporates findings from:
 - **T2687**: Priority consensus (4-tier system, 3250 lines orphaned code)
 
 **Key Evidence**:
+
 - Release protocol (86% enforced) success via single automated entry point
 - Consensus/contribution (0-14% enforced) failure due to orphaned implementations
 - Provenance tagging (0% enforced) defined in 2 protocols, validated in 0
 
 ---
 
-## Part 2: Enforcement Architecture (ENFC-*)
+## Part 2: Enforcement Architecture (ENFC-\*)
 
 ### 2.1 Dual-Layer Design
 
-| ID | Requirement | Rationale |
-|----|-------------|-----------|
-| ENFC-001 | Protocol enforcement MUST use both pre-commit hooks AND runtime validation | Layered defense: hooks for fast feedback, runtime for comprehensive coverage |
-| ENFC-002 | Enforcement layers MUST share validation logic via `lib/protocol-validation.sh` | Single source of truth; prevents duplication and drift |
-| ENFC-003 | Pre-commit hooks MUST be bypassable via `--no-verify` flag | Emergency escape hatch; documented bypass policy required |
-| ENFC-004 | Runtime validation MUST be non-bypassable for critical requirements | Safety net; catches bypassed hook violations |
-| ENFC-005 | Each protocol MUST define validation functions in `lib/protocol-validation.sh` | Centralized validation; discoverable and testable |
-| ENFC-006 | Validation functions MUST return structured JSON with violations array | Parseable; supports automation and reporting |
-| ENFC-007 | Protocol violations MUST use exit codes 60-67 (protocol-specific failures) | Distinguishable from system errors (1-22); retryable status |
-| ENFC-008 | Enforcement SHOULD be phased: runtime first, then hooks incrementally | Risk reduction; proven by release.md success pattern |
-| ENFC-009 | CLI entry points MUST exist for protocols requiring manual invocation | Addresses orphaned implementation gap (consensus, contribution) |
-| ENFC-010 | Orchestrators MUST validate protocol compliance before marking tasks complete | Automated enforcement; no manual compliance checking |
+| ID       | Requirement                                                                     | Rationale                                                                    |
+| -------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| ENFC-001 | Protocol enforcement MUST use both pre-commit hooks AND runtime validation      | Layered defense: hooks for fast feedback, runtime for comprehensive coverage |
+| ENFC-002 | Enforcement layers MUST share validation logic via `lib/protocol-validation.sh` | Single source of truth; prevents duplication and drift                       |
+| ENFC-003 | Pre-commit hooks MUST be bypassable via `--no-verify` flag                      | Emergency escape hatch; documented bypass policy required                    |
+| ENFC-004 | Runtime validation MUST be non-bypassable for critical requirements             | Safety net; catches bypassed hook violations                                 |
+| ENFC-005 | Each protocol MUST define validation functions in `lib/protocol-validation.sh`  | Centralized validation; discoverable and testable                            |
+| ENFC-006 | Validation functions MUST return structured JSON with violations array          | Parseable; supports automation and reporting                                 |
+| ENFC-007 | Protocol violations MUST use exit codes 60-67 (protocol-specific failures)      | Distinguishable from system errors (1-22); retryable status                  |
+| ENFC-008 | Enforcement SHOULD be phased: runtime first, then hooks incrementally           | Risk reduction; proven by release.md success pattern                         |
+| ENFC-009 | CLI entry points MUST exist for protocols requiring manual invocation           | Addresses orphaned implementation gap (consensus, contribution)              |
+| ENFC-010 | Orchestrators MUST validate protocol compliance before marking tasks complete   | Automated enforcement; no manual compliance checking                         |
 
 ### 2.2 Architecture Diagram
 
@@ -123,18 +137,21 @@ This specification incorporates findings from:
 ### 2.3 Enforcement Timeline
 
 **Phase 1: Runtime Validation (Immediate - Wave 3)**
+
 - Add `lib/protocol-validation.sh` with 7 protocol validators
 - Create CLI entry points: `scripts/consensus.sh`, `scripts/contribution.sh`
 - Integrate with `cleo complete` workflow
 - Expected outcome: 22% → 40% enforcement rate
 
 **Phase 2: Pre-commit Hooks (Follow-up Epic)**
+
 - Add commit-msg hook for task ID enforcement
 - Add pre-commit hook for provenance tag validation
 - Add pre-commit hook for test execution
 - Expected outcome: 40% → 55% enforcement rate
 
 **Phase 3: Integration (Long-term)**
+
 - Hooks call same validation functions as runtime
 - Configuration-driven enforcement levels
 - Metrics dashboard: `cleo compliance report`
@@ -142,18 +159,18 @@ This specification incorporates findings from:
 
 ---
 
-## Part 3: Validation Function Signatures (VFUNC-*)
+## Part 3: Validation Function Signatures (VFUNC-\*)
 
 ### 3.1 Core Validation Contract
 
-| ID | Requirement | Example |
-|----|-------------|---------|
-| VFUNC-001 | Validation functions MUST accept `(task_id, manifest_entry)` parameters | `validate_research(T2680, {...})` |
-| VFUNC-002 | Validation functions MUST return JSON with `{valid, violations, score}` structure | `{"valid": false, "violations": [...], "score": 60}` |
-| VFUNC-003 | Violation objects MUST include `{requirement, severity, message, fix}` fields | `{"requirement": "RSCH-001", "severity": "error", ...}` |
+| ID        | Requirement                                                                               | Example                                                 |
+| --------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| VFUNC-001 | Validation functions MUST accept `(task_id, manifest_entry)` parameters                   | `validate_research(T2680, {...})`                       |
+| VFUNC-002 | Validation functions MUST return JSON with `{valid, violations, score}` structure         | `{"valid": false, "violations": [...], "score": 60}`    |
+| VFUNC-003 | Violation objects MUST include `{requirement, severity, message, fix}` fields             | `{"requirement": "RSCH-001", "severity": "error", ...}` |
 | VFUNC-004 | Validation functions MUST exit with code 0 (valid) or 60-67 (protocol-specific violation) | Exit 60 for research violations, 61 for consensus, etc. |
-| VFUNC-005 | Validation functions SHOULD compute compliance score (0-100) | Enables gradual improvement tracking |
-| VFUNC-006 | Validation functions MAY accept `--strict` flag for blocking vs warning mode | Development vs production enforcement |
+| VFUNC-005 | Validation functions SHOULD compute compliance score (0-100)                              | Enables gradual improvement tracking                    |
+| VFUNC-006 | Validation functions MAY accept `--strict` flag for blocking vs warning mode              | Development vs production enforcement                   |
 
 ### 3.2 Function Template
 
@@ -220,18 +237,19 @@ validate_research() {
 
 ### 3.3 Protocol-Specific Exit Codes
 
-| Exit Code | Protocol | Description | Retryable |
-|-----------|----------|-------------|-----------|
-| 60 | research.md | Research protocol violation (e.g., code changes, missing findings) | No |
-| 61 | consensus.md | Consensus protocol violation (e.g., threshold not met, invalid voting) | Yes (after fixes) |
-| 62 | specification.md | Specification protocol violation (e.g., missing RFC 2119, no version) | No |
-| 63 | decomposition.md | Decomposition protocol violation (e.g., non-atomic tasks, MECE failure) | No |
-| 64 | implementation.md | Implementation protocol violation (e.g., missing provenance, no tests) | No |
-| 65 | contribution.md | Contribution protocol violation (e.g., missing provenance, no manifest) | No |
-| 66 | release.md | Release protocol violation (e.g., version mismatch, missing changelog) | Yes (after fixes) |
-| 67 | (reserved) | Future protocol additions | TBD |
+| Exit Code | Protocol          | Description                                                             | Retryable         |
+| --------- | ----------------- | ----------------------------------------------------------------------- | ----------------- |
+| 60        | research.md       | Research protocol violation (e.g., code changes, missing findings)      | No                |
+| 61        | consensus.md      | Consensus protocol violation (e.g., threshold not met, invalid voting)  | Yes (after fixes) |
+| 62        | specification.md  | Specification protocol violation (e.g., missing RFC 2119, no version)   | No                |
+| 63        | decomposition.md  | Decomposition protocol violation (e.g., non-atomic tasks, MECE failure) | No                |
+| 64        | implementation.md | Implementation protocol violation (e.g., missing provenance, no tests)  | No                |
+| 65        | contribution.md   | Contribution protocol violation (e.g., missing provenance, no manifest) | No                |
+| 66        | release.md        | Release protocol violation (e.g., version mismatch, missing changelog)  | Yes (after fixes) |
+| 67        | (reserved)        | Future protocol additions                                               | TBD               |
 
 **Rationale**: Exit codes 60-67 distinct from:
+
 - 1-22: System/operational errors (file not found, validation failed, permission denied)
 - 100+: Special status codes (session discovery, focus required, etc.)
 
@@ -243,14 +261,14 @@ validate_research() {
 
 **Function**: `validate_research(task_id, manifest_entry)`
 
-| Requirement | Check | Severity | Exit Code |
-|-------------|-------|----------|-----------|
-| RSCH-001 | No code changes detected (git diff empty) | error | 60 |
-| RSCH-002 | Sources documented in manifest or markdown | warning | 60 (strict) |
-| RSCH-003 | Output file exists in `.cleo/agent-outputs/` | error | 60 |
-| RSCH-004 | Manifest entry exists in `MANIFEST.jsonl` | error | 60 |
-| RSCH-006 | Key findings count between 3-7 | error | 60 |
-| RSCH-007 | `agent_type: "research"` in manifest | error | 60 |
+| Requirement | Check                                        | Severity | Exit Code   |
+| ----------- | -------------------------------------------- | -------- | ----------- |
+| RSCH-001    | No code changes detected (git diff empty)    | error    | 60          |
+| RSCH-002    | Sources documented in manifest or markdown   | warning  | 60 (strict) |
+| RSCH-003    | Output file exists in `.cleo/agent-outputs/` | error    | 60          |
+| RSCH-004    | Manifest entry exists in `MANIFEST.jsonl`    | error    | 60          |
+| RSCH-006    | Key findings count between 3-7               | error    | 60          |
+| RSCH-007    | `agent_type: "research"` in manifest         | error    | 60          |
 
 **Implementation**: Pre-spawn tool allowlist (Read/Grep only) + post-completion git diff check
 
@@ -258,14 +276,14 @@ validate_research() {
 
 **Function**: `validate_consensus(task_id, manifest_entry, voting_matrix)`
 
-| Requirement | Check | Severity | Exit Code |
-|-------------|-------|----------|-----------|
-| CONS-001 | Voting matrix with ≥2 options | error | 61 |
-| CONS-002 | Weighted scoring formula applied | error | 61 |
-| CONS-003 | Confidence scores (0.0-1.0) for each option | error | 61 |
-| CONS-004 | Threshold met (50% by default, configurable) | error | 61 |
-| CONS-005 | Conflict detection (tie-breaking documented) | warning | 61 (strict) |
-| CONS-007 | `agent_type: "analysis"` in manifest | error | 61 |
+| Requirement | Check                                        | Severity | Exit Code   |
+| ----------- | -------------------------------------------- | -------- | ----------- |
+| CONS-001    | Voting matrix with ≥2 options                | error    | 61          |
+| CONS-002    | Weighted scoring formula applied             | error    | 61          |
+| CONS-003    | Confidence scores (0.0-1.0) for each option  | error    | 61          |
+| CONS-004    | Threshold met (50% by default, configurable) | error    | 61          |
+| CONS-005    | Conflict detection (tie-breaking documented) | warning  | 61 (strict) |
+| CONS-007    | `agent_type: "analysis"` in manifest         | error    | 61          |
 
 **Implementation**: CLI command `scripts/consensus.sh compute` with orchestrator integration
 
@@ -273,13 +291,13 @@ validate_research() {
 
 **Function**: `validate_specification(task_id, manifest_entry, spec_file)`
 
-| Requirement | Check | Severity | Exit Code |
-|-------------|-------|----------|-----------|
-| SPEC-001 | RFC 2119 keywords present (MUST/SHOULD/MAY) | error | 62 |
-| SPEC-002 | Version field in frontmatter | error | 62 |
-| SPEC-003 | Authority section defining scope | warning | 62 (strict) |
-| SPEC-005 | Related specifications section | warning | 62 (strict) |
-| SPEC-007 | `agent_type: "specification"` in manifest | error | 62 |
+| Requirement | Check                                       | Severity | Exit Code   |
+| ----------- | ------------------------------------------- | -------- | ----------- |
+| SPEC-001    | RFC 2119 keywords present (MUST/SHOULD/MAY) | error    | 62          |
+| SPEC-002    | Version field in frontmatter                | error    | 62          |
+| SPEC-003    | Authority section defining scope            | warning  | 62 (strict) |
+| SPEC-005    | Related specifications section              | warning  | 62 (strict) |
+| SPEC-007    | `agent_type: "specification"` in manifest   | error    | 62          |
 
 **Implementation**: Markdown linter `scripts/validate-spec.sh` (pre-commit hook candidate)
 
@@ -287,27 +305,27 @@ validate_research() {
 
 **Function**: `validate_decomposition(task_id, epic_id, child_tasks)`
 
-| Requirement | Check | Severity | Exit Code |
-|-------------|-------|----------|-----------|
-| DCMP-001 | MECE check (mutually exclusive, collectively exhaustive) | warning | 63 (strict) |
-| DCMP-002 | Dependency graph valid (no cycles) | error | 63 |
-| DCMP-003 | Max depth 3 enforced (epic→task→subtask) | error | 63 |
-| DCMP-004 | Atomicity test (6 criteria: single file, <300 lines, clear acceptance criteria, etc.) | warning | 63 (strict) |
-| DCMP-006 | Max 7 siblings per parent | error | 63 |
-| DCMP-007 | `agent_type: "specification"` in manifest | error | 63 |
+| Requirement | Check                                                                                 | Severity | Exit Code   |
+| ----------- | ------------------------------------------------------------------------------------- | -------- | ----------- |
+| DCMP-001    | MECE check (mutually exclusive, collectively exhaustive)                              | warning  | 63 (strict) |
+| DCMP-002    | Dependency graph valid (no cycles)                                                    | error    | 63          |
+| DCMP-003    | Max depth 3 enforced (epic→task→subtask)                                              | error    | 63          |
+| DCMP-004    | Atomicity test (6 criteria: single file, <300 lines, clear acceptance criteria, etc.) | warning  | 63 (strict) |
+| DCMP-006    | Siblings respect `hierarchy.maxSiblings` (0 = unlimited)                              | error    | 63          |
+| DCMP-007    | `agent_type: "specification"` in manifest                                             | error    | 63          |
 
-**Implementation**: `lib/hierarchy.sh` already enforces DCMP-003, DCMP-006 (36% baseline enforcement)
+**Implementation**: `lib/hierarchy.sh` already enforces DCMP-003 and the configured sibling policy in DCMP-006 (36% baseline enforcement)
 
 ### 4.5 Implementation Protocol Validation
 
 **Function**: `validate_implementation(task_id, manifest_entry)`
 
-| Requirement | Check | Severity | Exit Code |
-|-------------|-------|----------|-----------|
-| IMPL-003 | Provenance tags `@task T####` present in new code | error | 64 |
-| IMPL-004 | Tests pass (critical subset for hooks, full suite for runtime) | error | 64 |
-| IMPL-006 | Style validation passes (shellcheck for bash, etc.) | warning | 64 (strict) |
-| IMPL-007 | `agent_type: "implementation"` in manifest | error | 64 |
+| Requirement | Check                                                          | Severity | Exit Code   |
+| ----------- | -------------------------------------------------------------- | -------- | ----------- |
+| IMPL-003    | Provenance tags `@task T####` present in new code              | error    | 64          |
+| IMPL-004    | Tests pass (critical subset for hooks, full suite for runtime) | error    | 64          |
+| IMPL-006    | Style validation passes (shellcheck for bash, etc.)            | warning  | 64 (strict) |
+| IMPL-007    | `agent_type: "implementation"` in manifest                     | error    | 64          |
 
 **Implementation**: Pre-commit hook + `cleo complete` validation
 
@@ -315,11 +333,11 @@ validate_research() {
 
 **Function**: `validate_contribution(task_id, manifest_entry)`
 
-| Requirement | Check | Severity | Exit Code |
-|-------------|-------|----------|-----------|
-| CONT-002 | Provenance tags in contributed code | error | 65 |
-| CONT-003 | Tests pass before PR submission | error | 65 |
-| CONT-007 | `agent_type: "implementation"` in manifest | error | 65 |
+| Requirement | Check                                      | Severity | Exit Code |
+| ----------- | ------------------------------------------ | -------- | --------- |
+| CONT-002    | Provenance tags in contributed code        | error    | 65        |
+| CONT-003    | Tests pass before PR submission            | error    | 65        |
+| CONT-007    | `agent_type: "implementation"` in manifest | error    | 65        |
 
 **Implementation**: CLI command `scripts/contribution.sh validate` + git hook integration
 
@@ -327,30 +345,30 @@ validate_research() {
 
 **Function**: `validate_release(version, changelog_entry)`
 
-| Requirement | Check | Severity | Exit Code |
-|-------------|-------|----------|-----------|
-| RLSE-001 | Version follows semver (major.minor.patch) | error | 66 |
-| RLSE-002 | Changelog entry exists for version | error | 66 |
-| RLSE-003 | All tests pass before release | error | 66 |
-| RLSE-004 | Git tag matches version | error | 66 |
-| RLSE-007 | `agent_type: "implementation"` in manifest | error | 66 |
+| Requirement | Check                                      | Severity | Exit Code |
+| ----------- | ------------------------------------------ | -------- | --------- |
+| RLSE-001    | Version follows semver (major.minor.patch) | error    | 66        |
+| RLSE-002    | Changelog entry exists for version         | error    | 66        |
+| RLSE-003    | All tests pass before release              | error    | 66        |
+| RLSE-004    | Git tag matches version                    | error    | 66        |
+| RLSE-007    | `agent_type: "implementation"` in manifest | error    | 66        |
 
 **Implementation**: `scripts/release.sh` (86% enforcement - success model)
 
 ---
 
-## Part 5: Bypass Policy (BYPS-*)
+## Part 5: Bypass Policy (BYPS-\*)
 
 ### 5.1 Bypass Mechanisms
 
-| ID | Requirement | Use Case |
-|----|-------------|----------|
-| BYPS-001 | Pre-commit hooks MUST be bypassable via `--no-verify` flag | Emergency hotfixes, WIP commits, cross-repo work |
-| BYPS-002 | Runtime validation MUST NOT be bypassable for MUST requirements | Safety net for critical requirements |
-| BYPS-003 | Bypass usage MUST be logged to `.cleo/bypass-log.json` | Audit trail for compliance review |
-| BYPS-004 | Bypass log entries MUST include timestamp, commit hash, user, justification | Traceable for post-hoc analysis |
-| BYPS-005 | SHOULD requirements MAY be bypassable in both hooks and runtime (warning mode) | Gradual improvement without blocking work |
-| BYPS-006 | Bypass justification codes MUST be from enum: `emergency`, `wip`, `cross-repo`, `automation`, `other` | Categorizable for pattern analysis |
+| ID       | Requirement                                                                                           | Use Case                                         |
+| -------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| BYPS-001 | Pre-commit hooks MUST be bypassable via `--no-verify` flag                                            | Emergency hotfixes, WIP commits, cross-repo work |
+| BYPS-002 | Runtime validation MUST NOT be bypassable for MUST requirements                                       | Safety net for critical requirements             |
+| BYPS-003 | Bypass usage MUST be logged to `.cleo/bypass-log.json`                                                | Audit trail for compliance review                |
+| BYPS-004 | Bypass log entries MUST include timestamp, commit hash, user, justification                           | Traceable for post-hoc analysis                  |
+| BYPS-005 | SHOULD requirements MAY be bypassable in both hooks and runtime (warning mode)                        | Gradual improvement without blocking work        |
+| BYPS-006 | Bypass justification codes MUST be from enum: `emergency`, `wip`, `cross-repo`, `automation`, `other` | Categorizable for pattern analysis               |
 
 ### 5.2 Bypass Log Format
 
@@ -365,7 +383,11 @@ validate_research() {
   "justification": "emergency",
   "justificationNote": "Production crash requires immediate fix outside normal workflow",
   "violations": [
-    {"requirement": "IMPL-003", "severity": "error", "message": "Missing @task tag"}
+    {
+      "requirement": "IMPL-003",
+      "severity": "error",
+      "message": "Missing @task tag"
+    }
   ]
 }
 ```
@@ -373,6 +395,7 @@ validate_research() {
 ### 5.3 Permitted Bypass Scenarios
 
 **ALLOWED**:
+
 - Emergency hotfixes (production issues)
 - WIP commits (work-in-progress, will be squashed)
 - Merge commits (automated via GitHub/GitLab)
@@ -380,6 +403,7 @@ validate_research() {
 - Cross-repository work (changes spanning multiple repos)
 
 **PROHIBITED**:
+
 - Normal feature development
 - Bug fixes (should be tracked via tasks)
 - Refactoring work
@@ -390,6 +414,7 @@ validate_research() {
 **Command**: `cleo audit bypass [--since YYYY-MM-DD]`
 
 **Report Format**:
+
 ```
 Bypass Audit Report
 ===================
@@ -413,19 +438,19 @@ Recommended actions:
 
 ---
 
-## Part 6: Testing Requirements (TEST-*)
+## Part 6: Testing Requirements (TEST-\*)
 
 ### 6.1 Enforcement Testing
 
-| ID | Requirement | Rationale |
-|----|-------------|-----------|
+| ID       | Requirement                                                                | Rationale                                       |
+| -------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
 | TEST-001 | Each validation function MUST have unit tests with positive/negative cases | Validates validators; prevents enforcement bugs |
-| TEST-002 | Unit tests MUST cover all MUST requirements per protocol | Complete coverage; no gaps |
-| TEST-003 | Integration tests MUST validate hook + runtime coordination | End-to-end verification |
-| TEST-004 | Tests MUST verify exit codes match specification (60-67 range) | Correct error signaling |
-| TEST-005 | Tests MUST verify bypass policy works correctly | Escape hatch functional |
-| TEST-006 | Test fixtures MUST include valid and invalid manifest entries | Realistic test data |
-| TEST-007 | SHOULD use BATS for shell script validation function tests | Consistency with existing test suite |
+| TEST-002 | Unit tests MUST cover all MUST requirements per protocol                   | Complete coverage; no gaps                      |
+| TEST-003 | Integration tests MUST validate hook + runtime coordination                | End-to-end verification                         |
+| TEST-004 | Tests MUST verify exit codes match specification (60-67 range)             | Correct error signaling                         |
+| TEST-005 | Tests MUST verify bypass policy works correctly                            | Escape hatch functional                         |
+| TEST-006 | Test fixtures MUST include valid and invalid manifest entries              | Realistic test data                             |
+| TEST-007 | SHOULD use BATS for shell script validation function tests                 | Consistency with existing test suite            |
 
 ### 6.2 Test Structure
 
@@ -452,15 +477,15 @@ tests/
 
 ### 6.3 Test Coverage Targets
 
-| Protocol | MUST Requirements | Target Coverage | Priority |
-|----------|-------------------|----------------|----------|
-| research.md | 7 | 100% | High |
-| consensus.md | 7 | 100% | Critical |
-| specification.md | 7 | 100% | High |
-| decomposition.md | 7 | 100% | High |
-| implementation.md | 7 | 100% | Critical |
-| contribution.md | 7 | 100% | Critical |
-| release.md | 7 | 100% | High |
+| Protocol          | MUST Requirements | Target Coverage | Priority |
+| ----------------- | ----------------- | --------------- | -------- |
+| research.md       | 7                 | 100%            | High     |
+| consensus.md      | 7                 | 100%            | Critical |
+| specification.md  | 7                 | 100%            | High     |
+| decomposition.md  | 7                 | 100%            | High     |
+| implementation.md | 7                 | 100%            | Critical |
+| contribution.md   | 7                 | 100%            | Critical |
+| release.md        | 7                 | 100%            | High     |
 
 **Rationale**: 100% coverage of MUST requirements ensures no enforcement gaps. SHOULD/MAY requirements tested at lower priority.
 
@@ -471,31 +496,37 @@ tests/
 ### 7.1 Wave 3 Tasks (Immediate)
 
 **T2692**: Connect consensus CLI (`scripts/consensus.sh`)
+
 - Create CLI entry point for orphaned `lib/contribution-protocol.sh` functions
 - Add orchestrator integration hooks
 - Expected: 0% → 70% enforcement for consensus.md
 
 **T2693**: Connect contribution CLI (`scripts/contribution.sh`)
+
 - Create CLI entry point for contribution protocol
 - Integrate with `cleo complete` workflow
 - Expected: 14% → 60% enforcement for contribution.md
 
 **T2694**: Fix consensus threshold mismatch
+
 - Decide: 50% (practical) or 80% (stringent)
 - Update protocol OR code to match
 - Document rationale
 
 **T2695**: Add `lib/protocol-validation.sh` foundation
+
 - Create shared validation library
 - Implement 7 protocol validation functions
 - Add exit code handling (60-67)
 
 **T2696**: Add provenance tag validator
+
 - Pre-commit hook: validate `@task T####` in new code
 - Runtime validator: check existing codebase coverage
 - Exit code 64 for violations
 
 **T2697**: Add agent_type enum to manifest schema
+
 - Update `schemas/manifest.schema.json`
 - Add enum constraint: `["research", "analysis", "specification", "implementation", "documentation"]`
 - Validate at manifest append time
@@ -503,21 +534,25 @@ tests/
 ### 7.2 Success Metrics
 
 **Baseline (Wave 0)**:
+
 - Average enforcement: 22%
 - Orphaned code: 3250 lines
 - Protocol violations: undetected
 
 **Target (Post-Wave 3)**:
+
 - Average enforcement: 40%
 - Orphaned code: 0 lines (CLI wired)
 - Protocol violations: exit codes 60-67
 
 **Target (Post-Wave 4)**:
+
 - Average enforcement: 55%
 - Pre-commit hooks: active for provenance, tests
 - Bypass audit: operational
 
 **Target (Long-term)**:
+
 - Average enforcement: 70%
 - Full hook + runtime integration
 - Metrics dashboard operational
@@ -578,11 +613,13 @@ tests/
 ### 9.4 Implementation Evidence
 
 **Success Pattern** (release.md - 86%):
+
 - Single automated script: `scripts/release.sh`
 - Runtime validation at execution
 - Clear entry point for protocol
 
 **Failure Pattern** (consensus.md - 0%):
+
 - 1850 lines implemented, no CLI access
 - Functions never called
 - No orchestrator integration
@@ -594,12 +631,14 @@ tests/
 This specification defines a **dual-layer enforcement architecture** addressing the 22% baseline compliance identified in Wave 0 research. By combining pre-commit hooks (fast feedback) and runtime validation (comprehensive coverage), CLEO protocols can achieve target 70% enforcement while maintaining developer UX.
 
 **Key Insights**:
+
 1. **Orphaned implementations** (3250 lines) represent highest ROI - CLI wiring unlocks existing functionality
 2. **Release protocol success** (86%) proves single automated entry point pattern works
 3. **Exit codes 60-67** provide protocol-specific signaling distinct from system errors
 4. **Phased rollout** reduces risk - runtime first, hooks incrementally
 
 **Next Actions**:
+
 - Wave 3 implementation (T2692-T2697) addresses critical gaps
 - T2689 specifies commit-msg hook details
 - T2690 updates protocol text to match reality

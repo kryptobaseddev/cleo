@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../../platform.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
+import { CORE_PROTECTED_FILES } from '../../constants.js';
 
 // ============================================================================
 // Types
@@ -555,15 +556,9 @@ export function checkVitalFilesTracked(
     };
   }
 
-  // Build vital file list based on storage engine
+  // Build vital file list from centralized constant
   const engine = detectStorageEngine(root);
-  const vitalFiles: string[] = [
-    '.cleo/config.json',
-    '.cleo/.gitignore',
-  ];
-
-  // SQLite is the only engine per ADR-006
-  vitalFiles.push('.cleo/tasks.db');
+  const vitalFiles = CORE_PROTECTED_FILES.map(f => `.cleo/${f}`);
 
   const untracked: string[] = [];
 
@@ -598,6 +593,73 @@ export function checkVitalFilesTracked(
     status: 'passed',
     message: `All vital CLEO files are tracked by git (engine: ${engine})`,
     details: { engine, checkedFiles: vitalFiles },
+    fix: null,
+  };
+}
+
+// ============================================================================
+// Check: Core files not gitignored
+// ============================================================================
+
+/**
+ * Check that core CLEO files are not being ignored by .gitignore.
+ * Uses `git check-ignore` to detect files that would be excluded by
+ * any gitignore rule (root, .cleo/, or global).
+ * Returns critical status if any protected file is gitignored.
+ */
+export function checkCoreFilesNotIgnored(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const gitDir = join(root, '.git');
+
+  if (!existsSync(gitDir)) {
+    return {
+      id: 'core_files_not_ignored',
+      category: 'configuration',
+      status: 'info',
+      message: 'Not a git repository (skipping gitignore check)',
+      details: { isGitRepo: false },
+      fix: null,
+    };
+  }
+
+  const ignoredFiles: string[] = [];
+
+  for (const file of CORE_PROTECTED_FILES) {
+    const relPath = `.cleo/${file}`;
+    const fullPath = join(root, relPath);
+    if (!existsSync(fullPath)) continue;
+
+    try {
+      execFileSync('git', ['check-ignore', '-q', relPath], {
+        cwd: root,
+        stdio: 'pipe',
+      });
+      // Exit code 0 means the file IS ignored
+      ignoredFiles.push(relPath);
+    } catch {
+      // Non-zero exit means the file is NOT ignored (good)
+    }
+  }
+
+  if (ignoredFiles.length > 0) {
+    return {
+      id: 'core_files_not_ignored',
+      category: 'configuration',
+      status: 'failed',
+      message: `Critical CLEO files are gitignored: ${ignoredFiles.join(', ')}`,
+      details: { ignoredFiles },
+      fix: 'Remove ignore rules for these files from .gitignore and .cleo/.gitignore, then: git add ' + ignoredFiles.join(' '),
+    };
+  }
+
+  return {
+    id: 'core_files_not_ignored',
+    category: 'configuration',
+    status: 'passed',
+    message: 'No core CLEO files are gitignored',
+    details: { checkedFiles: CORE_PROTECTED_FILES.map(f => `.cleo/${f}`) },
     fix: null,
   };
 }
@@ -785,6 +847,7 @@ export function runAllGlobalChecks(
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
     checkVitalFilesTracked(projectRoot),
+    checkCoreFilesNotIgnored(projectRoot),
     checkLegacyAgentOutputs(projectRoot),
   ];
 }

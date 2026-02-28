@@ -34,29 +34,59 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Extract year and month from version
-          TAG_YEAR=$(echo "$VERSION" | cut -d. -f1)
-          TAG_MONTH=$(echo "$VERSION" | cut -d. -f2)
+          # Extract base version (strip pre-release suffix)
+          BASE_VERSION=$(echo "$VERSION" | cut -d- -f1)
+          TAG_YEAR=$(echo "$BASE_VERSION" | cut -d. -f1)
+          TAG_MONTH=$(echo "$BASE_VERSION" | cut -d. -f2)
 
           # Get current UTC year and month
           CURRENT_YEAR=$(date -u +%Y)
           CURRENT_MONTH=$(date -u +%-m)
 
+          # Calculate next month (for pre-release flexibility)
+          if [[ "$CURRENT_MONTH" -eq 12 ]]; then
+            NEXT_MONTH=1
+            NEXT_YEAR=$((CURRENT_YEAR + 1))
+          else
+            NEXT_MONTH=$((CURRENT_MONTH + 1))
+            NEXT_YEAR=$CURRENT_YEAR
+          fi
+
           echo "Tag: ${TAG_YEAR}.${TAG_MONTH}.x"
           echo "Now: ${CURRENT_YEAR}.${CURRENT_MONTH}"
 
-          if [[ "$TAG_YEAR" != "$CURRENT_YEAR" ]]; then
-            echo "ERROR: Tag year ${TAG_YEAR} does not match current year ${CURRENT_YEAR}"
-            exit 1
+          # Check if this is a pre-release tag
+          IS_PRERELEASE=false
+          if [[ "$VERSION" == *"-"* ]]; then
+            IS_PRERELEASE=true
+            echo "Pre-release detected: $(echo "$VERSION" | cut -d- -f2-)"
           fi
 
-          if [[ "$TAG_MONTH" != "$CURRENT_MONTH" ]]; then
-            echo "ERROR: Tag month ${TAG_MONTH} does not match current month ${CURRENT_MONTH}"
-            echo "CalVer requires YYYY.M.PATCH where M is the current month"
-            exit 1
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            # Pre-release: year must match current or next month's year
+            if [[ "$TAG_YEAR" != "$CURRENT_YEAR" ]] && [[ "$TAG_YEAR" != "$NEXT_YEAR" ]]; then
+              echo "ERROR: Pre-release tag year ${TAG_YEAR} does not match current (${CURRENT_YEAR}) or next month's year (${NEXT_YEAR})"
+              exit 1
+            fi
+            # Pre-release: month can be current or next month
+            if [[ "$TAG_MONTH" != "$CURRENT_MONTH" ]] && [[ "$TAG_MONTH" != "$NEXT_MONTH" ]]; then
+              echo "ERROR: Pre-release tag month ${TAG_MONTH} does not match current (${CURRENT_MONTH}) or next month (${NEXT_MONTH})"
+              exit 1
+            fi
+            echo "CalVer validated (pre-release): ${TAG_YEAR}.${TAG_MONTH} within allowed range"
+          else
+            # Stable: strict year and month match required
+            if [[ "$TAG_YEAR" != "$CURRENT_YEAR" ]]; then
+              echo "ERROR: Tag year ${TAG_YEAR} does not match current year ${CURRENT_YEAR}"
+              exit 1
+            fi
+            if [[ "$TAG_MONTH" != "$CURRENT_MONTH" ]]; then
+              echo "ERROR: Tag month ${TAG_MONTH} does not match current month ${CURRENT_MONTH}"
+              echo "CalVer requires YYYY.M.PATCH where M is the current month"
+              exit 1
+            fi
+            echo "CalVer validated (stable): ${TAG_YEAR}.${TAG_MONTH} matches current date"
           fi
-
-          echo "CalVer validated: ${TAG_YEAR}.${TAG_MONTH} matches current date"
 
       - name: Install dependencies
         run: npm ci

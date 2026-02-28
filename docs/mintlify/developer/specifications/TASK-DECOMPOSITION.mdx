@@ -28,6 +28,7 @@ This specification defines an LLM-agent-first task decomposition system for tran
 ### 1.2 Authority
 
 This specification is **AUTHORITATIVE** for:
+
 - Task decomposition algorithm phases
 - Atomicity criteria and validation
 - Dependency graph construction rules
@@ -36,6 +37,7 @@ This specification is **AUTHORITATIVE** for:
 - JSON output schemas for decomposition results
 
 This specification **DEFERS TO**:
+
 - [SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md) for document structure
 - [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) for task ID format
 - [HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md) for type/parentId/size fields
@@ -59,6 +61,7 @@ capitals, as shown here.
 ### 3.1 Problem Statement
 
 LLM agents struggle with:
+
 1. **Scope explosion**: Large tasks exceed context windows
 2. **Hallucinated dependencies**: Assuming ordering that doesn't exist
 3. **Non-atomic tasks**: Tasks that require hidden sub-decisions
@@ -99,14 +102,14 @@ OUTPUT: Task DAG (todo.schema.json compliant)
 
 ### 3.3 Core Principles
 
-| Principle | Requirement |
-|-----------|-------------|
-| **No Time Estimates** | Size by scope (small/medium/large), NEVER hours/days |
-| **Evidence-Based Dependencies** | Dependencies MUST be provable, not assumed |
-| **Atomicity Threshold** | Tasks MUST pass 6-point atomicity criteria |
-| **Adversarial Validation** | Each phase MUST survive challenge |
-| **HITL Gates** | Ambiguity triggers human decision points |
-| **LLM-Agent-First Output** | JSON with `_meta` envelope, structured errors |
+| Principle                       | Requirement                                          |
+| ------------------------------- | ---------------------------------------------------- |
+| **No Time Estimates**           | Size by scope (small/medium/large), NEVER hours/days |
+| **Evidence-Based Dependencies** | Dependencies MUST be provable, not assumed           |
+| **Atomicity Threshold**         | Tasks MUST pass 6-point atomicity criteria           |
+| **Adversarial Validation**      | Each phase MUST survive challenge                    |
+| **HITL Gates**                  | Ambiguity triggers human decision points             |
+| **LLM-Agent-First Output**      | JSON with `_meta` envelope, structured errors        |
 
 ---
 
@@ -116,14 +119,14 @@ OUTPUT: Task DAG (todo.schema.json compliant)
 
 A task is ATOMIC if and only if ALL of the following are TRUE:
 
-| # | Criterion | Test | Failure Indicator |
-|---|-----------|------|-------------------|
-| 1 | **Single File Scope** | Affects ≤3 tightly-coupled files | Changes 4+ unrelated files |
-| 2 | **Single Cognitive Concern** | One "thing" to understand | Requires context switching |
-| 3 | **Clear Acceptance Criteria** | Testable completion condition | "It works" is not testable |
-| 4 | **No Context Switching** | Can complete in one focus session | Requires waiting for external input |
-| 5 | **No Hidden Sub-Decisions** | All choices made at decomposition time | Agent must ask HITL during execution |
-| 6 | **Programmatic Validation** | Result verifiable by code/test | Requires subjective human judgment |
+| #   | Criterion                     | Test                                   | Failure Indicator                    |
+| --- | ----------------------------- | -------------------------------------- | ------------------------------------ |
+| 1   | **Single File Scope**         | Affects ≤3 tightly-coupled files       | Changes 4+ unrelated files           |
+| 2   | **Single Cognitive Concern**  | One "thing" to understand              | Requires context switching           |
+| 3   | **Clear Acceptance Criteria** | Testable completion condition          | "It works" is not testable           |
+| 4   | **No Context Switching**      | Can complete in one focus session      | Requires waiting for external input  |
+| 5   | **No Hidden Sub-Decisions**   | All choices made at decomposition time | Agent must ask HITL during execution |
+| 6   | **Programmatic Validation**   | Result verifiable by code/test         | Requires subjective human judgment   |
 
 ### 4.2 Atomicity Score Calculation
 
@@ -137,27 +140,30 @@ IF atomicity_score < 100:
 
 ### 4.3 Size-to-Atomicity Mapping
 
-| Size | File Scope | Atomicity Expectation |
-|------|------------|----------------------|
-| `small` | 1-2 files | MUST be atomic (score = 100) |
-| `medium` | 3-7 files | SHOULD be atomic, MAY need review |
-| `large` | 8+ files | MUST NOT be atomic, MUST decompose |
+| Size     | File Scope | Atomicity Expectation              |
+| -------- | ---------- | ---------------------------------- |
+| `small`  | 1-2 files  | MUST be atomic (score = 100)       |
+| `medium` | 3-7 files  | SHOULD be atomic, MAY need review  |
+| `large`  | 8+ files   | MUST NOT be atomic, MUST decompose |
 
 ### 4.4 Examples
 
 **ATOMIC** (score = 100):
+
 ```yaml
 title: "Add validation to email input field"
 files: ["src/components/EmailInput.tsx"]
-acceptance: ["Email regex validates format", "Error message displays on invalid input"]
+acceptance:
+  ["Email regex validates format", "Error message displays on invalid input"]
 ```
 
 **NOT ATOMIC** (score = 50):
+
 ```yaml
 title: "Implement authentication system"
-files: ["src/auth/*", "src/api/*", "src/db/*"]  # Criterion 1 FAIL
-acceptance: ["Users can log in"]  # Criterion 3 FAIL (not specific)
-hidden_decisions: ["OAuth vs JWT?", "Session storage?"]  # Criterion 5 FAIL
+files: ["src/auth/*", "src/api/*", "src/db/*"] # Criterion 1 FAIL
+acceptance: ["Users can log in"] # Criterion 3 FAIL (not specific)
+hidden_decisions: ["OAuth vs JWT?", "Session storage?"] # Criterion 5 FAIL
 ```
 
 ---
@@ -172,11 +178,11 @@ Assess input complexity and determine decomposition strategy before work begins.
 
 ```typescript
 interface ScopeInput {
-  request: string;           // Natural language or structured
+  request: string; // Natural language or structured
   context?: {
-    codebase?: string;       // Project root path
-    existingTasks?: Task[];  // Current task list for dedup
-    phase?: string;          // Current project phase
+    codebase?: string; // Project root path
+    existingTasks?: Task[]; // Current task list for dedup
+    phase?: string; // Current project phase
   };
 }
 ```
@@ -263,11 +269,11 @@ FUNCTION analyze_scope(input: ScopeInput) -> ScopeAssessment:
 
 ### 5.5 Exit Codes
 
-| Code | Constant | Meaning |
-|------|----------|---------|
-| 0 | `EXIT_SUCCESS` | Scope analysis complete |
-| 2 | `EXIT_INVALID_INPUT` | Request is empty or malformed |
-| 30 | `EXIT_HITL_REQUIRED` | Ambiguities require human input |
+| Code | Constant             | Meaning                         |
+| ---- | -------------------- | ------------------------------- |
+| 0    | `EXIT_SUCCESS`       | Scope analysis complete         |
+| 2    | `EXIT_INVALID_INPUT` | Request is empty or malformed   |
+| 30   | `EXIT_HITL_REQUIRED` | Ambiguities require human input |
 
 ---
 
@@ -281,13 +287,13 @@ Recursively decompose goals into atomic tasks using HTN-inspired methods.
 
 Each goal type has defined decomposition methods:
 
-| Goal Pattern | Method | Subtask Template |
-|--------------|--------|------------------|
-| `implement_feature` | Feature Decomposition | [schema, api, logic, ui, tests] |
-| `fix_bug` | Bug Fix Decomposition | [reproduce, diagnose, fix, verify] |
-| `refactor_code` | Refactor Decomposition | [analyze, plan, execute, verify] |
-| `add_command` | CLI Command Decomposition | [script, help, tests, docs] |
-| `update_schema` | Schema Migration | [schema, migration, validation, update-code] |
+| Goal Pattern        | Method                    | Subtask Template                             |
+| ------------------- | ------------------------- | -------------------------------------------- |
+| `implement_feature` | Feature Decomposition     | [schema, api, logic, ui, tests]              |
+| `fix_bug`           | Bug Fix Decomposition     | [reproduce, diagnose, fix, verify]           |
+| `refactor_code`     | Refactor Decomposition    | [analyze, plan, execute, verify]             |
+| `add_command`       | CLI Command Decomposition | [script, help, tests, docs]                  |
+| `update_schema`     | Schema Migration          | [schema, migration, validation, update-code] |
 
 ### 6.3 Algorithm
 
@@ -333,12 +339,14 @@ FUNCTION decompose_goal(goal: Goal, depth: int = 0) -> TaskTree:
 Per CONSENSUS-FRAMEWORK-SPEC Part 5.5, decomposition MUST be challenged:
 
 **Challenge Questions:**
+
 1. "Can any of these subtasks be merged without losing clarity?"
 2. "Are there missing tasks required to achieve the goal?"
 3. "Does each subtask have clear, distinct acceptance criteria?"
 4. "Is the decomposition method appropriate for this goal pattern?"
 
 **Challenge Agent Evidence Standard:**
+
 - Logical counter-argument with specific subtask reference
 - OR counter-example showing merge/split improves outcome
 
@@ -410,13 +418,13 @@ Construct a validated DAG from the goal tree, identifying true dependencies and 
 
 ### 7.2 Dependency Types (AUTHORITATIVE)
 
-| Type | Detection Method | Evidence Required |
-|------|------------------|-------------------|
-| **Explicit** | Keywords: "after", "requires", "depends on" | Present in goal description |
-| **Data Flow** | Output of A is input of B | Schema/type analysis |
-| **File Conflict** | Both modify same file | File path intersection |
-| **API Contract** | B calls API defined in A | Code/interface analysis |
-| **Semantic** | Logical ordering (schema before queries) | Domain knowledge |
+| Type              | Detection Method                            | Evidence Required           |
+| ----------------- | ------------------------------------------- | --------------------------- |
+| **Explicit**      | Keywords: "after", "requires", "depends on" | Present in goal description |
+| **Data Flow**     | Output of A is input of B                   | Schema/type analysis        |
+| **File Conflict** | Both modify same file                       | File path intersection      |
+| **API Contract**  | B calls API defined in A                    | Code/interface analysis     |
+| **Semantic**      | Logical ordering (schema before queries)    | Domain knowledge            |
 
 ### 7.3 Algorithm
 
@@ -468,6 +476,7 @@ FUNCTION build_dependency_graph(goal_tree: TaskTree) -> DAG:
 ### 7.4 Challenge Protocol (Phase 3)
 
 **Challenge Questions:**
+
 1. "Is dependency X→Y proven or merely assumed?"
 2. "Can task A actually run in parallel with B?"
 3. "Are there hidden shared-state conflicts?"
@@ -475,11 +484,11 @@ FUNCTION build_dependency_graph(goal_tree: TaskTree) -> DAG:
 
 **Evidence Standard for Dependencies:**
 
-| Claim | Required Evidence |
-|-------|-------------------|
-| "A must complete before B" | Data flow proof OR explicit requirement |
+| Claim                         | Required Evidence                        |
+| ----------------------------- | ---------------------------------------- |
+| "A must complete before B"    | Data flow proof OR explicit requirement  |
 | "A and B can run in parallel" | No shared state, no ordering requirement |
-| "A blocks B on failure" | Error propagation path identified |
+| "A blocks B on failure"       | Error propagation path identified        |
 
 ### 7.5 Output Schema
 
@@ -496,22 +505,42 @@ FUNCTION build_dependency_graph(goal_tree: TaskTree) -> DAG:
     "challengeStatus": "validated"
   },
   "nodes": [
-    {"id": "T001", "title": "Create user schema", "depth": 0},
-    {"id": "T002", "title": "Add login endpoint", "depth": 1},
-    {"id": "T003", "title": "Add logout endpoint", "depth": 1},
-    {"id": "T004", "title": "Write auth tests", "depth": 2},
-    {"id": "T005", "title": "Update API docs", "depth": 2}
+    { "id": "T001", "title": "Create user schema", "depth": 0 },
+    { "id": "T002", "title": "Add login endpoint", "depth": 1 },
+    { "id": "T003", "title": "Add logout endpoint", "depth": 1 },
+    { "id": "T004", "title": "Write auth tests", "depth": 2 },
+    { "id": "T005", "title": "Update API docs", "depth": 2 }
   ],
   "edges": [
-    {"from": "T001", "to": "T002", "type": "data_flow", "evidence": "User model required"},
-    {"from": "T001", "to": "T003", "type": "data_flow", "evidence": "User model required"},
-    {"from": "T002", "to": "T004", "type": "semantic", "evidence": "Tests require implementation"},
-    {"from": "T003", "to": "T004", "type": "semantic", "evidence": "Tests require implementation"}
+    {
+      "from": "T001",
+      "to": "T002",
+      "type": "data_flow",
+      "evidence": "User model required"
+    },
+    {
+      "from": "T001",
+      "to": "T003",
+      "type": "data_flow",
+      "evidence": "User model required"
+    },
+    {
+      "from": "T002",
+      "to": "T004",
+      "type": "semantic",
+      "evidence": "Tests require implementation"
+    },
+    {
+      "from": "T003",
+      "to": "T004",
+      "type": "semantic",
+      "evidence": "Tests require implementation"
+    }
   ],
   "parallelGroups": [
-    {"group": 1, "tasks": ["T001"]},
-    {"group": 2, "tasks": ["T002", "T003"]},
-    {"group": 3, "tasks": ["T004", "T005"]}
+    { "group": 1, "tasks": ["T001"] },
+    { "group": 2, "tasks": ["T002", "T003"] },
+    { "group": 3, "tasks": ["T004", "T005"] }
   ],
   "executionOrder": ["T001", "T002", "T003", "T004", "T005"],
   "challenge": {
@@ -539,15 +568,15 @@ Generate schema-compliant task objects ready for insertion into cleo.
 
 ### 8.2 Field Mapping
 
-| DAG Field | todo.schema.json Field | Transformation |
-|-----------|------------------------|----------------|
-| `node.id` | `id` | Prefix with "T", pad to 3+ digits |
-| `node.title` | `title` | Validate length ≤120 chars |
-| `goal.type` | `type` | Map: epic/task/subtask |
-| `parent_node.id` | `parentId` | Use parent's task ID |
-| `node.atomicityScore` | `size` | ≤50→small, ≤80→medium, else→large |
-| `edges[to=node]` | `depends` | Collect all incoming edge sources |
-| `goal.acceptance` | `acceptance` | Array of testable criteria |
+| DAG Field             | todo.schema.json Field | Transformation                    |
+| --------------------- | ---------------------- | --------------------------------- |
+| `node.id`             | `id`                   | Prefix with "T", pad to 3+ digits |
+| `node.title`          | `title`                | Validate length ≤120 chars        |
+| `goal.type`           | `type`                 | Map: epic/task/subtask            |
+| `parent_node.id`      | `parentId`             | Use parent's task ID              |
+| `node.atomicityScore` | `size`                 | ≤50→small, ≤80→medium, else→large |
+| `edges[to=node]`      | `depends`              | Collect all incoming edge sources |
+| `goal.acceptance`     | `acceptance`           | Array of testable criteria        |
 
 ### 8.3 Algorithm
 
@@ -603,12 +632,14 @@ FUNCTION specify_tasks(dag: DAG, phase: string) -> Task[]:
 ### 8.4 Challenge Protocol (Phase 4)
 
 **Challenge Questions:**
+
 1. "Can an LLM agent complete this task without HITL intervention?"
 2. "Is the scope truly minimal or can it be decomposed further?"
 3. "Are the acceptance criteria actually testable by code?"
 4. "Is the size classification accurate?"
 
 **Atomicity Verification Checklist:**
+
 ```
 FOR each task IN tasks:
     [ ] Single file scope (≤3 files)
@@ -702,46 +733,46 @@ cleo decompose "Add dark mode" --phase ui --dry-run
 
 ### 9.2 Command Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `<request>` | string | required | Natural language request or structured input |
-| `--file, -i` | path | - | Read request from file |
-| `--phase` | string | current | Target phase for generated tasks |
-| `--parent` | task ID | - | Parent task for all generated tasks |
-| `--dry-run` | boolean | false | Preview without creating tasks |
-| `--no-challenge` | boolean | false | Skip adversarial validation (NOT RECOMMENDED) |
-| `--eager-execution` | boolean | false | Begin on stable spec sections (see 9.6) |
-| `--format, -f` | string | auto | Output format (json/text/markdown) |
-| `--quiet, -q` | boolean | false | Suppress non-essential output |
-| `--verbose, -v` | boolean | false | Show detailed phase outputs |
+| Option              | Type    | Default  | Description                                   |
+| ------------------- | ------- | -------- | --------------------------------------------- |
+| `<request>`         | string  | required | Natural language request or structured input  |
+| `--file, -i`        | path    | -        | Read request from file                        |
+| `--phase`           | string  | current  | Target phase for generated tasks              |
+| `--parent`          | task ID | -        | Parent task for all generated tasks           |
+| `--dry-run`         | boolean | false    | Preview without creating tasks                |
+| `--no-challenge`    | boolean | false    | Skip adversarial validation (NOT RECOMMENDED) |
+| `--eager-execution` | boolean | false    | Begin on stable spec sections (see 9.6)       |
+| `--format, -f`      | string  | auto     | Output format (json/text/markdown)            |
+| `--quiet, -q`       | boolean | false    | Suppress non-essential output                 |
+| `--verbose, -v`     | boolean | false    | Show detailed phase outputs                   |
 
 ### 9.3 Exit Codes
 
-| Code | Constant | Meaning |
-|------|----------|---------|
-| 0 | `EXIT_SUCCESS` | Decomposition complete, tasks created |
-| 2 | `EXIT_INVALID_INPUT` | Request empty or malformed |
-| 6 | `EXIT_VALIDATION_ERROR` | Generated tasks fail schema validation |
-| 10 | `EXIT_PARENT_NOT_FOUND` | Specified `--parent` doesn't exist |
-| 11 | `EXIT_DEPTH_EXCEEDED` | Would exceed max hierarchy depth |
-| 12 | `EXIT_SIBLING_LIMIT` | Would exceed max sibling count |
-| 14 | `EXIT_CIRCULAR_REFERENCE` | DAG contains cycles |
-| 30 | `EXIT_HITL_REQUIRED` | Decomposition blocked by ambiguity |
-| 31 | `EXIT_CHALLENGE_REJECTED` | Challenge agent rejected decomposition |
-| 35 | `EXIT_ATOMICITY_FAILED` | Tasks fail atomicity criteria (score < 100) |
-| 102 | `EXIT_NO_CHANGE` | Request already decomposed (idempotent) |
+| Code | Constant                  | Meaning                                     |
+| ---- | ------------------------- | ------------------------------------------- |
+| 0    | `EXIT_SUCCESS`            | Decomposition complete, tasks created       |
+| 2    | `EXIT_INVALID_INPUT`      | Request empty or malformed                  |
+| 6    | `EXIT_VALIDATION_ERROR`   | Generated tasks fail schema validation      |
+| 10   | `EXIT_PARENT_NOT_FOUND`   | Specified `--parent` doesn't exist          |
+| 11   | `EXIT_DEPTH_EXCEEDED`     | Would exceed max hierarchy depth            |
+| 12   | `EXIT_SIBLING_LIMIT`      | Would exceed max sibling count              |
+| 14   | `EXIT_CIRCULAR_REFERENCE` | DAG contains cycles                         |
+| 30   | `EXIT_HITL_REQUIRED`      | Decomposition blocked by ambiguity          |
+| 31   | `EXIT_CHALLENGE_REJECTED` | Challenge agent rejected decomposition      |
+| 35   | `EXIT_ATOMICITY_FAILED`   | Tasks fail atomicity criteria (score < 100) |
+| 102  | `EXIT_NO_CHANGE`          | Request already decomposed (idempotent)     |
 
 ### 9.4 Error Codes
 
-| Code | Exit Code | Description |
-|------|-----------|-------------|
-| `E_DECOMPOSE_EMPTY_INPUT` | 2 | No request provided |
-| `E_DECOMPOSE_AMBIGUOUS` | 30 | Request has unresolved ambiguities |
-| `E_DECOMPOSE_CYCLE` | 14 | Generated DAG has cycles |
-| `E_DECOMPOSE_REJECTED` | 31 | Challenge agent rejected decomposition |
-| `E_DECOMPOSE_ATOMICITY` | 35 | Tasks fail atomicity criteria |
-| `E_DECOMPOSE_DEPTH` | 11 | Recursive decomposition exceeded depth |
-| `E_DECOMPOSE_SIBLINGS` | 12 | Too many sibling tasks generated |
+| Code                      | Exit Code | Description                                           |
+| ------------------------- | --------- | ----------------------------------------------------- |
+| `E_DECOMPOSE_EMPTY_INPUT` | 2         | No request provided                                   |
+| `E_DECOMPOSE_AMBIGUOUS`   | 30        | Request has unresolved ambiguities                    |
+| `E_DECOMPOSE_CYCLE`       | 14        | Generated DAG has cycles                              |
+| `E_DECOMPOSE_REJECTED`    | 31        | Challenge agent rejected decomposition                |
+| `E_DECOMPOSE_ATOMICITY`   | 35        | Tasks fail atomicity criteria                         |
+| `E_DECOMPOSE_DEPTH`       | 11        | Recursive decomposition exceeded depth                |
+| `E_DECOMPOSE_SIBLINGS`    | 12        | Generated tasks exceeded the configured sibling limit |
 
 ### 9.5 Implementation Pipeline (Language-Agnostic)
 
@@ -794,6 +825,7 @@ FUNCTION decompose_main(request, options):
 ```
 
 **Implementation Requirements:**
+
 - Implementations MUST follow the 4-phase pipeline order
 - Challenge validation at each phase is RECOMMENDED (skip with `--no-challenge`)
 - HITL gates MUST block execution until user input received
@@ -819,11 +851,13 @@ Tasks generated from incomplete or provisional spec sections MUST be marked:
 ```
 
 **Constraints:**
+
 - Provisional tasks MUST NOT be scheduled for execution
 - Provisional tasks MUST be re-validated when source spec finalizes
 - Removing `provisional: true` requires atomicity re-check
 
 **Use Cases:**
+
 - Large specifications where some sections are stable
 - Parallel spec writing and task planning
 - Early dependency graph visualization
@@ -921,10 +955,12 @@ FUNCTION create_tasks(tasks: TasksResult) -> CreationResult:
 You are a Goal Decomposition Agent. Your task is to break down a high-level request into atomic, executable subtasks.
 
 ## Input
+
 Request: {request}
 Scope Assessment: {scope_json}
 
 ## Constraints
+
 1. Maximum depth: 3 levels (epic → task → subtask)
 2. Maximum siblings: Unlimited by default (configurable via `hierarchy.maxSiblings`)
 3. Each leaf task MUST pass atomicity criteria:
@@ -936,16 +972,19 @@ Scope Assessment: {scope_json}
    - Programmatically verifiable
 
 ## Output Format
+
 Return JSON matching this schema:
 {goal_tree_schema}
 
 ## Decomposition Methods
+
 For "implement_feature": [schema, api, logic, ui, tests]
 For "fix_bug": [reproduce, diagnose, fix, verify]
 For "refactor_code": [analyze, plan, execute, verify]
 For "add_command": [script, help, tests, docs]
 
 ## Task
+
 Decompose the request into a goal tree. For each goal that is not atomic, recursively decompose until all leaves are atomic.
 ```
 
@@ -955,13 +994,16 @@ Decompose the request into a goal tree. For each goal that is not atomic, recurs
 You are a Challenge Agent (Red Team). Your role is to attack the decomposition and identify flaws.
 
 ## Input
+
 Phase: {phase_name}
 Decomposition: {decomposition_json}
 
 ## Your Mission
+
 Find problems with this decomposition. You MUST challenge, not accept.
 
 ## Challenge Questions
+
 1. Can any subtasks be merged without losing clarity?
 2. Are there missing tasks required to achieve the goal?
 3. Does each subtask have clear, distinct acceptance criteria?
@@ -969,25 +1011,29 @@ Find problems with this decomposition. You MUST challenge, not accept.
 5. Can an LLM agent complete each task without HITL?
 
 ## Evidence Standard
+
 For each finding, provide:
+
 - Specific reference (task ID or edge)
 - Logical counter-argument OR counter-example
 - Suggested fix
 
 ## Output Format
+
 {
-  "verdict": "VALID" | "NEEDS_REVISION" | "REJECTED",
-  "findings": [
-    {
-      "type": "missing_task" | "merge_possible" | "unclear_criteria" | "hallucinated_dependency" | "non_atomic",
-      "reference": "task or edge ID",
-      "argument": "why this is a problem",
-      "suggestion": "how to fix"
-    }
-  ]
+"verdict": "VALID" | "NEEDS_REVISION" | "REJECTED",
+"findings": [
+{
+"type": "missing_task" | "merge_possible" | "unclear_criteria" | "hallucinated_dependency" | "non_atomic",
+"reference": "task or edge ID",
+"argument": "why this is a problem",
+"suggestion": "how to fix"
+}
+]
 }
 
 ## Rules
+
 - You MUST NOT rubber-stamp. Easy agreement is suspicious.
 - If decomposition is good, explain WHY with evidence.
 - Minimum 2 challenges per decomposition (even if minor).
@@ -1001,13 +1047,13 @@ For each finding, provide:
 
 Decomposition MUST trigger HITL when:
 
-| Condition | Gate Type | Action |
-|-----------|-----------|--------|
-| Request has multiple interpretations | `ambiguity` | Present options, request choice |
-| Scope exceeds single-session viability | `scope` | Confirm epic creation |
-| External system dependencies detected | `external` | Confirm integration approach |
-| >2 valid decomposition approaches | `method` | Present options with trade-offs |
-| Challenge agent raises blocking issue | `challenge` | Present finding, request decision |
+| Condition                              | Gate Type   | Action                            |
+| -------------------------------------- | ----------- | --------------------------------- |
+| Request has multiple interpretations   | `ambiguity` | Present options, request choice   |
+| Scope exceeds single-session viability | `scope`     | Confirm epic creation             |
+| External system dependencies detected  | `external`  | Confirm integration approach      |
+| >2 valid decomposition approaches      | `method`    | Present options with trade-offs   |
+| Challenge agent raises blocking issue  | `challenge` | Present finding, request decision |
 
 ### 12.2 Gate Output Format
 
@@ -1030,9 +1076,21 @@ Decomposition MUST trigger HITL when:
       "id": "Q1",
       "text": "Which OAuth providers should be supported?",
       "options": [
-        {"id": "A", "label": "Google only", "implications": "Simpler, ~2 tasks"},
-        {"id": "B", "label": "Google + GitHub", "implications": "Moderate, ~4 tasks"},
-        {"id": "C", "label": "All major (Google, GitHub, Microsoft, Apple)", "implications": "Complex, ~8 tasks"}
+        {
+          "id": "A",
+          "label": "Google only",
+          "implications": "Simpler, ~2 tasks"
+        },
+        {
+          "id": "B",
+          "label": "Google + GitHub",
+          "implications": "Moderate, ~4 tasks"
+        },
+        {
+          "id": "C",
+          "label": "All major (Google, GitHub, Microsoft, Apple)",
+          "implications": "Complex, ~8 tasks"
+        }
       ]
     }
   ],
@@ -1151,24 +1209,24 @@ Decomposition MUST trigger HITL when:
 
 ### 14.1 Latency Targets
 
-| Phase | Target | Max |
-|-------|--------|-----|
-| Scope Analysis | `<500ms` | 2s |
-| Goal Decomposition | `<5s` | 30s |
-| Dependency Graph | `<1s` | 5s |
-| Task Specification | `<500ms` | 2s |
-| Challenge (per phase) | `<10s` | 60s |
-| **Total (with challenge)** | `<20s` | 120s |
+| Phase                      | Target   | Max  |
+| -------------------------- | -------- | ---- |
+| Scope Analysis             | `<500ms` | 2s   |
+| Goal Decomposition         | `<5s`    | 30s  |
+| Dependency Graph           | `<1s`    | 5s   |
+| Task Specification         | `<500ms` | 2s   |
+| Challenge (per phase)      | `<10s`   | 60s  |
+| **Total (with challenge)** | `<20s`   | 120s |
 
 ### 14.2 Scaling Limits
 
-| Metric | Limit | Reason |
-|--------|-------|--------|
-| Tasks per decomposition | 50 | Context window preservation |
-| Depth | 3 | Per TASK-HIERARCHY-SPEC |
-| Siblings | 7 | Per TASK-HIERARCHY-SPEC |
-| Parallel DAG width | 10 | Practical execution limit |
-| Request length | 10,000 chars | Prompt size management |
+| Metric                  | Limit        | Reason                      |
+| ----------------------- | ------------ | --------------------------- |
+| Tasks per decomposition | 50           | Context window preservation |
+| Depth                   | 3            | Per TASK-HIERARCHY-SPEC     |
+| Siblings                | 7            | Per TASK-HIERARCHY-SPEC     |
+| Parallel DAG width      | 10           | Practical execution limit   |
+| Request length          | 10,000 chars | Prompt size management      |
 
 ---
 
@@ -1199,6 +1257,7 @@ Decomposition MUST trigger HITL when:
 ### 16.1 Conformance Classes
 
 A conforming implementation MUST:
+
 - Implement all 4 phases (scope, goals, dag, tasks)
 - Apply atomicity criteria per Part 4
 - Validate DAG for cycles before output
@@ -1207,11 +1266,13 @@ A conforming implementation MUST:
 - Source required libraries per LLM-AGENT-FIRST-SPEC
 
 A conforming implementation SHOULD:
+
 - Implement challenge protocol per Part 6.4, 7.4, 8.4
 - Support HITL gates per Part 12
 - Meet latency targets per Part 14.1
 
 A conforming implementation MAY:
+
 - Use alternative decomposition methods beyond Part 6.2
 - Extend atomicity criteria beyond Part 4.1
 - Add additional output fields to schemas
@@ -1220,15 +1281,15 @@ A conforming implementation MAY:
 
 ## Part 17: Related Specifications
 
-| Document | Relationship |
-|----------|--------------|
-| **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for document structure |
-| **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | **AUTHORITATIVE** for JSON output, exit codes, error handling |
-| **[HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md)** | **AUTHORITATIVE** for type/parentId/size, depth/sibling limits |
-| **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | **AUTHORITATIVE** for task ID format |
-| **[CONSENSUS-FRAMEWORK-SPEC.md](CONSENSUS-FRAMEWORK-SPEC.md)** | **AUTHORITATIVE** for challenge protocol, evidence standards |
-| **[PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md)** | Related for phase assignment |
-| **[RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md)** | **Stage**: This spec implements the DECOMPOSE stage of the RCSD Pipeline (Part 4) |
+| Document                                                                   | Relationship                                                                      |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)**                   | **AUTHORITATIVE** for document structure                                          |
+| **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)**                     | **AUTHORITATIVE** for JSON output, exit codes, error handling                     |
+| **[HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md)**         | **AUTHORITATIVE** for type/parentId/size, depth/sibling limits                    |
+| **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | **AUTHORITATIVE** for task ID format                                              |
+| **[CONSENSUS-FRAMEWORK-SPEC.md](CONSENSUS-FRAMEWORK-SPEC.md)**             | **AUTHORITATIVE** for challenge protocol, evidence standards                      |
+| **[PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md)**                           | Related for phase assignment                                                      |
+| **[RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md)**                         | **Stage**: This spec implements the DECOMPOSE stage of the RCSD Pipeline (Part 4) |
 
 ---
 
@@ -1238,13 +1299,13 @@ This section addresses **Finding 5** (BLOCKING): LLM invocation pattern unclear.
 
 ### 18.1 Token Budget Allocation
 
-| Phase | Max Input Tokens | Max Output Tokens | Model Tier |
-|-------|------------------|-------------------|------------|
-| Scope Analysis | 2,000 | 1,000 | Fast (Haiku) |
-| Goal Decomposition | 8,000 | 4,000 | Standard (Sonnet) |
-| Dependency Graph | 4,000 | 2,000 | Fast (Haiku) |
-| Task Specification | 4,000 | 3,000 | Fast (Haiku) |
-| Challenge (per phase) | 6,000 | 2,000 | Standard (Sonnet) |
+| Phase                 | Max Input Tokens | Max Output Tokens | Model Tier        |
+| --------------------- | ---------------- | ----------------- | ----------------- |
+| Scope Analysis        | 2,000            | 1,000             | Fast (Haiku)      |
+| Goal Decomposition    | 8,000            | 4,000             | Standard (Sonnet) |
+| Dependency Graph      | 4,000            | 2,000             | Fast (Haiku)      |
+| Task Specification    | 4,000            | 3,000             | Fast (Haiku)      |
+| Challenge (per phase) | 6,000            | 2,000             | Standard (Sonnet) |
 
 ### 18.2 Invocation Decision Matrix
 
@@ -1318,22 +1379,22 @@ FUNCTION select_model(phase: string, complexity: string = "medium") -> ModelTier
 
 **Model Tier Mapping (implementation-specific):**
 
-| Tier | Claude Models | OpenAI Models | Purpose |
-|------|---------------|---------------|---------|
-| `fast` | claude-3-haiku | gpt-4o-mini | Structured extraction, low latency |
-| `standard` | claude-sonnet-4 | gpt-4o | Complex reasoning, adversarial |
-| `capable` | claude-opus-4 | o3 | Maximum capability (reserved) |
+| Tier       | Claude Models   | OpenAI Models | Purpose                            |
+| ---------- | --------------- | ------------- | ---------------------------------- |
+| `fast`     | claude-3-haiku  | gpt-4o-mini   | Structured extraction, low latency |
+| `standard` | claude-sonnet-4 | gpt-4o        | Complex reasoning, adversarial     |
+| `capable`  | claude-opus-4   | o3            | Maximum capability (reserved)      |
 
 ### 18.5 Fallback Strategy
 
 If LLM invocation fails:
 
-| Failure Type | Fallback Action |
-|--------------|-----------------|
-| Rate limit | Exponential backoff (1s, 2s, 4s, max 30s) |
-| Timeout | Return partial result with `incomplete: true` |
-| Invalid output | Retry once with stricter schema enforcement |
-| Model unavailable | Fall back to simpler model tier |
+| Failure Type      | Fallback Action                               |
+| ----------------- | --------------------------------------------- |
+| Rate limit        | Exponential backoff (1s, 2s, 4s, max 30s)     |
+| Timeout           | Return partial result with `incomplete: true` |
+| Invalid output    | Retry once with stricter schema enforcement   |
+| Model unavailable | Fall back to simpler model tier               |
 
 ---
 
@@ -1420,12 +1481,12 @@ FUNCTION detect_semantic_dependency(task_a, task_b) -> Dependency | null:
 
 ### 19.2 Confidence Thresholds
 
-| Confidence | Action |
-|------------|--------|
-| ≥0.9 | Auto-include dependency |
-| 0.7-0.89 | Include, flag for challenge review |
-| 0.5-0.69 | Require HITL confirmation |
-| `<0.5` | Reject, log as "considered but excluded" |
+| Confidence | Action                                   |
+| ---------- | ---------------------------------------- |
+| ≥0.9       | Auto-include dependency                  |
+| 0.7-0.89   | Include, flag for challenge review       |
+| 0.5-0.69   | Require HITL confirmation                |
+| `<0.5`     | Reject, log as "considered but excluded" |
 
 ### 19.3 Transitive Dependency Resolution
 
@@ -1463,6 +1524,7 @@ FUNCTION compute_transitive_closure(dag: DAG) -> DAG:
 ### 19.4 Anti-Hallucination Validation
 
 Every dependency MUST have:
+
 1. **Type** from defined set: `explicit | data_flow | file_conflict | api_contract | semantic`
 2. **Evidence** string explaining the relationship
 3. **Confidence** score 0.0-1.0
@@ -1481,7 +1543,7 @@ When no pattern-specific method matches:
 
 ```yaml
 method: generic_decomposition
-pattern: ".*"  # Fallback, lowest priority
+pattern: ".*" # Fallback, lowest priority
 phases:
   1_understand:
     template: "Understand requirements for {goal}"
@@ -1494,7 +1556,7 @@ phases:
   3_implement:
     template: "Implement {goal}"
     type: task
-    atomicity_target: 80  # May need further decomposition
+    atomicity_target: 80 # May need further decomposition
   4_validate:
     template: "Validate {goal} meets requirements"
     type: subtask
@@ -1536,12 +1598,12 @@ This section addresses **Finding 4**: Challenge agent quality metrics missing.
 
 ### 21.1 Finding Severity Classification
 
-| Severity | Criteria | Required Action |
-|----------|----------|-----------------|
-| **blocking** | Decomposition fundamentally broken | REJECT, require restart |
-| **major** | Missing/incorrect tasks or dependencies | REVISE before proceeding |
-| **minor** | Style, naming, or optimization issues | LOG, optional fix |
-| **info** | Suggestions for improvement | DOCUMENT for future |
+| Severity     | Criteria                                | Required Action          |
+| ------------ | --------------------------------------- | ------------------------ |
+| **blocking** | Decomposition fundamentally broken      | REJECT, require restart  |
+| **major**    | Missing/incorrect tasks or dependencies | REVISE before proceeding |
+| **minor**    | Style, naming, or optimization issues   | LOG, optional fix        |
+| **info**     | Suggestions for improvement             | DOCUMENT for future      |
 
 ### 21.2 Challenge Quality Scoring
 
@@ -1562,6 +1624,7 @@ IF overall_quality < 0.6:
 ### 21.3 Rubber-Stamp Detection
 
 Challenge agent outputs are suspect if:
+
 - `verdict: "VALID"` with `findings.length == 0`
 - All findings are `severity: "info"`
 - Challenge completed in `<2` seconds
@@ -1589,6 +1652,7 @@ IF detect_rubber_stamp(challenge_result):
 ### 21.4 Minimum Challenge Requirements
 
 Every challenge MUST produce at least:
+
 - 2 findings (even if `severity: info`)
 - 1 specific reference to task or edge
 - 1 actionable suggestion
@@ -1682,6 +1746,7 @@ FUNCTION decomposition_with_challenge_loop(request) -> Result:
 ### 22.4 State Preservation
 
 Between retries, preserve:
+
 - Original request (immutable)
 - Phase outputs completed successfully
 - Challenge findings for learning
@@ -1820,6 +1885,7 @@ FUNCTION compute_ancestors(task_id: string, tasks: Task[]) -> string[]:
 ### 23.3 Materialization Strategy
 
 For performance, computed fields MAY be materialized:
+
 - **On write**: Update `children`/`dependents` when `parentId`/`depends` changes
 - **On read**: Always compute `blockedBy` (status-dependent)
 - **Cache**: Store in separate `.cleo/computed-cache.json` with TTL
@@ -1827,6 +1893,7 @@ For performance, computed fields MAY be materialized:
 ### 23.4 Backward Compatibility
 
 New fields MUST be:
+
 - Optional in schema (not `required`)
 - Handled gracefully by older CLI versions
 - Migrated via `cleo migrate run`
@@ -1916,6 +1983,7 @@ subtasks:
 ## Appendix B: Changelog
 
 ### Version 1.0.0 (2025-12-19)
+
 - Initial specification
 - 4-phase decomposition pipeline
 - Atomicity criteria (6-point test)
@@ -1929,4 +1997,4 @@ subtasks:
 
 ---
 
-*End of Specification*
+_End of Specification_

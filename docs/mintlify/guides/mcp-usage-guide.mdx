@@ -37,6 +37,7 @@ Tell your agent what you want to build. It will create a tracked task, start a s
 **You:** I need to add a dark mode toggle to the settings page. It should persist the user's preference in localStorage. Track this as a task and start working on it.
 
 **What the agent does:**
+
 1. Creates a task with your description
 2. Starts a work session focused on that task
 3. Implements the feature
@@ -58,7 +59,8 @@ Tell your agent what you want to build. It will create a tracked task, start a s
 - "Show me what I was working on last session"
 
 <Tip>
-If you want the agent to just plan without implementing, say so: "Create a task for this but don't start coding yet."
+  If you want the agent to just plan without implementing, say so: "Create a
+  task for this but don't start coding yet."
 </Tip>
 
 ---
@@ -72,6 +74,7 @@ Describe the problem. Your agent will check for existing related tasks, create a
 **You:** Users are reporting the login page hangs for 30 seconds then times out. This started after the auth refactor last week. Can you investigate?
 
 **What the agent does:**
+
 1. Checks the project dashboard for context
 2. Searches existing tasks for anything related
 3. Creates a bug investigation task if nothing exists
@@ -102,6 +105,7 @@ When something is too big to build in one go, ask your agent to break it down. I
 **You:** I need to build a complete user authentication system — signup, login, password reset, and session management. Break this down into tasks I can work through one at a time.
 
 **What the agent does:**
+
 1. Creates a top-level parent task for the whole initiative
 2. Breaks it into sub-tasks (research, signup, login, password reset, etc.)
 3. Sets up dependencies (e.g., research must finish before implementation starts)
@@ -126,10 +130,10 @@ When something is too big to build in one go, ask your agent to break it down. I
 - "Which tasks can I work on in parallel right now?"
 
 <Info>
-**Tips for good breakdowns:**
-- Each sub-task should be completable in one focused session
-- Keep it to 5-7 sub-tasks per parent — if you need more, add grouping
-- Tell the agent which tasks depend on others so it can suggest the right order
+  **Tips for good breakdowns:** - Each sub-task should be completable in one
+  focused session - Keep it to 5-7 sub-tasks per parent — if you need more, add
+  grouping - Tell the agent which tasks depend on others so it can suggest the
+  right order
 </Info>
 
 ---
@@ -143,6 +147,7 @@ Ask your agent to file bugs, request features, or ask questions on the CLEO GitH
 **You:** File a bug report — the config file doesn't load when I run cleo from a subdirectory. It should walk up the directory tree to find it. This is high severity.
 
 **What the agent does:**
+
 1. Previews the issue (dry run) so you can review it
 2. Shows you the title, labels, and body that will be posted
 3. Waits for your confirmation
@@ -170,26 +175,27 @@ Ask your agent to file bugs, request features, or ask questions on the CLEO GitH
 
 You don't need to memorize anything. Here are common things you can just say:
 
-| What you want | Just say... |
-|---------------|------------|
-| Project overview | "What's the current state of the project?" |
-| See open tasks | "Show me all open tasks" |
-| Current focus | "What am I focused on right now?" |
-| Next action | "What should I work on next?" |
-| Create work | "Create a task for [description]" |
-| Finish work | "Mark T1234 as done" |
-| Add notes | "Add a note to T1234: found the root cause" |
-| Start session | "Start a work session for the auth feature" |
-| End session | "End the current session" |
-| Plan work | "Break this down into subtasks" |
-| Set ordering | "T202 depends on T201 — set that up" |
-| See structure | "Show me the task tree" |
-| File bug | "File a bug about [problem]" |
-| Request feature | "Request a feature for [idea]" |
-| Get diagnostics | "Run diagnostics and show me the system info" |
+| What you want    | Just say...                                   |
+| ---------------- | --------------------------------------------- |
+| Project overview | "What's the current state of the project?"    |
+| See open tasks   | "Show me all open tasks"                      |
+| Current focus    | "What am I focused on right now?"             |
+| Next action      | "What should I work on next?"                 |
+| Create work      | "Create a task for [description]"             |
+| Finish work      | "Mark T1234 as done"                          |
+| Add notes        | "Add a note to T1234: found the root cause"   |
+| Start session    | "Start a work session for the auth feature"   |
+| End session      | "End the current session"                     |
+| Plan work        | "Break this down into subtasks"               |
+| Set ordering     | "T202 depends on T201 — set that up"          |
+| See structure    | "Show me the task tree"                       |
+| File bug         | "File a bug about [problem]"                  |
+| Request feature  | "Request a feature for [idea]"                |
+| Get diagnostics  | "Run diagnostics and show me the system info" |
 
 <Tip>
-Start each conversation with "Show me the project dashboard" or "What's the status?" to give the agent (and yourself) context on where things stand.
+  Start each conversation with "Show me the project dashboard" or "What's the
+  status?" to give the agent (and yourself) context on where things stand.
 </Tip>
 
 ---
@@ -202,10 +208,10 @@ This section is a structured reference for agent developers, custom MCP integrat
 
 CLEO exposes two MCP tools using a CQRS (Command Query Responsibility Segregation) pattern:
 
-| Tool | Purpose | Side effects |
-|------|---------|--------------|
-| **cleo_query** | Read-only operations | Never modifies state |
-| **cleo_mutate** | Write operations | Validated, logged, atomic |
+| Tool            | Purpose              | Side effects              |
+| --------------- | -------------------- | ------------------------- |
+| **cleo_query**  | Read-only operations | Never modifies state      |
+| **cleo_mutate** | Write operations     | Validated, logged, atomic |
 
 Both accept the same parameter structure:
 
@@ -269,67 +275,70 @@ Issue types: `create_bug`, `create_feature`, `create_help`
 
 ## Query Operations Reference
 
-| Domain | Operation | Purpose | Key params |
-|--------|-----------|---------|------------|
-| **tasks** | `find` | Fuzzy search tasks | `query` |
-| **tasks** | `get` | Full task details | `taskId` |
-| **tasks** | `list` | List with filters | `status`, `parent`, `type` |
-| **tasks** | `exists` | Check task exists | `taskId` |
-| **tasks** | `tree` | Hierarchical view | `taskId` |
-| **tasks** | `next` | Suggested next task | - |
-| **tasks** | `deps` | Dependency graph | `taskId` |
-| **tasks** | `blockers` | What's blocking | `taskId` |
-| **session** | `status` | Current session | - |
-| **session** | `list` | All sessions | - |
-| **session** | `focus.get` | Current focus | - |
-| **system** | `dash` | Project dashboard | - |
-| **system** | `version` | CLEO version | - |
-| **system** | `doctor` | Health check | - |
-| **issues** | `diagnostics` | System info for bug reports | - |
+| Domain      | Operation     | Purpose                     | Key params                 |
+| ----------- | ------------- | --------------------------- | -------------------------- |
+| **tasks**   | `find`        | Fuzzy search tasks          | `query`                    |
+| **tasks**   | `get`         | Full task details           | `taskId`                   |
+| **tasks**   | `list`        | List with filters           | `status`, `parent`, `type` |
+| **tasks**   | `exists`      | Check task exists           | `taskId`                   |
+| **tasks**   | `tree`        | Hierarchical view           | `taskId`                   |
+| **tasks**   | `next`        | Suggested next task         | -                          |
+| **tasks**   | `deps`        | Dependency graph            | `taskId`                   |
+| **tasks**   | `blockers`    | What's blocking             | `taskId`                   |
+| **session** | `status`      | Current session             | -                          |
+| **session** | `list`        | All sessions                | -                          |
+| **session** | `focus.get`   | Current focus               | -                          |
+| **system**  | `dash`        | Project dashboard           | -                          |
+| **system**  | `version`     | CLEO version                | -                          |
+| **system**  | `doctor`      | Health check                | -                          |
+| **issues**  | `diagnostics` | System info for bug reports | -                          |
 
 ## Mutate Operations Reference
 
-| Domain | Operation | Purpose | Required params |
-|--------|-----------|---------|-----------------|
-| **tasks** | `create` | New task | `title`, `description` |
-| **tasks** | `update` | Modify task | `taskId` + fields |
-| **tasks** | `complete` | Mark done | `taskId` |
-| **tasks** | `delete` | Remove task | `taskId` |
-| **tasks** | `archive` | Archive done tasks | - |
-| **session** | `start` | Begin session | `scope`, `name` |
-| **session** | `end` | End session | `note` |
-| **session** | `tasks.start` | Set active task | `taskId` |
-| **session** | `tasks.stop` | Clear focus | - |
-| **issues** | `create_bug` | File bug report | `title`, `body` |
-| **issues** | `create_feature` | Request feature | `title`, `body` |
-| **issues** | `create_help` | Ask question | `title`, `body` |
+| Domain      | Operation        | Purpose            | Required params        |
+| ----------- | ---------------- | ------------------ | ---------------------- |
+| **tasks**   | `create`         | New task           | `title`, `description` |
+| **tasks**   | `update`         | Modify task        | `taskId` + fields      |
+| **tasks**   | `complete`       | Mark done          | `taskId`               |
+| **tasks**   | `delete`         | Remove task        | `taskId`               |
+| **tasks**   | `archive`        | Archive done tasks | -                      |
+| **session** | `start`          | Begin session      | `scope`, `name`        |
+| **session** | `end`            | End session        | `note`                 |
+| **session** | `tasks.start`    | Set active task    | `taskId`               |
+| **session** | `tasks.stop`     | Clear focus        | -                      |
+| **issues**  | `create_bug`     | File bug report    | `title`, `body`        |
+| **issues**  | `create_feature` | Request feature    | `title`, `body`        |
+| **issues**  | `create_help`    | Ask question       | `title`, `body`        |
 
 <Note>
-For the complete list of all 10 domains and 123 operations (63 query + 60 mutate), see the [MCP Server Specification](../specs/MCP-SERVER-SPECIFICATION) or inspect the source of truth: `mcp-server/src/gateways/query.ts` and `mcp-server/src/gateways/mutate.ts`.
+  For the complete list of all 10 domains and 177 operations (97 query + 80
+  mutate), see the [MCP Server Specification](../specs/MCP-SERVER-SPECIFICATION)
+  or inspect the source of truth: `src/mcp/gateways/query.ts` and
+  `src/mcp/gateways/mutate.ts`.
 </Note>
 
 ## Error Handling
 
 All responses include `success: true|false`. On failure, the `error` object provides:
 
-| Field | Purpose |
-|-------|---------|
-| `code` | Machine-readable error code (e.g., `E_NOT_FOUND`) |
-| `exitCode` | Numeric exit code for scripting |
-| `message` | Human-readable description |
-| `fix` | Copy-paste-ready fix command |
-| `alternatives` | Array of `{ action, command }` recovery options |
+| Field          | Purpose                                           |
+| -------------- | ------------------------------------------------- |
+| `code`         | Machine-readable error code (e.g., `E_NOT_FOUND`) |
+| `exitCode`     | Numeric exit code for scripting                   |
+| `message`      | Human-readable description                        |
+| `fix`          | Copy-paste-ready fix command                      |
+| `alternatives` | Array of `{ action, command }` recovery options   |
 
 Common error codes:
 
-| Code | Exit | Meaning |
-|------|------|---------|
-| `E_NOT_FOUND` | 4 | Task ID doesn't exist |
-| `E_VALIDATION_FAILED` | 6 | Missing/invalid fields |
-| `E_PARENT_NOT_FOUND` | 10 | Parent task doesn't exist |
-| `E_DEPTH_EXCEEDED` | 11 | Max 3 nesting levels |
-| `E_SIBLING_LIMIT` | 12 | Max children per parent |
-| `E_RATE_LIMITED` | 429 | Too many requests |
+| Code                  | Exit | Meaning                         |
+| --------------------- | ---- | ------------------------------- |
+| `E_NOT_FOUND`         | 4    | Task ID doesn't exist           |
+| `E_VALIDATION_FAILED` | 6    | Missing/invalid fields          |
+| `E_PARENT_NOT_FOUND`  | 10   | Parent task doesn't exist       |
+| `E_DEPTH_EXCEEDED`    | 11   | Max 3 nesting levels            |
+| `E_SIBLING_LIMIT`     | 12   | Configured child limit exceeded |
+| `E_RATE_LIMITED`      | 429  | Too many requests               |
 
 ## Important Constraints
 

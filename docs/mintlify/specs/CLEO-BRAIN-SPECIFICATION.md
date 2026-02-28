@@ -27,7 +27,7 @@ This specification defines CLEO as an **Agentic Cognitive Infrastructure** imple
 
 This document is a capability-model specification. Product identity and canonical invariants are defined by higher-authority documents:
 
-1. `docs/concepts/vision.mdx` (immutable vision identity)
+1. `docs/concepts/vision.md` (immutable vision identity)
 2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (canonical product contract)
 
 If conflicts occur, higher-authority documents prevail. This specification defines dimension-level implementation requirements and measurable certification criteria.
@@ -36,7 +36,7 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 | Dimension | What It Means | Current Gap |
 |-----------|---------------|-------------|
-| **B**ase (Memory) | Persistent knowledge across sessions | No decision/pattern memory |
+| **B**ase (Memory) | Persistent knowledge across sessions | Pattern/learning memory shipped (JSONL); brain.db migration pending |
 | **R**easoning | Causal inference and temporal analysis | Static dependency graph only |
 | **A**gent | Autonomous multi-agent orchestration | No self-healing or learning |
 | **I**ntelligence | Adaptive validation and prediction | No pattern extraction |
@@ -61,18 +61,18 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 **Purpose**: Persistent knowledge storage and retrieval across sessions
 
-#### 2.1.1 Current State (v0.80.0)
+#### 2.1.1 Current State
 
 **Storage Architecture** (per ADR-006):
 ```
 .cleo/
-├── cleo.db                # SQLite database (tasks, sessions, lifecycle — per ADR-006)
+├── tasks.db               # SQLite database (tasks, sessions, lifecycle — per ADR-006)
 │   ├── tasks              # Active + archived tasks (status-based)
 │   ├── sessions           # Session state
-│   ├── lifecycle_*        # RCSD-IVTR pipeline state
+│   ├── lifecycle_*        # RCASD-IVTR pipeline state
 │   └── task_*             # Dependencies, relations, work history
 ├── config.json            # Human-editable configuration (JSON — ADR-006 exception)
-└── todo-log.jsonl         # Immutable audit trail (append-only)
+│   ├── audit_log          # Immutable audit trail (in tasks.db, per ADR-019)
 
 .cleo/agent-outputs/
 └── MANIFEST.jsonl         # Research artifacts (append-only)
@@ -82,13 +82,13 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 - Task persistence (atomic operations)
 - Session state tracking
 - Research artifact manifest
-- RCSD lifecycle state
+- RCASD lifecycle state
 
 **Limitations**:
-- **No decision memory**: Why choices were made
-- **No pattern memory**: Recognized workflows
-- **No learning memory**: Accumulated insights
-- **No conversation continuity**: Each session starts fresh
+- **Decision memory**: ADR cognitive search shipped (in tasks.db); dedicated brain_decisions table is [TARGET]
+- **Pattern memory**: Shipped via JSONL (`src/core/memory/patterns.ts`); brain_patterns table is [TARGET]
+- **Learning memory**: Shipped via JSONL (`src/core/memory/learnings.ts`); brain_learnings table is [TARGET]
+- **Session continuity**: Shipped via session chains and handoff/briefing system (ADR-020)
 
 #### 2.1.2 Target Capabilities
 
@@ -104,9 +104,9 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 #### 2.1.3 Data Structures
 
-> **Storage Note (ADR-006 / ADR-009)**: All BRAIN memory data is stored in SQLite tables at runtime. JSONL is used only as an export/import format for portability. See ADR-009 Section 3 for the full hybrid storage model.
+> **Storage Note (ADR-006 / ADR-009)**: Target state: all BRAIN memory data in SQLite tables (`brain.db`). Current state: pattern and learning memory use JSONL files (`src/core/memory/patterns.ts`, `src/core/memory/learnings.ts`); ADR/decision memory is in `tasks.db`. The `brain_decisions`, `brain_patterns`, and `brain_learnings` tables below are TARGET schema not yet in `src/store/schema.ts`. See ADR-009 Section 9.2-9.3 for the interim storage model.
 
-**Session Context** — stored in `sessions` table (`.cleo/cleo.db`, per ADR-006)
+**Session Context** — stored in `sessions` table (`.cleo/tasks.db`, per ADR-006)
 
 Context fields are stored as JSON columns within the existing sessions table. Example row:
 
@@ -121,7 +121,7 @@ Context fields are stored as JSON columns within the existing sessions table. Ex
 }
 ```
 
-**Decision Memory** — `brain_decisions` table (`.cleo/cleo.db`, per ADR-009)
+**Decision Memory** — `brain_decisions` table (`.cleo/brain.db`, per ADR-009)
 
 ```sql
 -- See ADR-009 Section 3.2 for full schema
@@ -134,7 +134,7 @@ VALUES
    'No external dependencies, proven stability', 'medium', NULL, 'T2973', '2026-02-03T18:00:00Z');
 ```
 
-**Pattern Memory** — `brain_patterns` table (`.cleo/cleo.db`, per ADR-009)
+**Pattern Memory** — `brain_patterns` table (`.cleo/brain.db`, per ADR-009)
 
 ```sql
 -- See ADR-009 Section 3.2 for full schema
@@ -142,12 +142,12 @@ VALUES
 INSERT INTO brain_patterns (id, type, pattern, context, frequency, success_rate, examples_json, extracted_at)
 VALUES
   ('P001', 'workflow', 'Research -> Consensus -> Specification -> Decomposition',
-   'RCSD lifecycle', 15, 0.93, '["T2968","T2975"]', '2026-02-03T18:00:00Z'),
+   'RCASD lifecycle', 15, 0.93, '["T2968","T2975"]', '2026-02-03T18:00:00Z'),
   ('P002', 'blocker', 'Database tasks without migration plan block 2-3 downstream tasks',
    'Schema changes', 8, NULL, '["T1234","T1456"]', '2026-02-03T18:00:00Z');
 ```
 
-**Learning Memory** — `brain_learnings` table (`.cleo/cleo.db`, per ADR-009)
+**Learning Memory** — `brain_learnings` table (`.cleo/brain.db`, per ADR-009)
 
 ```sql
 -- See ADR-009 Section 3.2 for full schema
@@ -191,7 +191,7 @@ cleo memory recall "Why did we choose SQLite-vec?"
 cleo memory search "authentication" --type decision --date-range "2026-01"
 
 # Consolidate memory
-cleo memory consolidate --period "2026-Q1" --output claudedocs/consolidated/2026-Q1-summary.md
+cleo memory consolidate --period "2026-Q1" --output .cleo/memory/consolidated/2026-Q1-summary.md
 ```
 
 #### 2.1.5 Success Metrics
@@ -209,7 +209,7 @@ cleo memory consolidate --period "2026-Q1" --output claudedocs/consolidated/2026
 
 **Purpose**: Causal inference, similarity detection, and temporal reasoning
 
-#### 2.2.1 Current State (v0.80.0)
+#### 2.2.1 Current State
 
 **Capabilities**:
 - Dependency graph analysis (`cleo deps`)
@@ -359,14 +359,14 @@ cleo reason counterfactual --decision D045 --alternative "Use PostgreSQL instead
 
 **Purpose**: Autonomous multi-agent coordination with self-healing and learning
 
-#### 2.3.1 Current State (v0.80.0)
+#### 2.3.1 Current State
 
 **Architecture**:
 - Orchestrator (ct-orchestrator)
 - Universal subagent (cleo-subagent)
 - 7 conditional protocols (Research, Consensus, Specification, Decomposition, Implementation, Contribution, Release)
 - Protocol enforcement (exit codes 60-70)
-- RCSD-IVTR lifecycle
+- RCASD-IVTR lifecycle
 
 **Capabilities**:
 - Multi-agent spawning via Task tool
@@ -508,12 +508,12 @@ cleo agent capacity --limit 10                # Increase max concurrent agents
 
 **Purpose**: Adaptive validation, proactive suggestions, and quality prediction
 
-#### 2.4.1 Current State (v0.80.0)
+#### 2.4.1 Current State
 
 **Capabilities**:
 - 4-layer validation (schema → semantic → referential → protocol)
 - 72 standardized exit codes
-- Protocol enforcement (RCSD-IVTR lifecycle)
+- Protocol enforcement (RCASD-IVTR lifecycle)
 - Lifecycle gate enforcement (strict/advisory/off modes)
 - Anti-hallucination checks
 
@@ -690,7 +690,7 @@ cleo compliance score --epic T2975 --summary
 
 **Purpose**: Multi-project knowledge sharing and federated agent coordination
 
-#### 2.5.1 Current State (v0.80.0)
+#### 2.5.1 Current State
 
 **Capabilities**:
 - Nexus registry (cross-project references)
@@ -788,8 +788,8 @@ Track Transfer Effectiveness
 cd /path/to/project-a
 cleo network export-pattern P001 --global
 
-# Pattern P001: "RCSD lifecycle reduces rework by 40%"
-# Exported to: ~/.cleo/cleo-nexus.db (global_patterns table)
+# Pattern P001: "RCASD lifecycle reduces rework by 40%"
+# Exported to: ~/.cleo/nexus.db (global_patterns table)
 
 # Import to project B
 cd /path/to/project-b
@@ -1050,7 +1050,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 | Task | Description | Timeline |
 |------|-------------|----------|
-| Global pattern library | `~/.cleo/cleo-nexus.db` (global_patterns table) | 2 weeks |
+| Global pattern library | `~/.cleo/nexus.db` (global_patterns table) | 2 weeks |
 | Export/import interface | `cleo network export-pattern` | 2 weeks |
 | Pattern adaptation logic | Context-aware adjustments | 3 weeks |
 | Effectiveness tracking | Measure transfer impact | 1 week |
@@ -1583,13 +1583,13 @@ All 5 dimensions MUST meet certification criteria:
 - **docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md**: Phase definitions and timeline
 - **docs/specs/MCP-SERVER-SPECIFICATION.md**: MCP architecture (prepares for Agent enhancements)
 - **docs/specs/CLEO-NEXUS-SPEC.md**: Network dimension architecture
-- **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCSD-IVTR lifecycle
+- **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCASD-IVTR lifecycle
 
 ### 7.3 Architecture
 
 - **CLAUDE.md**: Core repository guidelines
 - **.cleo/templates/CLEO-INJECTION.md**: Subagent architecture
-- **docs/concepts/vision.mdx**: CLEO vision statement
+- **docs/concepts/vision.md**: CLEO vision statement
 
 ---
 
@@ -1649,10 +1649,10 @@ All 5 dimensions MUST meet certification criteria:
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ BASE LAYER (Memory) — SQLite per ADR-006                     │
-│ - Tasks + sessions (.cleo/cleo.db — tasks, sessions tables) │
-│ - Decision memory (.cleo/cleo.db — brain_decisions table)   │
-│ - Pattern memory (.cleo/cleo.db — brain_patterns table)     │
-│ - Learning memory (.cleo/cleo.db — brain_learnings table)   │
+│ - Tasks + sessions (.cleo/tasks.db — tasks, sessions tables) │
+│ - Decision memory (.cleo/brain.db — brain_decisions table)   │
+│ - Pattern memory (.cleo/brain.db — brain_patterns table)     │
+│ - Learning memory (.cleo/brain.db — brain_learnings table)   │
 │ - Research artifacts (MANIFEST.jsonl — append-only)          │
 │ - JSONL export/import for portability (ADR-009)              │
 └────────────────┬────────────────────────────────────────────┘
@@ -1660,8 +1660,8 @@ All 5 dimensions MUST meet certification criteria:
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ NETWORK LAYER (Cross-Project) — SQLite per ADR-006           │
-│ - Global Registry (~/.cleo/cleo-nexus.db)                   │
-│ - Global patterns (cleo-nexus.db — future table)            │
+│ - Global Registry (~/.cleo/nexus.db)                        │
+│ - Global patterns (nexus.db — future table)                 │
 │ - Agent registry (federated, Phase 3)                        │
 └─────────────────────────────────────────────────────────────┘
 ```

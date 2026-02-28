@@ -46,7 +46,7 @@ CLEO implements a **fractal neural architecture** where each level contains the 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     CLEO NEXUS (Global Brain)                       │
-│                     ~/.cleo/cleo-nexus.db                           │
+│                     ~/.cleo/nexus.db                                │
 │                                                                     │
 │   ┌──────────────────┐    ┌──────────────────┐    ┌────────────┐  │
 │   │   PROJECT A      │    │   PROJECT B      │    │ PROJECT C  │  │
@@ -71,7 +71,7 @@ At the highest level, **CLEO Nexus** acts as the global cortex:
 
 | Component | Neural Analog | Description |
 |-----------|---------------|-------------|
-| `~/.cleo/cleo-nexus.db` | Brain | Central intelligence hub (SQLite, per ADR-006) |
+| `~/.cleo/nexus.db` | Brain | Central intelligence hub (SQLite, per ADR-006) |
 | `project_registry` table | Cortex Map | Index of all project neurons |
 | Cross-project deps | Long-range axons | Connections spanning projects |
 
@@ -83,8 +83,8 @@ Each registered project is a **macro-neuron** in the global brain:
 |-----------|---------------|-------------|
 | Project | Macro-Neuron | Self-contained processing unit |
 | `.cleo/` directory | Nucleus | Local state and memory |
-| `cleo.db` (tasks table) | Dendrites | Input structure (tasks to process, SQLite per ADR-006) |
-| `cleo.db` (archived tasks) | Long-term memory | Completed task storage |
+| `tasks.db` (tasks table) | Dendrites | Input structure (tasks to process, SQLite per ADR-006) |
+| `tasks.db` (archived tasks) | Long-term memory | Completed task storage |
 | Project permissions | Myelin sheath | Access control (read/write/execute) |
 
 ### Level 3: Epics as Neural Clusters
@@ -115,12 +115,8 @@ At the atomic level, **Tasks** are individual neurons:
 Tasks can form **cross-project dependencies** that span macro-neurons:
 
 ```bash
-# In project-frontend/todo.json
-{
-  "id": "T002",
-  "title": "Create login page",
-  "depends": ["T001", "project-backend:T003"]  # Cross-project synapse!
-}
+# Cross-project dependency syntax
+cleo add "Create login page" --depends T001,project-backend:T003
 ```
 
 This creates a direct neural pathway from `project-frontend:T002` to `project-backend:T003`.
@@ -159,7 +155,7 @@ Instead of embedding similarity, CLEO uses the LLM to reason about:
 
 ### 3. Five Discovery Methods
 
-From `lib/graph-rag.sh`:
+CLEO implements five retrieval methods:
 
 | Method | Algorithm | Use Case |
 |--------|-----------|----------|
@@ -202,12 +198,7 @@ Where:
 
 ### Lowest Common Ancestor (LCA)
 
-```bash
-_find_lca(task_a, task_b)  # Find shared ancestor in hierarchy
-_tree_distance(a, b)       # Calculate graph distance between tasks
-```
-
-The LCA algorithm enables:
+The LCA algorithm (implemented in `src/core/tasks/`) enables:
 - Finding related tasks through common parents
 - Calculating semantic distance in the hierarchy
 - Boosting relevance for structurally close tasks
@@ -468,9 +459,8 @@ To use CLEO as your agent's cognitive backbone:
 
 ```
 .cleo/                      # Project-level data
-├── cleo.db                # SQLite database (tasks, sessions, lifecycle — per ADR-006)
+├── tasks.db               # SQLite database (tasks, sessions, lifecycle — per ADR-006)
 ├── config.json            # Configuration (human-editable, git-tracked)
-├── todo-log.jsonl         # Immutable audit trail (append-only)
 ├── .cache/                # Graph indexes (O(1) lookup)
 │   ├── hierarchy.index.json
 │   ├── children.index.json
@@ -478,7 +468,7 @@ To use CLEO as your agent's cognitive backbone:
 └── .backups/              # Automatic backups
 
 ~/.cleo/                   # Global brain (cross-project)
-└── cleo-nexus.db          # Global Registry SQLite database (per ADR-006)
+└── nexus.db               # Global Registry SQLite database (per ADR-006)
                            # Tables: global_sessions, project_registry, global_token_usage
 ```
 

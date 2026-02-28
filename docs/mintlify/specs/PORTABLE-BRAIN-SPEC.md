@@ -1,9 +1,9 @@
 ---
 title: "CLEO Portable Brain Specification"
-version: "1.1.0"
+version: "1.2.0"
 status: "stable"
 created: "2026-02-09"
-updated: "2026-02-16"
+updated: "2026-02-27"
 authors: ["CLEO Development Team"]
 ---
 
@@ -23,11 +23,11 @@ This document is normative. Roadmap documents define sequencing. Capability docu
 
 Authority order for product truth:
 
-1. `docs/concepts/vision.mdx` (immutable vision identity)
-2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (normative product contract)
+1. `docs/concepts/vision.md` (immutable vision identity)
+2. `docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md` (normative product contract)
 3. `README.md` (operational public contract)
-4. `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` (phase and gate execution plan)
-5. `docs/specs/CLEO-BRAIN-SPECIFICATION.md` (detailed capability target model)
+4. `docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` (phase and gate execution plan)
+5. `docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md` (detailed capability target model)
 
 If conflicts occur, higher authority prevails.
 
@@ -98,21 +98,21 @@ CLEO MUST treat research manifests and agent outputs as first-class memory artif
 
 ### 7.1 CLI
 
-The CLI is transitioning from Bash to TypeScript. The TypeScript CLI (`src/cli/`) is 100% compliant with the shared-core architecture pattern, delegating all business logic to `src/core/` modules (validated 2026-02-16, T4565). During transition, the Bash CLI remains the authoritative runtime baseline.
+The TypeScript CLI (`src/cli/`) is the primary runtime interface (per ADR-004). It is 100% compliant with the shared-core architecture pattern, delegating all business logic to `src/core/` modules (validated 2026-02-16, T4565). There are ~86 command files in `src/cli/commands/`. The Bash CLI (`scripts/`, `lib/`) is deprecated and pending removal.
 
 ### 7.2 MCP
 
-MCP is the strategic interface for provider-neutral integration. The MCP server (v0.91.0) operates with a native TypeScript engine (`mcp-server/src/engine/`) that currently runs as a parallel implementation separate from the shared `src/core/` layer. This parallel engine was an intentional pragmatic decision to enable cross-platform MCP operation without Bash CLI dependency.
+MCP is the strategic interface for provider-neutral integration. The MCP server exposes 2 tools (`cleo_query`, `cleo_mutate`) with 177 canonical operations (97 query + 80 mutate) across 10 domains. The MCP engine (`src/mcp/engine/`) delegates to `src/core/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.). Of 153 routed operations, 146 run natively in TypeScript via `src/core/`.
 
-**Architecture finding (2026-02-16)**: The MCP engine duplicates task CRUD (8 ops) and session management (4 ops) independently from `src/core/`. Unification of `mcp-server/src/engine/` with `src/core/` is a tracked remediation priority. See `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md`.
+**Architecture status (updated 2026-02-27)**: The earlier finding (2026-02-16, T4565/T4566) that MCP duplicated task CRUD independently has been resolved. The MCP engine at `src/mcp/engine/` now imports directly from `src/core/tasks/`, `src/core/sessions/`, `src/core/system/`, and other core modules. See `src/mcp/engine/capability-matrix.ts` for the native/cli/hybrid routing matrix.
 
 MCP implementations MUST preserve CLI semantics, invariants, and exit-code intent.
 
 ### 7.3 Shared-Core Architecture (Salesforce DX Pattern)
 
-Both CLI and MCP interfaces SHOULD delegate to a shared core (`src/core/`). Current compliance:
-- **CLI**: 100% compliant (all 16 registered commands route through `src/core/`)
-- **MCP**: 0% compliant (routes through parallel `mcp-server/src/engine/`; unification pending)
+Both CLI and MCP interfaces MUST delegate to a shared core (`src/core/`). Current compliance:
+- **CLI**: 100% compliant (~86 command files route through `src/core/`)
+- **MCP**: ~95% compliant (146 of 153 operations run natively via `src/core/`; 3 require CLI fallback, 4 hybrid)
 
 ### 7.4 Adapters
 
@@ -130,7 +130,7 @@ Progression MUST remain gate-driven and evidence-based.
 
 ### 9.1 Immutable Vision Requirement
 
-`docs/concepts/vision.mdx` defines product identity and MUST be treated as constitutional text.
+`docs/concepts/vision.md` defines product identity and MUST be treated as constitutional text.
 
 ### 9.2 Amendment Process
 
@@ -152,11 +152,11 @@ Documentation and implementation MUST use the same canonical terms for:
 
 ## 10. References
 
-- `docs/concepts/vision.mdx`
+- `docs/concepts/vision.md`
 - `README.md`
-- `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md` (canonical strategy and decisions)
-- `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`
-- `docs/specs/CLEO-BRAIN-SPECIFICATION.md`
-- `docs/specs/MCP-SERVER-SPECIFICATION.md`
-- `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit)
+- `docs/mintlify/specs/CLEO-CANONICAL-PLAN-SPEC.md` (canonical strategy and decisions)
+- `docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`
+- `docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md`
+- `docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md`
+- `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit, historical)
 - `.cleo/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)

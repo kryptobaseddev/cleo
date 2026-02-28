@@ -22,6 +22,7 @@ import { engineError } from './_error.js';
 // Core module imports for accessor-based operations
 import { addTask as coreAddTask } from '../../core/tasks/add.js';
 import { updateTask as coreUpdateTask } from '../../core/tasks/update.js';
+import { completeTask as coreCompleteTask } from '../../core/tasks/complete.js';
 import { deleteTask as coreDeleteTask } from '../../core/tasks/delete.js';
 import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
 import { showTask as coreShowTask } from '../../core/tasks/show.js';
@@ -382,16 +383,34 @@ export async function taskComplete(
   projectRoot: string,
   taskId: string,
   notes?: string
-): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
-  // Check current status — handle already-done gracefully without WAL race
-  const showResult = await taskShow(projectRoot, taskId);
-  if (showResult.success && showResult.data?.task?.status === 'done') {
-    return engineError('E_TASK_COMPLETED', `Task ${taskId} is already completed`) as EngineResult<{ task: TaskRecord; changes?: string[] }>;
+): Promise<EngineResult<{ task: TaskRecord; autoCompleted?: string[]; unblockedTasks?: Array<{ id: string; title: string }> }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await coreCompleteTask({ taskId, notes }, undefined, accessor);
+    return {
+      success: true,
+      data: {
+        task: result.task as TaskRecord,
+        ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
+        ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
+      },
+    };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    if (message.includes('already completed')) {
+      return engineError('E_TASK_COMPLETED', message);
+    }
+    if (message.includes('not found')) {
+      return engineError('E_NOT_FOUND', message);
+    }
+    if (message.includes('incomplete dependencies')) {
+      return engineError('E_DEPENDENCY_ERROR', message);
+    }
+    if (message.includes('incomplete children')) {
+      return engineError('E_HAS_CHILDREN', message);
+    }
+    return engineError('E_INTERNAL', message);
   }
-  return taskUpdate(projectRoot, taskId, {
-    status: 'done',
-    notes: notes || undefined,
-  });
 }
 
 /**
