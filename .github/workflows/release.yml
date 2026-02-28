@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 permissions:
   contents: write
@@ -157,6 +157,7 @@ jobs:
         with:
           body_path: ${{ steps.changelog.outputs.path }}
           generate_release_notes: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             cleo-${{ steps.version.outputs.version }}.tar.gz
             install.sh
