@@ -331,6 +331,28 @@ export class RateLimiter {
 }
 
 /**
+ * Parameters that expect array values.
+ * MCP clients may send comma-separated strings instead of arrays.
+ */
+const ARRAY_PARAMS = new Set([
+  'labels', 'addLabels', 'removeLabels',
+  'depends', 'addDepends', 'removeDepends',
+  'files', 'acceptance', 'findings', 'sources',
+  'tasks', 'removeTasks', 'taskIds',
+]);
+
+/**
+ * Normalize a value to an array of strings.
+ * Handles MCP clients sending comma-separated strings where arrays are expected.
+ */
+export function ensureArray(value: unknown, separator = ','): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return value.map(v => typeof v === 'string' ? v.trim() : String(v));
+  if (typeof value === 'string') return value.split(separator).map(s => s.trim()).filter(Boolean);
+  return [String(value)];
+}
+
+/**
  * Sanitize all params in a request before routing
  */
 export function sanitizeParams(
@@ -420,6 +442,13 @@ export function sanitizeParams(
     if (typeof value === 'string' && key === 'priority') {
       sanitized[key] = validateEnum(value, [...VALID_PRIORITIES], 'priority');
       continue;
+    }
+  }
+
+  // Normalize array parameters (MCP clients may send comma-separated strings)
+  for (const key of Object.keys(sanitized)) {
+    if (ARRAY_PARAMS.has(key) && sanitized[key] !== undefined) {
+      sanitized[key] = ensureArray(sanitized[key]);
     }
   }
 
