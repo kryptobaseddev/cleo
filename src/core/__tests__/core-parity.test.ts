@@ -505,7 +505,7 @@ describe('Session Engine Delegation (T4796)', () => {
     expect(typeof result.data!.hasActiveSession).toBe('boolean');
   });
 
-  it('sessionList returns valid EngineResult with array', async () => {
+  it('sessionList returns valid EngineResult with sessions and _meta', async () => {
     const { sessionList } = await import(
       '../../dispatch/engines/session-engine.js'
     );
@@ -514,7 +514,10 @@ describe('Session Engine Delegation (T4796)', () => {
 
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
-    expect(Array.isArray(result.data)).toBe(true);
+    expect(Array.isArray(result.data!.sessions)).toBe(true);
+    expect(result.data!._meta).toBeDefined();
+    expect(typeof result.data!._meta.truncated).toBe('boolean');
+    expect(typeof result.data!._meta.total).toBe('number');
   });
 
   it('sessionStart creates session and returns EngineResult', async () => {

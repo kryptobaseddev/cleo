@@ -340,4 +340,6 @@ export type { SessionBriefing, BriefingOptions, BriefingTask, BriefingBug, Brief
 export type { TaskWorkStateExt, TaskFileExt, DecisionRecord, AssumptionRecord } from './types.js';
 export type { Session as SessionRecord } from '../../types/session.js';
 export { SessionView } from './session-view.js';
+export { findSessions } from './find.js';
+export type { MinimalSessionRecord, FindSessionsParams } from './find.js';
 
