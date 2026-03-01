@@ -22,7 +22,7 @@ import {
   orchestrateValidate,
   orchestrateSpawn,
   orchestrateStartup,
-} from '../orchestrate-engine.js';
+} from '../../../dispatch/engines/orchestrate-engine.js';
 
 let TEST_ROOT: string;
 let CLEO_DIR: string;
@@ -159,7 +159,7 @@ describe('Orchestrate Engine', () => {
     it('should reject not-ready task', async () => {
       const result = await orchestrateSpawn('T104', undefined, TEST_ROOT);
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_READY');
+      expect(result.error?.code).toBe('E_SPAWN_VALIDATION_FAILED');
     });
   });
 
