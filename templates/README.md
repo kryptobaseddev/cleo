@@ -10,7 +10,7 @@ Template files used by `init.sh` to initialize new projects with the CLEO task m
 | `archive.template.json` | `.cleo/todo-archive.json` | Completed tasks archive (immutable after archival) |
 | `log.template.json` | `.cleo/todo-log.json` | Append-only change log for audit trail |
 | `config.template.json` | `.cleo/config.json` | Project configuration (archive, validation, display settings) |
-| `AGENT-INJECTION.md` | CLAUDE.md, AGENTS.md, GEMINI.md | Default injection template (works with any CLI agent instructions doc) |
+| `CLEO-INJECTION.md` | AGENTS.md (via `@~/.cleo/templates/CLEO-INJECTION.md`) | Global injection template for task management protocol |
 
 ## Placeholder Contract
 
@@ -70,10 +70,10 @@ ajv validate -s "$TODO_DIR/schemas/todo.schema.json" -d "$TODO_DIR/todo.json"
 - Placeholders: NONE
 - Schema: `../schemas/config.schema.json`
 
-### AGENT-INJECTION.md
-- Contains: concise CLEO CLI instructions with session protocol
+### CLEO-INJECTION.md
+- Contains: CLEO protocol instructions with MCP-first operations and session protocol
 - Placeholders: NONE
-- Usage: Default injection template for CLAUDE.md (or any agent doc via --target flag)
+- Usage: Global injection template referenced from AGENTS.md via `@~/.cleo/templates/CLEO-INJECTION.md`
 
 ## Schema Path Rewriting
 
