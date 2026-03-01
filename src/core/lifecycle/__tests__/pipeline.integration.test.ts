@@ -558,9 +558,8 @@ describe('RCSD Pipeline Integration', () => {
       expect(researchCompletedAt!.getTime()).toBeGreaterThanOrEqual(beforeTime.getTime());
     });
 
-    it.skip('should record gate results with timestamp [requires T4801 SQLite]', async () => {
-      // Note: This test uses legacy JSON-based storage which has lock issues in test environment.
-      // It will be enabled once T4801 SQLite implementation is complete.
+    it('should record gate results with timestamp [T4801 SQLite-native]', async () => {
+      // T4801: Now uses SQLite-native gate tracking
       const epicId = 'T4806';
       const gateResult = await passGate(epicId, 'research-prerequisites-met', 'test-agent', 'All prerequisites verified', testDir);
 
@@ -569,14 +568,13 @@ describe('RCSD Pipeline Integration', () => {
       expect(gateResult.timestamp).toBeDefined();
     });
 
-    it.skip('should record failed gate with reason [requires T4801 SQLite]', async () => {
-      // Note: This test uses legacy JSON-based storage which has lock issues in test environment.
-      // It will be enabled once T4801 SQLite implementation is complete.
+    it('should record failed gate with reason [T4801 SQLite-native]', async () => {
+      // T4801: Now uses SQLite-native gate tracking
       const epicId = 'T4806';
-      const gateResult = await failGate(epicId, 'spec-incomplete', 'Missing acceptance criteria', testDir);
+      const gateResult = await failGate(epicId, 'specification-incomplete', 'Missing acceptance criteria', testDir);
 
       expect(gateResult.epicId).toBe(epicId);
-      expect(gateResult.gateName).toBe('spec-incomplete');
+      expect(gateResult.gateName).toBe('specification-incomplete');
       expect(gateResult.reason).toBe('Missing acceptance criteria');
     });
 
@@ -616,15 +614,14 @@ describe('RCSD Pipeline Integration', () => {
   // =============================================================================
 
   describe('cross-session resume preserves context', () => {
-    it.skip('should restore pipeline state from manifest [requires T4801 SQLite]', async () => {
-      // Note: This test uses legacy JSON-based storage which has lock issues in test environment.
-      // It will be enabled once T4801 SQLite implementation is complete.
+    it('should restore pipeline state from SQLite [T4801]', async () => {
+      // T4801: Now uses SQLite-native storage
       const epicId = 'T4806';
 
       // Simulate session A: progress through some stages
       await recordStageProgress(epicId, 'research', 'completed', 'Initial research done', testDir);
       await recordStageProgress(epicId, 'consensus', 'completed', 'Consensus reached', testDir);
-      await recordStageProgress(epicId, 'adr', 'skipped', 'Simple change, no ADR needed', testDir);
+      await recordStageProgress(epicId, 'architecture_decision', 'skipped', 'Simple change, no ADR needed', testDir);
       await recordStageProgress(epicId, 'specification', 'completed', 'Spec written', testDir);
 
       // Simulate session B: read state and continue
@@ -640,13 +637,13 @@ describe('RCSD Pipeline Integration', () => {
       expect(updatedStatus.currentStage).toBe('decomposition');
     });
 
-    it.skip('should preserve gate results across sessions [requires T4801 SQLite]', async () => {
-      // Note: This test uses legacy JSON-based storage which has lock issues in test environment.
+    it('should preserve gate results across sessions [T4801]', async () => {
+      // T4801: Now uses SQLite-native storage
       const epicId = 'T4806';
 
       // Session A: record gate passes
       await passGate(epicId, 'research-complete', 'agent-a', 'Research verified', testDir);
-      await passGate(epicId, 'spec-reviewed', 'agent-a', 'Spec approved', testDir);
+      await passGate(epicId, 'specification-reviewed', 'agent-a', 'Spec approved', testDir);
 
       // Session B: verify gates are still recorded
       const history = await getLifecycleHistory(epicId, testDir);
@@ -655,8 +652,8 @@ describe('RCSD Pipeline Integration', () => {
       expect(gateEvents.length).toBe(2);
     });
 
-    it.skip('should maintain stage timestamps across sessions [requires T4801 SQLite]', async () => {
-      // Note: This test uses legacy JSON-based storage which has lock issues in test environment.
+    it('should maintain stage timestamps across sessions [T4801]', async () => {
+      // T4801: Now uses SQLite-native storage
       const epicId = 'T4806';
       const beforeTime = new Date().toISOString();
 
@@ -667,11 +664,11 @@ describe('RCSD Pipeline Integration', () => {
       const status = await getLifecycleStatus(epicId, testDir);
       const researchStage = status.stages.find(s => s.stage === 'research');
       expect(researchStage?.completedAt).toBeDefined();
-      expect(researchStage?.completedAt! > beforeTime).toBe(true);
+      expect(Date.parse(researchStage?.completedAt ?? '')).toBeGreaterThanOrEqual(Date.parse(beforeTime));
     });
 
-    it.skip('should track full history across sessions [requires T4801 SQLite]', async () => {
-      // Note: This test uses legacy JSON-based storage which has lock issues in test environment.
+    it('should track full history across sessions [T4801]', async () => {
+      // T4801: Now uses SQLite-native storage
       const epicId = 'T4806';
 
       // Complete several stages
@@ -1115,9 +1112,8 @@ describe('T4798 Epic Completion Validation', () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
-  it.skip('validates all T4798 dependencies are functional [requires T4801 SQLite]', async () => {
-    // Note: This test uses legacy JSON-based storage which has lock issues in test environment.
-    // It will be enabled once T4801 SQLite implementation is complete.
+  it('validates all T4798 dependencies are functional [T4801]', async () => {
+    // T4801: All dependencies now use SQLite-native storage
 
     // T4800: Pipeline State Machine
     const pipelineId = 'T4806';
@@ -1130,7 +1126,7 @@ describe('T4798 Epic Completion Validation', () => {
     expect(STAGE_DEFINITIONS['research'].order).toBe(1);
 
     // T4804: Gate/Evidence Recording (via passGate/failGate)
-    const gateResult = await passGate('T4806', 'test-gate', 'agent', 'Test', testDir);
+    const gateResult = await passGate('T4806', 'research-test-gate', 'agent', 'Test', testDir);
     expect(gateResult.timestamp).toBeDefined();
 
     // T4805: Cross-session resume (via recordStageProgress)

@@ -20,7 +20,7 @@ if [ -n "$BAD_FILES" ]; then
 fi
 
 # ── 2. Core file gitignore protection ─────────────────────────────────
-PROTECTED_FILES=".cleo/tasks.db .cleo/config.json .cleo/.gitignore .cleo/project-info.json .cleo/project-context.json"
+PROTECTED_FILES=".cleo/config.json .cleo/.gitignore .cleo/project-info.json .cleo/project-context.json"
 IGNORED_CORE=""
 
 for f in $PROTECTED_FILES; do

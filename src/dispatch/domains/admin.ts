@@ -28,6 +28,8 @@ import {
   systemSequence,
   systemSequenceRepair,
   systemHealth,
+  systemDoctor,
+  systemFix,
   systemInjectGenerate,
   systemBackup,
   systemRestore,
@@ -71,6 +73,11 @@ export class AdminHandler implements DomainHandler {
 
         case 'health': {
           const result = systemHealth(this.projectRoot, params as { detailed?: boolean } | undefined);
+          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'doctor': {
+          const result = await systemDoctor(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -289,6 +296,11 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
+        case 'fix': {
+          const result = await systemFix(this.projectRoot);
+          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
         case 'config.set': {
           const key = params?.key as string;
           if (!key) {
@@ -411,12 +423,12 @@ export class AdminHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'version', 'health', 'config.show', 'config.get', 'stats', 'context',
+        'version', 'health', 'doctor', 'config.show', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list',
       ],
       mutate: [
-        'init', 'config.set', 'backup', 'restore', 'migrate',
+        'init', 'fix', 'config.set', 'backup', 'restore', 'migrate',
         'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
         'adr.sync', 'adr.validate',
       ],
@@ -428,7 +440,7 @@ export class AdminHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
     gateway: string,
     domain: string,
     operation: string,
@@ -438,7 +450,15 @@ export class AdminHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
-      ...(result.error ? { error: { code: result.error.code, message: result.error.message, details: result.error.details as Record<string, unknown> | undefined } } : {}),
+      ...(result.error ? {
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          details: result.error.details as Record<string, unknown> | undefined,
+          fix: result.error.fix,
+          alternatives: result.error.alternatives,
+        }
+      } : {}),
     };
   }
 

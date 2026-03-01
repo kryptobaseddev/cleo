@@ -20,7 +20,7 @@ import { existsSync, readFileSync, renameSync } from 'node:fs';
 export function isProjectInitialized(projectRoot?: string): boolean {
   const root = projectRoot ?? getProjectRoot();
   const cleoDir = join(root, '.cleo');
-  return existsSync(cleoDir) && (existsSync(join(cleoDir, 'tasks.json')) || existsSync(join(cleoDir, 'todo.json')));
+  return existsSync(cleoDir) && (existsSync(join(cleoDir, 'tasks.json')) || existsSync(join(cleoDir, 'todo.json')) || existsSync(join(cleoDir, 'tasks.db')));
 }
 
 /**

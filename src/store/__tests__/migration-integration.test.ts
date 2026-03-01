@@ -257,7 +257,7 @@ describe('Migration integration', () => {
   });
 
   describe('provider lifecycle', () => {
-    it.skip('writes to SQLite on first operation', async () => {
+    it('writes to SQLite on first operation', async () => {
       // Set up minimal JSON project (both legacy and current filenames for compatibility)
       const todoData = JSON.stringify(makeTodoJson());
       await writeFile(join(cleoDir, 'todo.json'), todoData);

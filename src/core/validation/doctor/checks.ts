@@ -15,6 +15,8 @@ import { homedir } from 'node:os';
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../../platform.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
+import { getGitignoreContent } from '../../scaffold.js';
+import { checkGlobalSchemas as checkGlobalSchemasRaw } from '../../schema-management.js';
 
 // ============================================================================
 // Types
@@ -362,13 +364,12 @@ export function checkCleoGitignore(
     };
   }
 
-  // Load template
+  // Load template from shared scaffold module (replaces CLI init.js require anti-pattern)
   let templateContent: string | null = null;
   try {
-    const { getGitignoreTemplate } = require('../../cli/commands/init.js') as { getGitignoreTemplate: () => string };
-    templateContent = getGitignoreTemplate();
+    templateContent = getGitignoreContent();
   } catch {
-    // If we can't load the template, try the file directly
+    // If we can't load the shared module, try the file directly
     try {
       const templatePaths = [
         join(root, 'templates', 'cleo-gitignore'),
@@ -976,6 +977,97 @@ export function checkNodeVersion(): CheckResult {
 }
 
 // ============================================================================
+// Check: Global schema health
+// ============================================================================
+
+/**
+ * Check that global schemas at ~/.cleo/schemas/ are installed and not stale.
+ * Delegates to checkGlobalSchemas() from schema-management.ts.
+ */
+export function checkGlobalSchemaHealth(
+  _projectRoot?: string,
+): CheckResult {
+  try {
+    const result = checkGlobalSchemasRaw();
+
+    if (result.missing.length > 0) {
+      return {
+        id: 'global_schema_health',
+        category: 'configuration',
+        status: 'warning',
+        message: `Missing global schemas: ${result.missing.join(', ')}`,
+        details: { missing: result.missing, installed: result.installed, bundled: result.bundled },
+        fix: 'cleo upgrade',
+      };
+    }
+
+    if (result.stale.length > 0) {
+      return {
+        id: 'global_schema_health',
+        category: 'configuration',
+        status: 'warning',
+        message: `Stale global schemas: ${result.stale.join(', ')}`,
+        details: { stale: result.stale, installed: result.installed, bundled: result.bundled },
+        fix: 'cleo upgrade',
+      };
+    }
+
+    return {
+      id: 'global_schema_health',
+      category: 'configuration',
+      status: 'passed',
+      message: `All ${result.installed} global schemas installed and current`,
+      details: { installed: result.installed, bundled: result.bundled },
+      fix: null,
+    };
+  } catch (err) {
+    return {
+      id: 'global_schema_health',
+      category: 'configuration',
+      status: 'warning',
+      message: `Could not check global schemas: ${err instanceof Error ? err.message : String(err)}`,
+      details: {},
+      fix: null,
+    };
+  }
+}
+
+// ============================================================================
+// Check: No deprecated local schemas
+// ============================================================================
+
+/**
+ * Warn if deprecated .cleo/schemas/ directory still exists in the project.
+ * Schemas should live in ~/.cleo/schemas/ (global), not in project directories.
+ */
+export function checkNoLocalSchemas(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const localSchemasDir = join(root, '.cleo', 'schemas');
+
+  if (!existsSync(localSchemasDir)) {
+    return {
+      id: 'no_local_schemas',
+      category: 'configuration',
+      status: 'passed',
+      message: 'No deprecated .cleo/schemas/ directory found',
+      details: { path: localSchemasDir, exists: false },
+      fix: null,
+    };
+  }
+
+  return {
+    id: 'no_local_schemas',
+    category: 'configuration',
+    status: 'warning',
+    message: 'Deprecated .cleo/schemas/ directory found — schemas should be global',
+    details: { path: localSchemasDir, exists: true },
+    fix: 'cleo upgrade (will migrate to ~/.cleo/schemas/)',
+  };
+}
+
+// ============================================================================
 // Run All Checks
 // ============================================================================
 
@@ -1083,6 +1175,9 @@ export function runAllGlobalChecks(
     checkAtReferenceTargetExists(projectRoot),
     checkTemplateFreshness(projectRoot, home),
     checkTierMarkersPresent(home),
+    // Global schema and local schema deprecation checks
+    checkGlobalSchemaHealth(projectRoot),
+    checkNoLocalSchemas(projectRoot),
   ];
 }
 

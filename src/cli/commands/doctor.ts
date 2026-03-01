@@ -14,9 +14,17 @@ export function registerDoctorCommand(program: Command): void {
     .command('doctor')
     .description('Run system diagnostics and health checks')
     .option('--detailed', 'Show detailed health check results')
+    .option('--comprehensive', 'Run comprehensive doctor report')
+    .option('--fix', 'Auto-fix failed checks')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'health', {
-        detailed: opts['detailed'] as boolean | undefined,
-      }, { command: 'doctor', operation: 'admin.health' });
+      if (opts['fix']) {
+        await dispatchFromCli('mutate', 'admin', 'fix', {}, { command: 'doctor', operation: 'admin.fix' });
+      } else if (opts['comprehensive']) {
+        await dispatchFromCli('query', 'admin', 'doctor', {}, { command: 'doctor', operation: 'admin.doctor' });
+      } else {
+        await dispatchFromCli('query', 'admin', 'health', {
+          detailed: opts['detailed'] as boolean | undefined,
+        }, { command: 'doctor', operation: 'admin.health' });
+      }
     });
 }
