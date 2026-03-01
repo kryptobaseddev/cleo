@@ -1,0 +1,2608 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "be7cb26f-7216-403c-bf53-b28a1b9c8d5c",
+  "prevIds": [
+    "47c3e975-66ad-40c0-a2ae-7795fd607a92"
+  ],
+  "ddl": [
+    {
+      "name": "adr_relations",
+      "entityType": "tables"
+    },
+    {
+      "name": "adr_task_links",
+      "entityType": "tables"
+    },
+    {
+      "name": "architecture_decisions",
+      "entityType": "tables"
+    },
+    {
+      "name": "audit_log",
+      "entityType": "tables"
+    },
+    {
+      "name": "lifecycle_evidence",
+      "entityType": "tables"
+    },
+    {
+      "name": "lifecycle_gate_results",
+      "entityType": "tables"
+    },
+    {
+      "name": "lifecycle_pipelines",
+      "entityType": "tables"
+    },
+    {
+      "name": "lifecycle_stages",
+      "entityType": "tables"
+    },
+    {
+      "name": "lifecycle_transitions",
+      "entityType": "tables"
+    },
+    {
+      "name": "manifest_entries",
+      "entityType": "tables"
+    },
+    {
+      "name": "schema_meta",
+      "entityType": "tables"
+    },
+    {
+      "name": "sessions",
+      "entityType": "tables"
+    },
+    {
+      "name": "status_registry",
+      "entityType": "tables"
+    },
+    {
+      "name": "task_dependencies",
+      "entityType": "tables"
+    },
+    {
+      "name": "task_relations",
+      "entityType": "tables"
+    },
+    {
+      "name": "task_work_history",
+      "entityType": "tables"
+    },
+    {
+      "name": "tasks",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "from_adr_id",
+      "entityType": "columns",
+      "table": "adr_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "to_adr_id",
+      "entityType": "columns",
+      "table": "adr_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "relation_type",
+      "entityType": "columns",
+      "table": "adr_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "adr_id",
+      "entityType": "columns",
+      "table": "adr_task_links"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "adr_task_links"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'related'",
+      "generated": null,
+      "name": "link_type",
+      "entityType": "columns",
+      "table": "adr_task_links"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'proposed'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "supersedes_id",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "superseded_by_id",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "consensus_manifest_id",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
+      "generated": null,
+      "name": "date",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "accepted_at",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "gate",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "gate_status",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "amends_id",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
+      "generated": null,
+      "name": "file_path",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "summary",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "keywords",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "topics",
+      "entityType": "columns",
+      "table": "architecture_decisions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "timestamp",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "action",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'system'",
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "details_json",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "before_json",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "after_json",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "domain",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "operation",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "request_id",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "duration_ms",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "success",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "gateway",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error_message",
+      "entityType": "columns",
+      "table": "audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "stage_id",
+      "entityType": "columns",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "uri",
+      "entityType": "columns",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "recorded_at",
+      "entityType": "columns",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "recorded_by",
+      "entityType": "columns",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "stage_id",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "gate_name",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "result",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "checked_at",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "checked_by",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "details",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reason",
+      "entityType": "columns",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'active'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "current_stage_id",
+      "entityType": "columns",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "started_at",
+      "entityType": "columns",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "completed_at",
+      "entityType": "columns",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "pipeline_id",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "stage_name",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'not_started'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sequence",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "started_at",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "completed_at",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "blocked_at",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "block_reason",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "skipped_at",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "skip_reason",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "notes_json",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "metadata_json",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "output_file",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "validated_by",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "validated_at",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "validation_status",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provenance_chain_json",
+      "entityType": "columns",
+      "table": "lifecycle_stages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "pipeline_id",
+      "entityType": "columns",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "from_stage_id",
+      "entityType": "columns",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "to_stage_id",
+      "entityType": "columns",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'automatic'",
+      "generated": null,
+      "name": "transition_type",
+      "entityType": "columns",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "pipeline_id",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "stage_id",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent_type",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "output_file",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "topics_json",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "findings_json",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "linked_tasks_json",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "manifest_entries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "schema_meta"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "schema_meta"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'active'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "scope_json",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "current_task",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_started_at",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "notes_json",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "tasks_completed_json",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "tasks_created_json",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "handoff_json",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "started_at",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ended_at",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "previous_session_id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "next_session_id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent_identifier",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "handoff_consumed_at",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "handoff_consumed_by",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "debrief_json",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "stats_json",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resume_count",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "grade_mode",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "status_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_type",
+      "entityType": "columns",
+      "table": "status_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "namespace",
+      "entityType": "columns",
+      "table": "status_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "status_registry"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "is_terminal",
+      "entityType": "columns",
+      "table": "status_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "task_dependencies"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "depends_on",
+      "entityType": "columns",
+      "table": "task_dependencies"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "task_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "related_to",
+      "entityType": "columns",
+      "table": "task_relations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'related'",
+      "generated": null,
+      "name": "relation_type",
+      "entityType": "columns",
+      "table": "task_relations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reason",
+      "entityType": "columns",
+      "table": "task_relations"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "task_work_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "task_work_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "task_work_history"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "set_at",
+      "entityType": "columns",
+      "table": "task_work_history"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cleared_at",
+      "entityType": "columns",
+      "table": "task_work_history"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'pending'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'medium'",
+      "generated": null,
+      "name": "priority",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parent_id",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "phase",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "size",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "position",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "position_version",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "labels_json",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "notes_json",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "acceptance_json",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "files_json",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "origin",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "blocked_by",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "epic_lifecycle",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "no_auto_complete",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "completed_at",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cancelled_at",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cancellation_reason",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "archived_at",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "archive_reason",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cycle_time_days",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "verification_json",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "modified_by",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "tasks"
+    },
+    {
+      "columns": [
+        "from_adr_id"
+      ],
+      "tableTo": "architecture_decisions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_adr_relations_from_adr_id_architecture_decisions_id_fk",
+      "entityType": "fks",
+      "table": "adr_relations"
+    },
+    {
+      "columns": [
+        "to_adr_id"
+      ],
+      "tableTo": "architecture_decisions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_adr_relations_to_adr_id_architecture_decisions_id_fk",
+      "entityType": "fks",
+      "table": "adr_relations"
+    },
+    {
+      "columns": [
+        "adr_id"
+      ],
+      "tableTo": "architecture_decisions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_adr_task_links_adr_id_architecture_decisions_id_fk",
+      "entityType": "fks",
+      "table": "adr_task_links"
+    },
+    {
+      "columns": [
+        "stage_id"
+      ],
+      "tableTo": "lifecycle_stages",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_lifecycle_evidence_stage_id_lifecycle_stages_id_fk",
+      "entityType": "fks",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "columns": [
+        "stage_id"
+      ],
+      "tableTo": "lifecycle_stages",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_lifecycle_gate_results_stage_id_lifecycle_stages_id_fk",
+      "entityType": "fks",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "columns": [
+        "task_id"
+      ],
+      "tableTo": "tasks",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_lifecycle_pipelines_task_id_tasks_id_fk",
+      "entityType": "fks",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "columns": [
+        "pipeline_id"
+      ],
+      "tableTo": "lifecycle_pipelines",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_lifecycle_stages_pipeline_id_lifecycle_pipelines_id_fk",
+      "entityType": "fks",
+      "table": "lifecycle_stages"
+    },
+    {
+      "columns": [
+        "pipeline_id"
+      ],
+      "tableTo": "lifecycle_pipelines",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_lifecycle_transitions_pipeline_id_lifecycle_pipelines_id_fk",
+      "entityType": "fks",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "columns": [
+        "pipeline_id"
+      ],
+      "tableTo": "lifecycle_pipelines",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_manifest_entries_pipeline_id_lifecycle_pipelines_id_fk",
+      "entityType": "fks",
+      "table": "manifest_entries"
+    },
+    {
+      "columns": [
+        "stage_id"
+      ],
+      "tableTo": "lifecycle_stages",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_manifest_entries_stage_id_lifecycle_stages_id_fk",
+      "entityType": "fks",
+      "table": "manifest_entries"
+    },
+    {
+      "columns": [
+        "task_id"
+      ],
+      "tableTo": "tasks",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_task_dependencies_task_id_tasks_id_fk",
+      "entityType": "fks",
+      "table": "task_dependencies"
+    },
+    {
+      "columns": [
+        "depends_on"
+      ],
+      "tableTo": "tasks",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_task_dependencies_depends_on_tasks_id_fk",
+      "entityType": "fks",
+      "table": "task_dependencies"
+    },
+    {
+      "columns": [
+        "task_id"
+      ],
+      "tableTo": "tasks",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_task_relations_task_id_tasks_id_fk",
+      "entityType": "fks",
+      "table": "task_relations"
+    },
+    {
+      "columns": [
+        "related_to"
+      ],
+      "tableTo": "tasks",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_task_relations_related_to_tasks_id_fk",
+      "entityType": "fks",
+      "table": "task_relations"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "sessions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_task_work_history_session_id_sessions_id_fk",
+      "entityType": "fks",
+      "table": "task_work_history"
+    },
+    {
+      "columns": [
+        "parent_id"
+      ],
+      "tableTo": "tasks",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "nameExplicit": false,
+      "name": "fk_tasks_parent_id_tasks_id_fk",
+      "entityType": "fks",
+      "table": "tasks"
+    },
+    {
+      "columns": [
+        "from_adr_id",
+        "to_adr_id",
+        "relation_type"
+      ],
+      "nameExplicit": false,
+      "name": "adr_relations_pk",
+      "entityType": "pks",
+      "table": "adr_relations"
+    },
+    {
+      "columns": [
+        "adr_id",
+        "task_id"
+      ],
+      "nameExplicit": false,
+      "name": "adr_task_links_pk",
+      "entityType": "pks",
+      "table": "adr_task_links"
+    },
+    {
+      "columns": [
+        "name",
+        "entity_type"
+      ],
+      "nameExplicit": false,
+      "name": "status_registry_pk",
+      "entityType": "pks",
+      "table": "status_registry"
+    },
+    {
+      "columns": [
+        "task_id",
+        "depends_on"
+      ],
+      "nameExplicit": false,
+      "name": "task_dependencies_pk",
+      "entityType": "pks",
+      "table": "task_dependencies"
+    },
+    {
+      "columns": [
+        "task_id",
+        "related_to"
+      ],
+      "nameExplicit": false,
+      "name": "task_relations_pk",
+      "entityType": "pks",
+      "table": "task_relations"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "architecture_decisions_pk",
+      "table": "architecture_decisions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "audit_log_pk",
+      "table": "audit_log",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "lifecycle_evidence_pk",
+      "table": "lifecycle_evidence",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "lifecycle_gate_results_pk",
+      "table": "lifecycle_gate_results",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "lifecycle_pipelines_pk",
+      "table": "lifecycle_pipelines",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "lifecycle_stages_pk",
+      "table": "lifecycle_stages",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "lifecycle_transitions_pk",
+      "table": "lifecycle_transitions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "manifest_entries_pk",
+      "table": "manifest_entries",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "schema_meta_pk",
+      "table": "schema_meta",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "sessions_pk",
+      "table": "sessions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "task_work_history_pk",
+      "table": "task_work_history",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "tasks_pk",
+      "table": "tasks",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "task_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_adr_task_links_task_id",
+      "entityType": "indexes",
+      "table": "adr_task_links"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_arch_decisions_status",
+      "entityType": "indexes",
+      "table": "architecture_decisions"
+    },
+    {
+      "columns": [
+        {
+          "value": "task_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_audit_log_task_id",
+      "entityType": "indexes",
+      "table": "audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "action",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_audit_log_action",
+      "entityType": "indexes",
+      "table": "audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "timestamp",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_audit_log_timestamp",
+      "entityType": "indexes",
+      "table": "audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "domain",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_audit_log_domain",
+      "entityType": "indexes",
+      "table": "audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "request_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_audit_log_request_id",
+      "entityType": "indexes",
+      "table": "audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "stage_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_evidence_stage_id",
+      "entityType": "indexes",
+      "table": "lifecycle_evidence"
+    },
+    {
+      "columns": [
+        {
+          "value": "stage_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_gate_results_stage_id",
+      "entityType": "indexes",
+      "table": "lifecycle_gate_results"
+    },
+    {
+      "columns": [
+        {
+          "value": "task_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_pipelines_task_id",
+      "entityType": "indexes",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_pipelines_status",
+      "entityType": "indexes",
+      "table": "lifecycle_pipelines"
+    },
+    {
+      "columns": [
+        {
+          "value": "pipeline_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_stages_pipeline_id",
+      "entityType": "indexes",
+      "table": "lifecycle_stages"
+    },
+    {
+      "columns": [
+        {
+          "value": "stage_name",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_stages_stage_name",
+      "entityType": "indexes",
+      "table": "lifecycle_stages"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_stages_status",
+      "entityType": "indexes",
+      "table": "lifecycle_stages"
+    },
+    {
+      "columns": [
+        {
+          "value": "pipeline_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_lifecycle_transitions_pipeline_id",
+      "entityType": "indexes",
+      "table": "lifecycle_transitions"
+    },
+    {
+      "columns": [
+        {
+          "value": "pipeline_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_manifest_entries_pipeline_id",
+      "entityType": "indexes",
+      "table": "manifest_entries"
+    },
+    {
+      "columns": [
+        {
+          "value": "stage_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_manifest_entries_stage_id",
+      "entityType": "indexes",
+      "table": "manifest_entries"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_manifest_entries_status",
+      "entityType": "indexes",
+      "table": "manifest_entries"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_sessions_status",
+      "entityType": "indexes",
+      "table": "sessions"
+    },
+    {
+      "columns": [
+        {
+          "value": "previous_session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_sessions_previous",
+      "entityType": "indexes",
+      "table": "sessions"
+    },
+    {
+      "columns": [
+        {
+          "value": "agent_identifier",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_sessions_agent_identifier",
+      "entityType": "indexes",
+      "table": "sessions"
+    },
+    {
+      "columns": [
+        {
+          "value": "entity_type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_status_registry_entity_type",
+      "entityType": "indexes",
+      "table": "status_registry"
+    },
+    {
+      "columns": [
+        {
+          "value": "namespace",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_status_registry_namespace",
+      "entityType": "indexes",
+      "table": "status_registry"
+    },
+    {
+      "columns": [
+        {
+          "value": "depends_on",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_deps_depends_on",
+      "entityType": "indexes",
+      "table": "task_dependencies"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_work_history_session",
+      "entityType": "indexes",
+      "table": "task_work_history"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_tasks_status",
+      "entityType": "indexes",
+      "table": "tasks"
+    },
+    {
+      "columns": [
+        {
+          "value": "parent_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_tasks_parent_id",
+      "entityType": "indexes",
+      "table": "tasks"
+    },
+    {
+      "columns": [
+        {
+          "value": "phase",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_tasks_phase",
+      "entityType": "indexes",
+      "table": "tasks"
+    },
+    {
+      "columns": [
+        {
+          "value": "type",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_tasks_type",
+      "entityType": "indexes",
+      "table": "tasks"
+    },
+    {
+      "columns": [
+        {
+          "value": "priority",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_tasks_priority",
+      "entityType": "indexes",
+      "table": "tasks"
+    }
+  ],
+  "renames": []
+}
