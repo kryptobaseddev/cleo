@@ -38,20 +38,12 @@
 !adrs/
 !adrs/**
 
-# Step 7: Allow consensus directory (provenance evidence trail)
-!consensus/
-!consensus/**
-
-# Step 8: Allow RCASD lifecycle provenance directory
+# Step 7: Allow RCASD lifecycle provenance directory
 # Structure: rcasd/{epic#}/research/, consensus/, architecture/, specs/, contributions/
 !rcasd/
 !rcasd/**
 
-# Step 9: Allow contributions directory (provenance attribution)
-!contributions/
-!contributions/**
-
-# Step 10: Allow agent-outputs directory
+# Step 8: Allow agent-outputs directory
 !agent-outputs/
 !agent-outputs/**
 

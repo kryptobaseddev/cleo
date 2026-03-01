@@ -25,6 +25,7 @@ import {
   schemaMeta,
   auditLog,
   architectureDecisions,
+  manifestEntries,
 } from './schema.js';
 import { SESSION_STATUSES } from './status-registry.js';
 
@@ -242,3 +243,11 @@ export type AuditLogSelect = SelectAuditLog;
 
 export type InsertArchitectureDecision = z.infer<typeof insertArchitectureDecisionSchema>;
 export type SelectArchitectureDecision = z.infer<typeof selectArchitectureDecisionSchema>;
+
+// === MANIFEST ENTRIES ===
+
+export const insertManifestEntrySchema = createInsertSchema(manifestEntries);
+export const selectManifestEntrySchema = createSelectSchema(manifestEntries);
+
+export type InsertManifestEntry = z.infer<typeof insertManifestEntrySchema>;
+export type SelectManifestEntry = z.infer<typeof selectManifestEntrySchema>;
