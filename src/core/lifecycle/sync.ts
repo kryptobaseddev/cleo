@@ -14,8 +14,76 @@ import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/schema.js';
 import { PIPELINE_STAGES, STAGE_ORDER } from './stages.js';
 import type { Stage } from './stages.js';
-import { getLifecycleState, listEpicsWithLifecycle } from './index.js';
+import { listEpicsWithLifecycle } from './index.js';
 import type { RcasdManifest, ManifestStageData } from './index.js';
+import { readJson } from '../../store/json.js';
+import { findManifestPath } from './rcasd-paths.js';
+
+// =============================================================================
+// LEGACY MANIFEST NORMALIZATION
+// =============================================================================
+
+/**
+ * Normalize a manifest into canonical format, handling:
+ *   - Legacy `status` key (→ `stages`)
+ *   - Legacy `state` field inside each stage (→ `status`)
+ *   - Legacy `taskId` field (→ `epicId`)
+ *   - Legacy `pending` status (→ `not_started`)
+ *   - Missing `stages` property (→ empty stages object)
+ *
+ * Accepts Record<string, unknown> at the boundary since on-disk manifests
+ * may contain legacy keys not present in the RcasdManifest type.
+ *
+ * @task T5200
+ */
+function normalizeManifest(raw: Record<string, unknown>): RcasdManifest {
+  const existingStages = raw['stages'] as Record<string, ManifestStageData> | undefined;
+  let stages: Record<string, ManifestStageData> = existingStages ?? {};
+
+  // Handle legacy `status` key instead of `stages`
+  if (!existingStages && raw['status'] && typeof raw['status'] === 'object') {
+    const legacyStatus = raw['status'] as Record<string, Record<string, unknown>>;
+    stages = {};
+    for (const [stageName, stageData] of Object.entries(legacyStatus)) {
+      // Legacy format uses `state` instead of `status`
+      const status = (stageData['state'] ?? stageData['status'] ?? 'not_started') as string;
+      stages[stageName] = {
+        status: mapLegacyStatus(status) as ManifestStageData['status'],
+        completedAt: stageData['completedAt'] as string | undefined,
+        skippedAt: stageData['skippedAt'] as string | undefined,
+        skippedReason: stageData['skippedReason'] as string | undefined,
+        artifacts: stageData['artifacts'] as string[] | undefined,
+        notes: stageData['notes'] as string | undefined,
+        gates: stageData['gates'] as Record<string, import('./index.js').GateData> | undefined,
+      };
+    }
+  }
+
+  // Map any legacy status values in the stages
+  for (const stageData of Object.values(stages)) {
+    stageData.status = mapLegacyStatus(stageData.status) as ManifestStageData['status'];
+  }
+
+  return {
+    epicId: (raw['epicId'] as string) ?? (raw['taskId'] as string) ?? '',
+    title: raw['title'] as string | undefined,
+    stages,
+  };
+}
+
+/**
+ * Map legacy status values to canonical values.
+ * - `pending` → `not_started`
+ * - `active` → `in_progress`
+ * - Everything else passes through.
+ */
+function mapLegacyStatus(status: string): string {
+  switch (status) {
+    case 'pending': return 'not_started';
+    case 'active': return 'in_progress';
+    default: return status;
+  }
+}
 
 // =============================================================================
 // SYNC: Full manifest → SQLite
@@ -39,7 +107,15 @@ export async function syncManifestToDb(
   epicId: string,
   cwd?: string,
 ): Promise<void> {
-  const manifest = await getLifecycleState(epicId, cwd);
+  const manifestPath = findManifestPath(epicId, cwd);
+  if (!manifestPath) {
+    throw new Error(`No manifest found for epic ${epicId}`);
+  }
+  const rawManifest = await readJson<Record<string, unknown>>(manifestPath);
+  if (!rawManifest) {
+    throw new Error(`Failed to read manifest for epic ${epicId}`);
+  }
+  const manifest = normalizeManifest(rawManifest);
   const db = await getDb(cwd);
 
   const pipelineId = `pipeline-${epicId}`;
@@ -311,6 +387,7 @@ export async function syncGateToDb(
 function derivePipelineStatus(
   manifest: RcasdManifest,
 ): typeof schema.LIFECYCLE_PIPELINE_STATUSES[number] {
+  if (!manifest.stages) return 'active';
   let allCompleted = true;
 
   for (const stageName of PIPELINE_STAGES) {
@@ -331,6 +408,7 @@ function derivePipelineStatus(
  * Returns the last in-progress or first not-started stage.
  */
 function deriveCurrentStageName(manifest: RcasdManifest): string | null {
+  if (!manifest.stages) return 'research';
   // Find the first stage that is in_progress
   for (const stageName of PIPELINE_STAGES) {
     const status = manifest.stages[stageName]?.status;

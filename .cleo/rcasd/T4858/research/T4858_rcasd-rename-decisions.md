@@ -1,3 +1,10 @@
+---
+epic: T4858
+stage: research
+task: T4858
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4858: RCSD → RCASD Rename — Scope & Migration Strategy Decisions
 
 **Task:** T4858 — Q&A: RCSD→RCASD rename scope and migration strategy

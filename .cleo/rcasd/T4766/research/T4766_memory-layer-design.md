@@ -1,3 +1,10 @@
+---
+epic: T4766
+stage: research
+task: T4766
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4766: Memory Layer Design
 
 **Date**: 2026-02-27

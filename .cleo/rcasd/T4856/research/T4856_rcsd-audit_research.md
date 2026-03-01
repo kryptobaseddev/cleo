@@ -1,3 +1,10 @@
+---
+epic: T4856
+stage: research
+task: T4856
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4856: RCSD Reference Audit — Research Document
 
 **Task:** T4856 — Research: Audit all RCSD references and map current state
