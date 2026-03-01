@@ -224,12 +224,12 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 4: Capability matrix
       try {
-        const matrixPath = join(projectRoot, 'src', 'mcp', 'engine', 'capability-matrix.ts');
+        const matrixPath = join(projectRoot, 'src', 'dispatch', 'lib', 'capability-matrix.ts');
         if (!existsSync(matrixPath)) {
           addCheck('Capability matrix', 'fail', 'Capability matrix missing', [{
             severity: 'error',
             category: 'configuration',
-            message: 'src/mcp/engine/capability-matrix.ts not found',
+            message: 'src/dispatch/lib/capability-matrix.ts not found',
             recommendation: 'Create capability matrix to document supported operations',
           }]);
         } else {

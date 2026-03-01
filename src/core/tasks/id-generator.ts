@@ -5,7 +5,7 @@
  * Ensures uniqueness across both todo.json and todo-archive.json.
  */
 
-import { readJsonFile } from './store.js';
+import { readJsonFile } from '../../store/file-utils.js';
 import { join } from 'path';
 
 /**

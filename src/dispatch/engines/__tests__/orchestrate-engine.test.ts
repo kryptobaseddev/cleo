@@ -22,7 +22,7 @@ import {
   orchestrateValidate,
   orchestrateSpawn,
   orchestrateStartup,
-} from '../../../dispatch/engines/orchestrate-engine.js';
+} from '../orchestrate-engine.js';
 
 let TEST_ROOT: string;
 let CLEO_DIR: string;
