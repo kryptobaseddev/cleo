@@ -353,6 +353,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       await updateDependencies(db, task.id, task.depends ?? []);
     },
 
+    async addRelation(taskId: string, relatedTo: string, relationType: string): Promise<void> {
+      const db = await getDb(cwd);
+      // Normalize to valid enum values; default to 'related' for unknown types
+      const validTypes = ['related', 'blocks', 'duplicates'] as const;
+      const normalizedType = validTypes.includes(relationType as typeof validTypes[number])
+        ? relationType as typeof validTypes[number]
+        : 'related' as const;
+      await db.insert(schema.taskRelations)
+        .values({ taskId, relatedTo, relationType: normalizedType })
+        .onConflictDoNothing()
+        .run();
+    },
+
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
       const db = await getDb(cwd);
       // Verify the task exists before archiving

@@ -169,7 +169,7 @@ describe('TasksHandler', () => {
       const result = await handler.query('depends', { taskId: 'T001', direction: 'both' });
 
       expect(result.success).toBe(true);
-      expect(taskDepends).toHaveBeenCalledWith('/mock/project', 'T001', 'both');
+      expect(taskDepends).toHaveBeenCalledWith('/mock/project', 'T001', 'both', undefined);
     });
 
     it('analyze - delegates to taskAnalyze', async () => {

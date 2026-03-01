@@ -36,6 +36,8 @@ export {
   taskReopen,
   taskComplexityEstimate,
   taskDepends,
+  taskDepsOverview,
+  taskDepsCycles,
   taskStats,
   taskExport,
   taskHistory,
