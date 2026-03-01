@@ -40,12 +40,7 @@ export type ManifestEntry = ExtendedManifestEntry;
 export type { ResearchFilter, ContradictionDetail, SupersededDetail };
 export { filterManifestEntries };
 
-/** Standard engine result envelope. */
-interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string; details?: unknown };
-}
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 // ============================================================================
 // Internal I/O helpers

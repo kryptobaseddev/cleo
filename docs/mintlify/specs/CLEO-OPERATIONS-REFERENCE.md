@@ -22,12 +22,18 @@ Implementation source files:
 
 | Gateway | Operations | Domains |
 |---------|-----------|---------|
-| cleo_query | 93 | 10 |
-| cleo_mutate | 71 | 10 |
-| **Total** | **164** | **10** |
+| cleo_query | 97 | 10 |
+| cleo_mutate | 80 | 10 |
+| **Total** | **177** | **10** |
 
-Canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing
+Canonical domains: tasks, session, orchestrate, memory, check, pipeline, admin, tools, nexus, sharing
 Legacy aliases (backward compat): research, lifecycle, validate, release, system, issues, skills, providers
+
+> **Note**: The per-domain tables below use legacy domain names (research, lifecycle, validate,
+> release, system, issues, skills, providers) for historical continuity. These map to canonical
+> domains (memory, pipeline, check, pipeline, admin, tools, tools, tools) via gateway alias routing.
+> Some per-domain counts are stale; refer to `src/mcp/gateways/query.ts` and `mutate.ts` for
+> current operation lists.
 
 ## Naming Conventions (T4732)
 
@@ -55,17 +61,16 @@ The core task management domain. Handles CRUD, hierarchy, dependencies, focus, a
 | `depends` | `cleo deps <id>` | Dependency graph | `taskId`, `direction?` | 1 |
 | `analyze` | `cleo analyze` | Triage with scoring | `epicId?` | 2 |
 | `next` | `cleo next` | Smart task suggestion | `epicId?`, `count?` | 0 |
-| `compute` | `cleo plan` | Composite planning view | - | 0 |
+| `plan` | `cleo plan` | Composite planning view | - | 0 |
 | `relates` | `cleo relates <id>` | Relationship query | `taskId` | 2 |
 | `complexity.estimate` | N/A | Complexity scoring | `taskId` | 2 |
 | `current` | `cleo current` | Currently active task | - | 0 |
 
-### Mutate Operations (15)
+### Mutate Operations (13)
 
 | Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
 |-----------|---------------|-------------|------------|-----------------|
 | `add` | `cleo add <title>` | Create new task | `title`, `description?`, `parent?`, `priority?`, `labels?`, `depends?` | 0 |
-| `add` | `cleo bug <title>` | Create bug report | `title`, `type="bug"`, `origin="bug-report"` | 0 |
 | `update` | `cleo update <id>` | Update task fields | `taskId`, `title?`, `status?`, `priority?`, `notes?` | 0 |
 | `complete` | `cleo complete <id>` | Mark task done | `taskId`, `notes?` | 0 |
 | `delete` | `cleo delete <id>` | Delete/cancel task | `taskId`, `force?`, `reason?` | 1 |
@@ -76,7 +81,6 @@ The core task management domain. Handles CRUD, hierarchy, dependencies, focus, a
 | `reorder` | `cleo reorder <id>` | Reorder siblings | `taskId`, `position` | 2 |
 | `reopen` | N/A (MCP only) | Reopen completed task | `taskId` | 2 |
 | `relates.add` | `cleo relates <id> --add <other>` | Add relationship | `taskId`, `relatedId`, `type?` | 2 |
-| `uncancel` | N/A (MCP only) | Restore cancelled | `taskId` | 2 |
 | `start` | `cleo start <id>` | Start working (set focus) | `taskId` | 0 |
 | `stop` | `cleo stop` | Stop working (clear focus) | - | 0 |
 
@@ -86,7 +90,7 @@ The core task management domain. Handles CRUD, hierarchy, dependencies, focus, a
 
 Work session lifecycle and decision tracking.
 
-### Query Operations (8)
+### Query Operations (10)
 
 | Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
 |-----------|---------------|-------------|------------|-----------------|
@@ -98,6 +102,8 @@ Work session lifecycle and decision tracking.
 | `context.drift` | N/A | Context drift analysis | `sessionId?` | 3 |
 | `handoff.show` | `cleo session handoff` | Show handoff data | `scope?` | 0 |
 | `briefing.show` | `cleo briefing` | Session-start context | `scope?`, `maxNext?` | 0 |
+| `debrief.show` | N/A | Session debrief data | `sessionId?` | 2 |
+| `chain.show` | N/A | Session chain view | `sessionId?` | 2 |
 
 ### Mutate Operations (7)
 

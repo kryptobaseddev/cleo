@@ -59,7 +59,7 @@ Hierarchical permissions control cross-project access:
 
 ### 3. Global Project Registry
 
-Projects are registered in the **Global Registry database** (`~/.cleo/cleo-nexus.db`, `project_registry` table) per ADR-006. Each entry contains:
+Projects are registered in the **Global Registry database** (`~/.cleo/nexus.db`, `project_registry` table) per ADR-006. Each entry contains:
 
 - `hash`: 12-character hex identifier (SHA-256 of path)
 - `path`: Absolute filesystem path
@@ -122,7 +122,7 @@ src/core/nexus/
 ### Module Responsibilities
 
 #### `registry.ts`
-- Initialize NEXUS tables in Global Registry (`~/.cleo/cleo-nexus.db`)
+- Initialize NEXUS tables in Global Registry (`~/.cleo/nexus.db`)
 - Register/unregister projects in the global registry
 - List registered projects
 - Sync project metadata (task counts, labels)
@@ -271,9 +271,9 @@ The NEXUS subsystem will be exposed through the existing MCP server via dedicate
 
 - **Graph-RAG integration**: The Bash implementation had `graph-rag.sh` for AI-powered discovery across projects. This requires the GraphRAG engine to be ported first.
 - **Neural discovery scoring**: The `discover_across_projects()` function from `graph-rag.sh` that implements label/description/hierarchy scoring. Deferred until GraphRAG port.
-- **Metadata caching**: The TypeScript port uses in-memory caching instead of file-based cache initially. Future: SQLite-backed cache in `cleo-nexus.db`.
+- **Metadata caching**: The TypeScript port uses in-memory caching instead of file-based cache initially. Future: SQLite-backed cache in `nexus.db`.
 - **CLI scripts**: The 4 NEXUS CLI scripts (`nexus.sh`, `nexus-discover.sh`, `nexus-query.sh`, `nexus-search.sh`) will be ported as separate CLI commands (tracked by T4551).
 
 ### Storage Note (ADR-006 / ADR-009 Alignment)
 
-Per ADR-006 (accepted) and ADR-009, all Nexus operational data is stored in the **Global Registry** SQLite database at `~/.cleo/cleo-nexus.db`. JSON file references in legacy code (`projects-registry.json`, `~/.cleo/nexus/registry.json`) are pre-SQLite artifacts. The TypeScript interfaces above (`NexusRegistryFile`, etc.) describe the API shape, not the physical storage format.
+Per ADR-006 (accepted) and ADR-009, all Nexus operational data is stored in the **Global Registry** SQLite database at `~/.cleo/nexus.db`. JSON file references in legacy code (`projects-registry.json`, `~/.cleo/nexus/registry.json`) are pre-SQLite artifacts. The TypeScript interfaces above (`NexusRegistryFile`, etc.) describe the API shape, not the physical storage format.

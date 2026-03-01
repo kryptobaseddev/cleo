@@ -81,6 +81,9 @@ export interface DataAccessor {
   /** Delete a single task permanently from the tasks table. */
   removeSingleTask?(taskId: string): Promise<void>;
 
+  /** Insert a row into the task_relations table (T5168). */
+  addRelation?(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void>;
+
   // ---- Metadata (schema_meta KV store) ----
 
   /** Read a typed value from the metadata store. Returns null if not found. */

@@ -279,3 +279,57 @@ export function topologicalSort(tasks: Task[]): string[] | null {
   if (sorted.length !== tasks.length) return null;
   return sorted;
 }
+
+/**
+ * Walk upstream recursively through a task's dependency chain.
+ * Returns all non-done/non-cancelled dependency IDs (deduplicated).
+ * Uses a visited set for cycle protection.
+ */
+export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const task = taskMap.get(taskId);
+  if (!task?.depends?.length) return [];
+
+  const blockers = new Set<string>();
+  const visited = new Set<string>();
+
+  function walk(id: string): void {
+    if (visited.has(id)) return;
+    visited.add(id);
+
+    const t = taskMap.get(id);
+    if (!t?.depends?.length) return;
+
+    for (const depId of t.depends) {
+      const dep = taskMap.get(depId);
+      if (!dep) continue;
+      if (dep.status === 'done' || dep.status === 'cancelled') continue;
+      blockers.add(depId);
+      walk(depId);
+    }
+  }
+
+  walk(taskId);
+  return [...blockers];
+}
+
+/**
+ * From the transitive blockers, return only "leaf" blockers — those whose
+ * own dependencies are all resolved (done/cancelled) or that have no
+ * dependencies at all. These are the root-cause tasks that need action first.
+ */
+export function getLeafBlockers(taskId: string, tasks: Task[]): string[] {
+  const blockerIds = getTransitiveBlockers(taskId, tasks);
+  if (blockerIds.length === 0) return [];
+
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const completedIds = new Set(
+    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+  );
+
+  return blockerIds.filter((id) => {
+    const t = taskMap.get(id);
+    if (!t?.depends?.length) return true;
+    return t.depends.every((depId) => completedIds.has(depId));
+  });
+}

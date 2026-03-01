@@ -77,6 +77,54 @@ ct dash                    # Project overview
 - `find` returns minimal fields only (99% less context)
 - Use `show` only when you need full details for a specific task
 
+### Work Selection Decision Tree
+
+```
+START
+├─ Has active session? → `session status`
+│  ├─ YES → Has active task? → `tasks current`
+│  │  ├─ YES → Continue working on it
+│  │  └─ NO → `tasks next` → pick suggestion → `tasks start {id}`
+│  └─ NO → `session list` → resume or start new
+│     └─ `session start --scope epic:{id} --auto-focus`
+├─ Know what to work on?
+│  ├─ YES → `tasks find "query"` → `tasks show {id}` → `tasks start {id}`
+│  └─ NO → `admin dash` → identify priority → `tasks next`
+└─ Epic-level work?
+   └─ `tasks tree {epicId}` → find actionable leaf → `tasks start {id}`
+```
+
+### Context Bloat Anti-Patterns
+
+| Anti-Pattern | Token Cost | Efficient Alternative | Savings |
+|-------------|-----------|----------------------|---------|
+| `tasks list` (no filters) | 2000-5000 | `tasks find "query"` | 80-90% |
+| `admin help --tier 2` first | 2000+ | `admin help` (tier 0 default) | 60-75% |
+| `tasks show` for every task | 400 x N | `tasks find` then `show` for 1-2 | 70-90% |
+| Reading full epic tree | 1000-3000 | `tasks next` for suggestions | 80% |
+| Repeated `session list` | 300 x N | Once at startup, cache result | 90% |
+| `tasks analyze` before starting | 800-1500 | `tasks next --explain` | 50% |
+
+### Progressive Disclosure Triggers
+
+Load only what you need. Escalate tiers when the task demands it:
+
+**Stay at Tier 0** (default -- 80% of work):
+- Single task execution (implement, fix, test)
+- Task discovery and status updates
+- Session start/end
+
+**Escalate to Tier 1** when:
+- Managing research artifacts or consensus docs
+- Running validation/compliance checks
+- Working with memory or check domains
+
+**Escalate to Tier 2** when:
+- Orchestrating multi-agent workflows
+- Managing release pipelines
+- Working with nexus cross-project operations
+- Spawning subagents with protocol injection
+
 ## Session Protocol
 
 Sessions track work context across agent interactions.
@@ -130,28 +178,7 @@ After EVERY command:
 
 ## RCSD-IVTR Lifecycle
 
-Projects follow a structured lifecycle with gate enforcement:
-
-```
-RCSD PIPELINE (setup):  Research -> Consensus -> Specification -> Decomposition
-EXECUTION (delivery):   Implementation -> Contribution -> Release
-```
-
-Each stage has a lifecycle gate. Entering a later stage requires prior stages to be `completed` or `skipped`. Gate enforcement is configured in `.cleo/config.json` (`strict` | `advisory` | `off`).
-
-### Conditional Protocols (9 Types)
-
-| Protocol | Use Case |
-|----------|----------|
-| Research | Information gathering |
-| Consensus | Multi-agent decisions |
-| Specification | Document creation |
-| Decomposition | Task breakdown |
-| Implementation | Code execution |
-| Contribution | Work attribution |
-| Release | Version management |
-| Artifact Publish | Artifact distribution |
-| Provenance | Supply chain integrity |
+**Lifecycle**: See CLEO-INJECTION.md standard tier for full RCASD-IVTR+C pipeline details, or `references/rcsd-lifecycle.md` for gate enforcement and subagent architecture.
 
 ## Time Estimates Prohibited
 

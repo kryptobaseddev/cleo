@@ -36,7 +36,7 @@ The backup system uses two tiers:
 CLEO uses Node built-in `node:sqlite` (`DatabaseSync`) with WAL mode
 enabled for file-backed, concurrent multi-process access (see ADR-006,
 amended by ADR-010). The database file at `.cleo/tasks.db` (project store)
-and `~/.cleo/cleo-nexus.db` (global registry) are standard SQLite files
+and `~/.cleo/nexus.db` (global registry) are standard SQLite files
 with WAL journal. Unlike the prior `sql.js` WASM engine, there is no
 in-memory export/save cycle -- all writes go directly to disk via SQLite's
 native file-locking and WAL mechanisms.

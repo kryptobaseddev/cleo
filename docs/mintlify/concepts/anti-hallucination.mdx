@@ -54,7 +54,7 @@ flowchart TB
 
     Beyond structure, content must be meaningful:
 
-    - **ID uniqueness** - Across `todo.json` + archive
+    - **ID uniqueness** - Across active tasks + archive
     - **Timestamp sanity** - Not future, `completedAt > createdAt`
     - **Content pairing** - Title != description
     - **Duplicate detection** - No duplicate task descriptions
@@ -136,7 +136,7 @@ flowchart LR
 ```
 
 <Warning>
-Never manually edit `.cleo/todo.json` - use CLI commands only to maintain integrity.
+Never manually edit `.cleo/tasks.db` - use CLI commands only to maintain integrity.
 </Warning>
 
 ## Recovery Mechanisms

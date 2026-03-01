@@ -38,7 +38,7 @@ Traditional task management tools weren't designed for AI-assisted development w
 
   <Accordion title="Session Continuity" icon="clock">
     Development work is rarely linear. CLEO provides:
-    - Complete audit trails in `todo-log.jsonl`
+    - Complete audit trails in `tasks.db` (SQLite)
     - Automatic backups before every modification
     - Session management with start/end protocols
     - Focus tracking for single-task discipline
@@ -96,14 +96,14 @@ CLEO enforces **single-task discipline** through focus management:
 
 ```bash
 # Start your day
-cleo session start
-cleo start T001          # One active task at a time
+cleo session start --scope epic:T001 --auto-focus
+cleo start T002          # One active task at a time
 
 # Work on task...
 
 # End your day
 cleo archive                 # Clean up completed tasks
-cleo session end
+cleo session end --note "Completed auth work"
 ```
 
 <Note>
@@ -112,14 +112,13 @@ Sessions persist across Claude conversations. When you start a new terminal sess
 
 ### Data Files
 
-CLEO maintains four core data files in your project's `.cleo/` directory:
+CLEO maintains core data in your project's `.cleo/` directory:
 
 | File | Purpose |
 |------|---------|
-| `todo.json` | Active tasks (source of truth) |
-| `todo-archive.json` | Completed/archived tasks |
-| `todo-log.jsonl` | Immutable audit trail |
-| `config.json` | Project configuration |
+| `tasks.db` | SQLite database (tasks, sessions, audit log) |
+| `config.json` | Project configuration (human-editable) |
+| `project-info.json` | Project metadata |
 
 ## Quick Example
 

@@ -28,6 +28,19 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
+// Mock registry OPERATIONS for help tests
+vi.mock('../../registry.js', () => ({
+  OPERATIONS: [
+    { gateway: 'query', domain: 'tasks', operation: 'show', description: 'Show task', tier: 0, idempotent: true, sessionRequired: false, requiredParams: ['taskId'] },
+    { gateway: 'query', domain: 'tasks', operation: 'list', description: 'List tasks', tier: 0, idempotent: true, sessionRequired: false, requiredParams: [] },
+    { gateway: 'query', domain: 'tasks', operation: 'find', description: 'Find tasks', tier: 0, idempotent: true, sessionRequired: false, requiredParams: ['query'] },
+    { gateway: 'query', domain: 'admin', operation: 'dash', description: 'Dashboard', tier: 0, idempotent: true, sessionRequired: false, requiredParams: [] },
+    { gateway: 'query', domain: 'admin', operation: 'health', description: 'Health check', tier: 0, idempotent: true, sessionRequired: false, requiredParams: [] },
+    { gateway: 'query', domain: 'memory', operation: 'show', description: 'Show research', tier: 1, idempotent: true, sessionRequired: false, requiredParams: ['id'] },
+    { gateway: 'query', domain: 'orchestrate', operation: 'status', description: 'Orch status', tier: 2, idempotent: true, sessionRequired: false, requiredParams: [] },
+  ],
+}));
+
 import { AdminHandler } from '../admin.js';
 import {
   systemDash,
@@ -188,6 +201,52 @@ describe('AdminHandler', () => {
       expect(res.success).toBe(false);
       expect(res.error?.code).toBe('E_INVALID_INPUT');
       expect(systemSequence).not.toHaveBeenCalled();
+    });
+
+    it('should return help with quickStart and costHint at tier 0', async () => {
+      const res = await handler.query('help', { tier: 0 });
+
+      expect(res.success).toBe(true);
+      const data = res.data as Record<string, unknown>;
+      expect(data.tier).toBe(0);
+      expect(data.quickStart).toBeDefined();
+      expect(Array.isArray(data.quickStart)).toBe(true);
+      expect((data.quickStart as string[]).length).toBeGreaterThan(0);
+      // All tier 0 ops should be included
+      const ops = data.operations as Array<{ costHint: string }>;
+      expect(ops.length).toBe(5); // 3 tasks + 2 admin at tier 0
+      // Every op should have a costHint
+      for (const op of ops) {
+        expect(['minimal', 'moderate', 'heavy']).toContain(op.costHint);
+      }
+    });
+
+    it('should not include quickStart at tier 1', async () => {
+      const res = await handler.query('help', { tier: 1 });
+
+      expect(res.success).toBe(true);
+      const data = res.data as Record<string, unknown>;
+      expect(data.tier).toBe(1);
+      expect(data.quickStart).toBeUndefined();
+      // Tier 1 includes tier 0 + tier 1 ops
+      const ops = data.operations as Array<{ costHint: string }>;
+      expect(ops.length).toBe(6); // 5 tier-0 + 1 tier-1
+    });
+
+    it('should classify cost hints correctly', async () => {
+      const res = await handler.query('help', { tier: 0 });
+
+      const data = res.data as Record<string, unknown>;
+      const ops = data.operations as Array<{ domain: string; operation: string; costHint: string }>;
+
+      const listOp = ops.find(o => o.domain === 'tasks' && o.operation === 'list');
+      expect(listOp?.costHint).toBe('heavy');
+
+      const showOp = ops.find(o => o.domain === 'tasks' && o.operation === 'show');
+      expect(showOp?.costHint).toBe('moderate');
+
+      const findOp = ops.find(o => o.domain === 'tasks' && o.operation === 'find');
+      expect(findOp?.costHint).toBe('minimal');
     });
 
     it('should return E_NOT_AVAILABLE for job.status when no job manager', async () => {

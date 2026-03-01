@@ -13,7 +13,6 @@ import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 
-const logger = getLogger('domain:orchestrate');
 import {
   orchestrateStatus,
   orchestrateAnalyze,
@@ -157,7 +156,8 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required', startTime);
           }
           const protocolType = params?.protocolType as string | undefined;
-          const result = await orchestrateSpawn(taskId, protocolType, this.projectRoot);
+          const tier = params?.tier as 0 | 1 | 2 | undefined;
+          const result = await orchestrateSpawn(taskId, protocolType, this.projectRoot, tier);
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
@@ -276,7 +276,7 @@ export class OrchestrateHandler implements DomainHandler {
     startTime: number,
   ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error({ gateway, domain: 'orchestrate', operation, err: error }, message);
+    getLogger('domain:orchestrate').error({ gateway, domain: 'orchestrate', operation, err: error }, message);
     return this.errorResponse(
       gateway, operation,
       'E_INTERNAL_ERROR',

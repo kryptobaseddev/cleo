@@ -23,7 +23,7 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync };
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -33,6 +33,7 @@ import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import * as schema from './schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
 import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
+import { getLogger } from '../core/logger.js';
 
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
@@ -47,6 +48,8 @@ let _nativeDb: DatabaseSync | null = null;
 let _dbPath: string | null = null;
 /** Guard against concurrent initialization (async migration). */
 let _initPromise: Promise<SqliteRemoteDatabase<typeof schema>> | null = null;
+/** Guard: git-tracking check runs only once per process. */
+let _gitTrackingChecked = false;
 
 /**
  * Get the path to the SQLite database file.
@@ -103,6 +106,26 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
       `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('task_id_sequence', '{"counter":0,"lastId":"T000","checksum":"seed"}')`,
     );
 
+    // Check if tasks.db is dangerously tracked by git (ADR-013, T5158)
+    if (!_gitTrackingChecked) {
+      _gitTrackingChecked = true;
+      try {
+        const { execFileSync } = await import('node:child_process');
+        execFileSync('git', ['ls-files', '--error-unmatch', dbPath], {
+          cwd: resolve(dbPath, '..', '..'),
+          stdio: 'pipe',
+        });
+        // If we get here, the file IS tracked — that's dangerous
+        const log = getLogger('sqlite');
+        log.warn(
+          { dbPath },
+          'tasks.db is tracked by project git — this risks data loss on git operations. Run: git rm --cached .cleo/tasks.db (see ADR-013)',
+        );
+      } catch {
+        // Exit code 1 = not tracked = good, do nothing
+      }
+    }
+
     // Set singleton only after migrations complete
     _db = db;
     return db;
@@ -137,6 +160,22 @@ function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
 }
 
 /**
+ * Check if an error is a SQLite BUSY error (database locked by another process).
+ * node:sqlite throws native Error with message containing the SQLite error code.
+ * @task T5185
+ */
+export function isSqliteBusy(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes('sqlite_busy') || msg.includes('database is locked');
+}
+
+/** Migration retry constants for SQLITE_BUSY handling (T5185). */
+const MAX_MIGRATION_RETRIES = 5;
+const MIGRATION_RETRY_BASE_DELAY_MS = 100;
+const MIGRATION_RETRY_MAX_DELAY_MS = 2000;
+
+/**
  * Run drizzle migrations to create/update tables.
  *
  * Handles three cases:
@@ -145,7 +184,13 @@ function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
  *    the baseline migration as already applied, then runs remaining migrations.
  * 3. Already-migrated database — runs only pending migrations.
  *
+ * BEGIN IMMEDIATE acquires a RESERVED lock upfront, preventing concurrent
+ * migration runners from racing (T5173). If another process already holds a
+ * RESERVED lock, BEGIN IMMEDIATE throws SQLITE_BUSY. This function retries
+ * with exponential backoff + jitter to handle concurrent MCP server starts (T5185).
+ *
  * @task T4837 - ADR-012 drizzle-kit migration system
+ * @task T5185 - Retry+backoff for SQLITE_BUSY during migrations
  */
 async function runMigrations(
   nativeDb: DatabaseSync,
@@ -175,21 +220,54 @@ async function runMigrations(
   }
 
   // Run pending migrations via drizzle-orm/sqlite-proxy/migrator.
-  // Each batch of queries (one migration) is wrapped in an explicit transaction.
+  // Each batch of queries (one migration) is wrapped in an IMMEDIATE transaction.
+  // IMMEDIATE acquires a RESERVED lock upfront, preventing concurrent migration
+  // runners from racing (T5173: "duplicate column name" errors from parallel MCP starts).
   // drizzle appends INSERT INTO __drizzle_migrations as the final query in the
   // batch. Without a transaction, a failed CREATE TABLE leaves the hash
   // unrecorded, causing the same migration to re-run and crash on every startup.
+  //
+  // T5185: BEGIN IMMEDIATE itself can throw SQLITE_BUSY if another connection
+  // already holds a RESERVED lock. Retry with exponential backoff + jitter.
+  // busy_timeout (5000ms) provides first-line defense; this retry handles cases
+  // where the lock holder runs long migrations that exceed busy_timeout.
   await migrate(db, async (queries: string[]) => {
-    nativeDb.prepare('BEGIN').run();
-    try {
-      for (const query of queries) {
-        nativeDb.prepare(query).run();
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
+      try {
+        nativeDb.prepare('BEGIN IMMEDIATE').run();
+        try {
+          for (const query of queries) {
+            nativeDb.prepare(query).run();
+          }
+          nativeDb.prepare('COMMIT').run();
+          return; // Success — exit retry loop
+        } catch (err) {
+          nativeDb.prepare('ROLLBACK').run();
+          throw err; // Re-throw DDL errors (not retryable)
+        }
+      } catch (err) {
+        if (!isSqliteBusy(err) || attempt === MAX_MIGRATION_RETRIES) {
+          throw err; // Non-busy error or exhausted retries
+        }
+        lastError = err;
+
+        // Exponential backoff with jitter to de-correlate competing processes
+        const exponentialDelay = MIGRATION_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        const jitter = Math.random() * exponentialDelay * 0.5;
+        const delay = Math.min(exponentialDelay + jitter, MIGRATION_RETRY_MAX_DELAY_MS);
+
+        // Sync sleep — node:sqlite DatabaseSync is sync, Atomics.wait is the
+        // established pattern (see node-sqlite-adapter.ts WAL retry)
+        const buf = new SharedArrayBuffer(4);
+        Atomics.wait(new Int32Array(buf), 0, 0, Math.round(delay));
       }
-      nativeDb.prepare('COMMIT').run();
-    } catch (err) {
-      nativeDb.prepare('ROLLBACK').run();
-      throw err;
     }
+
+    // Should not reach here, but TypeScript needs exhaustive paths
+    /* c8 ignore next */
+    throw lastError;
   }, { migrationsFolder });
 }
 

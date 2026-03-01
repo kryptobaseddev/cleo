@@ -510,8 +510,10 @@ function validateTasksParams(
       }
       break;
 
-    case 'relates.add':
-      if (!params?.taskId || !params?.targetId || !params?.type || !params?.reason) {
+    case 'relates.add': {
+      // Accept both targetId and relatedId for the second task (T5149)
+      const hasTarget = !!(params?.targetId || params?.relatedId);
+      if (!params?.taskId || !hasTarget || !params?.type) {
         return {
           valid: false,
           error: {
@@ -527,13 +529,14 @@ function validateTasksParams(
             error: {
               code: 'E_VALIDATION_FAILED',
               exitCode: 6,
-              message: 'Missing required parameters: taskId, targetId, type, and reason',
-              fix: 'Provide taskId, targetId, type, and reason parameters',
+              message: 'Missing required parameters: taskId, targetId (or relatedId), and type',
+              fix: 'Provide taskId, targetId (or relatedId), and type parameters',
             },
           },
         };
       }
       break;
+    }
   }
 
   return { valid: true };
@@ -1200,7 +1203,7 @@ export function registerMutateTool() {
   return {
     name: 'cleo_mutate',
     description:
-      'CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation.',
+      'CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation. Use cleo_query with domain "admin", operation "help" first to discover available operations.',
     inputSchema: {
       type: 'object',
       required: ['domain', 'operation'],
@@ -1212,7 +1215,7 @@ export function registerMutateTool() {
         },
         operation: {
           type: 'string',
-          description: 'Domain-specific write operation (see operation matrix)',
+          description: 'Domain-specific write operation. Call cleo_query admin.help to see the full operation matrix. Common: tasks.add, tasks.update, tasks.complete, session.start, session.end',
         },
         params: {
           type: 'object',

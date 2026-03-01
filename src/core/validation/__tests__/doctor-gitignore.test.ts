@@ -1,15 +1,18 @@
 /**
- * Tests for gitignore integrity, vital files, and legacy agent-outputs doctor checks.
+ * Tests for gitignore integrity, vital files, core file protection,
+ * and legacy agent-outputs doctor checks.
  * @task T4700
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   checkCleoGitignore,
   checkVitalFilesTracked,
+  checkCoreFilesNotIgnored,
   checkLegacyAgentOutputs,
 } from '../doctor/checks.js';
 
@@ -61,6 +64,74 @@ describe('checkVitalFilesTracked', () => {
     const result = checkVitalFilesTracked(tempDir);
     expect(result.status).toBe('info');
     expect(result.id).toBe('vital_files_tracked');
+  });
+});
+
+/** Create a temp dir that is a real git repo. */
+function makeTempGitRepo(): string {
+  const dir = makeTempDir();
+  execFileSync('git', ['init', '--initial-branch=main'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir, stdio: 'pipe' });
+  // Need at least one commit for git check-ignore to work reliably
+  writeFileSync(join(dir, '.gitkeep'), '');
+  execFileSync('git', ['add', '.gitkeep'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], { cwd: dir, stdio: 'pipe' });
+  return dir;
+}
+
+describe('checkCoreFilesNotIgnored', () => {
+  let tempDir: string;
+
+  afterEach(() => {
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('returns info status when not a git repo', () => {
+    tempDir = makeTempDir();
+    const result = checkCoreFilesNotIgnored(tempDir);
+    expect(result.status).toBe('info');
+    expect(result.id).toBe('core_files_not_ignored');
+  });
+
+  it('passes when core files exist and are not ignored', () => {
+    tempDir = makeTempGitRepo();
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    writeFileSync(join(tempDir, '.cleo', 'tasks.db'), '');
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), '{}');
+    const result = checkCoreFilesNotIgnored(tempDir);
+    expect(result.status).toBe('passed');
+  });
+
+  it('detects when a core file is gitignored', () => {
+    tempDir = makeTempGitRepo();
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), '{}');
+    // Add a gitignore rule that ignores config.json (a CORE_PROTECTED_FILE)
+    writeFileSync(join(tempDir, '.gitignore'), '.cleo/config.json\n');
+    const result = checkCoreFilesNotIgnored(tempDir);
+    expect(result.status).toBe('failed');
+    expect(result.message).toContain('config.json');
+    expect(result.details.ignoredFiles).toContain('.cleo/config.json');
+  });
+
+  it('detects when .cleo/.gitignore ignores a core file', () => {
+    tempDir = makeTempGitRepo();
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), '{}');
+    // Use .cleo/.gitignore to ignore config.json
+    writeFileSync(join(tempDir, '.cleo', '.gitignore'), 'config.json\n');
+    const result = checkCoreFilesNotIgnored(tempDir);
+    expect(result.status).toBe('failed');
+    expect(result.details.ignoredFiles).toContain('.cleo/config.json');
+  });
+
+  it('passes when non-existent files are in the protected list', () => {
+    tempDir = makeTempGitRepo();
+    // .cleo dir exists but no files inside — should pass (nothing to check)
+    mkdirSync(join(tempDir, '.cleo'), { recursive: true });
+    const result = checkCoreFilesNotIgnored(tempDir);
+    expect(result.status).toBe('passed');
   });
 });
 

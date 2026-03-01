@@ -24,6 +24,7 @@ import {
   LIFECYCLE_STAGE_STATUSES,
   ADR_STATUSES,
   GATE_STATUSES,
+  MANIFEST_STATUSES,
 } from './status-registry.js';
 
 // Re-export status constants and types so existing imports from schema.ts still work.
@@ -148,8 +149,9 @@ export const taskRelations = sqliteTable('task_relations', {
   taskId: text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
   relatedTo: text('related_to').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
   relationType: text('relation_type', {
-    enum: ['related', 'blocks', 'duplicates'],
+    enum: ['related', 'blocks', 'duplicates', 'absorbs', 'fixes', 'extends', 'supersedes'],
   }).notNull().default('related'),
+  reason: text('reason'),
 }, (table) => [
   primaryKey({ columns: [table.taskId, table.relatedTo] }),
 ]);
@@ -235,6 +237,15 @@ export const lifecycleStages = sqliteTable('lifecycle_stages', {
   skipReason: text('skip_reason'),
   notesJson: text('notes_json').default('[]'),
   metadataJson: text('metadata_json').default('{}'),
+  // RCASD provenance tracking columns (T5100)
+  outputFile: text('output_file'),
+  createdBy: text('created_by'),
+  validatedBy: text('validated_by'),
+  validatedAt: text('validated_at'),
+  validationStatus: text('validation_status', {
+    enum: ['pending', 'in_review', 'approved', 'rejected', 'needs_revision'],
+  }),
+  provenanceChainJson: text('provenance_chain_json'),
 }, (table) => [
   index('idx_lifecycle_stages_pipeline_id').on(table.pipelineId),
   index('idx_lifecycle_stages_stage_name').on(table.stageName),
@@ -287,6 +298,28 @@ export const lifecycleTransitions = sqliteTable('lifecycle_transitions', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_lifecycle_transitions_pipeline_id').on(table.pipelineId),
+]);
+
+// === MANIFEST ENTRIES (RCASD provenance — T5100) ===
+
+export const manifestEntries = sqliteTable('manifest_entries', {
+  id: text('id').primaryKey(),
+  pipelineId: text('pipeline_id').references(() => lifecyclePipelines.id, { onDelete: 'cascade' }),
+  stageId: text('stage_id').references(() => lifecycleStages.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  date: text('date').notNull(),
+  status: text('status', { enum: MANIFEST_STATUSES }).notNull(),
+  agentType: text('agent_type'),
+  outputFile: text('output_file'),
+  topicsJson: text('topics_json').default('[]'),
+  findingsJson: text('findings_json').default('[]'),
+  linkedTasksJson: text('linked_tasks_json').default('[]'),
+  createdBy: text('created_by'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_manifest_entries_pipeline_id').on(table.pipelineId),
+  index('idx_manifest_entries_stage_id').on(table.stageId),
+  index('idx_manifest_entries_status').on(table.status),
 ]);
 
 // === SCHEMA METADATA ===
@@ -438,3 +471,5 @@ export type AdrTaskLinkRow = typeof adrTaskLinks.$inferSelect;
 export type NewAdrTaskLinkRow = typeof adrTaskLinks.$inferInsert;
 export type AdrRelationRow = typeof adrRelations.$inferSelect;
 export type NewAdrRelationRow = typeof adrRelations.$inferInsert;
+export type ManifestEntryRow = typeof manifestEntries.$inferSelect;
+export type NewManifestEntryRow = typeof manifestEntries.$inferInsert;

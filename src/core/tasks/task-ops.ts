@@ -14,9 +14,17 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../mcp/engine/store.js';
+import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../store/file-utils.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
 import { depsReady } from './deps-ready.js';
+import {
+  getTransitiveBlockers,
+  getLeafBlockers,
+  validateDependencies,
+  getBlockedTasks,
+  getReadyTasks,
+  detectCircularDeps,
+} from './dependency-check.js';
 
 // ============================================================================
 // Types (shared)
@@ -82,27 +90,6 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
   return data.tasks as unknown as TaskRecord[];
 }
 
-function buildBlockingChain(
-  task: TaskRecord,
-  taskMap: Map<string, TaskRecord>,
-  visited: Set<string> = new Set(),
-): string[] {
-  const chain: string[] = [];
-  if (visited.has(task.id)) return chain;
-  visited.add(task.id);
-
-  if (task.depends) {
-    for (const depId of task.depends) {
-      const dep = taskMap.get(depId);
-      if (dep && dep.status !== 'done' && dep.status !== 'cancelled') {
-        chain.push(depId);
-        chain.push(...buildBlockingChain(dep, taskMap, visited));
-      }
-    }
-  }
-
-  return chain;
-}
 
 function buildTreeNode(
   task: TaskRecord,
@@ -118,6 +105,33 @@ function buildTreeNode(
     type: task.type,
     children,
   };
+}
+
+function buildUpstreamTree(
+  taskId: string,
+  taskMap: Map<string, TaskRecord>,
+  visited: Set<string> = new Set(),
+): TaskTreeNode[] {
+  const task = taskMap.get(taskId);
+  if (!task?.depends?.length) return [];
+
+  const nodes: TaskTreeNode[] = [];
+  for (const depId of task.depends) {
+    if (visited.has(depId)) continue;
+    visited.add(depId);
+
+    const dep = taskMap.get(depId);
+    if (!dep) continue;
+
+    nodes.push({
+      id: dep.id,
+      title: dep.title,
+      status: dep.status,
+      type: dep.type,
+      children: buildUpstreamTree(depId, taskMap, visited),
+    });
+  }
+  return nodes;
 }
 
 function countNodes(nodes: TaskTreeNode[]): number {
@@ -285,13 +299,14 @@ export async function coreTaskBlockers(
     }),
   );
 
+  const tasksAsTask = allTasks as unknown as import('../../types/task.js').Task[];
   const blockerInfos = [
     ...blockedTasks.map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
       depends: t.depends,
-      blockingChain: analyze ? buildBlockingChain(t, taskMap) : [],
+      blockingChain: analyze ? getTransitiveBlockers(t.id, tasksAsTask) : [],
     })),
     ...depBlockedTasks
       .filter((t) => !blockedTasks.some((bt) => bt.id === t.id))
@@ -300,7 +315,7 @@ export async function coreTaskBlockers(
         title: t.title,
         status: t.status,
         depends: t.depends,
-        blockingChain: analyze ? buildBlockingChain(t, taskMap) : [],
+        blockingChain: analyze ? getTransitiveBlockers(t.id, tasksAsTask) : [],
       })),
   ];
 
@@ -455,7 +470,7 @@ export async function coreTaskRelatesAdd(
   relatedId: string,
   type: string,
   reason?: string,
-): Promise<{ from: string; to: string; type: string; added: boolean }> {
+): Promise<{ from: string; to: string; type: string; reason?: string; added: boolean }> {
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
@@ -490,7 +505,12 @@ export async function coreTaskRelatesAdd(
     await accessor.saveTaskFile(current);
   }
 
-  return { from: taskId, to: relatedId, type, added: true };
+  // Persist to task_relations table (T5168)
+  if (accessor.addRelation) {
+    await accessor.addRelation(taskId, relatedId, type, reason);
+  }
+
+  return { from: taskId, to: relatedId, type, reason, added: true };
 }
 
 // ============================================================================
@@ -1060,6 +1080,99 @@ export async function coreTaskComplexityEstimate(
 }
 
 // ============================================================================
+// taskDepsOverview
+// ============================================================================
+
+/**
+ * Overview of all dependencies across the project.
+ * @task T5157
+ */
+export async function coreTaskDepsOverview(
+  projectRoot: string,
+): Promise<{
+  totalTasks: number;
+  tasksWithDeps: number;
+  blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
+  readyTasks: Array<{ id: string; title: string; status: string }>;
+  validation: { valid: boolean; errorCount: number; warningCount: number };
+}> {
+  const allTasks = await loadAllTasks(projectRoot);
+  const tasksAsTask = allTasks as unknown as import('../../types/task.js').Task[];
+
+  const tasksWithDeps = allTasks.filter((t) => t.depends && t.depends.length > 0);
+  const blocked = getBlockedTasks(tasksAsTask);
+  const ready = getReadyTasks(tasksAsTask);
+  const validation = validateDependencies(tasksAsTask);
+
+  return {
+    totalTasks: allTasks.length,
+    tasksWithDeps: tasksWithDeps.length,
+    blockedTasks: blocked.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      unblockedBy: (t.depends ?? []).filter((depId) => {
+        const dep = allTasks.find((x) => x.id === depId);
+        return dep && dep.status !== 'done' && dep.status !== 'cancelled';
+      }),
+    })),
+    readyTasks: ready.filter((t) => t.status !== 'done' && t.status !== 'cancelled').map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+    })),
+    validation: {
+      valid: validation.valid,
+      errorCount: validation.errors.length,
+      warningCount: validation.warnings.length,
+    },
+  };
+}
+
+// ============================================================================
+// taskDepsCycles
+// ============================================================================
+
+/**
+ * Detect circular dependencies across the project.
+ * @task T5157
+ */
+export async function coreTaskDepsCycles(
+  projectRoot: string,
+): Promise<{
+  hasCycles: boolean;
+  cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
+}> {
+  const allTasks = await loadAllTasks(projectRoot);
+  const tasksAsTask = allTasks as unknown as import('../../types/task.js').Task[];
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+
+  const visited = new Set<string>();
+  const cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }> = [];
+
+  for (const task of allTasks) {
+    if (visited.has(task.id)) continue;
+    if (!task.depends?.length) continue;
+
+    const cycle = detectCircularDeps(task.id, tasksAsTask);
+    if (cycle.length > 0) {
+      cycles.push({
+        path: cycle,
+        // Deduplicate: detectCircularDeps returns [A,B,C,A] where
+        // last element closes the cycle. Use Set for robustness.
+        tasks: [...new Set(cycle)].map((id) => {
+          const t = taskMap.get(id);
+          return { id, title: t?.title ?? 'unknown' };
+        }),
+      });
+      cycle.forEach((id) => visited.add(id));
+    }
+  }
+
+  return { hasCycles: cycles.length > 0, cycles };
+}
+
+// ============================================================================
 // taskDepends
 // ============================================================================
 
@@ -1071,11 +1184,17 @@ export async function coreTaskDepends(
   projectRoot: string,
   taskId: string,
   direction: 'upstream' | 'downstream' | 'both' = 'both',
+  options?: { tree?: boolean },
 ): Promise<{
   taskId: string;
   direction: string;
   upstream: Array<{ id: string; title: string; status: string }>;
   downstream: Array<{ id: string; title: string; status: string }>;
+  unresolvedChain: number;
+  leafBlockers: Array<{ id: string; title: string; status: string }>;
+  allDepsReady: boolean;
+  hint?: string;
+  upstreamTree?: TaskTreeNode[];
 }> {
   const allTasks = await loadAllTasks(projectRoot);
 
@@ -1105,7 +1224,39 @@ export async function coreTaskDepends(
     }
   }
 
-  return { taskId, direction, upstream, downstream };
+  // Transitive dependency hints
+  const tasksAsTask = allTasks as unknown as import('../../types/task.js').Task[];
+  const transitiveIds = getTransitiveBlockers(taskId, tasksAsTask);
+  const unresolvedChain = transitiveIds.length;
+
+  const leafIds = getLeafBlockers(taskId, tasksAsTask);
+  const leafBlockers = leafIds.map((id) => {
+    const t = taskMap.get(id)!;
+    return { id: t.id, title: t.title, status: t.status };
+  });
+
+  const allDepsReady = unresolvedChain === 0;
+  const hint = unresolvedChain > 0
+    ? `Run 'ct deps show ${taskId} --tree' for full dependency graph`
+    : undefined;
+
+  // Optional upstream tree
+  let upstreamTree: TaskTreeNode[] | undefined;
+  if (options?.tree) {
+    upstreamTree = buildUpstreamTree(taskId, taskMap);
+  }
+
+  return {
+    taskId,
+    direction,
+    upstream,
+    downstream,
+    unresolvedChain,
+    leafBlockers,
+    allDepsReady,
+    ...(hint && { hint }),
+    ...(upstreamTree && { upstreamTree }),
+  };
 }
 
 // ============================================================================

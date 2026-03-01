@@ -377,7 +377,7 @@ export function registerQueryTool() {
   return {
     name: 'cleo_query',
     description:
-      'CLEO read operations: task discovery, status checks, analysis, validation, and compliance metrics. Never modifies state.',
+      'CLEO read operations: task discovery, status checks, analysis, validation, and compliance metrics. Never modifies state. First call: use domain "admin", operation "help" to discover all available operations.',
     inputSchema: {
       type: 'object',
       required: ['domain', 'operation'],
@@ -389,7 +389,7 @@ export function registerQueryTool() {
         },
         operation: {
           type: 'string',
-          description: 'Domain-specific read operation (see operation matrix)',
+          description: 'Domain-specific read operation. Call admin.help to see the full operation matrix. Common: tasks.find, tasks.show, tasks.next, session.status, admin.dash',
         },
         params: {
           type: 'object',
