@@ -54,7 +54,7 @@ export {
   isValidTaskId,
 } from './id-generator.js';
 
-// Task engine (CRUD operations)
+// Task engine (CRUD operations) — delegated to dispatch engine (T5100)
 export {
   taskShow,
   taskList,
@@ -86,9 +86,10 @@ export {
   taskLint,
   taskBatchValidate,
   taskImport,
+  taskPlan,
   type TaskRecord,
   type MinimalTaskRecord,
-} from './task-engine.js';
+} from '../../dispatch/engines/task-engine.js';
 
 // Session engine (delegated to dispatch engine — MCP engine deleted per T4959)
 export {
@@ -116,7 +117,7 @@ export {
   type DecisionRecord,
 } from '../../dispatch/engines/session-engine.js';
 
-// System engine (system queries + mutate operations)
+// System engine (system queries + mutate operations) — dispatch canonical (T5107)
 export {
   systemDash,
   systemStats,
@@ -125,6 +126,7 @@ export {
   systemLog,
   systemContext,
   systemSequence,
+  systemSequenceRepair,
   systemInjectGenerate,
   systemMetrics,
   systemHealth,
@@ -140,6 +142,7 @@ export {
   systemSync,
   systemSafestop,
   systemUncancel,
+  systemRuntime,
   type DashboardData,
   type StatsData,
   type LabelsData,
@@ -162,21 +165,22 @@ export {
   type SyncData,
   type SafestopData,
   type UncancelData,
-} from './system-engine.js';
+  type RuntimeData,
+} from '../../dispatch/engines/system-engine.js';
 
-// Config engine
+// Config engine (delegated to dispatch engine — MCP engine deleted per T5109-T5111)
 export {
   configGet,
   configSet,
-} from './config-engine.js';
+} from '../../dispatch/engines/config-engine.js';
 
-// Init engine
+// Init engine (delegated to dispatch engine — MCP engine deleted per T5109-T5111)
 export {
   initProject,
   isAutoInitEnabled,
   ensureInitialized,
   getVersion,
-} from './init-engine.js';
+} from '../../dispatch/engines/init-engine.js';
 
 // CAAMP adapter (provider registry, MCP config, injection, batch ops)
 export {
@@ -238,7 +242,7 @@ export {
   type RcasdManifest as RcsdManifest,
 } from '../../core/lifecycle/index.js';
 
-// Validate engine
+// Validate engine (delegated to dispatch engine — MCP engine deleted per T5109-T5111)
 export {
   validateSchemaOp,
   validateTask as validateTaskOp,
@@ -253,9 +257,9 @@ export {
   validateCoherenceCheck,
   validateTestRun,
   validateBatchValidate,
-} from './validate-engine.js';
+} from '../../dispatch/engines/validate-engine.js';
 
-// Orchestrate engine
+// Orchestrate engine — dispatch canonical (T5108)
 export {
   orchestrateStatus,
   orchestrateAnalyze,
@@ -273,7 +277,7 @@ export {
   orchestrateParallelEnd,
   orchestrateCheck,
   orchestrateSkillInject,
-} from './orchestrate-engine.js';
+} from '../../dispatch/engines/orchestrate-engine.js';
 
 // Memory engine (formerly research-engine)
 export {
@@ -296,7 +300,7 @@ export {
   type ManifestEntry as ResearchManifestEntry,
 } from '../../core/memory/engine-compat.js';
 
-// Release engine
+// Release engine (delegated to dispatch engine — MCP engine deleted per T5109-T5111)
 export {
   releasePrepare,
   releaseChangelog,
@@ -307,7 +311,7 @@ export {
   releaseGatesRun,
   releaseRollback,
   releasePush,
-} from './release-engine.js';
+} from '../../dispatch/engines/release-engine.js';
 
 // Capability matrix
 export {
