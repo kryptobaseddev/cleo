@@ -771,6 +771,273 @@ export function checkLegacyAgentOutputs(
 }
 
 // ============================================================================
+// Check: CAAMP marker integrity
+// ============================================================================
+
+/**
+ * Verify balanced CAAMP:START/END markers in CLAUDE.md and AGENTS.md.
+ * @task T5153
+ */
+export function checkCaampMarkerIntegrity(projectRoot?: string): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const files = ['CLAUDE.md', 'AGENTS.md'];
+  const issues: string[] = [];
+
+  for (const file of files) {
+    const filePath = join(root, file);
+    if (!existsSync(filePath)) continue;
+
+    let content: string;
+    try {
+      content = readFileSync(filePath, 'utf-8');
+    } catch {
+      continue;
+    }
+
+    const startCount = (content.match(/<!-- CAAMP:START -->/g) || []).length;
+    const endCount = (content.match(/<!-- CAAMP:END -->/g) || []).length;
+
+    if (startCount !== endCount) {
+      issues.push(`${file}: ${startCount} CAAMP:START vs ${endCount} CAAMP:END`);
+    }
+    if (startCount === 0) {
+      issues.push(`${file}: no CAAMP markers found`);
+    }
+  }
+
+  if (issues.length > 0) {
+    return {
+      id: 'caamp_marker_integrity',
+      category: 'configuration',
+      status: 'warning',
+      message: `CAAMP marker issues: ${issues.join('; ')}`,
+      details: { issues },
+      fix: 'cleo init --update-docs',
+    };
+  }
+
+  return {
+    id: 'caamp_marker_integrity',
+    category: 'configuration',
+    status: 'passed',
+    message: 'CAAMP markers balanced in all config files',
+    details: { checkedFiles: files },
+    fix: null,
+  };
+}
+
+// ============================================================================
+// Check: @ reference target existence
+// ============================================================================
+
+/**
+ * Parse @ references from AGENTS.md CAAMP block and verify each target file exists.
+ * @task T5153
+ */
+export function checkAtReferenceTargetExists(projectRoot?: string): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const agentsPath = join(root, 'AGENTS.md');
+
+  if (!existsSync(agentsPath)) {
+    return {
+      id: 'at_reference_targets',
+      category: 'configuration',
+      status: 'info',
+      message: 'AGENTS.md not found (skipping @ reference check)',
+      details: { exists: false },
+      fix: null,
+    };
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(agentsPath, 'utf-8');
+  } catch {
+    return {
+      id: 'at_reference_targets',
+      category: 'configuration',
+      status: 'warning',
+      message: 'AGENTS.md not readable',
+      details: { readable: false },
+      fix: null,
+    };
+  }
+
+  // Extract CAAMP block content
+  const caampMatch = content.match(/<!-- CAAMP:START -->([\s\S]*?)<!-- CAAMP:END -->/);
+  if (!caampMatch) {
+    return {
+      id: 'at_reference_targets',
+      category: 'configuration',
+      status: 'info',
+      message: 'No CAAMP block found in AGENTS.md',
+      details: { hasCaampBlock: false },
+      fix: null,
+    };
+  }
+
+  const block = caampMatch[1];
+  // Match @path references (lines starting with @)
+  const refs = block.match(/^@(.+)$/gm) || [];
+  const missing: string[] = [];
+
+  for (const ref of refs) {
+    const rawPath = ref.slice(1).trim(); // Remove @ prefix
+    // Resolve ~ to homedir
+    const resolvedPath = rawPath.startsWith('~/')
+      ? join(homedir(), rawPath.slice(2))
+      : join(root, rawPath);
+
+    if (!existsSync(resolvedPath)) {
+      missing.push(rawPath);
+    }
+  }
+
+  if (missing.length > 0) {
+    return {
+      id: 'at_reference_targets',
+      category: 'configuration',
+      status: 'warning',
+      message: `Missing @ reference targets: ${missing.join(', ')}`,
+      details: { missing, totalRefs: refs.length },
+      fix: 'cleo init --update-docs',
+    };
+  }
+
+  return {
+    id: 'at_reference_targets',
+    category: 'configuration',
+    status: 'passed',
+    message: `All ${refs.length} @ reference targets exist`,
+    details: { totalRefs: refs.length },
+    fix: null,
+  };
+}
+
+// ============================================================================
+// Check: Template freshness
+// ============================================================================
+
+/**
+ * Compare templates/CLEO-INJECTION.md vs ~/.cleo/templates/CLEO-INJECTION.md.
+ * @task T5153
+ */
+export function checkTemplateFreshness(projectRoot?: string, cleoHome?: string): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const home = cleoHome ?? join(homedir(), '.cleo');
+  const sourcePath = join(root, 'templates', 'CLEO-INJECTION.md');
+  const deployedPath = join(home, 'templates', 'CLEO-INJECTION.md');
+
+  if (!existsSync(sourcePath)) {
+    return {
+      id: 'template_freshness',
+      category: 'configuration',
+      status: 'info',
+      message: 'Source template not found (not in project root)',
+      details: { sourcePath, exists: false },
+      fix: null,
+    };
+  }
+
+  if (!existsSync(deployedPath)) {
+    return {
+      id: 'template_freshness',
+      category: 'configuration',
+      status: 'warning',
+      message: 'Deployed template not found at ~/.cleo/templates/',
+      details: { deployedPath, exists: false },
+      fix: 'cp templates/CLEO-INJECTION.md ~/.cleo/templates/CLEO-INJECTION.md',
+    };
+  }
+
+  const sourceContent = readFileSync(sourcePath, 'utf-8');
+  const deployedContent = readFileSync(deployedPath, 'utf-8');
+
+  if (sourceContent !== deployedContent) {
+    return {
+      id: 'template_freshness',
+      category: 'configuration',
+      status: 'warning',
+      message: 'Deployed template differs from source — may be stale',
+      details: { sourcePath, deployedPath, match: false },
+      fix: 'cp templates/CLEO-INJECTION.md ~/.cleo/templates/CLEO-INJECTION.md',
+    };
+  }
+
+  return {
+    id: 'template_freshness',
+    category: 'configuration',
+    status: 'passed',
+    message: 'Deployed template matches source',
+    details: { sourcePath, deployedPath, match: true },
+    fix: null,
+  };
+}
+
+// ============================================================================
+// Check: Tier markers present
+// ============================================================================
+
+/**
+ * Verify all 3 tier markers exist with matching close tags in deployed template.
+ * @task T5153
+ */
+export function checkTierMarkersPresent(cleoHome?: string): CheckResult {
+  const home = cleoHome ?? join(homedir(), '.cleo');
+  const templatePath = join(home, 'templates', 'CLEO-INJECTION.md');
+
+  if (!existsSync(templatePath)) {
+    return {
+      id: 'tier_markers_present',
+      category: 'configuration',
+      status: 'warning',
+      message: 'Template not found — cannot check tier markers',
+      details: { path: templatePath, exists: false },
+      fix: 'Run install.sh to reinstall CLEO',
+    };
+  }
+
+  const content = readFileSync(templatePath, 'utf-8');
+  const expectedTiers = ['minimal', 'standard', 'orchestrator'];
+  const missing: string[] = [];
+  const unclosed: string[] = [];
+
+  for (const tier of expectedTiers) {
+    const openTag = `<!-- TIER:${tier} -->`;
+    const closeTag = `<!-- /TIER:${tier} -->`;
+
+    if (!content.includes(openTag)) {
+      missing.push(tier);
+    } else if (!content.includes(closeTag)) {
+      unclosed.push(tier);
+    }
+  }
+
+  if (missing.length > 0 || unclosed.length > 0) {
+    const parts: string[] = [];
+    if (missing.length > 0) parts.push(`missing: ${missing.join(', ')}`);
+    if (unclosed.length > 0) parts.push(`unclosed: ${unclosed.join(', ')}`);
+    return {
+      id: 'tier_markers_present',
+      category: 'configuration',
+      status: 'warning',
+      message: `Tier marker issues: ${parts.join('; ')}`,
+      details: { missing, unclosed },
+      fix: 'Regenerate template from source: cp templates/CLEO-INJECTION.md ~/.cleo/templates/',
+    };
+  }
+
+  return {
+    id: 'tier_markers_present',
+    category: 'configuration',
+    status: 'passed',
+    message: 'All 3 tier markers present with matching close tags',
+    details: { tiers: expectedTiers },
+    fix: null,
+  };
+}
+
+// ============================================================================
 // Check: Node.js Version
 // ============================================================================
 
@@ -919,6 +1186,11 @@ export function runAllGlobalChecks(
     checkCoreFilesNotIgnored(projectRoot),
     checkSqliteNotTracked(projectRoot),
     checkLegacyAgentOutputs(projectRoot),
+    // Injection chain checks (T5153)
+    checkCaampMarkerIntegrity(projectRoot),
+    checkAtReferenceTargetExists(projectRoot),
+    checkTemplateFreshness(projectRoot, home),
+    checkTierMarkersPresent(home),
   ];
 }
 
