@@ -10,8 +10,6 @@
 
 import { getLogger } from '../../core/logger.js';
 
-const logger = getLogger('engine');
-
 /**
  * Canonical EngineResult type used by all engines.
  * Replaces the per-engine EngineResult interface definitions.
@@ -204,6 +202,10 @@ export function engineError<T>(
   const exitCode = STRING_TO_EXIT[code] ?? 1;
   const level = logLevel(exitCode);
 
+  // Lazy logger acquisition: avoids capturing the stderr fallback logger
+  // at module load time (before CLI's preAction hook calls initLogger()).
+  // This prevents the double-output envelope bug (T5148).
+  const logger = getLogger('engine');
   logger[level]({ code, exitCode, ...(options?.details && { details: options.details }) }, message);
 
   return {

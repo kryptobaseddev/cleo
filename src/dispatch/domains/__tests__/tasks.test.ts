@@ -123,7 +123,27 @@ describe('TasksHandler', () => {
       const result = await handler.query('list', { status: 'pending' });
 
       expect(result.success).toBe(true);
-      expect(taskList).toHaveBeenCalledWith('/mock/project', { status: 'pending' });
+      expect(taskList).toHaveBeenCalledWith('/mock/project', {
+        parent: undefined,
+        status: 'pending',
+        limit: undefined,
+        compact: undefined,
+      });
+    });
+
+    it('list - passes compact param to taskList', async () => {
+      const mockData = [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }];
+      vi.mocked(taskList).mockResolvedValue({ success: true, data: { tasks: mockData, total: 1 } });
+
+      const result = await handler.query('list', { parent: 'T100', compact: true });
+
+      expect(result.success).toBe(true);
+      expect(taskList).toHaveBeenCalledWith('/mock/project', {
+        parent: 'T100',
+        status: undefined,
+        limit: undefined,
+        compact: true,
+      });
     });
 
     it('find - delegates to taskFind', async () => {
@@ -133,7 +153,36 @@ describe('TasksHandler', () => {
       const result = await handler.query('find', { query: 'test', limit: 10 });
 
       expect(result.success).toBe(true);
-      expect(taskFind).toHaveBeenCalledWith('/mock/project', 'test', 10);
+      expect(taskFind).toHaveBeenCalledWith('/mock/project', 'test', 10, {
+        id: undefined,
+        exact: undefined,
+        status: undefined,
+        includeArchive: undefined,
+        offset: undefined,
+      });
+    });
+
+    it('find - passes extra filters to taskFind', async () => {
+      const mockData = [{ id: 'T001', title: 'Test' }];
+      vi.mocked(taskFind).mockResolvedValue({ success: true, data: mockData });
+
+      const result = await handler.query('find', {
+        query: 'test',
+        status: 'active',
+        id: 'T00',
+        exact: true,
+        includeArchive: true,
+        offset: 5,
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskFind).toHaveBeenCalledWith('/mock/project', 'test', undefined, {
+        id: 'T00',
+        exact: true,
+        status: 'active',
+        includeArchive: true,
+        offset: 5,
+      });
     });
 
     it('exists - delegates to taskExists', async () => {
@@ -169,7 +218,7 @@ describe('TasksHandler', () => {
       const result = await handler.query('depends', { taskId: 'T001', direction: 'both' });
 
       expect(result.success).toBe(true);
-      expect(taskDepends).toHaveBeenCalledWith('/mock/project', 'T001', 'both');
+      expect(taskDepends).toHaveBeenCalledWith('/mock/project', 'T001', 'both', undefined);
     });
 
     it('analyze - delegates to taskAnalyze', async () => {

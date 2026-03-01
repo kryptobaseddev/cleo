@@ -97,6 +97,71 @@ export function buildTaskContext(taskId: string, cwd?: string): string {
 }
 
 // ============================================================================
+// Tier Filtering
+// ============================================================================
+
+/**
+ * Filter protocol content by MVI tier.
+ * Extracts sections based on <!-- TIER:X --> markers.
+ * - tier 0: header + minimal only + footer
+ * - tier 1: header + minimal + standard + footer
+ * - tier 2: header + all tiers + footer (full content)
+ *
+ * Header = content before first TIER marker.
+ * Footer = content after last /TIER marker.
+ *
+ * @task T5155
+ */
+export function filterProtocolByTier(content: string, tier: 0 | 1 | 2): string {
+  // If no tier markers, return content as-is
+  if (!content.includes('<!-- TIER:')) {
+    return content;
+  }
+
+  const tierNames: Record<number, string[]> = {
+    0: ['minimal'],
+    1: ['minimal', 'standard'],
+    2: ['minimal', 'standard', 'orchestrator'],
+  };
+  const allowedTiers = tierNames[tier];
+
+  // Extract header (before first TIER marker)
+  const firstTierMatch = content.match(/<!-- TIER:\w+ -->/);
+  const header = firstTierMatch
+    ? content.slice(0, firstTierMatch.index).trimEnd()
+    : '';
+
+  // Extract footer (after last /TIER marker)
+  const lastCloseTierRegex = /<!-- \/TIER:\w+ -->/g;
+  let lastMatch: RegExpExecArray | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = lastCloseTierRegex.exec(content)) !== null) {
+    lastMatch = match;
+  }
+  const footer = lastMatch
+    ? content.slice(lastMatch.index + lastMatch[0].length).trimStart()
+    : '';
+
+  // Extract each allowed tier block
+  const tierBlocks: string[] = [];
+  for (const tierName of allowedTiers) {
+    const openTag = `<!-- TIER:${tierName} -->`;
+    const closeTag = `<!-- /TIER:${tierName} -->`;
+    const openIdx = content.indexOf(openTag);
+    const closeIdx = content.indexOf(closeTag);
+
+    if (openIdx !== -1 && closeIdx !== -1) {
+      const blockContent = content.slice(openIdx + openTag.length, closeIdx).trim();
+      tierBlocks.push(blockContent);
+    }
+  }
+
+  // Compose: header + tier blocks + footer
+  const parts = [header, ...tierBlocks, footer].filter(p => p.length > 0);
+  return parts.join('\n\n');
+}
+
+// ============================================================================
 // Injection
 // ============================================================================
 
@@ -110,6 +175,7 @@ export function injectProtocol(
   taskId: string,
   tokenValues: TokenValues,
   cwd?: string,
+  tier?: 0 | 1 | 2,
 ): string {
   const protocolBase = loadProtocolBase(cwd);
   const taskContext = buildTaskContext(taskId, cwd);
@@ -121,7 +187,11 @@ export function injectProtocol(
   const parts = [resolvedSkill];
 
   if (protocolBase) {
-    const resolvedProtocol = injectTokens(protocolBase, tokenValues);
+    // Apply tier filtering if specified
+    const filteredProtocol = tier !== undefined
+      ? filterProtocolByTier(protocolBase, tier)
+      : protocolBase;
+    const resolvedProtocol = injectTokens(filteredProtocol, tokenValues);
     parts.push('\n---\n');
     parts.push('## SUBAGENT PROTOCOL (RFC 2119)\n\n');
     parts.push(resolvedProtocol);
@@ -143,6 +213,7 @@ export function orchestratorSpawnSkill(
   skillName: string,
   tokenValues: TokenValues,
   cwd?: string,
+  tier?: 0 | 1 | 2,
 ): string {
   // Find the skill
   const skill = findSkill(skillName, cwd);
@@ -154,7 +225,7 @@ export function orchestratorSpawnSkill(
     );
   }
 
-  return injectProtocol(skill.content, taskId, tokenValues, cwd);
+  return injectProtocol(skill.content, taskId, tokenValues, cwd, tier);
 }
 
 /**

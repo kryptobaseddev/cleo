@@ -17,7 +17,6 @@ import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 
-const logger = getLogger('domain:pipeline');
 import {
   lifecycleStatus,
   lifecycleHistory,
@@ -396,7 +395,7 @@ export class PipelineHandler implements DomainHandler {
     startTime: number,
   ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error({ gateway, domain: 'pipeline', operation, err: error }, message);
+    getLogger('domain:pipeline').error({ gateway, domain: 'pipeline', operation, err: error }, message);
     return this.errorResponse(
       gateway, operation,
       'E_INTERNAL_ERROR',

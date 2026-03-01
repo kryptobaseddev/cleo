@@ -66,6 +66,13 @@ export interface TaskProvenance {
   sessionId: string | null;
 }
 
+/** A single task relation entry. */
+export interface TaskRelation {
+  taskId: string;
+  type: string;
+  reason?: string;
+}
+
 /** A single CLEO task. */
 export interface Task {
   id: string;
@@ -82,6 +89,7 @@ export interface Task {
   files?: string[];
   acceptance?: string[];
   depends?: string[];
+  relates?: TaskRelation[];
   epicLifecycle?: EpicLifecycle | null;
   noAutoComplete?: boolean | null;
   blockedBy?: string;

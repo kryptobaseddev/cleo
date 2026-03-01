@@ -18,15 +18,15 @@ import {
   orchestrateBootstrap,
   orchestrateCriticalPath,
   orchestrateUnblockOpportunities,
-} from '../../engine/orchestrate-engine.js';
+} from '../../../dispatch/engines/orchestrate-engine.js';
 
 import {
   taskComplexityEstimate,
-} from '../../engine/task-engine.js';
+} from '../../../dispatch/engines/task-engine.js';
 
 import {
   validateCoherenceCheck,
-} from '../../engine/validate-engine.js';
+} from '../../../dispatch/engines/validate-engine.js';
 
 import {
   sessionRecordDecision,
@@ -37,7 +37,7 @@ import {
 
 import {
   systemInjectGenerate,
-} from '../../engine/system-engine.js';
+} from '../../../dispatch/engines/system-engine.js';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

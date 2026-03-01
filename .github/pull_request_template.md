@@ -1,3 +1,10 @@
+## Target branch
+
+<!-- Check one -->
+
+- [ ] `develop` — Normal feature/fix (default)
+- [ ] `main` — Hotfix only (bypasses develop, requires back-merge to develop after)
+
 ## Summary
 
 <!-- What does this PR do? 1-3 bullet points. -->

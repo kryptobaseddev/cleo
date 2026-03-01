@@ -1,6 +1,6 @@
 ---
-title: 'Protocol Metrics & Compliance'
-description: 'Measuring and enforcing RCSD-IVTR protocol compliance'
+title: "Protocol Metrics & Compliance"
+description: "Measuring and enforcing RCSD-IVTR protocol compliance"
 ---
 
 # Protocol Metrics & Compliance
@@ -12,6 +12,7 @@ description: 'Measuring and enforcing RCSD-IVTR protocol compliance'
 The protocol metrics system provides **automated validation** and **compliance tracking** for all agent outputs in CLEO's RCSD-IVTR workflow. This ensures high-quality, standardized deliverables across research, implementation, and release phases.
 
 **Key Components:**
+
 - **9 protocol validators** - One for each RCSD-IVTR stage
 - **Compliance dashboard** - View pass rates and violations via `cleo compliance`
 - **Reusable validation functions** - Shared library for consistent checks
@@ -26,6 +27,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_research_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. Output file exists in expected directory
 2. Manifest entry present with required fields
 3. `agent_type` = "research"
@@ -35,6 +37,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. No code modifications in git diff (research is read-only)
 
 **Common Violations**:
+
 - Missing key_findings array
 - Code changes during research phase
 - Incorrect agent_type
@@ -44,6 +47,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_consensus_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. Output file exists
 2. Voting matrix present in manifest
 3. Confidence scores for each option (0.0-1.0)
@@ -53,6 +57,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Return message format valid
 
 **Common Violations**:
+
 - Invalid confidence score ranges
 - Missing voting matrix
 - Undocumented consensus threshold
@@ -62,6 +67,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_specification_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. Output file contains RFC 2119 keywords (MUST/SHOULD/MAY)
 2. Version field present (e.g., "v1.0.0")
 3. Specification sections present (Purpose, Requirements, Design)
@@ -71,6 +77,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Return message format valid
 
 **Common Violations**:
+
 - Missing RFC 2119 keywords
 - No version field
 - Incomplete specification sections
@@ -80,6 +87,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_decomposition_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. Task breakdown produces 2-7 sibling tasks
 2. Each subtask has clear, unique description
 3. Dependencies explicitly declared
@@ -89,7 +97,8 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Return message format valid
 
 **Common Violations**:
-- Too many siblings (>7)
+
+- Sibling count exceeds configured `hierarchy.maxSiblings`
 - Duplicate or unclear descriptions
 - Missing dependency declarations
 
@@ -98,6 +107,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_implementation_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. All new functions have `@task` provenance tags
 2. Output file documents what was implemented
 3. `agent_type` = "implementation"
@@ -107,6 +117,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Git diff contains actual code changes
 
 **Common Violations**:
+
 - Missing `@task` tags on new functions
 - No actual code changes in git diff
 - Undocumented implementation details
@@ -116,6 +127,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_validation_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. Validation criteria documented
 2. Test results included in manifest
 3. Pass/fail determination clear
@@ -125,6 +137,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Return message format valid
 
 **Common Violations**:
+
 - Missing test results
 - Unclear pass/fail criteria
 - No validation report
@@ -134,6 +147,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_testing_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. Test file created with `@task` tags
 2. Test coverage documented
 3. Test results in manifest
@@ -143,6 +157,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Return message format valid
 
 **Common Violations**:
+
 - Missing `@task` tags in test files
 - Undocumented test coverage
 - Failed tests without documentation
@@ -152,6 +167,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_contribution_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. All modified files have `@task` or `@contribution` tags
 2. Manifest documents contribution scope
 3. `agent_type` = "contribution"
@@ -161,6 +177,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Attribution metadata present
 
 **Common Violations**:
+
 - Missing contribution tags
 - No PR/commit reference
 - Unclear contribution scope
@@ -170,6 +187,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 **Validator**: `validate_release_protocol()` in `lib/protocol-validation.sh`
 
 **Requirements** (7 MUST):
+
 1. Version follows semver (e.g., "0.76.0")
 2. CHANGELOG updated
 3. Release notes present
@@ -179,6 +197,7 @@ Each RCSD-IVTR protocol stage has dedicated validation with specific requirement
 7. Return message format valid
 
 **Common Violations**:
+
 - Invalid semver format
 - Missing CHANGELOG entry
 - No release notes
@@ -277,32 +296,32 @@ The `lib/protocol-validation-common.sh` library provides **8 reusable validation
 
 ### Output File Validation
 
-| Function | Purpose | Usage |
-|----------|---------|-------|
-| `check_output_file_exists()` | Verify output file written | `check_output_file_exists "$task_id" "$output_dir" "*.md"` |
+| Function                         | Purpose                         | Usage                                                           |
+| -------------------------------- | ------------------------------- | --------------------------------------------------------------- |
+| `check_output_file_exists()`     | Verify output file written      | `check_output_file_exists "$task_id" "$output_dir" "*.md"`      |
 | `check_documentation_sections()` | Check required sections present | `check_documentation_sections "$file" "Summary" "Requirements"` |
 
 ### Manifest Validation
 
-| Function | Purpose | Usage |
-|----------|---------|-------|
-| `check_manifest_field_present()` | Verify field exists and non-empty | `check_manifest_field_present "$entry" "key_findings"` |
-| `check_manifest_field_type()` | Check field has correct type | `check_manifest_field_type "$entry" "topics" "array"` |
-| `check_agent_type()` | Validate agent_type value | `check_agent_type "$entry" "research"` |
-| `check_status_valid()` | Check status is complete/partial/blocked | `check_status_valid "$entry"` |
-| `check_key_findings_count()` | Verify 3-7 findings | `check_key_findings_count "$entry"` |
-| `check_linked_tasks_present()` | Check task IDs linked | `check_linked_tasks_present "$entry" "T2724" "T2732"` |
+| Function                         | Purpose                                  | Usage                                                  |
+| -------------------------------- | ---------------------------------------- | ------------------------------------------------------ |
+| `check_manifest_field_present()` | Verify field exists and non-empty        | `check_manifest_field_present "$entry" "key_findings"` |
+| `check_manifest_field_type()`    | Check field has correct type             | `check_manifest_field_type "$entry" "topics" "array"`  |
+| `check_agent_type()`             | Validate agent_type value                | `check_agent_type "$entry" "research"`                 |
+| `check_status_valid()`           | Check status is complete/partial/blocked | `check_status_valid "$entry"`                          |
+| `check_key_findings_count()`     | Verify 3-7 findings                      | `check_key_findings_count "$entry"`                    |
+| `check_linked_tasks_present()`   | Check task IDs linked                    | `check_linked_tasks_present "$entry" "T2724" "T2732"`  |
 
 ### Return Message Validation
 
-| Function | Purpose | Usage |
-|----------|---------|-------|
+| Function                        | Purpose                        | Usage                                           |
+| ------------------------------- | ------------------------------ | ----------------------------------------------- |
 | `check_return_message_format()` | Validate return message format | `check_return_message_format "$msg" "Research"` |
 
 ### Provenance Validation
 
-| Function | Purpose | Usage |
-|----------|---------|-------|
+| Function                  | Purpose                   | Usage                                   |
+| ------------------------- | ------------------------- | --------------------------------------- |
 | `check_provenance_tags()` | Verify @task tags in code | `check_provenance_tags "$file" "T2724"` |
 
 **Example Usage in Validator:**
@@ -354,6 +373,7 @@ validate_custom_protocol() {
 ```
 
 **Fields**:
+
 - `task_id` - Task identifier
 - `agent_type` - research, implementation, etc.
 - `protocol` - Protocol name
@@ -368,10 +388,33 @@ validate_custom_protocol() {
 **Purpose**: Subagent output catalog (separate from compliance metrics)
 
 ```jsonl
-{"id":"T2725-research","file":".cleo/agent-outputs/T2725-research.md","title":"Protocol Metrics Research","date":"2026-01-28","status":"complete","agent_type":"research","topics":["validation","metrics"],"key_findings":["9 validators implemented","Common functions library created","Exit codes 60-70 allocated"],"actionable":true,"needs_followup":[],"linked_tasks":["T2724","T2725"]}
+{
+  "id": "T2725-research",
+  "file": ".cleo/agent-outputs/T2725-research.md",
+  "title": "Protocol Metrics Research",
+  "date": "2026-01-28",
+  "status": "complete",
+  "agent_type": "research",
+  "topics": [
+    "validation",
+    "metrics"
+  ],
+  "key_findings": [
+    "9 validators implemented",
+    "Common functions library created",
+    "Exit codes 60-70 allocated"
+  ],
+  "actionable": true,
+  "needs_followup": [],
+  "linked_tasks": [
+    "T2724",
+    "T2725"
+  ]
+}
 ```
 
 **Relationship**:
+
 - **COMPLIANCE.jsonl** = Validation results (pass/fail)
 - **MANIFEST.jsonl** = Output catalog (what was produced)
 
@@ -393,17 +436,17 @@ cleo compliance skills --global
 
 Quick reference for MUST/SHOULD/MAY counts per protocol:
 
-| Protocol | MUST | SHOULD | MAY | Validator Exit Code |
-|----------|-----:|-------:|----:|--------------------:|
-| Research | 7 | 3 | 2 | 60 |
-| Consensus | 7 | 2 | 1 | 61 |
-| Specification | 7 | 4 | 3 | 62 |
-| Decomposition | 7 | 3 | 2 | 63 |
-| Implementation | 7 | 4 | 2 | 64 |
-| Validation | 7 | 3 | 2 | 67/68 |
-| Testing | 7 | 4 | 3 | 69/70 |
-| Contribution | 7 | 2 | 1 | 65 |
-| Release | 7 | 3 | 2 | 66 |
+| Protocol       | MUST | SHOULD | MAY | Validator Exit Code |
+| -------------- | ---: | -----: | --: | ------------------: |
+| Research       |    7 |      3 |   2 |                  60 |
+| Consensus      |    7 |      2 |   1 |                  61 |
+| Specification  |    7 |      4 |   3 |                  62 |
+| Decomposition  |    7 |      3 |   2 |                  63 |
+| Implementation |    7 |      4 |   2 |                  64 |
+| Validation     |    7 |      3 |   2 |               67/68 |
+| Testing        |    7 |      4 |   3 |               69/70 |
+| Contribution   |    7 |      2 |   1 |                  65 |
+| Release        |    7 |      3 |   2 |                  66 |
 
 **Total**: 63 MUST requirements across all protocols
 
@@ -461,11 +504,13 @@ cleo compliance audit T2724
 **Symptom**: Research validator fails with "Missing key_findings"
 
 **Causes**:
+
 - Manifest entry lacks `key_findings` field
 - Array is empty
 - Array has <3 or >7 items
 
 **Fix**:
+
 ```bash
 # Check manifest entry
 grep "T2725" .cleo/agent-outputs/MANIFEST.jsonl | jq '.key_findings'
@@ -479,10 +524,12 @@ grep "T2725" .cleo/agent-outputs/MANIFEST.jsonl | jq '.key_findings'
 **Symptom**: Validator fails with "Invalid status"
 
 **Causes**:
+
 - Status not one of: complete, partial, blocked
 - Field missing or null
 
 **Fix**:
+
 ```bash
 # Check status field
 grep "T2726" .cleo/agent-outputs/MANIFEST.jsonl | jq '.status'
@@ -500,10 +547,12 @@ grep "T2726" .cleo/agent-outputs/MANIFEST.jsonl | jq '.status'
 **Symptom**: Implementation validator fails for missing provenance
 
 **Causes**:
+
 - New functions lack `@task` comment tags
 - Tags use wrong format
 
 **Fix**:
+
 ```bash
 # Add tags to new functions:
 # @task T2727
@@ -519,10 +568,12 @@ function new_feature() {
 **Symptom**: Agent_type doesn't match protocol
 
 **Causes**:
+
 - Manifest has `agent_type: "implementation"` but protocol is "research"
 - Copy-paste error in manifest template
 
 **Fix**:
+
 ```bash
 # Ensure agent_type matches protocol:
 Research → "agent_type": "research"
@@ -532,19 +583,19 @@ Release → "agent_type": "release"
 
 ## Exit Code Reference
 
-| Code | Protocol | Name | Meaning |
-|-----:|----------|------|---------|
-| 60 | Research | `E_PROTOCOL_RESEARCH` | Research validation failed |
-| 61 | Consensus | `E_PROTOCOL_CONSENSUS` | Consensus validation failed |
-| 62 | Specification | `E_PROTOCOL_SPECIFICATION` | Spec validation failed |
-| 63 | Decomposition | `E_PROTOCOL_DECOMPOSITION` | Decomposition validation failed |
-| 64 | Implementation | `E_PROTOCOL_IMPLEMENTATION` | Implementation validation failed |
-| 65 | Contribution | `E_PROTOCOL_CONTRIBUTION` | Contribution validation failed |
-| 66 | Release | `E_PROTOCOL_RELEASE` | Release validation failed |
-| 67 | Validation | `E_PROTOCOL_VALIDATION` | Validation validation failed |
-| 68 | - | `E_PROTOCOL_VALIDATION_ALT` | Alternate validation code |
-| 69 | Testing | `E_PROTOCOL_TESTING` | Testing validation failed |
-| 70 | - | `E_PROTOCOL_TESTING_ALT` | Alternate testing code |
+| Code | Protocol       | Name                        | Meaning                          |
+| ---: | -------------- | --------------------------- | -------------------------------- |
+|   60 | Research       | `E_PROTOCOL_RESEARCH`       | Research validation failed       |
+|   61 | Consensus      | `E_PROTOCOL_CONSENSUS`      | Consensus validation failed      |
+|   62 | Specification  | `E_PROTOCOL_SPECIFICATION`  | Spec validation failed           |
+|   63 | Decomposition  | `E_PROTOCOL_DECOMPOSITION`  | Decomposition validation failed  |
+|   64 | Implementation | `E_PROTOCOL_IMPLEMENTATION` | Implementation validation failed |
+|   65 | Contribution   | `E_PROTOCOL_CONTRIBUTION`   | Contribution validation failed   |
+|   66 | Release        | `E_PROTOCOL_RELEASE`        | Release validation failed        |
+|   67 | Validation     | `E_PROTOCOL_VALIDATION`     | Validation validation failed     |
+|   68 | -              | `E_PROTOCOL_VALIDATION_ALT` | Alternate validation code        |
+|   69 | Testing        | `E_PROTOCOL_TESTING`        | Testing validation failed        |
+|   70 | -              | `E_PROTOCOL_TESTING_ALT`    | Alternate testing code           |
 
 **See**: `lib/exit-codes.sh` for canonical exit code definitions
 

@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { validateSchema as ajvValidateSchema } from '../../mcp/engine/schema-validator.js';
+import { validateSchema as ajvValidateSchema } from './schema-validator.js';
 import {
   validateTitleDescription,
   validateTimestamps,
@@ -23,7 +23,7 @@ import {
   validateHierarchy,
   hasErrors,
   type RuleViolation,
-} from '../../mcp/engine/validation-rules.js';
+} from './validation-rules.js';
 import { detectCircularDeps, validateDependencies } from '../tasks/dependency-check.js';
 import { computeChecksum } from '../../store/json.js';
 import type { Task } from '../../types/task.js';

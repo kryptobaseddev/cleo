@@ -12,6 +12,7 @@
 This analysis examines how tasks should be decomposed for atomic subagent execution using CLEO's existing task structure. Based on TASK-DECOMPOSITION-SPEC v1.1.0 and the concrete example of T1114 (orchestration epic with 8 subtasks), this document provides practical guidance for creating execution-ready atomic tasks.
 
 **Key Findings:**
+
 - CLEO's existing hierarchy (epic→task→subtask) naturally maps to atomic execution units
 - `--size small/medium/large` correlates with atomicity scores (100/83/50)
 - `--depends` provides explicit dependency evidence for DAG construction
@@ -25,14 +26,14 @@ This analysis examines how tasks should be decomposed for atomic subagent execut
 
 A task is ATOMIC if ALL of the following are TRUE:
 
-| # | Criterion | Test | T1114 Example |
-|---|-----------|------|---------------|
-| 1 | **Single File Scope** | Affects ≤3 tightly-coupled files | T1118: Modifies `lib/session.sh` only |
-| 2 | **Single Cognitive Concern** | One "thing" to understand | T1120: "Add Stop hook notification" - single concept |
-| 3 | **Clear Acceptance Criteria** | Testable completion condition | T1116: Function signatures defined, smoke tests pass |
-| 4 | **No Context Switching** | Can complete in one focus session | T1119: Template creation is self-contained |
-| 5 | **No Hidden Sub-Decisions** | All choices made at decomposition time | T1123: Decision matrix pre-defined in description |
-| 6 | **Programmatic Validation** | Result verifiable by code/test | T1117: `ct orchestrate --help` returns expected output |
+| #   | Criterion                     | Test                                   | T1114 Example                                          |
+| --- | ----------------------------- | -------------------------------------- | ------------------------------------------------------ |
+| 1   | **Single File Scope**         | Affects ≤3 tightly-coupled files       | T1118: Modifies `lib/session.sh` only                  |
+| 2   | **Single Cognitive Concern**  | One "thing" to understand              | T1120: "Add Stop hook notification" - single concept   |
+| 3   | **Clear Acceptance Criteria** | Testable completion condition          | T1116: Function signatures defined, smoke tests pass   |
+| 4   | **No Context Switching**      | Can complete in one focus session      | T1119: Template creation is self-contained             |
+| 5   | **No Hidden Sub-Decisions**   | All choices made at decomposition time | T1123: Decision matrix pre-defined in description      |
+| 6   | **Programmatic Validation**   | Result verifiable by code/test         | T1117: `ct orchestrate --help` returns expected output |
 
 ### 1.2 Atomicity Score Calculation
 
@@ -69,13 +70,14 @@ T1114 (Parent epic):
 
 ### 1.3 Size-to-Atomicity Mapping
 
-| CLEO Size | Atomicity Score | File Scope | Example from T1114 |
-|-----------|-----------------|------------|---------------------|
-| `small` | **100** (MUST be atomic) | 1-2 files | T1118 (session.sh), T1119 (template file) |
-| `medium` | **83** (SHOULD be atomic) | 3-7 files | T1122 (3 specs + 1 schema) |
-| `large` | **≤50** (MUST NOT be atomic) | 8+ files | T1114 (parent epic - multiple subsystems) |
+| CLEO Size | Atomicity Score              | File Scope | Example from T1114                        |
+| --------- | ---------------------------- | ---------- | ----------------------------------------- |
+| `small`   | **100** (MUST be atomic)     | 1-2 files  | T1118 (session.sh), T1119 (template file) |
+| `medium`  | **83** (SHOULD be atomic)    | 3-7 files  | T1122 (3 specs + 1 schema)                |
+| `large`   | **≤50** (MUST NOT be atomic) | 8+ files   | T1114 (parent epic - multiple subsystems) |
 
 **Current State of T1114 Subtasks:**
+
 - **Problem**: No `size` field set on any subtask
 - **Impact**: Cannot programmatically validate atomicity
 - **Recommendation**: Add `--size small` to T1116-T1121, `--size medium` to T1122-T1123
@@ -194,16 +196,16 @@ FUNCTION should_decompose(task):
 
 ### 2.3 When to Decompose vs Execute Directly
 
-| Condition | Action | Rationale |
-|-----------|--------|-----------|
-| `type == "epic"` | **Decompose** | Epics are organizational units, never executable |
-| `type == "subtask" AND atomicity < 100` | **Warn + Decompose** | Subtasks should be atomic by definition |
-| `size == "small" AND atomicity < 100` | **Error** | Violates spec requirement |
-| `size == "medium" AND atomicity >= 83` | **Execute** | Acceptable for medium complexity |
-| `size == "large"` | **Decompose** | Large tasks cannot be atomic |
-| `has children` | **Orchestrate children** | Parent tasks are coordination units |
-| `depends.length > 0 AND all deps done` | **Execute** | Dependencies satisfied |
-| `depends.length > 0 AND any dep pending` | **Block** | Wait for dependencies |
+| Condition                                | Action                   | Rationale                                        |
+| ---------------------------------------- | ------------------------ | ------------------------------------------------ |
+| `type == "epic"`                         | **Decompose**            | Epics are organizational units, never executable |
+| `type == "subtask" AND atomicity < 100`  | **Warn + Decompose**     | Subtasks should be atomic by definition          |
+| `size == "small" AND atomicity < 100`    | **Error**                | Violates spec requirement                        |
+| `size == "medium" AND atomicity >= 83`   | **Execute**              | Acceptable for medium complexity                 |
+| `size == "large"`                        | **Decompose**            | Large tasks cannot be atomic                     |
+| `has children`                           | **Orchestrate children** | Parent tasks are coordination units              |
+| `depends.length > 0 AND all deps done`   | **Execute**              | Dependencies satisfied                           |
+| `depends.length > 0 AND any dep pending` | **Block**                | Wait for dependencies                            |
 
 **T1114 Example Application:**
 
@@ -330,15 +332,16 @@ Agent 3: [T1119, T1120]
 
 ### 3.2 Load Balancing Considerations
 
-| Factor | Metric | Example from T1114 |
-|--------|--------|---------------------|
-| **Task Count** | Tasks per agent | Agent 1: 4, Agent 2: 2, Agent 3: 2 (imbalanced but intentional) |
-| **Complexity** | Sum of `size` values | If small=1, medium=2, large=3: Agent 1 has more but manageable |
-| **Phase Alignment** | Tasks in same phase | Agent 2 has core+polish mix (context switching cost) |
-| **Dependency Chains** | Longest chain per agent | Agent 1: 4 sequential (blocks others) |
-| **Parallelizability** | Tasks with no mutual deps | Agents 2-3 can work simultaneously |
+| Factor                | Metric                    | Example from T1114                                              |
+| --------------------- | ------------------------- | --------------------------------------------------------------- |
+| **Task Count**        | Tasks per agent           | Agent 1: 4, Agent 2: 2, Agent 3: 2 (imbalanced but intentional) |
+| **Complexity**        | Sum of `size` values      | If small=1, medium=2, large=3: Agent 1 has more but manageable  |
+| **Phase Alignment**   | Tasks in same phase       | Agent 2 has core+polish mix (context switching cost)            |
+| **Dependency Chains** | Longest chain per agent   | Agent 1: 4 sequential (blocks others)                           |
+| **Parallelizability** | Tasks with no mutual deps | Agents 2-3 can work simultaneously                              |
 
 **Recommendation for T1114:**
+
 - Use **Hybrid strategy** with dependency awareness
 - Assign critical path (T1123 → T1116 → T1117) to Agent 1
 - Parallelize independent tasks (T1118, T1119, T1120) across Agents 2-3
@@ -435,15 +438,15 @@ Result: {
 
 ### 4.3 Failure Detection
 
-| Failure Type | Detection Method | Example | Recovery |
-|--------------|------------------|---------|----------|
-| **Syntax Error** | `bash -n <script>` | Invalid Bash syntax | Reimplement |
-| **Missing Function** | `declare -f <func>` grep | Function not defined | Add function |
-| **Test Failure** | Exit code from test command | `bats tests/` returns non-zero | Fix and retest |
-| **Schema Violation** | JSON schema validation | Task missing required field | Update task |
-| **Dependency Unmet** | Check `depends` status | Dependency still pending | Block and wait |
-| **Circular Dependency** | DAG cycle detection | A depends on B, B depends on A | Restructure deps |
-| **Timeout** | Time limit exceeded | Agent doesn't complete in N minutes | Abort and reassign |
+| Failure Type            | Detection Method            | Example                             | Recovery           |
+| ----------------------- | --------------------------- | ----------------------------------- | ------------------ |
+| **Syntax Error**        | `bash -n <script>`          | Invalid Bash syntax                 | Reimplement        |
+| **Missing Function**    | `declare -f <func>` grep    | Function not defined                | Add function       |
+| **Test Failure**        | Exit code from test command | `bats tests/` returns non-zero      | Fix and retest     |
+| **Schema Violation**    | JSON schema validation      | Task missing required field         | Update task        |
+| **Dependency Unmet**    | Check `depends` status      | Dependency still pending            | Block and wait     |
+| **Circular Dependency** | DAG cycle detection         | A depends on B, B depends on A      | Restructure deps   |
+| **Timeout**             | Time limit exceeded         | Agent doesn't complete in N minutes | Abort and reassign |
 
 ---
 
@@ -742,14 +745,14 @@ ct cancel T1122 --reason "Decomposed into T1124-T1127 for atomic execution"
 
 ### 8.1 Atomic Task Characteristics
 
-| Characteristic | Good (T1118) | Bad (Original T1122) | Fix |
-|----------------|--------------|----------------------|-----|
-| **Scope** | Single function in single file | 3 specs + 1 schema | Decompose into 4 tasks |
-| **Decision Points** | Implementation approach specified | How to structure diagrams unclear | Specify diagram requirements |
-| **Acceptance Criteria** | Clear, testable (env var priority) | Vague ("update specs") | Itemize per spec file |
-| **File Count** | 1 | 4 | Split into 4 tasks (1 file each) |
-| **Dependencies** | None (standalone change) | Implicit on all implementation tasks | Explicitly list T1116-T1120 |
-| **Validation** | Unit test (programmatic) | Manual spec review | Add spec validation script |
+| Characteristic          | Good (T1118)                       | Bad (Original T1122)                 | Fix                              |
+| ----------------------- | ---------------------------------- | ------------------------------------ | -------------------------------- |
+| **Scope**               | Single function in single file     | 3 specs + 1 schema                   | Decompose into 4 tasks           |
+| **Decision Points**     | Implementation approach specified  | How to structure diagrams unclear    | Specify diagram requirements     |
+| **Acceptance Criteria** | Clear, testable (env var priority) | Vague ("update specs")               | Itemize per spec file            |
+| **File Count**          | 1                                  | 4                                    | Split into 4 tasks (1 file each) |
+| **Dependencies**        | None (standalone change)           | Implicit on all implementation tasks | Explicitly list T1116-T1120      |
+| **Validation**          | Unit test (programmatic)           | Manual spec review                   | Add spec validation script       |
 
 ### 8.2 CLEO Integration Best Practices
 
@@ -762,14 +765,14 @@ ct cancel T1122 --reason "Decomposed into T1124-T1127 for atomic execution"
 
 ### 8.3 Anti-Patterns to Avoid
 
-| Anti-Pattern | Impact | T1114 Example | Fix |
-|--------------|--------|---------------|-----|
-| **Type mismatch** | Parent task with children but type=task | T1114 has 8 children but type=task | Set type=epic |
-| **Missing size** | Cannot validate atomicity | No size on T1116-T1123 | Add --size to all |
-| **Implicit deps** | Agents may execute out of order | T1116-T1120 don't depend on T1123 | Add --depends T1123 |
-| **Large subtasks** | Subtask exceeds single concern | T1122 touches 4 files | Decompose to 4 tasks |
-| **Vague acceptance** | Cannot programmatically verify | "Update specs" is not testable | Specify per-spec checks |
-| **Manual verification** | Human-in-loop for every task | Spec updates need manual review | Add spec validation script |
+| Anti-Pattern            | Impact                                  | T1114 Example                      | Fix                        |
+| ----------------------- | --------------------------------------- | ---------------------------------- | -------------------------- |
+| **Type mismatch**       | Parent task with children but type=task | T1114 has 8 children but type=task | Set type=epic              |
+| **Missing size**        | Cannot validate atomicity               | No size on T1116-T1123             | Add --size to all          |
+| **Implicit deps**       | Agents may execute out of order         | T1116-T1120 don't depend on T1123  | Add --depends T1123        |
+| **Large subtasks**      | Subtask exceeds single concern          | T1122 touches 4 files              | Decompose to 4 tasks       |
+| **Vague acceptance**    | Cannot programmatically verify          | "Update specs" is not testable     | Specify per-spec checks    |
+| **Manual verification** | Human-in-loop for every task            | Spec updates need manual review    | Add spec validation script |
 
 ---
 
@@ -796,12 +799,13 @@ ct show T1118 --format json | jq '{
 # Find tasks missing size field
 ct list --format json | jq '.tasks[] | select(.size == null) | {id, title, type}'
 
-# Identify potential over-decomposition (too many children)
-ct list --format json | jq '.tasks[] | select(.hierarchy.childCount > 7) | {
+# Identify potential over-decomposition (more children than your configured limit)
+limit=$(ct config get hierarchy.maxSiblings --json | jq -r '.result')
+ct list --format json | jq --argjson limit "$limit" '.tasks[] | select($limit > 0 and .hierarchy.childCount > $limit) | {
   id,
   title,
   children: .hierarchy.childCount,
-  warning: "Exceeds max siblings (7), consider grouping"
+  warning: "Exceeds configured hierarchy.maxSiblings, consider grouping"
 }'
 
 # Find tasks with circular dependencies
@@ -871,4 +875,4 @@ This eliminates LLM interpretation variance for routing decisions.
 
 ---
 
-*End of Analysis*
+_End of Analysis_

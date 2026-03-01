@@ -21,6 +21,7 @@ import { getCleoDirAbsolute, getBackupDir } from '../paths.js';
 import { join } from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { LIFECYCLE_STAGE_STATUSES } from '../../store/schema.js';
+import { syncManifestToDb, syncGateToDb } from './sync.js';
 
 // =============================================================================
 // CANONICAL RE-EXPORTS from stages.ts (single source of truth)
@@ -192,6 +193,12 @@ async function readRcsdManifest(epicId: string, cwd?: string): Promise<RcasdMani
 async function saveRcsdManifest(manifest: RcasdManifest, cwd?: string): Promise<void> {
   const path = getRcsdPath(manifest.epicId, cwd);
   await saveJson(path, manifest, { backupDir: getBackupDir(cwd) });
+  // Dual-write: mirror to SQLite (best-effort)
+  try {
+    await syncManifestToDb(manifest.epicId, cwd);
+  } catch (err) {
+    console.warn(`[lifecycle] SQLite sync failed for ${manifest.epicId}: ${err}`);
+  }
 }
 
 /**
@@ -436,6 +443,12 @@ async function readEngineManifest(epicId: string, cwd?: string): Promise<RcasdMa
 async function saveEngineManifest(epicId: string, manifest: RcasdManifest, cwd?: string): Promise<void> {
   const path = getManifestWritePath(epicId, cwd);
   await saveJson(path, manifest, { backupDir: getBackupDir(cwd) });
+  // Dual-write: mirror to SQLite (best-effort)
+  try {
+    await syncManifestToDb(epicId, cwd);
+  } catch (err) {
+    console.warn(`[lifecycle] SQLite sync failed for ${epicId}: ${err}`);
+  }
 }
 
 /**
@@ -828,6 +841,13 @@ export async function passGate(
 
   await saveEngineManifest(epicId, manifest, cwd);
 
+  // Dual-write: sync gate result to SQLite (best-effort)
+  try {
+    await syncGateToDb(epicId, stageName!, gateName, 'pass', agent, notes);
+  } catch (err) {
+    console.warn(`[lifecycle] Gate sync failed: ${err}`);
+  }
+
   return { epicId, gateName, timestamp: now };
 }
 
@@ -865,6 +885,13 @@ export async function failGate(
   };
 
   await saveEngineManifest(epicId, manifest, cwd);
+
+  // Dual-write: sync gate result to SQLite (best-effort)
+  try {
+    await syncGateToDb(epicId, stageName!, gateName, 'fail', undefined, reason);
+  } catch (err) {
+    console.warn(`[lifecycle] Gate sync failed: ${err}`);
+  }
 
   return { epicId, gateName, reason, timestamp: now };
 }

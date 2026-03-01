@@ -77,52 +77,58 @@ jq 'select(.linkedTask != null and (.linkedTask | startswith("T")))' .cleo/metri
 ### Documentation Standards
 @docs/CLEO-DOCUMENTATION-SOP.md
 
-## Architecture: MCP-First + Shared Core
+## Architecture: Dispatch-First + Shared Core
 
-CLEO uses a **shared-core** architecture where both MCP and CLI are thin wrappers around `src/core/`:
+CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route through a central dispatch layer to `src/core/`:
 
 ```
-MCP Gateway (2 tools) ──► src/mcp/domains/ ──► src/mcp/engine/ ──► src/core/ ◄── src/cli/commands/
-     cleo_query (93 ops)                                                              (80+ commands)
-     cleo_mutate (71 ops)
+MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► src/core/ ◄── src/cli/commands/
+     cleo_query (97 ops)                                                                   (80+ commands)
+     cleo_mutate (80 ops)
 ```
 
-- **MCP is PRIMARY**: 2 tools, 164 operations across 10 canonical domains (~1,800 tokens)
+- **MCP is PRIMARY**: 2 tools, 177 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 80+ commands for human use and fallback
 - **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
+- **src/dispatch/engines/ is the engine layer**: All engine adapters live here (task, session, system, etc.)
+- **src/mcp/engine/ is a barrel**: Re-exports from `src/dispatch/engines/` for backward compatibility
 - **Canonical operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
 - **Verb standards**: `docs/specs/VERB-STANDARDS.md` (add, show, find, list, etc.)
 
 ## Project Structure & Module Organization
 
 ```
-src/                # TypeScript source (primary codebase)
-  src/cli/          #   CLI entry point (Commander.js) and command registrations
-  src/cli/commands/ #   75 command handlers (parse args -> core -> format output)
-  src/core/         #   Shared business logic (tasks, sessions, lifecycle, etc.)
-  src/mcp/          #   MCP server (domains, engine adapters)
-  src/mcp/domains/  #     MCP tool definitions and routing
-  src/mcp/engine/   #     Adapters from MCP protocol to src/core/
-  src/store/        #   Data access layer (JSON, atomic ops, backup, lock)
-  src/types/        #   Shared TypeScript type definitions
-  src/validation/   #   Schema validation and anti-hallucination checks
-schemas/            # JSON Schema definitions for validation
-docs/               # User-facing documentation
-docs/adrs/          #   Architecture Decision Records
-claudedocs/         # Legacy internal research (migrated to .cleo/)
-tests/              # Test suite (Vitest + legacy BATS)
-dev/                # Development scripts (bump-version, benchmark, validation)
-dev/migrations/     # Internal one-time migration scripts (NOT user commands)
-scripts/            # Legacy Bash CLI (deprecated, pending removal)
-lib/                # Legacy Bash helpers (deprecated, pending removal)
+src/                  # TypeScript source (primary codebase)
+  src/cli/            #   CLI entry point (Commander.js) and command registrations
+  src/cli/commands/   #   75 command handlers (parse args -> core -> format output)
+  src/core/           #   Shared business logic (tasks, sessions, lifecycle, etc.)
+  src/dispatch/       #   Central dispatch layer (registry, middleware, engines)
+  src/dispatch/engines/ # Engine adapters (task, session, system, etc.) — canonical location
+  src/dispatch/domains/ # Domain routing
+  src/mcp/            #   MCP server (gateways, barrel re-exports)
+  src/mcp/domains/    #     MCP tool definitions and routing
+  src/mcp/engine/     #     Barrel re-exports from src/dispatch/engines/ + utilities
+  src/store/          #   Data access layer (JSON, atomic ops, backup, lock)
+  src/types/          #   Shared TypeScript type definitions
+  src/validation/     #   Schema validation and anti-hallucination checks
+schemas/              # JSON Schema definitions for validation
+docs/                 # User-facing documentation
+docs/adrs/            #   Architecture Decision Records
+claudedocs/           # Legacy internal research (migrated to .cleo/)
+tests/                # Test suite (Vitest + legacy BATS)
+dev/                  # Development scripts (bump-version, benchmark, validation)
+dev/migrations/       # Internal one-time migration scripts (NOT user commands)
+scripts/              # Legacy Bash CLI (deprecated, pending removal)
+lib/                  # Legacy Bash helpers (deprecated, pending removal)
 ```
 
 ### Key Architecture Principles
 - **MCP is the PRIMARY entry point**; CLI is the backup interface
 - **src/core/** is the single source of truth for all business logic
 - **Both CLI and MCP** delegate to `src/core/` (shared-core pattern, verified by T4565/T4566 audit)
+- **src/dispatch/engines/** is the canonical engine layer: translate params -> call core -> format response
+- **src/mcp/engine/** is a thin barrel of re-exports from `src/dispatch/engines/` (backward compatibility)
 - **src/cli/commands/** contains thin handlers: parse args -> call core -> format output
-- **src/mcp/engine/** contains thin adapters: translate MCP params -> call core -> format response
 - **Atomic file operations** are mandatory for all write operations
 - **JSON Schema validation** runs on every data modification
 - **Append-only logging** to audit log in `tasks.db` for audit trails
@@ -308,10 +314,11 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/gateways/query.ts` - 93 query operations (CANONICAL operation registry)
-- `src/mcp/gateways/mutate.ts` - 71 mutate operations (CANONICAL operation registry)
+- `src/mcp/gateways/query.ts` - 97 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 80 mutate operations (CANONICAL operation registry)
 - `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing)
-- `src/mcp/engine/` - Engine adapters (MCP params → core calls)
+- `src/dispatch/engines/` - Engine adapters (params → core calls) — canonical location
+- `src/mcp/engine/` - Barrel re-exports from dispatch + utilities (capability-matrix, id-generator, CAAMP)
 - `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing matrix
 
 ### CLI Entry Points (Backup Interface)
@@ -343,8 +350,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/store/lock.ts` - File locking
 
 ### Canonical Specifications
-- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 164 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
-- `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 177 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
+- `docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
 - `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns
 
@@ -388,12 +395,17 @@ Before any task operation, validate:
 
 ### Exit Code Ranges
 - `0` - Success
-- `1-59` - General errors
-- `60-67` - Protocol violations (research, consensus, spec, etc.)
-- `68-70` - Validation/testing violations
-- `75-79` - Lifecycle gate errors
-- `80-84` - Verification gate codes
-- `85-99` - Nexus codes
+- `1-9` - General errors (input, file, validation, config)
+- `10-19` - Hierarchy errors (parent, depth, siblings, circular)
+- `20-29` - Concurrency errors (checksum, concurrent modification)
+- `30-39` - Session errors (scope, claimed, required)
+- `40-47` - Verification errors (gate, agent, rounds)
+- `50-54` - Context safeguard (warning through emergency)
+- `60-67` - Orchestrator errors (protocol missing, spawn validation, handoff)
+- `70-79` - Nexus errors (not initialized, project not found, sync)
+- `80-84` - Lifecycle enforcement (gate failed, audit missing, transition invalid)
+- `85-89` - Artifact publish (validation, build, publish, rollback)
+- `90-94` - Provenance (config, signing key, signature, digest)
 - `100+` - Special conditions (not errors)
 
 ### Error Response Pattern (TypeScript)
@@ -411,20 +423,30 @@ if (!validationResult.success) {
 
 ### Protocol Enforcement
 
-**Exit codes 60-67**: Protocol violations
+**Exit codes 60-67**: Orchestrator errors
 
-CLEO enforces protocol compliance for agent-generated outputs:
+These codes are raised by the orchestration layer during multi-agent coordination:
 
-| Code | Protocol | Description |
-|------|----------|-------------|
-| 60 | Research | Missing key_findings or code modifications |
-| 61 | Consensus | Invalid voting matrix or confidence scores |
-| 62 | Specification | Missing RFC 2119 keywords or version |
-| 63 | Decomposition | Too many siblings or unclear descriptions |
-| 64 | Implementation | Missing @task tags on new functions |
-| 65 | Contribution | Missing @task/@contribution tags |
-| 66 | Release | Invalid semver or missing changelog |
-| 67 | Generic | Unknown protocol or generic violation |
+| Code | Name | Description |
+|------|------|-------------|
+| 60 | PROTOCOL_MISSING | Required protocol not found for spawn |
+| 61 | INVALID_RETURN_MESSAGE | Subagent returned malformed output |
+| 62 | MANIFEST_ENTRY_MISSING | Required manifest entry not appended |
+| 63 | SPAWN_VALIDATION_FAILED | Pre-spawn validation checks failed |
+| 64 | AUTONOMOUS_BOUNDARY | Agent exceeded autonomous action boundary |
+| 65 | HANDOFF_REQUIRED | Task requires human-in-the-loop handoff |
+| 66 | RESUME_FAILED | Session resume from checkpoint failed |
+| 67 | CONCURRENT_SESSION | Conflicting concurrent session detected |
+
+**Exit codes 80-84**: Lifecycle enforcement
+
+| Code | Name | Description |
+|------|------|-------------|
+| 80 | LIFECYCLE_GATE_FAILED | RCSD pipeline gate check failed |
+| 81 | AUDIT_MISSING | Required audit trail entry missing |
+| 82 | CIRCULAR_VALIDATION | Circular validation dependency detected |
+| 83 | LIFECYCLE_TRANSITION_INVALID | Invalid lifecycle stage transition |
+| 84 | PROVENANCE_REQUIRED | Provenance metadata required but missing |
 
 **Validation functions**: `src/validation/` and `src/core/compliance/`
 
@@ -462,6 +484,21 @@ Format: `<type>: <summary>`
 - Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`
 - Scopes: `chore(docs):`, `fix(validation):`, etc.
 - Keep summaries under 50 characters
+
+### Branching Strategy (Git Flow)
+
+CLEO uses Git Flow with branch-to-channel mapping:
+
+| Branch | Purpose | PR target | npm dist-tag |
+|--------|---------|-----------|-------------|
+| `main` | Stable releases | — | `@latest` |
+| `develop` | Integration / beta | `main` (for releases) | `@beta` |
+| `feature/*` | New features | `develop` | — |
+| `fix/*` | Bug fixes | `develop` | — |
+| hotfix branches | Critical fixes | `main` directly | `@latest` |
+
+**Normal workflow**: `feature/foo` → PR to `develop` → PR `develop` to `main` → tag stable release
+**Hotfix workflow**: `fix/critical` → PR to `main` → tag stable → merge `main` back to `develop`
 
 ### Branch Naming
 - `feature/description`

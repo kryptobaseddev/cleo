@@ -343,23 +343,24 @@ export async function removeDependency(taskId: string, dependsOn: string, cwd?: 
 export async function addRelation(
   taskId: string,
   relatedTo: string,
-  relationType: 'related' | 'blocks' | 'duplicates' = 'related',
+  relationType: 'related' | 'blocks' | 'duplicates' | 'absorbs' | 'fixes' | 'extends' | 'supersedes' = 'related',
   cwd?: string,
+  reason?: string,
 ): Promise<void> {
   const db = await getDb(cwd);
-  db.insert(schema.taskRelations)
-    .values({ taskId, relatedTo, relationType })
+  await db.insert(schema.taskRelations)
+    .values({ taskId, relatedTo, relationType, reason: reason ?? null })
     .onConflictDoNothing()
     .run();
 }
 
 /** Get relations for a task. */
-export async function getRelations(taskId: string, cwd?: string): Promise<Array<{ relatedTo: string; type: string }>> {
+export async function getRelations(taskId: string, cwd?: string): Promise<Array<{ relatedTo: string; type: string; reason?: string }>> {
   const db = await getDb(cwd);
   const rows = await db.select().from(schema.taskRelations)
     .where(eq(schema.taskRelations.taskId, taskId))
     .all();
-  return rows.map(r => ({ relatedTo: r.relatedTo, type: r.relationType }));
+  return rows.map(r => ({ relatedTo: r.relatedTo, type: r.relationType, reason: r.reason ?? undefined }));
 }
 
 // === GRAPH OPERATIONS ===

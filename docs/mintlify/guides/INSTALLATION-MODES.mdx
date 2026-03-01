@@ -1,338 +1,173 @@
 ---
 title: "Installation Modes"
-description: "Understanding and switching between development and release modes in CLEO"
+description: "Understanding the three installation modes for CLEO"
 ---
 
 # Installation Modes
 
-> Understanding and switching between development and release modes in CLEO
+CLEO supports three installation modes optimized for different use cases.
 
-## Overview
+## Mode Summary
 
-CLEO supports two distinct installation modes optimized for different use cases:
+| Mode | Best For | Install Command | Updates Via |
+|------|----------|-----------------|-------------|
+| **npm Global** | End users, production | `npm install -g @cleocode/cleo` | `npm update -g @cleocode/cleo` |
+| **npx (MCP-Only)** | AI tool integration, no global install | Config snippet only | Automatic (latest) |
+| **From Source** | Contributors, testers | `git clone` + `npm link` | `git pull` + `npm run build` |
 
-| Mode | Best For | Updates Via | Characteristics |
-|------|----------|-------------|-----------------|
-| **Development** | Contributors, testers | `git pull` | Symlinks to local repository |
-| **Release** | End users, production | `cleo self-update` | Copied files from GitHub releases |
+## npm Global (Recommended)
 
-## Development Mode
+Install CLEO globally via npm for CLI and MCP access.
 
-Development mode creates symbolic links from `~/.cleo` to a local CLEO repository. Changes to the repository are immediately reflected without reinstallation.
-
-### Characteristics
-
-- **Symlinked directories**: `scripts/`, `lib/`, `schemas/`, `templates/`, `docs/`, `completions/`
-- **Immediate updates**: Code changes in the repo are live instantly
-- **Git-based updates**: Use `git pull` to update
-- **Best for**: Contributors, testing new features, debugging
-
-### How to Install in Dev Mode
+### Install
 
 ```bash
-# Clone the repository
+npm install -g @cleocode/cleo
+```
+
+### Requirements
+
+- **Node.js** 24+ (LTS recommended)
+- npm 10+ (included with Node.js)
+
+### Update
+
+```bash
+npm update -g @cleocode/cleo
+```
+
+### What You Get
+
+- `cleo` and `ct` commands available globally
+- MCP server via `cleo mcp`
+- Auto-installer via `cleo mcp-install`
+
+### Verify
+
+```bash
+cleo version    # Shows current CalVer version
+cleo validate   # Checks project data integrity
+```
+
+## npx MCP-Only (No Global Install)
+
+Run CLEO on-demand as an MCP server without any global installation. Your AI tool fetches the latest version automatically each time it connects.
+
+### Configure
+
+Add this to your AI tool's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "npx",
+      "args": ["-y", "@cleocode/cleo@latest", "mcp"]
+    }
+  }
+}
+```
+
+### Config Locations
+
+| Tool | Config File |
+|------|------------|
+| Claude Code | `.mcp.json` (project root) |
+| Claude Desktop | `claude_desktop_config.json` |
+| Cursor | `~/.cursor/mcp.json` |
+| VS Code | `.vscode/mcp.json` |
+| Gemini CLI | `~/.gemini/settings.json` |
+
+### When to Use
+
+- You only need CLEO as an MCP server for AI agents
+- You do not need the `cleo` CLI command
+- You want zero-maintenance auto-updating
+
+### Limitations
+
+- No `cleo` or `ct` CLI commands available
+- Slightly slower startup (npx fetches on each run)
+- Still requires `cleo init` to initialize a project (run via `npx -y @cleocode/cleo@latest init`)
+
+## From Source (Contributors)
+
+Clone the repository and link locally for development.
+
+### Install
+
+```bash
 git clone https://github.com/kryptobaseddev/cleo.git
 cd cleo
-
-# Install with dev mode (auto-detected when .git present)
-./installer/install.sh
-
-# Or explicitly force dev mode
-./installer/install.sh --dev
+npm install
+npm run build
+npm link
 ```
 
-### Updating in Dev Mode
+### Requirements
+
+- **Node.js** 24+
+- **Git**
+
+### Update
 
 ```bash
-# Standard git workflow
-cd /path/to/cleo-repo
+cd /path/to/cleo
 git pull
-
-# If symlinks need refresh (e.g., repo was moved)
-./installer/install.sh --refresh
+npm install
+npm run build
 ```
 
-### VERSION File in Dev Mode
+`npm link` creates global symlinks, so changes take effect after `npm run build`.
 
-```
-0.58.0
-mode=dev
-source=/home/user/projects/cleo
-installed=2026-01-20T12:30:00Z
-```
+### When to Use
 
-## Release Mode
+- Contributing to CLEO development
+- Testing unreleased features
+- Debugging issues against source code
 
-Release mode downloads and copies files from GitHub releases. The installation is self-contained and independent of any source repository.
-
-### Characteristics
-
-- **Copied files**: All files are copied to `~/.cleo`
-- **Self-contained**: No external dependencies on source repo
-- **Self-update capable**: Use `cleo self-update` to update
-- **Best for**: End users, production environments, CI/CD
-
-### How to Install in Release Mode
+### Verify
 
 ```bash
-# Option 1: From cloned repo, force release mode
-./installer/install.sh --release
-
-# Option 2: One-liner from GitHub (when available)
-curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
-
-# Option 3: Download and run installer manually
-wget https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh
-bash install.sh
+cleo version    # Should show the local build version
+which cleo      # Should point to your npm link location
 ```
 
-### Updating in Release Mode
+## Switching Modes
+
+### npm to Source
 
 ```bash
-# Check for updates
-cleo self-update --check
-
-# Update to latest version
-cleo self-update
-
-# Update to specific version
-cleo self-update --version 0.58.0
+npm uninstall -g @cleocode/cleo
+cd /path/to/cleo-repo
+npm link
 ```
 
-### VERSION File in Release Mode
+### Source to npm
 
-```
-0.58.0
-mode=release
-installed=2026-01-20T12:30:00Z
-```
-
-## Switching Between Modes
-
-### Dev to Release
-
-Switch from development mode to release mode when you want a stable, self-contained installation.
-
-**Via self-update (recommended):**
-```bash
-cleo self-update --to-release
-
-# Non-interactive
-cleo self-update --to-release --force
-```
-
-**Via installer:**
-```bash
-./installer/install.sh --release --force
-```
-
-**What happens:**
-1. Backup created at `~/.cleo/backups/self-update/`
-2. Symlinks removed from `~/.local/bin` and `~/.cleo`
-3. Latest release downloaded from GitHub
-4. Files installed to `~/.cleo`
-5. VERSION file updated with `mode=release`
-
-### Release to Dev
-
-Switch from release mode to development mode when you want to contribute or test changes.
-
-**Via self-update (recommended):**
-```bash
-cleo self-update --to-dev /path/to/cleo-repo
-
-# Non-interactive
-cleo self-update --to-dev /path/to/cleo-repo --force
-```
-
-**Via installer:**
 ```bash
 cd /path/to/cleo-repo
-./installer/install.sh --dev --force
+npm unlink
+npm install -g @cleocode/cleo
 ```
 
-**What happens:**
-1. Backup created
-2. Copied release files removed from `~/.cleo`
-3. Repository structure validated
-4. Symlinks created to repository directories
-5. VERSION file updated with `mode=dev` and `source=` path
+### Any Mode to npx
 
-### Repository Validation
+Simply remove the global install and update your MCP config to use the npx snippet above. No `cleo` CLI will be available, but MCP operations work through your AI tool.
 
-When switching to dev mode, the repository is validated:
+## Agent Installation
 
-| Check | Required |
-|-------|----------|
-| Directory exists | Yes |
-| `VERSION` file present | Yes |
-| `scripts/` directory present | Yes |
-| `lib/` directory present | Yes |
-| `scripts/cleo.sh` exists | Yes |
-
-If validation fails, the switch is aborted with exit code 102.
-
-## Checking Current Mode
-
-### Via self-update --status
+After installing CLEO by any method, agent definitions are managed automatically:
 
 ```bash
-cleo self-update --status
+cleo init              # Creates .cleo/ and injects agent docs
+cleo init --update-docs  # Refreshes agent doc injections only
 ```
 
-Output (dev mode):
-```
-CLEO Version Status
-===================
-
-Installed:  0.58.0
-Latest:     0.58.0
-Up to date: Yes
-
-Installation path: /home/user/.cleo
-Mode: Development (use git pull)
-```
-
-Output (release mode):
-```
-CLEO Version Status
-===================
-
-Installed:  0.58.0
-Latest:     0.58.0
-Up to date: Yes
-
-Installation path: /home/user/.cleo
-Mode: Release
-```
-
-### Via VERSION file
-
-```bash
-cat ~/.cleo/VERSION
-```
-
-Output:
-```
-0.58.0
-mode=dev
-source=/home/user/projects/cleo
-installed=2026-01-20T12:30:00Z
-```
-
-### Via installer --status
-
-```bash
-./installer/install.sh --status
-```
-
-## Use Cases
-
-### Contributor Workflow
-
-```bash
-# 1. Clone and install in dev mode
-git clone https://github.com/kryptobaseddev/cleo.git
-cd cleo
-./installer/install.sh --dev
-
-# 2. Make changes, test immediately
-vim lib/some-function.sh
-cleo some-command  # Changes are live
-
-# 3. Update from upstream
-git pull
-```
-
-### End User Workflow
-
-```bash
-# 1. Install in release mode
-./installer/install.sh --release
-
-# 2. Use CLEO
-cleo init
-cleo add "My first task"
-
-# 3. Check for updates periodically
-cleo self-update --check
-
-# 4. Update when available
-cleo self-update
-```
-
-### Temporary Dev Testing
-
-```bash
-# 1. Currently in release mode, want to test a fix
-cleo self-update --to-dev ~/projects/cleo-fork
-
-# 2. Test the changes
-cleo some-command
-
-# 3. Switch back to stable release
-cleo self-update --to-release
-```
-
-### CI/CD Pipeline
-
-```bash
-# Install specific release version for reproducibility
-./installer/install.sh --release
-cleo self-update --version 0.57.0 --force
-
-# Pin version for CI stability
-```
-
-## Troubleshooting
-
-### "Already in dev mode"
-
-```bash
-$ cleo self-update --to-dev /path/to/repo
-[INFO] Already in dev mode pointing to: /path/to/repo
-```
-
-**Solution:** Already in dev mode with this repository. No action needed. Use `--force` to re-link.
-
-### "Already in release mode"
-
-```bash
-$ cleo self-update --to-release
-[ERROR] Already in release mode.
-```
-
-**Solution:** Already in release mode. Use `--to-dev PATH` to switch to dev mode.
-
-### Invalid Repository Path
-
-```bash
-$ cleo self-update --to-dev /invalid/path
-ERROR: No VERSION file found at /invalid/path
-```
-
-**Solution:** Verify the path points to a valid CLEO repository with all required files.
-
-### Mode Mismatch After Manual Changes
-
-If you manually modified symlinks or files and the mode detection is incorrect:
-
-```bash
-# Force reinstall to fix state
-./installer/install.sh --force --dev    # or --release
-```
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 100 | Dev mode (use git pull for regular updates) |
-| 101 | Mode switch completed successfully |
-| 102 | Invalid repository path |
+This installs instructions into `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` for AI agent integration.
 
 ## See Also
 
-- [self-update Command](../commands/self-update.md) - Full self-update documentation
-- [Installer Architecture](./installer-architecture.md) - Technical details
-- [Installer Migration](./installer-migration.md) - Migrating from legacy installer
+- [Installation Guide](/getting-started/installation) - Detailed installation walkthrough
+- [MCP Server Setup](/getting-started/mcp-server) - MCP configuration details
+- [Quick Start](/getting-started/quickstart) - First steps after installation

@@ -19,9 +19,10 @@ All operational data, state machines, relational graphs, audit logs, and **Archi
 
 JSON and JSONL are STRICTLY PROHIBITED for any data that requires concurrent writes, multi-agent access, relational querying, historical lifecycle tracking, or transactional state transitions. JSON is EXCLUSIVELY RESERVED for human-editable, git-tracked configuration files (`config.json`, `project-info.json`, `project-context.json`).
 
-There are exactly two SQLite databases in the CLEO ecosystem:
-1. **The Global Registry (`~/.cleo/cleo-nexus.db`)**: Manages cross-project Nexus tooling, global token usage, global agent registry, and system-wide configurations.
-2. **The Project Store (`<project_root>/.cleo/cleo.db`)**: Manages project-specific tasks, the RCSD->IVTR lifecycle pipeline, architecture decisions (ADRs), and local project evidence.
+There are exactly three SQLite databases in the CLEO ecosystem:
+1. **The Global Registry (`~/.cleo/nexus.db`)** [TARGET]: Manages cross-project Nexus tooling, global token usage, global agent registry, and system-wide configurations. Currently implemented as a JSON registry (`~/.cleo/projects-registry.json`).
+2. **The Project Store (`<project_root>/.cleo/tasks.db`)** [SHIPPED]: Manages project-specific tasks, sessions, the RCASD->IVTR lifecycle pipeline, architecture decisions (ADRs), and local project evidence.
+3. **The Project Brain (`<project_root>/.cleo/brain.db`)** [TARGET]: Manages BRAIN memory — observations, patterns, learnings, decisions, FTS5 indexes, PageIndex, vector embeddings, and knowledge graph. Currently, BRAIN memory uses JSONL files. See ADR-009 for the BRAIN cognitive architecture.
 
 ## 2. Technical Justification & Facts
 
@@ -48,7 +49,7 @@ The `architecture_decisions` table provides a lightweight registry tracking deci
 
 The following Drizzle ORM schemas define the definitive structure of the CLEO data layer.
 
-### 4.1. The Project Store (`.cleo/cleo.db`)
+### 4.1. The Project Store (`.cleo/tasks.db`)
 
 #### Core Tasks & Architecture Decisions
 
@@ -127,7 +128,9 @@ CREATE TABLE lifecycle_gate_results (
 );
 ```
 
-### 4.2. The Global Registry (`~/.cleo/cleo-nexus.db`)
+### 4.2. The Global Registry (`~/.cleo/nexus.db`) — TARGET STATE
+
+> **Implementation note (2026-02-27)**: `nexus.db` is not yet implemented. The Nexus project registry currently uses a JSON file (`~/.cleo/projects-registry.json`) managed by `src/core/nexus/registry.ts`. The schema below is the target design for when Nexus migrates to SQLite.
 
 ```sql
 CREATE TABLE global_sessions (

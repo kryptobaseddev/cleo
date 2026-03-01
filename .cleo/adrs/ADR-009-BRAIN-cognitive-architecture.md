@@ -210,7 +210,7 @@ This preserves portability (Pillar 1: Portable Memory) while respecting ADR-006'
 
 | Tier | Storage | BRAIN Capability |
 |------|---------|-----------------|
-| **S** (current) | SQLite (project-local .cleo/cleo.db) | Decision/Pattern/Learning tables |
+| **S** (current) | SQLite (project-local .cleo/brain.db) | Decision/Pattern/Learning tables |
 | **M** (target) | SQLite + SQLite-vec (semantic embeddings) | + Similarity detection, semantic search |
 | **L** (future) | SQLite + PostgreSQL (cross-project) | + Global intelligence, federated queries |
 | **XL** (aspirational) | PostgreSQL + graph extensions | + Neural discovery, advanced reasoning |
@@ -460,7 +460,7 @@ CHECK(stage_name IN ('research', 'consensus', 'architecture_decision',
 | 1 | BRAIN Spec says JSONL memory files; ADR-006 says SQLite only | SQLite is runtime store. JSONL is export/import format for portability. | ADR-006 (accepted) |
 | 2 | cognitive-architecture.mdx says "Vectorless RAG"; BRAIN Spec says SQLite-vec | Both coexist. Vectorless RAG is primary (structural). Vectors augment for semantic queries in Phase 2+. | This ADR |
 | 3 | ADR-006 schema has 9 stages with "adr"; ADR-007 says 8 stages | **Resolved (T4863)**: 9 pipeline stages + contribution cross-cutting. `architecture_decision` replaced "adr" as a formal stage. DB schema updated. | ADR-007, ADR-014 |
-| 4 | Nexus storage: ADR-006 says ~/.cleo/cleo-nexus.db; others say JSON files | SQLite (cleo-nexus.db) is canonical per ADR-006. JSON references are pre-SQLite. | ADR-006 (accepted) |
+| 4 | Nexus storage: ADR-006 says ~/.cleo/nexus.db; others say JSON files | SQLite (nexus.db) is canonical per ADR-006. JSON references are pre-SQLite. | ADR-006 (accepted) |
 | 5 | BRAIN Spec defines `cleo reason *` commands; ADR-007 maps to `memory.reason.*` | Reasoning domain placement deferred to R&C cycle. Namespace reserved. | This ADR |
 | 6 | 5 Pillars and 5 BRAIN Dimensions never formally related | Orthogonal frameworks: Pillars = product contract (WHAT), BRAIN = capability model (HOW). Crosswalk in Section 2.2. | This ADR |
 

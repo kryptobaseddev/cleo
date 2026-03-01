@@ -59,7 +59,11 @@ cleo config unset archive.daysUntilArchive
   Maximum number of tasks with `active` status (single-task discipline)
 </ResponseField>
 
-<ResponseField name="validation.requireDescription" type="boolean" default="false">
+<ResponseField
+  name="validation.requireDescription"
+  type="boolean"
+  default="false"
+>
   Require description field when creating tasks
 </ResponseField>
 
@@ -77,11 +81,15 @@ cleo config unset archive.daysUntilArchive
   Maximum hierarchy depth (epic → task → subtask)
 </ResponseField>
 
-<ResponseField name="hierarchy.maxSiblings" type="number" default="7">
+<ResponseField name="hierarchy.maxSiblings" type="number" default="0">
   Maximum children per parent task (0 = unlimited)
 </ResponseField>
 
-<ResponseField name="hierarchy.autoCompleteParent" type="boolean" default="true">
+<ResponseField
+  name="hierarchy.autoCompleteParent"
+  type="boolean"
+  default="true"
+>
   Automatically complete parent when all children are done
 </ResponseField>
 
@@ -117,32 +125,41 @@ cleo config unset archive.daysUntilArchive
   Percentage threshold for caution alerts
 </ResponseField>
 
-<ResponseField name="contextAlerts.criticalThreshold" type="number" default="90">
+<ResponseField
+  name="contextAlerts.criticalThreshold"
+  type="number"
+  default="90"
+>
   Percentage threshold for critical alerts
 </ResponseField>
 
-<ResponseField name="contextAlerts.emergencyThreshold" type="number" default="95">
+<ResponseField
+  name="contextAlerts.emergencyThreshold"
+  type="number"
+  default="95"
+>
   Percentage threshold for emergency alerts
 </ResponseField>
 
 ### Analyze Settings
 
 <ResponseField name="analyze.sizeStrategy" type="string" default="balanced">
-  Task size weighting: `quick-wins` (favor small), `big-impact` (favor large), or `balanced`
+  Task size weighting: `quick-wins` (favor small), `big-impact` (favor large),
+  or `balanced`
 </ResponseField>
 
 ## Environment Variables
 
 Environment variables override config file settings:
 
-| Variable | Config Equivalent |
-|----------|------------------|
-| `CLEO_HOME` | Installation directory |
-| `CLEO_PROJECT` | Project data directory |
-| `CLEO_NO_COLOR` | Disable colored output |
-| `CLEO_DEBUG` | Enable debug logging |
+| Variable          | Config Equivalent           |
+| ----------------- | --------------------------- |
+| `CLEO_HOME`       | Installation directory      |
+| `CLEO_PROJECT`    | Project data directory      |
+| `CLEO_NO_COLOR`   | Disable colored output      |
+| `CLEO_DEBUG`      | Enable debug logging        |
 | `CLEO_MAX_ACTIVE` | `validation.maxActiveTasks` |
-| `NO_COLOR` | Standard color disable |
+| `NO_COLOR`        | Standard color disable      |
 
 ```bash
 # Example usage
@@ -195,6 +212,7 @@ CLEO_MAX_ACTIVE=3 cleo start T001
   }
 }
 ```
+
 </CodeGroup>
 
 ## Configuration Validation

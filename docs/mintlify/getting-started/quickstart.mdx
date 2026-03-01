@@ -11,33 +11,33 @@ Get CLEO installed and managing your first task in under 5 minutes.
 ## TL;DR - Just Install It
 
 <Tabs>
-  <Tab title="One-liner (Easiest)">
+  <Tab title="npm (Recommended)">
     ```bash
-    curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+    npm install -g @cleocode/cleo
     ```
 
-    Reinstalling over existing installation? Use `--force`:
-    ```bash
-    curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash -s -- --force
-    ```
+    Requires Node.js 24+. Verify with `node --version`.
   </Tab>
-  <Tab title="Download and Run">
-    1. Download [install.sh](https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh)
-    2. Open Terminal and run:
-    ```bash
-    bash ~/Downloads/install.sh
+  <Tab title="MCP-Only (No Global Install)">
+    Add to your AI tool's MCP configuration -- no global install needed:
+    ```json
+    {
+      "mcpServers": {
+        "cleo": {
+          "command": "npx",
+          "args": ["-y", "@cleocode/cleo@latest", "mcp"]
+        }
+      }
+    }
     ```
   </Tab>
   <Tab title="From Source (Contributors)">
     ```bash
-    git clone https://github.com/kryptobaseddev/cleo.git && cd cleo && ./installer/install.sh --dev
+    git clone https://github.com/kryptobaseddev/cleo.git
+    cd cleo && npm install && npm run build && npm link
     ```
   </Tab>
 </Tabs>
-
-<Info>
-The installer automatically detects missing dependencies (jq, flock) and offers to install them. On macOS, it auto-detects Homebrew Bash if your system Bash is below version 4.
-</Info>
 
 ## Initialize Your Project
 
@@ -46,7 +46,7 @@ cd /path/to/your/project
 cleo init
 ```
 
-This creates `.cleo/` directory with task files and auto-injects instructions into `CLAUDE.md`.
+This creates a `.cleo/` directory with `tasks.db` (SQLite), `config.json`, and schema files. It also auto-injects instructions into `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md`.
 
 ## Verify Installation
 
@@ -90,22 +90,22 @@ cleo add "Fix login bug" --priority high --labels bug,auth
 
 ```bash
 # Morning: Start your session
-cleo session start
+cleo session start --scope epic:T001 --auto-focus
 cleo list --status pending
-cleo start T001
+cleo start T002
 
 # During work: Track progress
-cleo update T001 --notes "Fixed validation logic"
-cleo complete T001
-cleo start T002
+cleo update T002 --notes "Fixed validation logic"
+cleo complete T002
+cleo start T003
 
 # Evening: Clean up
 cleo archive
-cleo session end
+cleo session end --note "Completed auth tasks"
 ```
 
 <Tip>
-Use `ct` as a shorthand alias for `cleo`. Install shell aliases with `source ~/.cleo/completions/bash-completion.sh`.
+Use `ct` as a shorthand alias for `cleo`. Both commands are installed automatically.
 </Tip>
 
 ## Next Steps

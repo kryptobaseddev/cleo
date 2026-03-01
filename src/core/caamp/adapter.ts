@@ -52,22 +52,11 @@ import {
 } from '@cleocode/caamp';
 
 // ============================================================
-// EngineResult type (shared interface for engine-layer responses)
+// EngineResult type (re-exported from canonical source)
 // ============================================================
 
-/**
- * Generic result wrapper for engine-layer operations.
- * @task T4678
- */
-export interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
+export type { EngineResult } from '../../dispatch/engines/_error.js';
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 // ============================================================
 // Provider Operations

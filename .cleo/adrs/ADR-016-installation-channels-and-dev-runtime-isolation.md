@@ -103,9 +103,11 @@ CLEO SHALL standardize on three runtime channels:
 
 ### 7.1 Mode-aware command/link mapping
 
-- `stable`: `cleo`, `ct` (compat), `cleo-mcp`, server `cleo`
-- `beta`: `cleo-beta`, optional `ct-beta`, `cleo-mcp-beta`, server `cleo-beta`
-- `dev`: `cleo-dev`, `cleo-mcp-dev`, server `cleo-dev`, no `ct`
+- `stable`: `cleo`, `ct` (compat), server `cleo` — MCP via `cleo mcp`
+- `beta`: `cleo-beta`, optional `ct-beta`, server `cleo-beta` — MCP via `cleo-beta mcp`
+- `dev`: `cleo-dev`, server `cleo-dev`, no `ct` — MCP via `cleo-dev mcp`
+
+> **Note**: As of v2026.2.9, standalone `cleo-mcp` binaries are removed. MCP servers are launched via the `cleo mcp` pseudo-subcommand (see commit `6c955628`).
 
 ### 7.2 Production-path script policy
 
@@ -194,6 +196,33 @@ GitHub Releases are automatically marked as prerelease when the tag contains a h
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ci.yml` | Push to `main`/`develop`, PRs | Type check, test, build, verify |
+| `ci.yml` | Push to `main`/`develop`, PRs to both | Type check, test, build, verify |
 | `release.yml` | Tag push `v*.*.*` | GitHub Release + npm + MCP Registry |
 | `npm-publish.yml` | Manual dispatch only | Backup re-publish with explicit dist-tag |
+
+### 8.7 Branch Strategy
+
+CLEO follows a Git Flow branching model that maps branches to release channels:
+
+| Branch | Channel | npm dist-tag | Tag pattern | PR target |
+|--------|---------|-------------|-------------|-----------|
+| `main` | stable | `@latest` | `vYYYY.M.PATCH` | `develop` → `main` (release PR) |
+| `develop` | beta | `@beta` | `vYYYY.M.PATCH-beta.N` | feature/fix → `develop` |
+| `feature/*`, `fix/*` | — | — | — | → `develop` |
+| hotfix branches | stable | `@latest` | `vYYYY.M.PATCH` | → `main` directly |
+
+#### Workflow
+
+1. **Feature development**: Branch from `develop`, PR back to `develop`
+2. **Beta releases**: Tag from `develop` with `-beta.N` suffix → publishes to npm `@beta`
+3. **Stable releases**: PR `develop` → `main`, tag from `main` without suffix → publishes to npm `@latest`
+4. **Hotfixes**: Branch from `main`, PR directly to `main`, tag stable release, then merge `main` back into `develop`
+
+#### Branch Protection
+
+- **`main`**: Required CI status checks (all matrix jobs), strict up-to-date requirement, 1 required approval, required commit signatures
+- **`develop`**: Required CI status checks, non-strict (no up-to-date requirement), 0 required approvals (CI is the gate)
+
+#### CalVer with Pre-release Tags
+
+Pre-release tags have relaxed month enforcement — the tag month may be the current month or the next month. This allows end-of-month beta tagging for an upcoming release (e.g., `v2026.3.0-beta.1` tagged in late February). Stable tags require strict current-month matching.

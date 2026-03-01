@@ -3,7 +3,7 @@
  * 
  * Main pipeline operations for the unified RCASD-IVTR+C lifecycle.
  * Replaces the scattered _manifest.json approach with a transactional
- * Drizzle ORM implementation using cleo.db.
+ * Drizzle ORM implementation using tasks.db.
  * 
  * Pipeline Stages (9 stages):
  *   Research → Consensus → ADR → Spec → Decompose → Implement → Verify → Test → Release

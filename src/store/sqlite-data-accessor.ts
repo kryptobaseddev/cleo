@@ -20,7 +20,7 @@ import { getDb, closeDb } from './sqlite.js';
 import * as schema from './schema.js';
 import { computeChecksum } from './json.js';
 import { rowToTask, taskToRow, archivedTaskToRow, rowToSession } from './converters.js';
-import { upsertTask, upsertSession, updateDependencies, loadDependenciesForTasks } from './db-helpers.js';
+import { upsertTask, upsertSession, updateDependencies, loadDependenciesForTasks, loadRelationsForTasks } from './db-helpers.js';
 
 /**
  * Generate a unique audit log entry ID.
@@ -121,9 +121,10 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
 
       const tasks: Task[] = taskRows.map(rowToTask);
 
-      // 2. Load dependencies for all tasks (batch query), filtering orphaned refs
+      // 2. Load dependencies and relations for all tasks (batch query), filtering orphaned refs
       if (tasks.length > 0) {
         await loadDependenciesForTasks(db, tasks);
+        await loadRelationsForTasks(db, tasks);
       }
 
       // 3. Load project metadata from schema_meta
@@ -241,7 +242,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         } as Task & { archivedAt?: string; archiveReason?: string; cycleTimeDays?: number };
       });
 
-      // Load dependencies for archived tasks, filtering orphaned refs
+      // Load dependencies and relations for archived tasks, filtering orphaned refs
       if (archivedTasks.length > 0) {
         // Also load all active task IDs so we can validate cross-references
         const activeRows = await db
@@ -254,6 +255,7 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
           ...activeRows.map(r => r.id),
         ]);
         await loadDependenciesForTasks(db, archivedTasks, allKnownIds);
+        await loadRelationsForTasks(db, archivedTasks);
       }
 
       return {
@@ -351,6 +353,19 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
       const row = taskToRow(task);
       await upsertTask(db, row);
       await updateDependencies(db, task.id, task.depends ?? []);
+    },
+
+    async addRelation(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void> {
+      const db = await getDb(cwd);
+      // Validate relation type - throw on invalid (T5168)
+      const validTypes = ['related', 'blocks', 'duplicates', 'absorbs', 'fixes', 'extends', 'supersedes'] as const;
+      if (!validTypes.includes(relationType as typeof validTypes[number])) {
+        throw new Error(`Invalid relation type: ${relationType}. Valid types: ${validTypes.join(', ')}`);
+      }
+      await db.insert(schema.taskRelations)
+        .values({ taskId, relatedTo, relationType: relationType as typeof validTypes[number], reason: reason ?? null })
+        .onConflictDoNothing()
+        .run();
     },
 
     async archiveSingleTask(taskId: string, fields: ArchiveFields): Promise<void> {
