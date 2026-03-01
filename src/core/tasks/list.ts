@@ -9,6 +9,28 @@ import type { Task, TaskStatus, TaskPriority, TaskType, TaskFile } from '../../t
 import { getTaskPath } from '../paths.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
+/** Compact task representation — minimal fields for MCP list responses. */
+export interface CompactTask {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  type?: string;
+  parentId?: string | null;
+}
+
+/** Convert a full Task to compact representation. */
+export function toCompact(task: Task): CompactTask {
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    priority: task.priority,
+    type: task.type,
+    parentId: task.parentId,
+  };
+}
+
 /** Filter options for listing tasks. */
 export interface ListTasksOptions {
   status?: TaskStatus;
