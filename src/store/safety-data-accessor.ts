@@ -193,9 +193,9 @@ export class SafetyDataAccessor implements DataAccessor {
 
   // ---- Relations (pass-through to inner, T5168) ----
 
-  async addRelation(taskId: string, relatedTo: string, relationType: string): Promise<void> {
+  async addRelation(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void> {
     if (!this.inner.addRelation) return;
-    await this.inner.addRelation(taskId, relatedTo, relationType);
+    await this.inner.addRelation(taskId, relatedTo, relationType, reason);
   }
 
   // ---- Metadata (pass-through to inner) ----

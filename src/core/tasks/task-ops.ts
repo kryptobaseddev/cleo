@@ -470,7 +470,7 @@ export async function coreTaskRelatesAdd(
   relatedId: string,
   type: string,
   reason?: string,
-): Promise<{ from: string; to: string; type: string; added: boolean }> {
+): Promise<{ from: string; to: string; type: string; reason?: string; added: boolean }> {
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
@@ -507,10 +507,10 @@ export async function coreTaskRelatesAdd(
 
   // Persist to task_relations table (T5168)
   if (accessor.addRelation) {
-    await accessor.addRelation(taskId, relatedId, type);
+    await accessor.addRelation(taskId, relatedId, type, reason);
   }
 
-  return { from: taskId, to: relatedId, type, added: true };
+  return { from: taskId, to: relatedId, type, reason, added: true };
 }
 
 // ============================================================================
