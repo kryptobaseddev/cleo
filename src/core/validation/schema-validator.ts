@@ -84,8 +84,8 @@ function resolveSchemaPath(schemaType: SchemaType): string | null {
   const projectRoot = process.env.CLEO_ROOT || process.cwd();
   const paths = [
     join(projectRoot, 'schemas', filename),
-    join(__dirname, '..', '..', '..', 'schemas', filename), // relative from dist/mcp/engine/
-    join(__dirname, '..', '..', 'schemas', filename),        // relative from dist/mcp/
+    join(__dirname, '..', '..', '..', 'schemas', filename), // relative from dist/core/validation/
+    join(__dirname, '..', '..', 'schemas', filename),        // relative from dist/core/
   ];
 
   for (const p of paths) {
