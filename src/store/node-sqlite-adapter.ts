@@ -24,6 +24,11 @@ const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args
 
 /**
  * Open a node:sqlite DatabaseSync with CLEO standard pragmas.
+ *
+ * CRITICAL: WAL mode is verified, not just requested. If another process holds
+ * an EXCLUSIVE lock in DELETE mode, PRAGMA journal_mode=WAL silently returns
+ * 'delete'. This caused data loss (T5173) when concurrent MCP servers opened
+ * the same database — writes were silently dropped under lock contention.
  */
 export function openNativeDatabase(path: string, options?: {
   readonly?: boolean;
@@ -36,14 +41,55 @@ export function openNativeDatabase(path: string, options?: {
     timeout: options?.timeout ?? 5000,
   });
 
+  // Set busy_timeout FIRST so WAL pragma can wait for locks
+  db.exec('PRAGMA busy_timeout=5000');
+
   // Enable WAL for concurrent multi-process access (ADR-006, ADR-010)
   if (options?.enableWal !== false) {
-    db.exec('PRAGMA journal_mode=WAL');
+    const MAX_WAL_RETRIES = 3;
+    const RETRY_DELAY_MS = 200;
+    let walSet = false;
+
+    for (let attempt = 1; attempt <= MAX_WAL_RETRIES; attempt++) {
+      db.exec('PRAGMA journal_mode=WAL');
+
+      // CRITICAL: Verify WAL was actually set — the PRAGMA returns the mode
+      // that was applied, which may be 'delete' if another connection holds a lock
+      const result = db.prepare('PRAGMA journal_mode').get() as Record<string, unknown> | undefined;
+      const currentMode = (result?.journal_mode as string)?.toLowerCase?.() ?? 'unknown';
+
+      if (currentMode === 'wal') {
+        walSet = true;
+        break;
+      }
+
+      // WAL not set — another connection likely holds an EXCLUSIVE lock
+      if (attempt < MAX_WAL_RETRIES) {
+        // Sync sleep via Atomics for retry delay (node:sqlite is sync-only)
+        const buf = new SharedArrayBuffer(4);
+        Atomics.wait(new Int32Array(buf), 0, 0, RETRY_DELAY_MS * attempt);
+      }
+    }
+
+    if (!walSet) {
+      // Verify one final time
+      const finalResult = db.prepare('PRAGMA journal_mode').get() as Record<string, unknown> | undefined;
+      const finalMode = (finalResult?.journal_mode as string)?.toLowerCase?.() ?? 'unknown';
+
+      if (finalMode !== 'wal') {
+        db.close();
+        throw new Error(
+          `CRITICAL: Failed to set WAL journal mode after ${MAX_WAL_RETRIES} attempts. ` +
+          `Database is in '${finalMode}' mode. Another process likely holds an EXCLUSIVE lock ` +
+          `on ${path}. Refusing to open — concurrent writes in DELETE mode cause data loss. ` +
+          `Kill other cleo/MCP processes and retry. (T5173)`,
+        );
+      }
+    }
   }
 
   // Standard CLEO pragmas
   db.exec('PRAGMA foreign_keys=ON');
-  db.exec('PRAGMA busy_timeout=5000');
 
   return db;
 }
