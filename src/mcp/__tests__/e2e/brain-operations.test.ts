@@ -18,7 +18,7 @@ import {
   orchestrateBootstrap,
   orchestrateCriticalPath,
   orchestrateUnblockOpportunities,
-} from '../../engine/orchestrate-engine.js';
+} from '../../../dispatch/engines/orchestrate-engine.js';
 
 import {
   taskComplexityEstimate,
@@ -37,7 +37,7 @@ import {
 
 import {
   systemInjectGenerate,
-} from '../../engine/system-engine.js';
+} from '../../../dispatch/engines/system-engine.js';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
