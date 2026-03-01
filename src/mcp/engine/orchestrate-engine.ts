@@ -30,15 +30,7 @@ import { startParallelExecution, endParallelExecution, getParallelStatus } from 
 import { getSkillContent } from '../../core/orchestration/skill-ops.js';
 import { validateSpawnReadiness } from '../../core/orchestration/validate-spawn.js';
 import { buildBrainState } from '../../core/orchestration/bootstrap.js';
-
-/**
- * Engine result type
- */
-interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string; details?: unknown };
-}
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 /**
  * Load all tasks from todo.json

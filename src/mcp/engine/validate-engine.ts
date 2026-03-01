@@ -27,15 +27,7 @@ import {
   coreTestCoverage,
   type CoherenceIssue,
 } from '../../core/validation/validate-ops.js';
-
-/**
- * Engine result type
- */
-interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string; details?: unknown };
-}
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 /**
  * validate.schema - JSON Schema validation
