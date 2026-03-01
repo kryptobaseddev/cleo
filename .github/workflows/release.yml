@@ -96,7 +96,7 @@ jobs:
 
       - name: Validate build output
         run: |
-          for path in dist/cli/index.js dist/mcp/index.js schemas templates skills; do
+          for path in dist/cli/index.js dist/mcp/index.js schemas templates packages/ct-skills/skills; do
             if [[ ! -e "$path" ]]; then
               echo "ERROR: Required path missing: $path"
               exit 1
@@ -116,7 +116,7 @@ jobs:
           cp -r dist "staging/cleo-${VERSION}/"
           cp -r schemas "staging/cleo-${VERSION}/"
           cp -r templates "staging/cleo-${VERSION}/"
-          cp -r skills "staging/cleo-${VERSION}/"
+          cp -r packages/ct-skills/skills "staging/cleo-${VERSION}/"
           [[ -d completions ]] && cp -r completions "staging/cleo-${VERSION}/"
           cp package.json "staging/cleo-${VERSION}/"
           cp VERSION "staging/cleo-${VERSION}/"
