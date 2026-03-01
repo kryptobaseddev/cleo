@@ -45,6 +45,7 @@ export {
   taskImport,
   type TaskRecord,
   type MinimalTaskRecord,
+  type CompactTask,
 } from '../engines/task-engine.js';
 
 // Session engine
