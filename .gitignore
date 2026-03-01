@@ -183,6 +183,8 @@ opencode.json
 # ============================================================
 # SQLite Runtime Files — MUST NEVER be tracked in git
 # ============================================================
+# SECONDARY SAFETY LAYER: .cleo/.gitignore now uses deny-by-default
+# (T5162), so these entries are redundant but kept as defense-in-depth.
 # Tracking these files causes git reset --hard to overwrite the
 # WAL with a stale copy, silently corrupting the database on next
 # open (data loss root cause 2026-02-25, T4894).
@@ -199,6 +201,8 @@ opencode.json
 # ============================================================
 # CLEO Runtime Data — NOT source code
 # ============================================================
+# SECONDARY SAFETY LAYER: .cleo/.gitignore now uses deny-by-default
+# (T5162), so these entries are redundant but kept as defense-in-depth.
 # These are generated at runtime, not part of the source tree.
 .cleo/.backups/
 .cleo/.cache/

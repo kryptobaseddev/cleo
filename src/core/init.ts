@@ -160,16 +160,56 @@ function getGitignoreContent(): string {
   return CLEO_GITIGNORE_FALLBACK;
 }
 
-/** Embedded fallback for .cleo/.gitignore content. */
-const CLEO_GITIGNORE_FALLBACK = `# CLEO Project Data - Selective Git Tracking
-# Tracked via STATE_FILES: config.json, project-info.json, project-context.json, adrs/, agent-outputs/
-# agent-outputs/ is intentionally tracked (research outputs, ADR evidence)
-logs/
-audit-log*.json
-tasks.db
-tasks.db-shm
-tasks.db-wal
-.git/
+/** Embedded fallback for .cleo/.gitignore content (deny-by-default). */
+const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default for CLEO project data
+# Ignore everything, then explicitly allow only tracked files.
+
+# Step 1: Ignore everything
+*
+
+# Allow list
+!.gitignore
+!config.json
+!project-context.json
+!project-info.json
+!setup-otel.sh
+!DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
+!schemas/
+!schemas/**
+!templates/
+!templates/**
+!adrs/
+!adrs/**
+!consensus/
+!consensus/**
+!rcasd/
+!rcasd/**
+!contributions/
+!contributions/**
+!agent-outputs/
+!agent-outputs/**
+
+# Explicit deny safety net
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+log.json
+tasks-log.jsonl
+todo-log.jsonl
+bypass-log.json
+qa-log.json
+.deps-cache/
+.context-alert-state.json
+.context-state*.json
+context-states/
+.git-checkpoint-state
+.migration-state.json
+migrations.json
+sync/
+metrics/
+.backups/
+backups/
 `;
 
 /**

@@ -535,8 +535,9 @@ function detectStorageEngine(_projectRoot: string): string {
 }
 
 /**
- * Check that vital CLEO files are tracked by git.
- * SQLite-only (ADR-006): validates tasks.db/config/.gitignore tracking.
+ * Check that vital CLEO configuration files are tracked by git.
+ * Only checks config files (config.json, .gitignore, project-info.json,
+ * project-context.json). SQLite databases are excluded per ADR-013.
  * @task T4700
  */
 export function checkVitalFilesTracked(
@@ -662,6 +663,74 @@ export function checkCoreFilesNotIgnored(
     details: { checkedFiles: CORE_PROTECTED_FILES.map(f => `.cleo/${f}`) },
     fix: null,
   };
+}
+
+// ============================================================================
+// Check: SQLite databases not tracked by git
+// ============================================================================
+
+/**
+ * Check that SQLite databases (.cleo/tasks.db) are NOT tracked by project git.
+ * Tracked SQLite files cause data loss from merge conflicts (ADR-013).
+ * Warns if tasks.db is currently tracked so the user can untrack it.
+ * @task T5160
+ */
+export function checkSqliteNotTracked(
+  projectRoot?: string,
+): CheckResult {
+  const root = projectRoot ?? process.cwd();
+  const gitDir = join(root, '.git');
+
+  if (!existsSync(gitDir)) {
+    return {
+      id: 'sqlite_not_tracked',
+      category: 'configuration',
+      status: 'info',
+      message: 'Not a git repository (skipping SQLite tracking check)',
+      details: { isGitRepo: false },
+      fix: null,
+    };
+  }
+
+  const sqliteFile = '.cleo/tasks.db';
+  const fullPath = join(root, sqliteFile);
+
+  if (!existsSync(fullPath)) {
+    return {
+      id: 'sqlite_not_tracked',
+      category: 'configuration',
+      status: 'passed',
+      message: 'No SQLite database found (nothing to check)',
+      details: { file: sqliteFile, exists: false },
+      fix: null,
+    };
+  }
+
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', sqliteFile], {
+      cwd: root,
+      stdio: 'pipe',
+    });
+    // Exit code 0 means the file IS tracked — that's the problem
+    return {
+      id: 'sqlite_not_tracked',
+      category: 'configuration',
+      status: 'warning',
+      message: `${sqliteFile} is tracked by git — this risks data loss from merge conflicts (see ADR-013)`,
+      details: { file: sqliteFile, tracked: true },
+      fix: `git rm --cached ${sqliteFile}`,
+    };
+  } catch {
+    // Non-zero exit means the file is NOT tracked (good)
+    return {
+      id: 'sqlite_not_tracked',
+      category: 'configuration',
+      status: 'passed',
+      message: 'SQLite database is not tracked by git',
+      details: { file: sqliteFile, tracked: false },
+      fix: null,
+    };
+  }
 }
 
 // ============================================================================
@@ -848,6 +917,7 @@ export function runAllGlobalChecks(
     checkCleoGitignore(projectRoot),
     checkVitalFilesTracked(projectRoot),
     checkCoreFilesNotIgnored(projectRoot),
+    checkSqliteNotTracked(projectRoot),
     checkLegacyAgentOutputs(projectRoot),
   ];
 }

@@ -3,15 +3,14 @@
  */
 
 /**
- * Files relative to .cleo/ that MUST remain tracked by git.
- * These files are critical for CLEO data integrity. If any are
- * gitignored, the pre-commit hook blocks the commit and cleo doctor
- * reports a critical finding.
+ * Configuration files relative to .cleo/ that MUST remain tracked by project git.
+ * These are JSON/text config files only — NOT databases.
+ * SQLite databases (tasks.db) are excluded: they must be gitignored to
+ * prevent data-loss from merge conflicts (see ADR-013).
  *
- * Add new entries here when introducing new core files (e.g. brain.db).
+ * If any of these files are gitignored, cleo doctor reports a critical finding.
  */
 export const CORE_PROTECTED_FILES = [
-  'tasks.db',
   'config.json',
   '.gitignore',
   'project-info.json',
