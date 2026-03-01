@@ -37,13 +37,13 @@ describe('cleo-gitignore template', () => {
     const templatePath = join(process.cwd(), 'templates', 'cleo-gitignore');
     const content = await readFile(templatePath, 'utf-8');
 
-    // Key patterns that should be present
-    expect(content).toContain('*.lock');
-    expect(content).toContain('*.tmp');
+    // Key patterns that should be present (deny-by-default template)
+    expect(content).toContain('*');           // Step 1: ignore everything
+    expect(content).toContain('!.gitignore'); // Allow list
+    expect(content).toContain('!config.json');
     expect(content).toContain('.backups/');
     expect(content).toContain('metrics/');
-    expect(content).toContain('audit-log-*.json');
-    expect(content).toContain('.context-state.json');
+    expect(content).toContain('*.db');
     expect(content).toContain('*.db-journal');
     expect(content).toContain('*.db-wal');
     expect(content).toContain('*.db-shm');
@@ -68,9 +68,9 @@ describe('cleo-gitignore template', () => {
     const templatePath = join(process.cwd(), 'templates', 'cleo-gitignore');
     const content = await readFile(templatePath, 'utf-8');
 
-    expect(content).toContain('CLEO Project Data');
-    expect(content).toContain('TRACKED');
-    expect(content).toContain('IGNORED');
+    expect(content).toContain('Deny-by-default');
+    expect(content).toContain('ALLOW LIST');
+    expect(content).toContain('EXPLICIT DENY');
   });
 });
 
@@ -83,34 +83,19 @@ describe('init creates .cleo/.gitignore', () => {
     const cleoDir = join(testDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
 
-    // Simulate what init does - import the module and test createCleoGitignore indirectly
-    // by checking the CLEO_GITIGNORE_CONTENT constant behavior
+    // Use the actual template that init would write
+    const { getGitignoreTemplate } = await import('../init.js');
+    const content = getGitignoreTemplate();
     const gitignorePath = join(cleoDir, '.gitignore');
+    await writeFile(gitignorePath, content);
 
-    // Simulate init's gitignore creation
-    const env = { ...process.env };
-    process.env['CLEO_DIR'] = cleoDir;
+    expect(existsSync(gitignorePath)).toBe(true);
 
-    try {
-      // Write what init would write
-      const content = `# CLEO Project Data - Selective Git Tracking
-*.lock
-*.tmp
-.backups/
-backups/
-metrics/
-audit-log-*.json
-.context-state.json
-`;
-      await writeFile(gitignorePath, content);
-      expect(existsSync(gitignorePath)).toBe(true);
-
-      const written = await readFile(gitignorePath, 'utf-8');
-      expect(written).toContain('*.lock');
-      expect(written).toContain('.backups/');
-    } finally {
-      process.env = env;
-    }
+    const written = await readFile(gitignorePath, 'utf-8');
+    // Deny-by-default template patterns
+    expect(written).toContain('Deny-by-default');
+    expect(written).toContain('.backups/');
+    expect(written).toContain('*.db');
   });
 
   it('does not overwrite existing .cleo/.gitignore without force', async () => {
