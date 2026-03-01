@@ -386,6 +386,7 @@ export async function orchestrateSpawn(
   taskId: string,
   protocolType?: string,
   projectRoot?: string,
+  tier?: 0 | 1 | 2,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
@@ -414,8 +415,10 @@ export async function orchestrateSpawn(
           taskId: spawnContext.taskId,
           protocol: spawnContext.protocol,
           protocolType: protocolType || spawnContext.protocol,
+          tier: tier ?? null,
         },
         protocolType: protocolType || spawnContext.protocol,
+        tier: tier ?? null,
         tokenResolution: spawnContext.tokenResolution,
       },
     };

@@ -156,7 +156,8 @@ export class OrchestrateHandler implements DomainHandler {
               'taskId is required', startTime);
           }
           const protocolType = params?.protocolType as string | undefined;
-          const result = await orchestrateSpawn(taskId, protocolType, this.projectRoot);
+          const tier = params?.tier as 0 | 1 | 2 | undefined;
+          const result = await orchestrateSpawn(taskId, protocolType, this.projectRoot, tier);
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
