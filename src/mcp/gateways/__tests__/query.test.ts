@@ -67,8 +67,8 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('tasks')).toBe(13);
     });
 
-    it('session domain should have 10 operations', () => {
-      expect(getQueryOperationCount('session')).toBe(10);
+    it('session domain should have 11 operations', () => {
+      expect(getQueryOperationCount('session')).toBe(11);
     });
 
     it('orchestrate domain should have 9 operations', () => {

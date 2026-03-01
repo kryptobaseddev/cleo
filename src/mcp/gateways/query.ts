@@ -109,6 +109,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'status',       // Current session status
     'list',         // List all sessions
     'show',         // Session details
+    'find',         // Lightweight session discovery (T5119)
     'history',      // Session history
     'decision.log',   // Decision audit log
     'context.drift',  // Session context drift analysis

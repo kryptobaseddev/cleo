@@ -25,7 +25,9 @@ import {
   persistHandoff,
   getLastHandoff,
   computeBriefing,
+  findSessions,
 } from '../../core/sessions/index.js';
+import type { MinimalSessionRecord, FindSessionsParams } from '../../core/sessions/find.js';
 import { generateSessionId } from '../../core/sessions/session-id.js';
 import type { HandoffData } from '../../core/sessions/handoff.js';
 import { computeDebrief, type DebriefData } from '../../core/sessions/handoff.js';
@@ -82,14 +84,24 @@ export async function sessionStatus(
   }
 }
 
+/** Default limit for sessionList when none is provided. @task T5121 */
+const SESSION_LIST_DEFAULT_LIMIT = 10;
+
 /**
- * List sessions.
+ * List sessions with budget enforcement.
+ *
+ * When a limit is applied (explicit or default), the response includes
+ * `_meta.truncated` and `_meta.total` so agents know the result set
+ * was capped.
+ *
  * @task T4782
+ * @task T5120 - budget enforcement metadata
+ * @task T5121 - default limit=10
  */
 export async function sessionList(
   projectRoot: string,
   params?: { active?: boolean; limit?: number },
-): Promise<EngineResult<Session[]>> {
+): Promise<EngineResult<{ sessions: Session[]; _meta: { truncated: boolean; total: number } }>> {
   try {
     const accessor = await getAccessor(projectRoot);
 
@@ -101,10 +113,36 @@ export async function sessionList(
       result = result.filter((s: Session) => s.status !== 'active');
     }
 
-    if (params?.limit && params.limit > 0) {
-      result = result.slice(0, params.limit);
-    }
+    const total = result.length;
+    const limit = (params?.limit && params.limit > 0) ? params.limit : SESSION_LIST_DEFAULT_LIMIT;
+    const truncated = total > limit;
 
+    result = result.slice(0, limit);
+
+    return {
+      success: true,
+      data: {
+        sessions: result,
+        _meta: { truncated, total },
+      },
+    };
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * Lightweight session discovery — returns minimal session records.
+ *
+ * @task T5119
+ */
+export async function sessionFind(
+  projectRoot: string,
+  params?: FindSessionsParams,
+): Promise<EngineResult<MinimalSessionRecord[]>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await findSessions(accessor, params);
     return { success: true, data: result };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -818,7 +856,7 @@ export async function sessionArchive(
 
 /**
  * Get handoff data for the most recent ended session.
- * @task T4915
+ * @task T4915, T5123
  */
 export async function sessionHandoff(
   projectRoot: string,
@@ -830,11 +868,14 @@ export async function sessionHandoff(
     const result = await getLastHandoff(projectRoot, scope);
     return { success: true, data: result };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    return engineError(
-      message.includes('not found') ? 'E_NOT_FOUND' : 'E_NOT_INITIALIZED',
-      message,
-    );
+    if (err instanceof CleoError) {
+      const stringCode = `E_${getExitCodeName(err.code)}`;
+      return engineError(stringCode, err.message, {
+        ...(err.fix && { fix: err.fix }),
+      });
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_GENERAL', message);
   }
 }
 

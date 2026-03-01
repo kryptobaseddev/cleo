@@ -734,10 +734,13 @@ describe('Section 2: Session domain parity (T4796)', () => {
   // -------------------------------------------------------------------------
 
   describe('session.list', () => {
-    const LIST_DATA = [
-      { id: 'session_abc', status: 'active', name: 'Sprint 1' },
-      { id: 'session_def', status: 'ended', name: 'Sprint 0' },
-    ];
+    const LIST_DATA = {
+      sessions: [
+        { id: 'session_abc', status: 'active', name: 'Sprint 1' },
+        { id: 'session_def', status: 'ended', name: 'Sprint 0' },
+      ],
+      _meta: { truncated: false, total: 2 },
+    };
 
     beforeEach(() => {
       vi.mocked(sessionList).mockResolvedValue({
