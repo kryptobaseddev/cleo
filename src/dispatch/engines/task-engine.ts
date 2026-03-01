@@ -45,6 +45,8 @@ import {
   coreTaskReopen,
   coreTaskComplexityEstimate,
   coreTaskDepends,
+  coreTaskDepsOverview,
+  coreTaskDepsCycles,
   coreTaskStats,
   coreTaskExport,
   coreTaskHistory,
@@ -864,15 +866,21 @@ export async function taskComplexityEstimate(
 export async function taskDepends(
   projectRoot: string,
   taskId: string,
-  direction: 'upstream' | 'downstream' | 'both' = 'both'
+  direction: 'upstream' | 'downstream' | 'both' = 'both',
+  tree?: boolean,
 ): Promise<EngineResult<{
   taskId: string;
   direction: string;
   upstream: Array<{ id: string; title: string; status: string }>;
   downstream: Array<{ id: string; title: string; status: string }>;
+  unresolvedChain: number;
+  leafBlockers: Array<{ id: string; title: string; status: string }>;
+  allDepsReady: boolean;
+  hint?: string;
+  upstreamTree?: TaskTreeNode[];
 }>> {
   try {
-    const result = await coreTaskDepends(projectRoot, taskId, direction);
+    const result = await coreTaskDepends(projectRoot, taskId, direction, tree ? { tree } : undefined);
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -880,6 +888,47 @@ export async function taskDepends(
       return engineError('E_NOT_FOUND', message);
     }
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * Overview of all dependencies across the project.
+ * @task T5157
+ */
+export async function taskDepsOverview(
+  projectRoot: string,
+): Promise<EngineResult<{
+  totalTasks: number;
+  tasksWithDeps: number;
+  blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
+  readyTasks: Array<{ id: string; title: string; status: string }>;
+  validation: { valid: boolean; errorCount: number; warningCount: number };
+}>> {
+  try {
+    const result = await coreTaskDepsOverview(projectRoot);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_NOT_INITIALIZED', message);
+  }
+}
+
+/**
+ * Detect circular dependencies across the project.
+ * @task T5157
+ */
+export async function taskDepsCycles(
+  projectRoot: string,
+): Promise<EngineResult<{
+  hasCycles: boolean;
+  cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
+}>> {
+  try {
+    const result = await coreTaskDepsCycles(projectRoot);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_NOT_INITIALIZED', message);
   }
 }
 
