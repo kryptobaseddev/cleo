@@ -1,3 +1,10 @@
+---
+epic: T4799
+stage: research
+task: T4799
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4799: Lifecycle Implementation Audit -- Compatibility Matrix
 
 **Task:** T4799 -- Audit and document the 3 RCSD lifecycle implementations end-to-end

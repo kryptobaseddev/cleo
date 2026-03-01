@@ -1,3 +1,10 @@
+---
+epic: T4859
+stage: research
+task: T4859
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4859: Protocol Output Validation Architecture — Design Document
 
 **Task:** T4859 — Design: Protocol output validation flow — programmatic triggers and storage decision

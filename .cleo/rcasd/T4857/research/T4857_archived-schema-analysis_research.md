@@ -1,3 +1,10 @@
+---
+epic: T4857
+stage: research
+task: T4857
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4857: Archived RCSD Schema Deep Analysis — Research Document
 
 **Task:** T4857 — Research: Analyze the 4 archived RCSD output schemas and their protocol relationships

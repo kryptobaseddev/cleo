@@ -1,3 +1,10 @@
+---
+epic: T4767
+stage: research
+task: T4767
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4767: Graph-RAG, Graph Ops, and Nexus Audit
 
 **Date**: 2026-02-27
