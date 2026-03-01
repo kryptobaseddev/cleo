@@ -18,7 +18,6 @@ import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { OPERATIONS } from '../registry.js';
 
-const logger = getLogger('domain:admin');
 import { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs, findAdrs } from '../../core/adrs/index.js';
 import {
   systemDash,
@@ -450,7 +449,7 @@ export class AdminHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error({ gateway, domain, operation, err: error }, message);
+    getLogger('domain:admin').error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,

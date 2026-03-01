@@ -510,8 +510,10 @@ function validateTasksParams(
       }
       break;
 
-    case 'relates.add':
-      if (!params?.taskId || !params?.targetId || !params?.type || !params?.reason) {
+    case 'relates.add': {
+      // Accept both targetId and relatedId for the second task (T5149)
+      const hasTarget = !!(params?.targetId || params?.relatedId);
+      if (!params?.taskId || !hasTarget || !params?.type) {
         return {
           valid: false,
           error: {
@@ -527,13 +529,14 @@ function validateTasksParams(
             error: {
               code: 'E_VALIDATION_FAILED',
               exitCode: 6,
-              message: 'Missing required parameters: taskId, targetId, type, and reason',
-              fix: 'Provide taskId, targetId, type, and reason parameters',
+              message: 'Missing required parameters: taskId, targetId (or relatedId), and type',
+              fix: 'Provide taskId, targetId (or relatedId), and type parameters',
             },
           },
         };
       }
       break;
+    }
   }
 
   return { valid: true };

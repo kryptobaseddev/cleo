@@ -1158,7 +1158,9 @@ export async function coreTaskDepsCycles(
     if (cycle.length > 0) {
       cycles.push({
         path: cycle,
-        tasks: cycle.filter((id, i) => i < cycle.length - 1).map((id) => {
+        // Deduplicate: detectCircularDeps returns [A,B,C,A] where
+        // last element closes the cycle. Use Set for robustness.
+        tasks: [...new Set(cycle)].map((id) => {
           const t = taskMap.get(id);
           return { id, title: t?.title ?? 'unknown' };
         }),

@@ -11,7 +11,6 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getLogger } from '../../core/logger.js';
 
-const logger = getLogger('domain:nexus');
 
 // ---------------------------------------------------------------------------
 // NexusHandler
@@ -20,7 +19,7 @@ const logger = getLogger('domain:nexus');
 export class NexusHandler implements DomainHandler {
   async query(operation: string, _params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
-    logger.warn({ operation }, `Nexus domain not yet implemented: ${operation}`);
+    getLogger('domain:nexus').warn({ operation }, `Nexus domain not yet implemented: ${operation}`);
     return {
       _meta: dispatchMeta('query', 'nexus', operation, startTime),
       success: false,
@@ -30,7 +29,7 @@ export class NexusHandler implements DomainHandler {
 
   async mutate(operation: string, _params?: Record<string, unknown>): Promise<DispatchResponse> {
     const startTime = Date.now();
-    logger.warn({ operation }, `Nexus domain not yet implemented: ${operation}`);
+    getLogger('domain:nexus').warn({ operation }, `Nexus domain not yet implemented: ${operation}`);
     return {
       _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
       success: false,
