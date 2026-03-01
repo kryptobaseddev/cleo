@@ -1,0 +1,17 @@
+{
+  "taskId": "T3951",
+  "status": {
+    "research": {
+      "state": "completed",
+      "completedAt": "2026-02-09T22:24:35Z"
+    },
+    "consensus": {
+      "state": "completed",
+      "completedAt": "2026-02-09T22:24:44Z"
+    },
+    "specification": {
+      "state": "completed",
+      "completedAt": "2026-02-09T22:31:02Z"
+    }
+  }
+}

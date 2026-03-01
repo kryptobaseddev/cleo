@@ -1,2 +1,0 @@
-{"timestamp":"2026-01-23T02:59:49Z","status":"pass","agent_id":"test-agent-123","agent_type":"Explore","message":"Subagent completed with 0 violations","details":{"agent_type":"Explore","tokens":0,"tool_calls":0,"errors":0,"violations":[""]}}}
-{"timestamp":"2026-01-23T03:20:18Z","status":"pass","agent_id":"a50b5b6","agent_type":"unknown","message":"Subagent completed with 0 violations","details":{"agent_type":"unknown","tokens":0,"input_tokens":0,"output_tokens":0,"tool_calls":0,"errors":0,"context_utilization":0.7813,"token_utilization_rate":0,"violations":[""]}}}

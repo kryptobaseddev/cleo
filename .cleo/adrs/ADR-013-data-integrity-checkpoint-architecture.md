@@ -1,10 +1,10 @@
 # ADR-013: Data Integrity & Checkpoint Architecture
 
 **Date**: 2026-02-25
-**Status**: proposed
+**Status**: accepted
 **Gate**: HITL
-**Gate Status**: pending
-**Related Tasks**: T4867, T4868, T4869
+**Gate Status**: approved
+**Related Tasks**: T4867, T4868, T4869, T5158
 **Related ADRs**: ADR-006, ADR-010
 **Summary**: Addresses two critical bugs in git-checkpoint.ts that pollute the project git history. Proposes isolating .cleo/ checkpoint commits to a dedicated git worktree or orphan branch to prevent history contamination.
 **Keywords**: git, checkpoint, data-integrity, atomic, backup, isolation, git-history
@@ -150,3 +150,19 @@ All files modified by this decision, mapped to implementation tasks:
 ## 7. HITL Gate
 
 The Orchestrator MUST present this ADR to the human operator and await explicit approval before spawning Wave 1 implementation agents (T4871, T4872, T4873/T4874). No implementation work may proceed until the human confirms the architectural decision.
+
+---
+
+## 8. Implementation Notes
+
+### 2026-03-01 — Safety guards applied (T5158)
+
+After two data loss incidents caused by git tracking `.cleo/tasks.db`, the following multi-layer defense was implemented:
+
+1. **Pre-commit hook** (`.cleo/templates/git-hooks/pre-commit`): Added guard 0 that rejects any staged `.cleo/*.db*` files with a clear error message and `git rm --cached` fix suggestion. This is the primary prevention layer.
+
+2. **Runtime detection** (`src/store/sqlite.ts`): On first database open, checks via `git ls-files --error-unmatch` whether `tasks.db` is tracked by the project git repo. If tracked, emits a Pino warning with remediation instructions. Runs once per process via module-level flag.
+
+3. **ADR status**: Updated from "proposed" to "accepted".
+
+4. **Init wiring** (`src/core/init.ts`): Already handled — `initGitHooks()` installs both `commit-msg` and `pre-commit` hooks from `.cleo/templates/git-hooks/`.
