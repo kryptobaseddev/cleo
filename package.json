@@ -56,7 +56,7 @@
     "packages/ct-skills",
     "schemas",
     "templates",
-    "skills",
+    "packages/ct-skills/skills",
     "completions",
     "server.json"
   ],
