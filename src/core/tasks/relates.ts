@@ -4,22 +4,12 @@
  * @epic T4454
  */
 
-import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
-import { getTaskPath, getBackupDir } from '../paths.js';
+import { readJsonRequired } from '../../store/json.js';
+import { getTaskPath } from '../paths.js';
 import type { TaskFile } from '../../types/task.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import {
-  safeSaveTaskFile,
-} from '../../store/data-safety-central.js';
-
-interface Relation {
-  targetId: string;
-  type: string;
-  reason: string;
-  addedAt: string;
-}
 
 /** Suggest related tasks based on shared attributes. */
 export async function suggestRelated(
@@ -88,10 +78,9 @@ export async function addRelation(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<Record<string, unknown>> {
-  const taskPath = getTaskPath(cwd);
   const data = accessor
     ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
 
   const fromTask = data.tasks.find(t => t.id === from);
   if (!fromTask) {
@@ -103,26 +92,13 @@ export async function addRelation(
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${to} not found`);
   }
 
-  // The 'relates' field is an extension not in the base Task type
-  const taskAny = fromTask as unknown as Record<string, unknown>;
-  if (!taskAny.relates) {
-    taskAny.relates = [];
-  }
-
-  const relates = taskAny.relates as Relation[];
-  relates.push({
-    targetId: to,
-    type,
-    reason,
-    addedAt: new Date().toISOString(),
-  });
-
-  data.lastUpdated = new Date().toISOString();
-  data._meta.checksum = computeChecksum(data.tasks);
-  if (accessor) {
-    await safeSaveTaskFile(accessor, data, cwd);
+  // Persist to task_relations table via accessor (T5168 fix)
+  if (accessor?.addRelation) {
+    await accessor.addRelation(from, to, type, reason);
   } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
+    // Fallback: use task-store direct write for non-accessor path
+    const { addRelation: storeAddRelation } = await import('../../store/task-store.js');
+    await storeAddRelation(from, to, type as 'related', cwd, reason);
   }
 
   return { from, to, type, reason, added: true };
@@ -151,8 +127,8 @@ export async function listRelations(
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   }
 
-  const taskAny = task as unknown as Record<string, unknown>;
-  const relates = (taskAny.relates as Relation[]) ?? [];
+  // task.relates is populated from task_relations table by loadRelationsForTasks
+  const relates = task.relates ?? [];
   return {
     taskId,
     relations: relates,

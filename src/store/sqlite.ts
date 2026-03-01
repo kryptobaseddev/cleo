@@ -15,7 +15,7 @@
  * @task T4810 - Data loss prevention guards
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, unlinkSync, renameSync } from 'node:fs';
 // Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
 // Use createRequire as the runtime loader; keep type-only import for annotations.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
@@ -34,6 +34,7 @@ import * as schema from './schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
 import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
 import { getLogger } from '../core/logger.js';
+import { listSqliteBackups } from './sqlite-backup.js';
 
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
@@ -56,6 +57,118 @@ let _gitTrackingChecked = false;
  */
 export function getDbPath(cwd?: string): string {
   return join(getCleoDirAbsolute(cwd), DB_FILENAME);
+}
+
+/**
+ * Minimum task count in a backup to consider it a valid recovery source.
+ * Prevents restoring from a backup that's also empty or nearly empty.
+ * @task T5188
+ */
+const MIN_BACKUP_TASK_COUNT = 10;
+
+/**
+ * Auto-recover from backup if the database has tables but zero tasks
+ * and a backup with data exists.
+ *
+ * Root cause (T5188): WAL/SHM files were tracked by git. On branch switch,
+ * git overwrites the WAL with an empty (committed) version, discarding all
+ * pending WAL writes. The main DB file (which may not have been checkpointed)
+ * appears empty because all recent writes were in the WAL.
+ *
+ * This function runs after migrations (so tables exist) and before the
+ * singleton is set. It checks if the tasks table is empty and a VACUUM INTO
+ * backup exists with real data. If so, it closes the current connection,
+ * replaces the DB file from backup, and re-opens.
+ *
+ * @task T5188
+ */
+async function autoRecoverFromBackup(
+  nativeDb: DatabaseSync,
+  dbPath: string,
+  cwd: string | undefined,
+): Promise<void> {
+  const log = getLogger('sqlite');
+
+  try {
+    // Count tasks in current database
+    const countResult = nativeDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as { cnt: number } | undefined;
+    const taskCount = countResult?.cnt ?? 0;
+
+    if (taskCount > 0) return; // Database has data, no recovery needed
+
+    // Database is empty — check for backups
+    const backups = listSqliteBackups(cwd);
+    if (backups.length === 0) {
+      // No backups available — this is a genuinely new database
+      return;
+    }
+
+    // Check the newest backup for task count
+    const newestBackup = backups[0]!;
+
+    // Open backup read-only to verify it has data
+    const backupDb = new DatabaseSync(newestBackup.path, { readOnly: true });
+    let backupTaskCount = 0;
+    try {
+      const backupCount = backupDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get() as { cnt: number } | undefined;
+      backupTaskCount = backupCount?.cnt ?? 0;
+    } finally {
+      backupDb.close();
+    }
+
+    if (backupTaskCount < MIN_BACKUP_TASK_COUNT) {
+      // Backup also has very few tasks — not a reliable recovery source
+      return;
+    }
+
+    // We have an empty database AND a backup with data — auto-recover
+    log.warn(
+      { dbPath, backupPath: newestBackup.path, backupTasks: backupTaskCount },
+      `Empty database detected with ${backupTaskCount}-task backup available. ` +
+      'Auto-recovering from backup. This likely happened because git-tracked ' +
+      'WAL/SHM files were overwritten during a branch switch (T5188).',
+    );
+
+    // Close current connection
+    nativeDb.close();
+
+    // Remove stale WAL/SHM files that may have been corrupted by git
+    const walPath = dbPath + '-wal';
+    const shmPath = dbPath + '-shm';
+    try { unlinkSync(walPath); } catch { /* may not exist */ }
+    try { unlinkSync(shmPath); } catch { /* may not exist */ }
+
+    // Restore from backup (atomic: copy to temp, rename)
+    const tempPath = dbPath + '.recovery-tmp';
+    copyFileSync(newestBackup.path, tempPath);
+
+    // Rename in place — on the same filesystem this is atomic
+    renameSync(tempPath, dbPath);
+
+    log.info(
+      { dbPath, backupPath: newestBackup.path, restoredTasks: backupTaskCount },
+      'Database auto-recovered from backup successfully.',
+    );
+
+    // Re-open the restored database — update the native singleton
+    const restoredNativeDb = openNativeDatabase(dbPath);
+    _nativeDb = restoredNativeDb;
+
+    // Re-run migrations on restored DB to ensure schema is current
+    const callback = createDrizzleCallback(restoredNativeDb);
+    const batchCb = createBatchCallback(restoredNativeDb);
+    const restoredDb = drizzle(callback, batchCb, { schema });
+    await runMigrations(restoredNativeDb, restoredDb);
+
+    // Update the singleton drizzle instance
+    _db = restoredDb;
+  } catch (err) {
+    // Auto-recovery failure is non-fatal — log and continue with empty DB
+    log.error(
+      { err, dbPath },
+      'Auto-recovery from backup failed. Continuing with empty database.',
+    );
+  }
 }
 
 /**
@@ -106,23 +219,39 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
       `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('task_id_sequence', '{"counter":0,"lastId":"T000","checksum":"seed"}')`,
     );
 
-    // Check if tasks.db is dangerously tracked by git (ADR-013, T5158)
+    // Auto-recovery: detect empty database with available backups (T5188)
+    // Root cause: git-tracked WAL/SHM files get overwritten on branch switch,
+    // causing data loss when the WAL contained uncommitted writes.
+    await autoRecoverFromBackup(nativeDb, dbPath, cwd);
+
+    // Check if tasks.db or its WAL/SHM are dangerously tracked by git (ADR-013, T5158, T5188)
     if (!_gitTrackingChecked) {
       _gitTrackingChecked = true;
       try {
         const { execFileSync } = await import('node:child_process');
-        execFileSync('git', ['ls-files', '--error-unmatch', dbPath], {
-          cwd: resolve(dbPath, '..', '..'),
-          stdio: 'pipe',
-        });
-        // If we get here, the file IS tracked — that's dangerous
+        const gitCwd = resolve(dbPath, '..', '..');
+        const filesToCheck = [dbPath, dbPath + '-wal', dbPath + '-shm'];
         const log = getLogger('sqlite');
-        log.warn(
-          { dbPath },
-          'tasks.db is tracked by project git — this risks data loss on git operations. Run: git rm --cached .cleo/tasks.db (see ADR-013)',
-        );
+
+        for (const fileToCheck of filesToCheck) {
+          try {
+            execFileSync('git', ['ls-files', '--error-unmatch', fileToCheck], {
+              cwd: gitCwd,
+              stdio: 'pipe',
+            });
+            // If we get here, the file IS tracked — that's dangerous
+            const basename = fileToCheck.split('/').pop();
+            log.warn(
+              { path: fileToCheck },
+              `${basename} is tracked by project git — this risks data loss on branch switch. ` +
+              `Run: git rm --cached ${fileToCheck.replace(gitCwd + '/', '')} (see ADR-013, T5188)`,
+            );
+          } catch {
+            // Exit code 1 = not tracked = good
+          }
+        }
       } catch {
-        // Exit code 1 = not tracked = good, do nothing
+        // git not available, skip check
       }
     }
 
