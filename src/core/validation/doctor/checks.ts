@@ -254,112 +254,6 @@ export function checkAgentsMdHub(
 }
 
 // ============================================================================
-// Check: Stale AGENT-INJECTION.md template
-// ============================================================================
-
-/**
- * Warn if the legacy .cleo/templates/AGENT-INJECTION.md file still exists.
- * This file is no longer needed — AGENTS.md is the injection hub now.
- */
-export function checkStaleAgentInjection(
-  projectRoot?: string,
-): CheckResult {
-  const root = projectRoot ?? process.cwd();
-  const stalePath = join(root, '.cleo', 'templates', 'AGENT-INJECTION.md');
-
-  if (existsSync(stalePath)) {
-    return {
-      id: 'stale_agent_injection',
-      category: 'configuration',
-      status: 'warning',
-      message: 'Stale .cleo/templates/AGENT-INJECTION.md found (no longer needed)',
-      details: { path: stalePath, exists: true },
-      fix: `rm ${stalePath}`,
-    };
-  }
-
-  return {
-    id: 'stale_agent_injection',
-    category: 'configuration',
-    status: 'passed',
-    message: 'No stale AGENT-INJECTION.md template found',
-    details: { exists: false },
-    fix: null,
-  };
-}
-
-// ============================================================================
-// Check: Injection pattern in CLAUDE.md
-// ============================================================================
-
-/**
- * Check that CLAUDE.md references @AGENTS.md instead of the old
- * @.cleo/templates/AGENT-INJECTION.md pattern.
- */
-export function checkInjectionPattern(
-  projectRoot?: string,
-): CheckResult {
-  const root = projectRoot ?? process.cwd();
-  const claudeMdPath = join(root, 'CLAUDE.md');
-
-  if (!existsSync(claudeMdPath)) {
-    return {
-      id: 'injection_pattern',
-      category: 'configuration',
-      status: 'info',
-      message: 'CLAUDE.md not found (skipping injection pattern check)',
-      details: { path: claudeMdPath, exists: false },
-      fix: null,
-    };
-  }
-
-  let content: string;
-  try {
-    content = readFileSync(claudeMdPath, 'utf-8');
-  } catch {
-    return {
-      id: 'injection_pattern',
-      category: 'configuration',
-      status: 'warning',
-      message: 'CLAUDE.md exists but is not readable',
-      details: { path: claudeMdPath, readable: false },
-      fix: `chmod +r ${claudeMdPath}`,
-    };
-  }
-
-  if (content.includes('@.cleo/templates/AGENT-INJECTION.md')) {
-    return {
-      id: 'injection_pattern',
-      category: 'configuration',
-      status: 'warning',
-      message: 'CLAUDE.md uses legacy @.cleo/templates/AGENT-INJECTION.md pattern',
-      details: { path: claudeMdPath, pattern: 'legacy' },
-      fix: 'cleo init --update-docs',
-    };
-  }
-
-  if (content.includes('@AGENTS.md') || content.includes('CAAMP:START')) {
-    return {
-      id: 'injection_pattern',
-      category: 'configuration',
-      status: 'passed',
-      message: 'CLAUDE.md uses @AGENTS.md injection pattern',
-      details: { path: claudeMdPath, pattern: 'current' },
-      fix: null,
-    };
-  }
-
-  return {
-    id: 'injection_pattern',
-    category: 'configuration',
-    status: 'info',
-    message: 'CLAUDE.md has no CLEO injection (may be manually managed)',
-    details: { path: claudeMdPath, pattern: 'none' },
-    fix: null,
-  };
-}
-
-// ============================================================================
 // Check: Root .gitignore blocking .cleo/
 // ============================================================================
 
@@ -1178,8 +1072,6 @@ export function runAllGlobalChecks(
     checkDocsAccessibility(home),
     checkAtReferenceResolution(home),
     checkAgentsMdHub(projectRoot),
-    checkStaleAgentInjection(projectRoot),
-    checkInjectionPattern(projectRoot),
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
     checkVitalFilesTracked(projectRoot),
