@@ -26,7 +26,7 @@ import { completeTask as coreCompleteTask } from '../../core/tasks/complete.js';
 import { deleteTask as coreDeleteTask } from '../../core/tasks/delete.js';
 import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
 import { showTask as coreShowTask } from '../../core/tasks/show.js';
-import { listTasks as coreListTasks } from '../../core/tasks/list.js';
+import { listTasks as coreListTasks, toCompact, type CompactTask } from '../../core/tasks/list.js';
 import { findTasks as coreFindTasks } from '../../core/tasks/find.js';
 // Non-CRUD core operations
 import {
@@ -133,6 +133,9 @@ export interface MinimalTaskRecord {
   parentId?: string | null;
 }
 
+// Re-export CompactTask from core for consumers
+export type { CompactTask } from '../../core/tasks/list.js';
+
 // EngineResult imported from ./_error.js (canonical source)
 export type { EngineResult } from './_error.js';
 
@@ -180,8 +183,9 @@ export async function taskList(
     parent?: string;
     status?: string;
     limit?: number;
+    compact?: boolean;
   }
-): Promise<EngineResult<{ tasks: TaskRecord[]; total: number }>> {
+): Promise<EngineResult<{ tasks: TaskRecord[] | CompactTask[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreListTasks({
@@ -189,6 +193,9 @@ export async function taskList(
       status: params?.status as import('../../types/task.js').TaskStatus | undefined,
       limit: params?.limit,
     }, projectRoot, accessor);
+    if (params?.compact) {
+      return { success: true, data: { tasks: result.tasks.map(t => toCompact(t)), total: result.total } };
+    }
     return { success: true, data: { tasks: tasksToRecords(result.tasks), total: result.total } };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -203,13 +210,25 @@ export async function taskList(
 export async function taskFind(
   projectRoot: string,
   query: string,
-  limit?: number
+  limit?: number,
+  options?: {
+    id?: string;
+    exact?: boolean;
+    status?: string;
+    includeArchive?: boolean;
+    offset?: number;
+  }
 ): Promise<EngineResult<{ results: MinimalTaskRecord[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const findResult = await coreFindTasks({
       query,
+      id: options?.id,
+      exact: options?.exact,
+      status: options?.status as import('../../types/task.js').TaskStatus | undefined,
+      includeArchive: options?.includeArchive,
       limit: limit ?? 20,
+      offset: options?.offset,
     }, projectRoot, accessor);
 
     const results: MinimalTaskRecord[] = findResult.results.map((r) => ({

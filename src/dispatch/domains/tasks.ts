@@ -82,16 +82,27 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'list': {
-          const result = await taskList(this.projectRoot, params as { parent?: string; status?: string; limit?: number });
+          const result = await taskList(this.projectRoot, {
+            parent: params?.parent as string | undefined,
+            status: params?.status as string | undefined,
+            limit: params?.limit as number | undefined,
+            compact: params?.compact as boolean | undefined,
+          });
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'find': {
-          // taskFind(projectRoot, query, limit) — simple string query, not an options object
           const result = await taskFind(
             this.projectRoot,
             params?.query as string,
             params?.limit as number | undefined,
+            {
+              id: params?.id as string | undefined,
+              exact: params?.exact as boolean | undefined,
+              status: params?.status as string | undefined,
+              includeArchive: params?.includeArchive as boolean | undefined,
+              offset: params?.offset as number | undefined,
+            },
           );
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }

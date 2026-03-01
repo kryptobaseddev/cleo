@@ -152,6 +152,16 @@ export class AdminHandler implements DomainHandler {
         case 'help': {
           const tier = typeof params?.tier === 'number' ? params.tier : 0;
           const ops = OPERATIONS.filter(op => op.tier <= tier);
+
+          const getCostHint = (domain: string, op: string): 'minimal' | 'moderate' | 'heavy' => {
+            const key = `${domain}.${op}`;
+            const heavyOps = ['tasks.list', 'tasks.tree', 'admin.log', 'admin.stats', 'tasks.analyze'];
+            const moderateOps = ['tasks.show', 'tasks.blockers', 'tasks.depends', 'admin.health', 'admin.dash', 'admin.help'];
+            if (heavyOps.includes(key)) return 'heavy';
+            if (moderateOps.includes(key)) return 'moderate';
+            return 'minimal';
+          };
+
           const tierGuidance: Record<number, string> = {
             0: 'Tier 0: Core task and session operations (tasks, session, admin). 80% of use cases.',
             1: 'Tier 1: + memory/research and check/validate operations. 15% of use cases.',
@@ -163,15 +173,23 @@ export class AdminHandler implements DomainHandler {
             data: {
               tier,
               operationCount: ops.length,
+              quickStart: tier === 0 ? [
+                'cleo_query tasks.current \u2014 check active task (~100 tokens)',
+                'cleo_query tasks.next \u2014 get suggestion (~300 tokens)',
+                'cleo_query tasks.find {query} \u2014 search tasks (~200 tokens)',
+                'cleo_mutate tasks.start {taskId} \u2014 begin work (~100 tokens)',
+                'cleo_mutate tasks.complete {taskId} \u2014 finish task (~200 tokens)',
+              ] : undefined,
               operations: ops.map(op => ({
                 gateway: op.gateway,
                 domain: op.domain,
                 operation: op.operation,
                 description: op.description,
+                costHint: getCostHint(op.domain, op.operation),
               })),
               guidance: tierGuidance[tier] ?? tierGuidance[0],
               escalation: tier < 2
-                ? `For more operations: ct ops --tier ${tier + 1} or cleo_query({domain:"admin",operation:"help",params:{tier:${tier + 1}}})`
+                ? `For more operations: cleo_query({domain:"admin",operation:"help",params:{tier:${tier + 1}}})`
                 : 'Full operation set displayed.',
             },
           };
