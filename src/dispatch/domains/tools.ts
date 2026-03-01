@@ -18,7 +18,6 @@ import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 
-const logger = getLogger('domain:tools');
 import {
   parseIssueTemplates,
   getTemplateForSubcommand,
@@ -660,7 +659,7 @@ export class ToolsHandler implements DomainHandler {
     startTime: number,
   ): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error({ gateway, domain, operation, err: error }, message);
+    getLogger('domain:tools').error({ gateway, domain, operation, err: error }, message);
     return this.errorResponse(
       gateway, domain, operation,
       'E_INTERNAL_ERROR',

@@ -16,7 +16,6 @@ import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { bindSession, unbindSession } from '../context/session-context.js';
 
-const logger = getLogger('domain:session');
 import {
   sessionStatus,
   sessionList,
@@ -190,7 +189,7 @@ export class SessionHandler implements DomainHandler {
               });
             } catch {
               // Already bound — log and continue (session was still created)
-              logger.warn({ sessionId: session.id }, 'Session context already bound, skipping bindSession');
+              getLogger('domain:session').warn({ sessionId: session.id }, 'Session context already bound, skipping bindSession');
             }
           }
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
@@ -337,7 +336,7 @@ export class SessionHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error({ gateway, domain, operation, err: error }, message);
+    getLogger('domain:session').error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,

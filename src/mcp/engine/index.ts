@@ -12,6 +12,7 @@ export { type EngineResult, engineError, engineSuccess } from '../../dispatch/en
 // Store: atomic file I/O, locking, backup rotation
 export {
   readJsonFile,
+  readLogFileEntries,
   writeJsonFileAtomic,
   withLock,
   withFileLock,
@@ -20,7 +21,7 @@ export {
   resolveProjectRoot,
   getDataPath,
   listBackups,
-} from './store.js';
+} from '../../store/file-utils.js';
 
 // Schema validation (Ajv-based)
 export {
@@ -30,7 +31,7 @@ export {
   type ValidationResult,
   type ValidationError,
   type SchemaType,
-} from './schema-validator.js';
+} from '../../core/validation/schema-validator.js';
 
 // Anti-hallucination validation rules
 export {
@@ -43,7 +44,7 @@ export {
   validateNewTask,
   hasErrors,
   type RuleViolation,
-} from './validation-rules.js';
+} from '../../core/validation/validation-rules.js';
 
 // Task ID generation
 export {
@@ -52,7 +53,7 @@ export {
   collectAllIds,
   findHighestId,
   isValidTaskId,
-} from './id-generator.js';
+} from '../../core/tasks/id-generator.js';
 
 // Task engine (CRUD operations) — delegated to dispatch engine (T5100)
 export {
@@ -80,6 +81,8 @@ export {
   taskRelatesAdd,
   taskComplexityEstimate,
   taskDepends,
+  taskDepsOverview,
+  taskDepsCycles,
   taskStats,
   taskExport,
   taskHistory,
@@ -211,7 +214,7 @@ export {
   caampBuildServerConfig,
   caampGenerateInjectionContent,
   caampGetInstructionFiles,
-} from './caamp-adapter.js';
+} from '../../core/caamp/adapter.js';
 
 // Template parser engine
 export {
