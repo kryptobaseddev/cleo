@@ -25,15 +25,7 @@ import {
   markReleasePushed,
   type ReleaseTaskRecord,
 } from '../../core/release/release-manifest.js';
-
-/**
- * Engine result type
- */
-interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string; details?: unknown };
-}
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 /**
  * Load tasks via DataAccessor (SQLite or JSON depending on engine config).
