@@ -59,6 +59,19 @@ Always check `success` and exit code values. Treat non-zero exit code as failure
 
 Agents MUST NOT provide hours/days/week estimates. Use `small`, `medium`, `large` sizing.
 
+## Session Quick Reference
+
+| Goal | Operation | Gateway |
+|------|-----------|---------|
+| Check active session | `session status` | query |
+| Resume context from last session | `session handoff.show` | query |
+| Start working | `session start` (scope required) | mutate |
+| Stop working | `session end` | mutate |
+
+For advanced session ops (find, suspend, resume, debrief, decisions): see `.cleo/agent-outputs/T5124-session-decision-tree.md`
+
+**Budget note**: `session list` defaults to 10 results (~500-2000 tokens). Prefer `session find` for discovery (~200-400 tokens).
+
 ## Escalation
 
 For deeper guidance beyond this minimal protocol:
