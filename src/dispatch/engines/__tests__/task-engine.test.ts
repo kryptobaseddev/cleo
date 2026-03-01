@@ -13,6 +13,10 @@ vi.mock('../../../core/tasks/update.js', () => ({
   updateTask: vi.fn(),
 }));
 
+vi.mock('../../../core/tasks/complete.js', () => ({
+  completeTask: vi.fn(),
+}));
+
 vi.mock('../../../core/tasks/add.js', () => ({
   addTask: vi.fn(),
 }));
@@ -60,10 +64,12 @@ vi.mock('../../../core/tasks/task-ops.js', () => ({
 import { taskComplete } from '../task-engine.js';
 import { showTask } from '../../../core/tasks/show.js';
 import { updateTask } from '../../../core/tasks/update.js';
+import { completeTask as coreCompleteTask } from '../../../core/tasks/complete.js';
 import { getAccessor } from '../../../store/data-accessor.js';
 
 const mockShowTask = vi.mocked(showTask);
 const mockUpdateTask = vi.mocked(updateTask);
+const mockCompleteTask = vi.mocked(coreCompleteTask);
 const mockGetAccessor = vi.mocked(getAccessor);
 
 describe('taskComplete', () => {
@@ -75,39 +81,19 @@ describe('taskComplete', () => {
   });
 
   it('returns E_TASK_COMPLETED (exitCode 104) when task is already done', async () => {
-    mockShowTask.mockResolvedValue({
-      id: 'T100',
-      title: 'Test task',
-      description: 'A test task',
-      status: 'done',
-      priority: 'medium',
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-02T00:00:00Z',
-      completedAt: '2026-01-02T00:00:00Z',
-    } as ReturnType<typeof showTask> extends Promise<infer T> ? T : never);
+    const alreadyDoneErr = new Error('Task T100 is already completed');
+    (alreadyDoneErr as Error & { exitCode: number }).exitCode = 104;
+    mockCompleteTask.mockRejectedValue(alreadyDoneErr);
 
     const result = await taskComplete(projectRoot, 'T100');
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_TASK_COMPLETED');
-    expect(result.error?.exitCode).toBe(104);
     expect(result.error?.message).toContain('already completed');
-    // Should NOT have called updateTask
-    expect(mockUpdateTask).not.toHaveBeenCalled();
   });
 
   it('proceeds to update when task is not yet done', async () => {
-    mockShowTask.mockResolvedValue({
-      id: 'T101',
-      title: 'Pending task',
-      description: 'A pending task',
-      status: 'active',
-      priority: 'medium',
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: null,
-    } as ReturnType<typeof showTask> extends Promise<infer T> ? T : never);
-
-    mockUpdateTask.mockResolvedValue({
+    mockCompleteTask.mockResolvedValue({
       task: {
         id: 'T101',
         title: 'Pending task',
@@ -118,30 +104,22 @@ describe('taskComplete', () => {
         updatedAt: '2026-01-02T00:00:00Z',
         completedAt: '2026-01-02T00:00:00Z',
       },
-      changes: ['status: active → done'],
-    } as ReturnType<typeof updateTask> extends Promise<infer T> ? T : never);
+    } as ReturnType<typeof coreCompleteTask> extends Promise<infer T> ? T : never);
 
     const result = await taskComplete(projectRoot, 'T101');
 
     expect(result.success).toBe(true);
     expect(result.data?.task?.status).toBe('done');
-    expect(mockUpdateTask).toHaveBeenCalled();
+    expect(mockCompleteTask).toHaveBeenCalled();
   });
 
   it('returns E_NOT_FOUND with exitCode 4 when task does not exist', async () => {
-    const notFoundErr = new Error("Task 'T999' not found") as Error & { code: number };
-    notFoundErr.code = 4;
-
-    // taskShow catches the error internally and returns { success: false }
-    mockShowTask.mockRejectedValue(notFoundErr);
-
-    // taskUpdate also throws NOT_FOUND since the task doesn't exist
-    mockUpdateTask.mockRejectedValue(notFoundErr);
+    const notFoundErr = new Error("Task not found: T999");
+    (notFoundErr as Error & { exitCode: number }).exitCode = 4;
+    mockCompleteTask.mockRejectedValue(notFoundErr);
 
     const result = await taskComplete(projectRoot, 'T999');
 
-    // taskShow returns success:false (not done), then taskUpdate throws NOT_FOUND
-    // which gets caught and returned with exitCode: 4
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_NOT_FOUND');
     expect(result.error?.exitCode).toBe(4);

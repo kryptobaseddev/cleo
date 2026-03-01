@@ -20,11 +20,11 @@ ADR-006 established SQLite as the canonical storage engine and listed `config.js
 
 CLEO SHALL maintain exactly three JSON configuration files in the `.cleo/` directory, each with a single, non-overlapping responsibility:
 
-| File | Responsibility |
-|------|---------------|
-| `config.json` | Runtime behavior settings |
-| `project-info.json` | Project metadata and schema version registry |
-| `project-context.json` | LLM agent guidance and framework detection |
+| File                   | Responsibility                               |
+| ---------------------- | -------------------------------------------- |
+| `config.json`          | Runtime behavior settings                    |
+| `project-info.json`    | Project metadata and schema version registry |
+| `project-context.json` | LLM agent guidance and framework detection   |
 
 The following requirements apply:
 
@@ -40,6 +40,7 @@ The following requirements apply:
 **Purpose**: Controls how CLEO behaves at runtime -- output formatting, backup retention, hierarchy limits, session rules, release gates, lifecycle enforcement mode, and storage engine selection.
 
 **Locations**:
+
 - Project: `.cleo/config.json`
 - Global: `~/.cleo/config.json`
 
@@ -47,26 +48,26 @@ The following requirements apply:
 
 **Fields**:
 
-| Key | Type | Purpose |
-|-----|------|---------|
-| `_meta` | object | Schema version, timestamps (`schemaVersion`, `createdAt`, `updatedAt`) |
-| `project` | object | Project name and current phase |
+| Key            | Type   | Purpose                                                                                                              |
+| -------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
+| `_meta`        | object | Schema version, timestamps (`schemaVersion`, `createdAt`, `updatedAt`)                                               |
+| `project`      | object | Project name and current phase                                                                                       |
 | `multiSession` | object | Concurrency controls: `enabled`, `maxConcurrentSessions`, `maxActiveTasksPerScope`, `scopeValidation`, `enforcement` |
-| `retention` | object | Session timeout: `autoEndActiveAfterDays`, `sessionTimeoutWarningHours` |
-| `session` | object | Session enforcement mode (`advisory`/`strict`/`off`), `maxConcurrent` |
-| `release` | object | Release gates, version bump file targets, changelog config |
-| `hierarchy` | object | `maxDepth` (default: 3), `maxSiblings` (default: 7) |
-| `storage` | object | Storage engine selection (`sqlite`) |
-| `version` | string | Config schema version |
+| `retention`    | object | Session timeout: `autoEndActiveAfterDays`, `sessionTimeoutWarningHours`                                              |
+| `session`      | object | Session enforcement mode (`advisory`/`strict`/`off`), `maxConcurrent`                                                |
+| `release`      | object | Release gates, version bump file targets, changelog config                                                           |
+| `hierarchy`    | object | `maxDepth` (default: 3), `maxSiblings` (default: unlimited / `0`)                                                    |
+| `storage`      | object | Storage engine selection (`sqlite`)                                                                                  |
+| `version`      | string | Config schema version                                                                                                |
 
 **Modules**:
 
-| Module | Access | Functions |
-|--------|--------|-----------|
-| `src/core/config.ts` | Read/Write | `loadConfig()`, `getConfigValue()`, `getRawConfig()`, `getRawConfigValue()`, `setConfigValue()`, `parseConfigValue()` |
-| `src/mcp/engine/config-engine.ts` | Read/Write | `configGet()`, `configSet()` (via `src/dispatch/domains/admin.ts`) |
-| `src/core/paths.ts` | Read | Reads `agentOutputs.directory`, `research.outputDir` for path resolution |
-| `src/core/init.ts` | Write | Creates default config during `cleo init` |
+| Module                            | Access     | Functions                                                                                                             |
+| --------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| `src/core/config.ts`              | Read/Write | `loadConfig()`, `getConfigValue()`, `getRawConfig()`, `getRawConfigValue()`, `setConfigValue()`, `parseConfigValue()` |
+| `src/mcp/engine/config-engine.ts` | Read/Write | `configGet()`, `configSet()` (via `src/dispatch/domains/admin.ts`)                                                    |
+| `src/core/paths.ts`               | Read       | Reads `agentOutputs.directory`, `research.outputDir` for path resolution                                              |
+| `src/core/init.ts`                | Write      | Creates default config during `cleo init`                                                                             |
 
 ---
 
@@ -80,28 +81,28 @@ The following requirements apply:
 
 **Fields**:
 
-| Key | Type | Purpose |
-|-----|------|---------|
-| `$schema` | string | JSON Schema reference URI |
-| `schemaVersion` | string | This file's schema version (semver) |
-| `projectHash` | string | 12-char hex SHA-256 prefix of project path; links to global registry |
-| `name` | string | Project name |
-| `registeredAt` | string | ISO 8601 timestamp of first registration |
-| `lastUpdated` | string | ISO 8601 timestamp of last modification |
-| `cleoVersion` | string | CLEO version that last modified this file |
-| `schemas` | object | Version tracking for core data files: `todo`, `config`, `archive`, `log` |
-| `injection` | object | Injection status for `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` (status + timestamp) |
-| `health` | object | `status` (healthy/warning/error/unknown), `lastCheck`, `issues[]` |
-| `features` | object | Feature toggles: `multiSession`, `verification`, `contextAlerts` |
+| Key             | Type   | Purpose                                                                         |
+| --------------- | ------ | ------------------------------------------------------------------------------- |
+| `$schema`       | string | JSON Schema reference URI                                                       |
+| `schemaVersion` | string | This file's schema version (semver)                                             |
+| `projectHash`   | string | 12-char hex SHA-256 prefix of project path; links to global registry            |
+| `name`          | string | Project name                                                                    |
+| `registeredAt`  | string | ISO 8601 timestamp of first registration                                        |
+| `lastUpdated`   | string | ISO 8601 timestamp of last modification                                         |
+| `cleoVersion`   | string | CLEO version that last modified this file                                       |
+| `schemas`       | object | Version tracking for core data files: `todo`, `config`, `archive`, `log`        |
+| `injection`     | object | Injection status for `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` (status + timestamp) |
+| `health`        | object | `status` (healthy/warning/error/unknown), `lastCheck`, `issues[]`               |
+| `features`      | object | Feature toggles: `multiSession`, `verification`, `contextAlerts`                |
 
 **Modules**:
 
-| Module | Access | Functions |
-|--------|--------|-----------|
+| Module                          | Access     | Functions                                                                                                    |
+| ------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
 | `src/store/project-registry.ts` | Read/Write | `getProjectInfo()`, `saveProjectInfo()`, `getProjectData()` (merges global + local), `generateProjectHash()` |
-| `src/core/system/health.ts` | Read/Write | Reads for health checks, writes health status and issues |
-| `src/core/init.ts` | Write | `initProjectInfo()` creates during `cleo init` |
-| `src/core/upgrade.ts` | Read/Write | Updates during version upgrades |
+| `src/core/system/health.ts`     | Read/Write | Reads for health checks, writes health status and issues                                                     |
+| `src/core/init.ts`              | Write      | `initProjectInfo()` creates during `cleo init`                                                               |
+| `src/core/upgrade.ts`           | Read/Write | Updates during version upgrades                                                                              |
 
 **Hybrid Registry Architecture**:
 
@@ -131,38 +132,38 @@ getProjectData() merges both; local takes precedence on conflicts.
 
 **Actual Fields** (as produced by `detectProjectType()`):
 
-| Key | Type | Purpose |
-|-----|------|---------|
-| `type` | string | Detected project type: `node`, `python`, `rust`, `go`, `ruby`, `java`, `dotnet`, `bash`, `unknown` |
-| `testFramework` | string | Detected test framework: `jest`, `vitest`, `mocha`, `pytest`, `bats`, `cargo-test`, `go-test`, `rspec`, `junit`, `unknown` |
-| `hasTypeScript` | boolean | Whether `tsconfig.json` exists |
-| `packageManager` | string | `npm`, `yarn`, `pnpm`, or `bun` (Node.js projects only) |
-| `monorepo` | boolean | Whether monorepo markers exist (`lerna.json`, `pnpm-workspace.yaml`, `packages/`) |
-| `detectedAt` | string | ISO 8601 timestamp of detection |
+| Key              | Type    | Purpose                                                                                                                    |
+| ---------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `type`           | string  | Detected project type: `node`, `python`, `rust`, `go`, `ruby`, `java`, `dotnet`, `bash`, `unknown`                         |
+| `testFramework`  | string  | Detected test framework: `jest`, `vitest`, `mocha`, `pytest`, `bats`, `cargo-test`, `go-test`, `rspec`, `junit`, `unknown` |
+| `hasTypeScript`  | boolean | Whether `tsconfig.json` exists                                                                                             |
+| `packageManager` | string  | `npm`, `yarn`, `pnpm`, or `bun` (Node.js projects only)                                                                    |
+| `monorepo`       | boolean | Whether monorepo markers exist (`lerna.json`, `pnpm-workspace.yaml`, `packages/`)                                          |
+| `detectedAt`     | string  | ISO 8601 timestamp of detection                                                                                            |
 
 **Schema-Defined but Not Yet Populated**:
 
 The schema supports richer fields that `detectProjectType()` does not currently populate:
 
-| Key | Type | Purpose |
-|-----|------|---------|
-| `schemaVersion` | string | Schema version (semver) |
-| `projectTypes` | string[] | All detected project types (multi-language support) |
-| `primaryType` | string | Primary project type |
-| `testing` | object | `framework`, `command`, `testFilePatterns`, `directories` (unit/integration) |
-| `build` | object | `command`, `outputDir` |
-| `directories` | object | `source`, `tests`, `docs` |
-| `conventions` | object | `fileNaming`, `importStyle`, `typeSystem` |
-| `llmHints` | object | `preferredTestStyle`, `typeSystem`, `commonPatterns[]`, `avoidPatterns[]` |
+| Key             | Type     | Purpose                                                                      |
+| --------------- | -------- | ---------------------------------------------------------------------------- |
+| `schemaVersion` | string   | Schema version (semver)                                                      |
+| `projectTypes`  | string[] | All detected project types (multi-language support)                          |
+| `primaryType`   | string   | Primary project type                                                         |
+| `testing`       | object   | `framework`, `command`, `testFilePatterns`, `directories` (unit/integration) |
+| `build`         | object   | `command`, `outputDir`                                                       |
+| `directories`   | object   | `source`, `tests`, `docs`                                                    |
+| `conventions`   | object   | `fileNaming`, `importStyle`, `typeSystem`                                    |
+| `llmHints`      | object   | `preferredTestStyle`, `typeSystem`, `commonPatterns[]`, `avoidPatterns[]`    |
 
 **Modules**:
 
-| Module | Access | Functions |
-|--------|--------|-----------|
-| `src/store/project-detect.ts` | Read (filesystem) | `detectProjectType()` -- examines filesystem markers |
-| `src/core/init.ts` | Write | `initProjectDetect()` -- creates file during `cleo init --detect` |
-| `src/core/upgrade.ts` | Read/Write | 30-day staleness check and refresh during `cleo upgrade` |
-| Agent instruction files | Read (via `@` reference) | `@.cleo/project-context.json` in `~/.cleo/templates/AGENT-INJECTION.md` |
+| Module                        | Access                   | Functions                                                               |
+| ----------------------------- | ------------------------ | ----------------------------------------------------------------------- |
+| `src/store/project-detect.ts` | Read (filesystem)        | `detectProjectType()` -- examines filesystem markers                    |
+| `src/core/init.ts`            | Write                    | `initProjectDetect()` -- creates file during `cleo init --detect`       |
+| `src/core/upgrade.ts`         | Read/Write               | 30-day staleness check and refresh during `cleo upgrade`                |
+| Agent instruction files       | Read (via `@` reference) | `@.cleo/project-context.json` in `~/.cleo/templates/AGENT-INJECTION.md` |
 
 **Detection Logic** (from `src/store/project-detect.ts`):
 
@@ -216,6 +217,7 @@ Bash:       tests/ + install.sh → bats (if tests/unit or tests/integration exi
 ```
 
 Key relationships:
+
 - `project-info.json` tracks the schema version of `config.json` (via `schemas.config`)
 - `project-info.json` does NOT track schema versions for itself or `project-context.json`
 - `config.json` has a cascade resolution (defaults < global < project < env vars); the other two do not
@@ -227,35 +229,35 @@ Key relationships:
 
 All three files are created during `cleo init` (via `src/core/init.ts`):
 
-| File | Init Function | Condition |
-|------|--------------|-----------|
-| `config.json` | `initCoreFiles()` | Always created with defaults |
-| `project-info.json` | `initProjectInfo()` | Always created with project hash, schema versions, empty health |
-| `project-context.json` | `initProjectDetect()` | Only when `--detect` flag is provided |
+| File                   | Init Function         | Condition                                                       |
+| ---------------------- | --------------------- | --------------------------------------------------------------- |
+| `config.json`          | `initCoreFiles()`     | Always created with defaults                                    |
+| `project-info.json`    | `initProjectInfo()`   | Always created with project hash, schema versions, empty health |
+| `project-context.json` | `initProjectDetect()` | Only when `--detect` flag is provided                           |
 
 ### 5.2 Read Paths
 
-| File | Primary Readers |
-|------|----------------|
-| `config.json` | `loadConfig()` (every CLI/MCP operation), path resolution, release gates |
-| `project-info.json` | Health checks (`cleo doctor`), upgrade operations, project registry queries |
-| `project-context.json` | LLM agents (via `@` reference injection at runtime) |
+| File                   | Primary Readers                                                             |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `config.json`          | `loadConfig()` (every CLI/MCP operation), path resolution, release gates    |
+| `project-info.json`    | Health checks (`cleo doctor`), upgrade operations, project registry queries |
+| `project-context.json` | LLM agents (via `@` reference injection at runtime)                         |
 
 ### 5.3 Write Paths
 
-| File | Writers | Trigger |
-|------|---------|---------|
-| `config.json` | `setConfigValue()` | User runs `cleo config set`, MCP `admin.config.set` |
-| `project-info.json` | `saveProjectInfo()` | Health checks, init, upgrade, injection updates |
+| File                   | Writers               | Trigger                                                  |
+| ---------------------- | --------------------- | -------------------------------------------------------- |
+| `config.json`          | `setConfigValue()`    | User runs `cleo config set`, MCP `admin.config.set`      |
+| `project-info.json`    | `saveProjectInfo()`   | Health checks, init, upgrade, injection updates          |
 | `project-context.json` | `initProjectDetect()` | `cleo init --detect`, `cleo upgrade` (staleness refresh) |
 
 ### 5.4 Staleness Detection and Refresh
 
-| File | Staleness Mechanism | Threshold | Trigger |
-|------|-------------------|-----------|---------|
-| `config.json` | None (user-managed) | N/A | User edits intentionally |
-| `project-info.json` | None | N/A | Updated by CLEO operations |
-| `project-context.json` | `detectedAt` timestamp check | 30 days | `cleo upgrade` (see `src/core/upgrade.ts`) |
+| File                   | Staleness Mechanism          | Threshold | Trigger                                    |
+| ---------------------- | ---------------------------- | --------- | ------------------------------------------ |
+| `config.json`          | None (user-managed)          | N/A       | User edits intentionally                   |
+| `project-info.json`    | None                         | N/A       | Updated by CLEO operations                 |
+| `project-context.json` | `detectedAt` timestamp check | 30 days   | `cleo upgrade` (see `src/core/upgrade.ts`) |
 
 The `project-context.json` staleness logic (in `src/core/upgrade.ts`):
 
@@ -275,7 +277,7 @@ The `project-context.json` staleness logic (in `src/core/upgrade.ts`):
 Priority (lowest → highest):
 
 1. DEFAULTS (hardcoded in src/core/config.ts)
-   └─ version: '2.10.0', hierarchy.maxSiblings: 7, lifecycle.mode: 'strict', etc.
+   └─ version: '2.10.0', hierarchy.maxSiblings: 0 (unlimited), lifecycle.mode: 'strict', etc.
 
 2. Global config (~/.cleo/config.json)
    └─ User-wide preferences (e.g., multiSession.enabled, lifecycleEnforcement.mode)
@@ -289,19 +291,19 @@ Priority (lowest → highest):
 
 **Environment Variable Mapping** (from `src/core/config.ts`):
 
-| Environment Variable | Config Path |
-|---------------------|-------------|
-| `CLEO_FORMAT` | `output.defaultFormat` |
-| `CLEO_OUTPUT_DEFAULT_FORMAT` | `output.defaultFormat` |
-| `CLEO_OUTPUT_SHOW_COLOR` | `output.showColor` |
-| `CLEO_OUTPUT_SHOW_UNICODE` | `output.showUnicode` |
+| Environment Variable             | Config Path               |
+| -------------------------------- | ------------------------- |
+| `CLEO_FORMAT`                    | `output.defaultFormat`    |
+| `CLEO_OUTPUT_DEFAULT_FORMAT`     | `output.defaultFormat`    |
+| `CLEO_OUTPUT_SHOW_COLOR`         | `output.showColor`        |
+| `CLEO_OUTPUT_SHOW_UNICODE`       | `output.showUnicode`      |
 | `CLEO_OUTPUT_SHOW_PROGRESS_BARS` | `output.showProgressBars` |
-| `CLEO_OUTPUT_DATE_FORMAT` | `output.dateFormat` |
-| `CLEO_HIERARCHY_MAX_DEPTH` | `hierarchy.maxDepth` |
-| `CLEO_HIERARCHY_MAX_SIBLINGS` | `hierarchy.maxSiblings` |
-| `CLEO_SESSION_AUTO_START` | `session.autoStart` |
-| `CLEO_SESSION_REQUIRE_NOTES` | `session.requireNotes` |
-| `CLEO_LIFECYCLE_MODE` | `lifecycle.mode` |
+| `CLEO_OUTPUT_DATE_FORMAT`        | `output.dateFormat`       |
+| `CLEO_HIERARCHY_MAX_DEPTH`       | `hierarchy.maxDepth`      |
+| `CLEO_HIERARCHY_MAX_SIBLINGS`    | `hierarchy.maxSiblings`   |
+| `CLEO_SESSION_AUTO_START`        | `session.autoStart`       |
+| `CLEO_SESSION_REQUIRE_NOTES`     | `session.requireNotes`    |
+| `CLEO_LIFECYCLE_MODE`            | `lifecycle.mode`          |
 
 Source tracking is available via `getConfigValue<T>()`, which returns `ResolvedValue<T>` containing both the value and which layer provided it (`'default'`, `'global'`, `'project'`, or `'env'`).
 
@@ -327,6 +329,7 @@ CLAUDE.md / AGENTS.md / GEMINI.md
 When an LLM agent loads its instruction file (e.g., CLAUDE.md), the `@` reference chain resolves transitively. The entire JSON content of `project-context.json` is injected verbatim into the agent's context window.
 
 Key behaviors:
+
 - If `project-context.json` does not exist, the `@` reference is silently ignored
 - The file content is injected as raw JSON -- agents parse it contextually
 - This is the ONLY automated mechanism by which agents learn project type, test framework, and conventions
@@ -334,11 +337,11 @@ Key behaviors:
 
 ## 8. Schema Inventory
 
-| File | Schema Path | Schema Version | `$id` Format |
-|------|-------------|---------------|--------------|
-| `config.json` | `.cleo/schemas/config.schema.json` | 2.10.0 (via `version` field) | Local: `claude-todo-config-schema-v2.1` |
-| `project-info.json` | `.cleo/schemas/project-info.schema.json` | 1.0.0 | URI: `https://cleo-dev.com/schemas/v1/project-info.schema.json` |
-| `project-context.json` | `.cleo/schemas/project-context.schema.json` | 1.0.0 | URI: `https://cleo-dev.com/schemas/v1/project-context.schema.json` |
+| File                   | Schema Path                                 | Schema Version               | `$id` Format                                                       |
+| ---------------------- | ------------------------------------------- | ---------------------------- | ------------------------------------------------------------------ |
+| `config.json`          | `.cleo/schemas/config.schema.json`          | 2.10.0 (via `version` field) | Local: `claude-todo-config-schema-v2.1`                            |
+| `project-info.json`    | `.cleo/schemas/project-info.schema.json`    | 1.0.0                        | URI: `https://cleo-dev.com/schemas/v1/project-info.schema.json`    |
+| `project-context.json` | `.cleo/schemas/project-context.schema.json` | 1.0.0                        | URI: `https://cleo-dev.com/schemas/v1/project-context.schema.json` |
 
 Note: `config.schema.json` uses a local-style `$id` while the other two use URI-based `$id`s. This is an inconsistency documented in Section 9.
 

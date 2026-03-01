@@ -66,7 +66,7 @@ describe('getGitignoreTemplate', () => {
   it('returns gitignore content', async () => {
     const { getGitignoreTemplate } = await import('../init.js');
     const template = getGitignoreTemplate();
-    expect(template).toContain('CLEO Project Data');
+    expect(template).toContain('Deny-by-default');
     expect(template).toContain('agent-outputs/');
   });
 });

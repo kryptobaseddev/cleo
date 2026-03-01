@@ -5,6 +5,72 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.2.10] - 2026-02-28
+
+### Major Changes
+
+- **Engine Consolidation** — Relocated all engine adapters from `src/mcp/engine/` to `src/dispatch/engines/`, establishing `src/dispatch/` as the canonical dispatch layer. Deleted the entire `src/mcp/engine/` directory (13 files, ~5,000 lines). MCP barrel re-exports preserved for backward compatibility.
+
+- **RCASD Provenance Consolidation (T5100)** — Full lifecycle provenance system with 6 phases, 17 agents. Migrated `rcsd/` to `rcasd/` naming, added lifecycle provenance columns to schema, created consolidation pipeline with evidence tracking and frontmatter parsing.
+
+- **MVI Tier-Based Projection (T5096)** — Progressive disclosure system with minimal/standard/orchestrator tiers. Session-scope-aware tier resolution (epic scope auto-maps to orchestrator). Projection middleware strips fields by tier. Cost hints in admin help.
+
+- **Tier-Based Protocol Injection (T5155)** — Subagent spawns now receive tier-filtered protocol content. Injection chain doctor checks validate tier marker integrity.
+
+### Features
+
+- Agent-safe dependency enforcement across 5 enforcement points (T5069)
+- Transitive dependency hints in task query responses (T5069)
+- `ensureArray()` for MCP array parameter normalization (T5094)
+- Core log reader library for observability with pino JSONL parsing (T5187)
+- Find filters, list compact projection, and help cost hints (T5073, T5072)
+- Task relations batch loading and `relates` field (T5168)
+- Injection chain doctor checks (T5153)
+- Decision trees and anti-patterns added to ct-cleo skill (T5154)
+- Atomic task ID allocation with collision detection (T5184)
+
+### Bug Fixes
+
+- SQLite WAL mode verification and `BEGIN IMMEDIATE` for migrations (T5173)
+- Retry+backoff for `SQLITE_BUSY` during migrations (T5185)
+- TOCTOU race in task ID generation fixed with atomic allocation (T5184)
+- 4 dispatch-layer bugs resolved (T5148, T5149, T5157, T5168)
+- `addRelation` passthrough added to SafetyDataAccessor (T5168)
+- Stale imports in brain-operations test (T5107, T5108)
+- `taskComplete` wired through core with MCP bootstrap hints (T5069, T5090)
+- MVI tier projection and spawn tier filtering (T5096, T5155)
+
+### Refactoring
+
+- Consolidated task, release, validate, config, and init engines into dispatch layer (T5100, T5109-T5111)
+- Unified `EngineResult` type to single canonical definition (T5093)
+- Fixed layer violations by relocating shared utilities out of `mcp/engine` (T5095)
+- Removed vestigial `AGENT-INJECTION.md` files (T5152)
+- Restructured `CLEO-INJECTION.md` to minimal-only v2.1.0 template (T5100)
+- Removed 236 unused schemas and archived legacy schemas (T5100)
+- Deleted `dev/recover-tasks.ts` and its guardrail test
+- Removed legacy experiment scripts and duplicate specification docs
+
+### Documentation
+
+- Comprehensive documentation audit and Git Flow branching setup (T4556)
+- Architecture references updated for dispatch-first engine layout (T5098)
+- Workspace research added to RCASD provenance (T5164)
+- RCASD lifecycle manifests, kept schemas, and task fields guide (T5164)
+- Sibling limit docs aligned (T4862)
+
+### Tests
+
+- E2E tests for injection chain and tier filtering (T5156)
+- Post-consolidation architectural verification parity tests (T5099)
+- Dispatch-layer parity integration tests
+- Task relations persistence tests (T5168)
+- Spawn tier filtering tests
+- Projection middleware tests
+- Doctor injection chain checks tests (T5153)
+
+---
+
 ## [2026.2.9] - 2026-02-28
 
 ### Bug Fixes

@@ -22,7 +22,6 @@ import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 
-const logger = getLogger('domain:sharing');
 import {
   getSharingStatus,
   syncGitignore,
@@ -261,7 +260,7 @@ export class SharingHandler implements DomainHandler {
 
   private handleError(gateway: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error({ gateway, operation, err: error }, message);
+    getLogger('domain:sharing').error({ gateway, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, 'sharing', operation, startTime),
       success: false,

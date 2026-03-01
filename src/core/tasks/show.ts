@@ -15,6 +15,8 @@ import type { DataAccessor } from '../../store/data-accessor.js';
 export interface TaskDetail extends Task {
   children?: string[];
   dependencyStatus?: Array<{ id: string; status: string; title: string }>;
+  unresolvedDeps?: Array<{ id: string; status: string; title: string }>;
+  dependents?: string[];
   hierarchyPath?: string[];
   isArchived?: boolean;
 }
@@ -82,6 +84,22 @@ export async function showTask(taskId: string, cwd?: string, accessor?: DataAcce
           title: dep?.title ?? 'Unknown task',
         };
       });
+
+      // Add unresolvedDeps: only unresolved dependencies (not done/cancelled)
+      const unresolved = detail.dependencyStatus.filter(
+        d => d.status !== 'done' && d.status !== 'cancelled',
+      );
+      if (unresolved.length > 0) {
+        detail.unresolvedDeps = unresolved;
+      }
+    }
+
+    // Add dependents: tasks that depend on this one
+    const dependents = data.tasks
+      .filter(t => t.depends?.includes(taskId))
+      .map(t => t.id);
+    if (dependents.length > 0) {
+      detail.dependents = dependents;
     }
 
     // Build hierarchy path

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { checkStorageMigration } from '../migration/preflight.js';
-import { checkCleoGitignore, checkVitalFilesTracked, checkLegacyAgentOutputs, checkNodeVersion, type CheckResult } from '../validation/doctor/checks.js';
+import { checkCleoGitignore, checkVitalFilesTracked, checkCoreFilesNotIgnored, checkLegacyAgentOutputs, checkNodeVersion, type CheckResult } from '../validation/doctor/checks.js';
 import { getAccessor } from '../../store/data-accessor.js';
 
 const execAsync = promisify(execFile);
@@ -388,6 +388,7 @@ export async function coreDoctorReport(
   // 5. Gitignore integrity, vital files, legacy paths (delegated to core checks)
   checks.push(mapCheckResult(checkCleoGitignore(projectRoot)));
   checks.push(mapCheckResult(checkVitalFilesTracked(projectRoot)));
+  checks.push(mapCheckResult(checkCoreFilesNotIgnored(projectRoot)));
   checks.push(mapCheckResult(checkLegacyAgentOutputs(projectRoot)));
 
   // 5b. Isolated .cleo/.git checkpoint repo check (T4872)

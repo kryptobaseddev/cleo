@@ -15,7 +15,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { getTaskPath, getAgentOutputsDir } from '../../paths.js';
 import { findSkill, mapSkillName } from '../discovery.js';
-import { injectTokens, type TokenValues } from '../injection/token.js';
+import { type TokenValues } from '../injection/token.js';
+import { injectProtocol } from '../injection/subagent.js';
 import type { Task } from '../../../types/task.js';
 import type { SpawnPromptResult } from '../types.js';
 import { CleoError } from '../../errors.js';
@@ -33,6 +34,7 @@ export function buildPrompt(
   taskId: string,
   templateName: string = 'TASK-EXECUTOR',
   cwd?: string,
+  tier?: 0 | 1 | 2,
 ): SpawnPromptResult {
   const taskPath = getTaskPath(cwd);
 
@@ -120,8 +122,8 @@ export function buildPrompt(
     tokenValues['DEPENDS_LIST'] = task.depends.join(', ');
   }
 
-  // Inject tokens into template
-  const promptContent = injectTokens(skill.content, tokenValues);
+  // Inject tokens and protocol into template
+  const promptContent = injectProtocol(skill.content, taskId, tokenValues, cwd, tier);
 
   return {
     taskId,
@@ -142,8 +144,9 @@ export function spawn(
   taskId: string,
   templateName: string = 'TASK-EXECUTOR',
   cwd?: string,
+  tier?: 0 | 1 | 2,
 ): SpawnPromptResult & { spawnTimestamp: string } {
-  const result = buildPrompt(taskId, templateName, cwd);
+  const result = buildPrompt(taskId, templateName, cwd, tier);
 
   return {
     ...result,
@@ -232,12 +235,13 @@ export function spawnBatch(
   taskIds: string[],
   templateName?: string,
   cwd?: string,
+  tier?: 0 | 1 | 2,
 ): BatchSpawnResult {
   const spawns: BatchSpawnEntry[] = [];
 
   for (const taskId of taskIds) {
     try {
-      const result = spawn(taskId, templateName, cwd);
+      const result = spawn(taskId, templateName, cwd, tier);
       spawns.push({ taskId, success: true, result });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

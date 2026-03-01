@@ -1,0 +1,95 @@
+#!/bin/sh
+# Pre-commit guardrails — four checks:
+#   0. Reject .cleo/*.db* files (data loss on git restore, ADR-013, T5158).
+#   1. Reject SQLite WAL/SHM files (data corruption risk, T4894).
+#   2. Block commits when core CLEO files are gitignored (data integrity).
+#   3. Reject drizzle/ migration directories without snapshot.json (T4792).
+#      Agents must use `drizzle-kit generate`, never hand-write migration SQL.
+
+set -e
+
+# ── 0. CLEO SQLite database files ─────────────────────────────────────────────
+# Committing tasks.db causes data loss when git operations restore stale copies.
+# See ADR-013 and T5158 for the full incident write-up.
+STAGED_DB_FILES=$(git diff --cached --name-only | grep -E '^\.cleo/.*\.db(-shm|-wal|-journal)?$' || true)
+
+if [ -n "$STAGED_DB_FILES" ]; then
+  echo ""
+  echo "ERROR: SQLite database files staged for commit:"
+  echo ""
+  echo "$STAGED_DB_FILES" | sed 's/^/  /'
+  echo ""
+  echo "Committing database files causes data loss when git operations"
+  echo "restore stale copies (ADR-013, T4894, T5158)."
+  echo ""
+  echo "Fix: git rm --cached <file> for each file above"
+  echo ""
+  exit 1
+fi
+
+# ── 1. WAL/SHM/journal files (non-.cleo paths) ────────────────────────────────
+BAD_FILES=$(git diff --cached --name-only | grep -v '^\.cleo/' | grep -E '\.(db-wal|db-shm|db-journal)$' || true)
+
+if [ -n "$BAD_FILES" ]; then
+  echo "ERROR: Refusing to commit SQLite WAL/SHM/journal files:"
+  echo "$BAD_FILES"
+  echo ""
+  echo "These are runtime files that must never be tracked in git."
+  echo "To fix: git rm --cached <file>"
+  exit 1
+fi
+
+# ── 2. Core file gitignore protection ────────────────────────────────────────
+PROTECTED_FILES=".cleo/tasks.db .cleo/config.json .cleo/.gitignore .cleo/project-info.json .cleo/project-context.json"
+IGNORED_CORE=""
+
+for f in $PROTECTED_FILES; do
+  if [ -f "$f" ] && git check-ignore -q "$f" 2>/dev/null; then
+    IGNORED_CORE="$IGNORED_CORE $f"
+  fi
+done
+
+if [ -n "$IGNORED_CORE" ]; then
+  echo "ERROR: Critical CLEO files are being ignored by .gitignore:"
+  echo "$IGNORED_CORE"
+  echo ""
+  echo "These files MUST be tracked by git for CLEO data integrity."
+  echo "Check .gitignore and .cleo/.gitignore for rules ignoring these files."
+  echo "To fix: remove the ignore rule, then: git add <file>"
+  exit 1
+fi
+
+# ── 3. Drizzle migration snapshot enforcement ────────────────────────────────
+# Any new drizzle/ directory added in this commit MUST have a snapshot.json.
+# Agents must run: npx drizzle-kit generate
+# NEVER hand-write migration.sql — drizzle-kit generate creates both files atomically.
+
+STAGED=$(git diff --cached --name-only)
+
+# Extract unique migration subdirectory paths (e.g. drizzle/20260227_foo)
+MIGRATION_DIRS=$(echo "$STAGED" | grep '^drizzle/' | sed 's|^\(drizzle/[^/]*\)/.*|\1|' | sort -u || true)
+
+MISSING_SNAPSHOTS=""
+for dir in $MIGRATION_DIRS; do
+  # Only check directories where migration.sql is staged (new or modified)
+  if echo "$STAGED" | grep -q "^${dir}/migration.sql$"; then
+    if ! echo "$STAGED" | grep -q "^${dir}/snapshot.json$"; then
+      MISSING_SNAPSHOTS="$MISSING_SNAPSHOTS $dir"
+    fi
+  fi
+done
+
+if [ -n "$MISSING_SNAPSHOTS" ]; then
+  echo "ERROR: Drizzle migration directory missing snapshot.json:"
+  for d in $MISSING_SNAPSHOTS; do
+    echo "  $d/"
+  done
+  echo ""
+  echo "Agents must never hand-write migration SQL."
+  echo "Run: npx drizzle-kit generate"
+  echo "This creates both migration.sql AND snapshot.json atomically."
+  echo ""
+  echo "A snapshot.json is required to maintain the migration chain."
+  echo "Without it, the next drizzle-kit generate run will produce incorrect diffs."
+  exit 1
+fi

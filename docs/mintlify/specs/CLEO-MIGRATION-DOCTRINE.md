@@ -145,11 +145,11 @@ The native TypeScript engine covers 29 operations across 4 domains:
 | Task | Status | Description |
 |------|--------|-------------|
 | T4341 | Pending | Publish @cleocode/caamp v0.2.0 to npm (HARD BLOCKER for formal dependency) |
-| T4342 | Pending | Add @cleocode/caamp ^0.2.0 as formal mcp-server dependency |
+| T4342 | Pending | Add @cleocode/caamp ^0.2.0 as formal dependency |
 | T4343 | Pending | Evaluate extracting native engine modules into caamp |
 | T4367 | Pending | Create CAAMP adapter layer for P0 provider/injection functions |
 | T4368 | Pending | Add providers domain to MCP gateway |
-| T4369 | Pending | Bump mcp-server Node.js engine from >=18 to >=20 |
+| T4369 | Pending | Bump Node.js engine from >=18 to >=20 |
 
 **Note**: CAAMP v0.3.0 is already installed and operational in the MCP server via direct dependency. T4341 (npm publish) is a formal registry blocker, not a functional blocker.
 
@@ -419,9 +419,9 @@ Legacy wording differences exist across source documents (especially around sequ
 
 | Artifact | Path | Purpose |
 |----------|------|---------|
-| Capability Matrix | `mcp-server/src/engine/capability-matrix.ts` | Native vs CLI routing truth |
-| Engine Barrel Export | `mcp-server/src/engine/index.ts` | Engine API surface |
-| CAAMP Adapter | `mcp-server/src/engine/caamp-adapter.ts` | Provider registry bridge |
+| Capability Matrix | `src/mcp/engine/capability-matrix.ts` | Native vs CLI routing truth |
+| Engine Barrel Export | `src/mcp/engine/index.ts` | Engine API surface |
+| CAAMP Adapter | `src/mcp/engine/caamp-adapter.ts` | Provider registry bridge |
 
 ### 8.3 Key Tasks
 

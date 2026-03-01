@@ -69,7 +69,7 @@ Technology choices:
 
 ### Negative
 
-- **Legacy Bash code persists**: `scripts/` (67 files) and `lib/` (96 files) remain in the repository pending removal, creating a dual-codebase period
+- **Legacy Bash code removed**: `scripts/` and `lib/` directories have been emptied. The Bash-to-TypeScript migration is complete. (Originally these directories held 67 and 96 files respectively.)
 - **BATS test migration**: Existing BATS test suite (`tests/unit/*.bats`, `tests/integration/*.bats`) must be migrated to Vitest
 - **Build step required**: TypeScript must be compiled before execution (`npm run build`), adding a development step that Bash did not require
 - **Node.js dependency**: Users must have Node.js >= 20 installed, whereas Bash was available on all Unix systems by default
@@ -79,7 +79,7 @@ Technology choices:
 - JSON Schema validation files (`schemas/*.schema.json`) remain unchanged and are consumed by both old Bash and new TypeScript code
 - Data files (`.cleo/todo.json`, `.cleo/config.json`, etc.) are format-compatible across both implementations
 - The `cleo` CLI binary is now `dist/cli/index.js` (Node.js) instead of `scripts/cleo` (Bash dispatcher)
-- The old `mcp-server/` directory coexists with `src/mcp/` during the transition period
+- The old `mcp-server/` directory has been removed; `src/mcp/` is the sole MCP implementation
 
 ## References
 

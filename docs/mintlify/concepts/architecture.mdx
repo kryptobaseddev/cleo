@@ -30,7 +30,7 @@ These properties must **ALWAYS** be true:
 
 | Invariant | Description |
 |-----------|-------------|
-| Single Source of Truth | `todo.json` is authoritative for active tasks |
+| Single Source of Truth | `tasks.db` (SQLite) is authoritative for active tasks |
 | Immutable History | Log entries never modified or deleted |
 | Fail-Safe Operations | Atomic file operations with validation |
 | Schema-First | JSON Schema validation prevents corruption |
@@ -42,7 +42,7 @@ These properties must **ALWAYS** be true:
 ```
 src/                        # TypeScript source
 ├── cli/                    # CLI entry point (Commander.js)
-│   └── commands/           # 74 command handlers (parse args -> core -> output)
+│   └── commands/           # 85+ command handlers (parse args -> core -> output)
 ├── core/                   # Shared business logic
 │   ├── tasks/              # Task CRUD, hierarchy, dependencies
 │   ├── sessions/           # Session lifecycle, focus tracking
@@ -52,61 +52,37 @@ src/                        # TypeScript source
 ├── mcp/                    # MCP server
 │   ├── domains/            # MCP tool definitions and routing
 │   └── engine/             # Adapters from MCP protocol to core
-├── store/                  # Data access layer (JSON, atomic ops, backup)
+├── store/                  # Data access layer (SQLite, atomic ops, backup)
 ├── types/                  # Shared TypeScript type definitions
 └── validation/             # Schema validation
 
 .cleo/                      # Project-level data
-├── todo.json              # Active tasks
-├── todo-archive.json      # Completed tasks
-├── config.json            # Configuration
-├── todo-log.jsonl          # Audit trail
-├── sessions.json          # Session state
+├── tasks.db               # SQLite database (tasks, sessions, audit log)
+├── config.json            # Project configuration (human-editable)
+├── project-info.json      # Project metadata
+├── schemas/               # JSON Schema definitions
 └── .backups/              # Automatic backups
 ```
 
 ## Data Files
 
 <AccordionGroup>
-  <Accordion title="todo.json" icon="file-code">
-    **Purpose**: Active task storage (source of truth)
+  <Accordion title="tasks.db (SQLite)" icon="database">
+    **Purpose**: All operational data (source of truth)
 
-    **Structure**:
-    ```json
-    {
-      "_meta": {
-        "schemaVersion": "2.6.0",
-        "lastModified": "2025-01-19T12:00:00Z",
-        "checksum": "sha256..."
-      },
-      "project": {
-        "currentPhase": "core"
-      },
-      "focus": {
-        "taskId": "T001",
-        "sessionNote": "Working on auth"
-      },
-      "tasks": [...]
-    }
-    ```
-  </Accordion>
-
-  <Accordion title="todo-archive.json" icon="archive">
-    **Purpose**: Completed task storage
-
-    **Contains**: Tasks moved after completion via `cleo archive`
-  </Accordion>
-
-  <Accordion title="todo-log.jsonl" icon="history">
-    **Purpose**: Immutable audit trail
-
-    **Contains**: Append-only log of all operations with timestamps
+    **Contains**: Tasks, sessions, audit log, lifecycle state, archived tasks -- all in a single SQLite database per ADR-006.
   </Accordion>
 
   <Accordion title="config.json" icon="gear">
-    **Purpose**: Project configuration
+    **Purpose**: Project configuration (human-editable)
 
-    **Contains**: Archive settings, validation rules, defaults
+    **Contains**: Archive settings, validation rules, defaults. One of the few JSON files retained for human editability.
+  </Accordion>
+
+  <Accordion title="project-info.json" icon="circle-info">
+    **Purpose**: Project metadata
+
+    **Contains**: Project name, detected type, registration info.
   </Accordion>
 </AccordionGroup>
 
@@ -151,7 +127,7 @@ CLEO implements a two-tier backup system:
 
 | Tier | Purpose | Location |
 |------|---------|----------|
-| **Tier 1** | Atomic write safety | `.cleo/.backups/todo.json.1-10` |
+| **Tier 1** | Atomic write safety | `.cleo/.backups/` |
 | **Tier 2** | Point-in-time recovery | `.cleo/backups/{type}/` |
 
 **Tier 1** backups are automatic on every write operation with numbered rotation (last 10).
@@ -176,7 +152,7 @@ CLEO implements four layers of protection:
   <Tab title="Layer 2: Semantic">
     **Cross-File Integrity**
 
-    - ID uniqueness across `todo.json` and `todo-archive.json`
+    - ID uniqueness across active tasks and archive
     - No duplicate task descriptions
     - Valid parent references
     - Dependency cycle detection

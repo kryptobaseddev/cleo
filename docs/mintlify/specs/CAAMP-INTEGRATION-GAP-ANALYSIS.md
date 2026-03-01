@@ -202,7 +202,7 @@ These 60 functions are CLEO-only orchestration logic (skill dispatch, token inje
 - **Status**: RESOLVED. CAAMP v0.3.0 published to npm (2026-02-11). 88 exports, Node >=20.
 - **Impact**: All 131 CAAMP-dependent functions are now UNBLOCKED.
 - **Resolution**: `npm info @cleocode/caamp versions` confirms v0.1.0 and v0.3.0 available.
-- **Next step**: Proceed to T4342 (add `@cleocode/caamp ^0.3.0` to mcp-server/package.json).
+- **Next step**: Proceed to T4342 (add `@cleocode/caamp ^0.3.0` to `package.json`).
 
 ### 5.2 What Can Proceed Without CAAMP
 
@@ -237,14 +237,14 @@ These 60 functions are CLEO-only orchestration logic (skill dispatch, token inje
 
 | Option | Description | Pros | Cons |
 |--------|-------------|------|------|
-| **A: CAAMP as mcp-server dependency** | `mcp-server/package.json` depends on `@cleocode/caamp` | Simple, direct import | Bumps Node >=20, couples server to CAAMP releases |
+| **A: CAAMP as direct dependency** | `package.json` depends on `@cleocode/caamp` | Simple, direct import | Bumps Node >=20, couples package to CAAMP releases |
 | **B: CAAMP as peer dependency of future TS CLI** | CAAMP used only by a hypothetical `cleo-ts-cli` package | Decouples server | Deferred indefinitely since TS CLI is aspirational (T2021) |
 | **C: Extract native engine INTO caamp** | Move store.ts, schema-validator.ts into CAAMP | Shared foundation | Wrong direction -- CAAMP is provider-focused, not task-focused |
 | **D: Shared foundation package** | New `@cleocode/core` with file ops, schema, config | Clean separation | Over-engineering at this stage |
 
-### 6.2 Recommendation: Option A (CAAMP as mcp-server dependency)
+### 6.2 Recommendation: Option A (CAAMP as direct dependency)
 
-**Add `@cleocode/caamp` as a direct dependency of `mcp-server/package.json`.**
+**Add `@cleocode/caamp` as a direct dependency of `package.json`.**
 
 Rationale:
 
@@ -266,7 +266,7 @@ Rationale:
 
         ▲ imported by
 
-mcp-server (CLEO MCP server)
+@cleocode/cleo (CLEO package)
     ├── Native engine (task/session/config/validation)
     ├── CAAMP adapter layer (wraps CAAMP for CLEO-specific needs)
     ├── CLI adapter (Bash fallback)
@@ -275,7 +275,7 @@ mcp-server (CLEO MCP server)
 
 ### 6.4 Node.js Engine Bump
 
-Bumping `mcp-server` from `>=18` to `>=20` is recommended regardless of CAAMP:
+Bumping the Node.js engine from `>=18` to `>=20` is recommended regardless of CAAMP:
 
 - Node 18 is already past EOL (April 2025)
 - Node 20 is the current LTS (active until April 2026)
@@ -293,9 +293,9 @@ Bumping `mcp-server` from `>=18` to `>=20` is recommended regardless of CAAMP:
 
 ### 7.2 Phase 1: P0 Integration (T4342 + new tasks)
 
-- Add `@cleocode/caamp ^0.3.0` to `mcp-server/package.json`
+- Add `@cleocode/caamp ^0.3.0` to `package.json`
 - Bump engine to `>=20`
-- Create thin adapter: `mcp-server/src/providers/caamp-adapter.ts`
+- Create thin adapter: `src/mcp/providers/caamp-adapter.ts`
 - Implement P0 functions: provider detection, injection management, MCP config
 - Wire into MCP gateway as new domain operations (e.g., `providers.list`, `providers.detect`)
 
@@ -318,9 +318,9 @@ Bumping `mcp-server` from `>=18` to `>=20` is recommended regardless of CAAMP:
 
 The following tasks should be created to track the highest-priority gaps identified in this analysis:
 
-1. **P0 Integration Adapter**: Create CAAMP adapter layer in mcp-server for P0 functions (depends T4342)
+1. **P0 Integration Adapter**: Create CAAMP adapter layer in `src/mcp/` for P0 functions (depends T4342)
 2. **MCP Provider Domain**: Add `providers` domain to MCP gateway with list/detect/inject operations (depends on adapter)
-3. **Node.js Engine Bump**: Bump mcp-server engine requirement from >=18 to >=20
+3. **Node.js Engine Bump**: Bump engine requirement from >=18 to >=20
 
 ---
 
@@ -332,7 +332,7 @@ The following tasks should be created to track the highest-priority gaps identif
 | Path Forward | `docs/specs/CLEO-PATH-FORWARD-2026Q1.md` |
 | MCP Agent Interaction | `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` |
 | CAAMP Dependency Analysis | `.cleo/agent-outputs/caamp-dependency-analysis.md` |
-| Native Engine | `mcp-server/src/engine/index.ts` |
+| Native Engine | `src/mcp/engine/index.ts` |
 | Epic | T4332 |
 | CAAMP npm publish blocker | T4341 (RESOLVED) |
 | CAAMP dependency addition | T4342 |

@@ -9,11 +9,11 @@
 
 ## 1. Data Sources
 
-- MCP query operation registry: `mcp-server/src/gateways/query.ts`
-- MCP mutate operation registry: `mcp-server/src/gateways/mutate.ts`
-- MCP schema registry baseline: `mcp-server/schemas/index.json`
+- MCP query operation registry: `src/mcp/gateways/query.ts`
+- MCP mutate operation registry: `src/mcp/gateways/mutate.ts`
+- MCP schema registry baseline: `schemas/index.json`
 - CLI command index: `docs/commands/COMMANDS-INDEX.json`
-- MCP domain handler CLI mappings: `mcp-server/src/domains/*.ts`
+- MCP domain handler CLI mappings: `src/mcp/domains/*.ts`
 
 ---
 

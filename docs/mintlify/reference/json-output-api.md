@@ -288,5 +288,5 @@ output_error_envelope "show" "E_TASK_NOT_FOUND" "Task T999 not found"
 
 - **Specification**: `docs/specs/DYNAMIC-OUTPUT-LIMITS-SPEC.md`
 - **CLI Design Standard**: `docs/developer/specifications/LLM-AGENT-FIRST.mdx` (Part 14)
-- **MCP Pagination Schema**: `mcp-server/schemas/common/pagination.schema.json`
+- **MCP Pagination Schema**: `schemas/common/pagination.schema.json`
 - **Error JSON Library**: `lib/error-json.sh`

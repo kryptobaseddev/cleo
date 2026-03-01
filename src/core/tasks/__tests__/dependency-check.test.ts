@@ -16,6 +16,8 @@ import {
   validateDependencyRefs,
   validateDependencies,
   topologicalSort,
+  getTransitiveBlockers,
+  getLeafBlockers,
 } from '../dependency-check.js';
 import type { Task } from '../../../types/task.js';
 
@@ -293,5 +295,73 @@ describe('topologicalSort', () => {
 
   it('handles empty list', () => {
     expect(topologicalSort([])).toEqual([]);
+  });
+});
+
+describe('getTransitiveBlockers', () => {
+  it('returns all upstream unresolved IDs in a chain', () => {
+    const tasks = [
+      makeTask({ id: 'T001' }),
+      makeTask({ id: 'T002', depends: ['T001'] }),
+      makeTask({ id: 'T003', depends: ['T002'] }),
+    ];
+    const result = getTransitiveBlockers('T003', tasks);
+    expect(result).toContain('T001');
+    expect(result).toContain('T002');
+    expect(result).toHaveLength(2);
+  });
+
+  it('skips done intermediate deps', () => {
+    const tasks = [
+      makeTask({ id: 'T001' }),
+      makeTask({ id: 'T002', status: 'done', depends: ['T001'] }),
+      makeTask({ id: 'T003', depends: ['T002'] }),
+    ];
+    const result = getTransitiveBlockers('T003', tasks);
+    expect(result).toEqual([]);
+  });
+
+  it('handles cycles gracefully', () => {
+    const tasks = [
+      makeTask({ id: 'T001', depends: ['T002'] }),
+      makeTask({ id: 'T002', depends: ['T001'] }),
+      makeTask({ id: 'T003', depends: ['T001'] }),
+    ];
+    const result = getTransitiveBlockers('T003', tasks);
+    expect(result).toContain('T001');
+    expect(result).toContain('T002');
+  });
+
+  it('returns empty for task with no deps', () => {
+    const tasks = [makeTask({ id: 'T001' })];
+    expect(getTransitiveBlockers('T001', tasks)).toEqual([]);
+  });
+});
+
+describe('getLeafBlockers', () => {
+  it('identifies root-cause tasks', () => {
+    const tasks = [
+      makeTask({ id: 'T001' }),
+      makeTask({ id: 'T002', depends: ['T001'] }),
+      makeTask({ id: 'T003', depends: ['T002'] }),
+    ];
+    const result = getLeafBlockers('T003', tasks);
+    expect(result).toEqual(['T001']);
+  });
+
+  it('intermediate blockers are not leaves', () => {
+    const tasks = [
+      makeTask({ id: 'T001' }),
+      makeTask({ id: 'T002', depends: ['T001'] }),
+      makeTask({ id: 'T003', depends: ['T001'] }),
+      makeTask({ id: 'T004', depends: ['T002', 'T003'] }),
+    ];
+    const result = getLeafBlockers('T004', tasks);
+    expect(result).toEqual(['T001']);
+  });
+
+  it('returns empty for task with no deps', () => {
+    const tasks = [makeTask({ id: 'T001' })];
+    expect(getLeafBlockers('T001', tasks)).toEqual([]);
   });
 });

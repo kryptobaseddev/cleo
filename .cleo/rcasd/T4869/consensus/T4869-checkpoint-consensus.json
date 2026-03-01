@@ -1,0 +1,23 @@
+{
+  "task": "T4869",
+  "question": "Should .cleo/ checkpoint commits be isolated to a dedicated .cleo/.git repo using GIT_DIR/GIT_WORK_TREE env vars, with SQLite backup via VACUUM INTO rotation replacing git tracking of tasks.db?",
+  "researchBasis": "T4868",
+  "linkedADR": "ADR-013",
+  "votes": [
+    {
+      "agent": "Agent-RESEARCH",
+      "vote": "APPROVE",
+      "confidence": 0.95,
+      "rationale": "Structural isolation eliminates staging scope bug class entirely. VACUUM INTO via getNativeDb() provides zero-dep SQLite snapshots. Litestream refuted (T4877): requires sidecar + external storage, incompatible with local-first CLI model."
+    },
+    {
+      "agent": "Agent-CONSENSUS",
+      "vote": "APPROVE",
+      "confidence": 0.92,
+      "rationale": "Option A is the correct architectural decision. Path-fix-only (Option B) is a band-aid; removing git checkpointing (Option C) loses text file history. Isolated .cleo/.git is the minimum viable structural fix."
+    }
+  ],
+  "verdict": "PROVEN",
+  "decision": "Adopt Option A (isolated .cleo/.git) + VACUUM INTO rotation for SQLite backups",
+  "date": "2026-02-25"
+}

@@ -20,7 +20,7 @@ The MCP Server exposes **two gateway tools** using a CQRS (Command Query Respons
 This 2-tool design uses ~1,800 tokens of context -- a **94% reduction** compared to exposing each operation as a separate tool.
 
 <Info>
-The MCP Server covers **123 operations** (63 query + 60 mutate) across 10 domains: tasks, sessions, orchestration, research, lifecycle, validation, release, system, issues, and skills.
+The MCP Server covers **177 operations** (97 query + 80 mutate) across 10 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, and sharing.
 </Info>
 
 ## Install in One Command
@@ -158,8 +158,8 @@ If you prefer to configure manually instead of using `cleo mcp-install`:
 
 ## Requirements
 
-- **CLEO** v0.70.0+ installed and initialized (`cleo init`)
-- **Node.js** >= 18.0.0 (for the MCP server runtime)
+- **CLEO** installed (`npm install -g @cleocode/cleo`) and initialized (`cleo init`)
+- **Node.js** >= 24 (for the MCP server runtime)
 
 ## Next Steps
 

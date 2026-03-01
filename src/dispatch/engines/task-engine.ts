@@ -17,15 +17,16 @@
 
 import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';
-import { engineError } from './_error.js';
+import { engineError, type EngineResult } from './_error.js';
 // validation-rules.js still used by other engines; core modules handle their own validation
 // Core module imports for accessor-based operations
 import { addTask as coreAddTask } from '../../core/tasks/add.js';
 import { updateTask as coreUpdateTask } from '../../core/tasks/update.js';
+import { completeTask as coreCompleteTask } from '../../core/tasks/complete.js';
 import { deleteTask as coreDeleteTask } from '../../core/tasks/delete.js';
 import { archiveTasks as coreArchiveTasks } from '../../core/tasks/archive.js';
 import { showTask as coreShowTask } from '../../core/tasks/show.js';
-import { listTasks as coreListTasks } from '../../core/tasks/list.js';
+import { listTasks as coreListTasks, toCompact, type CompactTask } from '../../core/tasks/list.js';
 import { findTasks as coreFindTasks } from '../../core/tasks/find.js';
 // Non-CRUD core operations
 import {
@@ -44,6 +45,8 @@ import {
   coreTaskReopen,
   coreTaskComplexityEstimate,
   coreTaskDepends,
+  coreTaskDepsOverview,
+  coreTaskDepsCycles,
   coreTaskStats,
   coreTaskExport,
   coreTaskHistory,
@@ -130,19 +133,11 @@ export interface MinimalTaskRecord {
   parentId?: string | null;
 }
 
-/**
- * Engine result wrapper
- */
-export interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-    exitCode?: number;
-  };
-}
+// Re-export CompactTask from core for consumers
+export type { CompactTask } from '../../core/tasks/list.js';
+
+// EngineResult imported from ./_error.js (canonical source)
+export type { EngineResult } from './_error.js';
 
 // loadTaskFile and saveTaskFile removed — all operations now use DataAccessor.
 // Config reads (hierarchy limits, phase meta) still use readJsonFile directly
@@ -188,8 +183,9 @@ export async function taskList(
     parent?: string;
     status?: string;
     limit?: number;
+    compact?: boolean;
   }
-): Promise<EngineResult<{ tasks: TaskRecord[]; total: number }>> {
+): Promise<EngineResult<{ tasks: TaskRecord[] | CompactTask[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreListTasks({
@@ -197,6 +193,9 @@ export async function taskList(
       status: params?.status as import('../../types/task.js').TaskStatus | undefined,
       limit: params?.limit,
     }, projectRoot, accessor);
+    if (params?.compact) {
+      return { success: true, data: { tasks: result.tasks.map(t => toCompact(t)), total: result.total } };
+    }
     return { success: true, data: { tasks: tasksToRecords(result.tasks), total: result.total } };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
@@ -211,13 +210,25 @@ export async function taskList(
 export async function taskFind(
   projectRoot: string,
   query: string,
-  limit?: number
+  limit?: number,
+  options?: {
+    id?: string;
+    exact?: boolean;
+    status?: string;
+    includeArchive?: boolean;
+    offset?: number;
+  }
 ): Promise<EngineResult<{ results: MinimalTaskRecord[]; total: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const findResult = await coreFindTasks({
       query,
+      id: options?.id,
+      exact: options?.exact,
+      status: options?.status as import('../../types/task.js').TaskStatus | undefined,
+      includeArchive: options?.includeArchive,
       limit: limit ?? 20,
+      offset: options?.offset,
     }, projectRoot, accessor);
 
     const results: MinimalTaskRecord[] = findResult.results.map((r) => ({
@@ -382,16 +393,34 @@ export async function taskComplete(
   projectRoot: string,
   taskId: string,
   notes?: string
-): Promise<EngineResult<{ task: TaskRecord; changes?: string[] }>> {
-  // Check current status — handle already-done gracefully without WAL race
-  const showResult = await taskShow(projectRoot, taskId);
-  if (showResult.success && showResult.data?.task?.status === 'done') {
-    return engineError('E_TASK_COMPLETED', `Task ${taskId} is already completed`) as EngineResult<{ task: TaskRecord; changes?: string[] }>;
+): Promise<EngineResult<{ task: TaskRecord; autoCompleted?: string[]; unblockedTasks?: Array<{ id: string; title: string }> }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const result = await coreCompleteTask({ taskId, notes }, undefined, accessor);
+    return {
+      success: true,
+      data: {
+        task: result.task as TaskRecord,
+        ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
+        ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
+      },
+    };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    if (message.includes('already completed')) {
+      return engineError('E_TASK_COMPLETED', message);
+    }
+    if (message.includes('not found')) {
+      return engineError('E_NOT_FOUND', message);
+    }
+    if (message.includes('incomplete dependencies')) {
+      return engineError('E_DEPENDENCY_ERROR', message);
+    }
+    if (message.includes('incomplete children')) {
+      return engineError('E_HAS_CHILDREN', message);
+    }
+    return engineError('E_INTERNAL', message);
   }
-  return taskUpdate(projectRoot, taskId, {
-    status: 'done',
-    notes: notes || undefined,
-  });
 }
 
 /**
@@ -856,15 +885,21 @@ export async function taskComplexityEstimate(
 export async function taskDepends(
   projectRoot: string,
   taskId: string,
-  direction: 'upstream' | 'downstream' | 'both' = 'both'
+  direction: 'upstream' | 'downstream' | 'both' = 'both',
+  tree?: boolean,
 ): Promise<EngineResult<{
   taskId: string;
   direction: string;
   upstream: Array<{ id: string; title: string; status: string }>;
   downstream: Array<{ id: string; title: string; status: string }>;
+  unresolvedChain: number;
+  leafBlockers: Array<{ id: string; title: string; status: string }>;
+  allDepsReady: boolean;
+  hint?: string;
+  upstreamTree?: TaskTreeNode[];
 }>> {
   try {
-    const result = await coreTaskDepends(projectRoot, taskId, direction);
+    const result = await coreTaskDepends(projectRoot, taskId, direction, tree ? { tree } : undefined);
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -872,6 +907,47 @@ export async function taskDepends(
       return engineError('E_NOT_FOUND', message);
     }
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * Overview of all dependencies across the project.
+ * @task T5157
+ */
+export async function taskDepsOverview(
+  projectRoot: string,
+): Promise<EngineResult<{
+  totalTasks: number;
+  tasksWithDeps: number;
+  blockedTasks: Array<{ id: string; title: string; status: string; unblockedBy: string[] }>;
+  readyTasks: Array<{ id: string; title: string; status: string }>;
+  validation: { valid: boolean; errorCount: number; warningCount: number };
+}>> {
+  try {
+    const result = await coreTaskDepsOverview(projectRoot);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_NOT_INITIALIZED', message);
+  }
+}
+
+/**
+ * Detect circular dependencies across the project.
+ * @task T5157
+ */
+export async function taskDepsCycles(
+  projectRoot: string,
+): Promise<EngineResult<{
+  hasCycles: boolean;
+  cycles: Array<{ path: string[]; tasks: Array<{ id: string; title: string }> }>;
+}>> {
+  try {
+    const result = await coreTaskDepsCycles(projectRoot);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_NOT_INITIALIZED', message);
   }
 }
 

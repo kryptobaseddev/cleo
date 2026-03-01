@@ -12,15 +12,15 @@ This guide walks through installing the CLEO MCP Server, configuring it for your
 
 Before starting, make sure you have:
 
-- **CLEO** v0.70.0+ installed and initialized in your project (`cleo init`)
-- **Node.js** >= 18.0.0
+- **CLEO** installed (`npm install -g @cleocode/cleo`) and initialized in your project (`cleo init`)
+- **Node.js** >= 24
 - At least one supported AI tool installed (Claude Code, Cursor, VS Code, etc.)
 
 Verify your setup:
 
 ```bash
-cleo version    # Should show v0.70.0+
-node --version  # Should show v18.0.0+
+cleo version    # Should show current CalVer version
+node --version  # Should show v24+
 ```
 
 ## Installation
@@ -64,7 +64,7 @@ A successful response looks like:
 {
   "success": true,
   "data": {
-    "version": "0.88.0",
+    "version": "2026.2.9",
     "mcp_version": "1.0.0"
   }
 }
@@ -121,7 +121,7 @@ await cleo_query({
 });
 ```
 
-**Domains**: `tasks`, `session`, `orchestrate`, `research`, `lifecycle`, `validate`, `system`
+**Domains**: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sharing`
 
 **Common operations**:
 
@@ -149,7 +149,7 @@ await cleo_mutate({
 });
 ```
 
-**Domains**: `tasks`, `session`, `orchestrate`, `research`, `lifecycle`, `validate`, `release`, `system`
+**Domains**: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sharing`
 
 **Common operations**:
 
@@ -301,7 +301,7 @@ if (!result.success) {
 1. Verify the config file exists in the correct location (see table above)
 2. Ensure the JSON is valid -- no trailing commas, correct key names
 3. Restart the AI tool completely (not just reload)
-4. Check that Node.js >= 18 is available on your PATH
+4. Check that Node.js >= 24 is available on your PATH
 
 ### "CLEO not initialized" errors
 
@@ -361,7 +361,7 @@ await cleo_mutate({
 
 <CardGroup cols={2}>
   <Card title="MCP Server Specification" icon="book" href="/developer/specifications/MCP-SERVER">
-    Full technical specification with all 123 operations
+    Full technical specification with all 177 operations
   </Card>
   <Card title="MCP Gateway Design" icon="arrows-split-up-and-left" href="/developer/specifications/MCP-GATEWAY">
     Architecture details of the CQRS gateway pattern

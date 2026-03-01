@@ -34,12 +34,12 @@ import { tmpdir } from 'node:os';
 
 describe('Import Graph Verification (T4796)', () => {
   const ENGINE_FILES = [
-    'task-engine.ts',
+    // task-engine.ts deleted — moved to src/dispatch/engines/task-engine.ts (T5100)
     // session-engine.ts deleted — moved to src/dispatch/engines/session-engine.ts
     // lifecycle-engine.ts deleted — moved to src/dispatch/engines/lifecycle-engine.ts
-    'system-engine.ts',
-    'orchestrate-engine.ts',
-    'validate-engine.ts',
+    // system-engine.ts deleted — moved to src/dispatch/engines/system-engine.ts (T5107)
+    // orchestrate-engine.ts deleted — moved to src/dispatch/engines/orchestrate-engine.ts (T5108)
+    // validate-engine.ts deleted — moved to src/dispatch/engines/validate-engine.ts (T5109-T5111)
   ];
 
   const ENGINE_DIR = join(
@@ -98,8 +98,10 @@ describe('Import Graph Verification (T4796)', () => {
   }
 
   it('task-engine.ts imports specific core CRUD functions', async () => {
+    // task-engine.ts moved to src/dispatch/engines/task-engine.ts (T5100)
+    const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(
-      join(ENGINE_DIR, 'task-engine.ts'),
+      join(dispatchEngineDir, 'task-engine.ts'),
       'utf-8',
     );
 
@@ -136,8 +138,9 @@ describe('Import Graph Verification (T4796)', () => {
   });
 
   it('validate-engine.ts imports from core/validation/', async () => {
+    const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(
-      join(ENGINE_DIR, 'validate-engine.ts'),
+      join(dispatchEngineDir, 'validate-engine.ts'),
       'utf-8',
     );
 
@@ -145,8 +148,9 @@ describe('Import Graph Verification (T4796)', () => {
   });
 
   it('system-engine.ts imports from core/stats/ and core/system/', async () => {
+    const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(
-      join(ENGINE_DIR, 'system-engine.ts'),
+      join(dispatchEngineDir, 'system-engine.ts'),
       'utf-8',
     );
 
@@ -155,8 +159,9 @@ describe('Import Graph Verification (T4796)', () => {
   });
 
   it('orchestrate-engine.ts imports from core/orchestration/', async () => {
+    const dispatchEngineDir = join(process.cwd(), 'src', 'dispatch', 'engines');
     const content = await readFile(
-      join(ENGINE_DIR, 'orchestrate-engine.ts'),
+      join(dispatchEngineDir, 'orchestrate-engine.ts'),
       'utf-8',
     );
 
@@ -282,7 +287,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskShow returns same task data as core showTask', async () => {
     const { showTask } = await import('../tasks/show.js');
-    const { taskShow } = await import('../../mcp/engine/task-engine.js');
+    const { taskShow } = await import('../../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -306,7 +311,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskShow and core showTask both fail for missing task', async () => {
     const { showTask } = await import('../tasks/show.js');
-    const { taskShow } = await import('../../mcp/engine/task-engine.js');
+    const { taskShow } = await import('../../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -323,7 +328,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskList returns same tasks as core listTasks', async () => {
     const { listTasks } = await import('../tasks/list.js');
-    const { taskList } = await import('../../mcp/engine/task-engine.js');
+    const { taskList } = await import('../../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -348,7 +353,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskList with status filter matches core listTasks filter', async () => {
     const { listTasks } = await import('../tasks/list.js');
-    const { taskList } = await import('../../mcp/engine/task-engine.js');
+    const { taskList } = await import('../../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -370,7 +375,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
   it('taskFind returns same results as core findTasks', async () => {
     const { findTasks } = await import('../tasks/find.js');
-    const { taskFind } = await import('../../mcp/engine/task-engine.js');
+    const { taskFind } = await import('../../dispatch/engines/task-engine.js');
     const { getAccessor } = await import('../../store/data-accessor.js');
 
     const accessor = await getAccessor(testDir);
@@ -396,7 +401,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
   });
 
   it('taskCreate produces a valid task via engine', async () => {
-    const { taskCreate } = await import('../../mcp/engine/task-engine.js');
+    const { taskCreate } = await import('../../dispatch/engines/task-engine.js');
 
     // Engine create
     const engineResult = await taskCreate(testDir, {
@@ -738,7 +743,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
   }
 
   it('task engine error results have E_ prefixed codes', async () => {
-    const { taskShow } = await import('../../mcp/engine/task-engine.js');
+    const { taskShow } = await import('../../dispatch/engines/task-engine.js');
 
     // This will fail because no project dir is set up
     const result = await taskShow('/nonexistent', 'T999');

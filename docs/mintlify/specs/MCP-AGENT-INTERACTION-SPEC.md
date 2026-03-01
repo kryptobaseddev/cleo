@@ -34,15 +34,15 @@ This specification does NOT cover:
 
 ## 3. Definitions
 
-| Term | Definition |
-|------|-----------|
-| **MCP Gateway** | The two-tool CQRS surface: `cleo_query` (reads) and `cleo_mutate` (writes) |
-| **CLI** | The Bash command-line interface invoked via `cleo` or `ct` alias |
-| **Native operation** | An operation implemented in TypeScript that runs cross-platform without Bash |
-| **CLI-only operation** | An operation that requires the Bash CLI subprocess |
-| **Agent consumer** | An LLM agent (Claude Code, Cursor, Windsurf, etc.) interacting with CLEO programmatically |
-| **Human consumer** | A developer interacting with CLEO directly via terminal |
-| **Progressive disclosure** | Layered context injection that reveals complexity only when needed |
+| Term                       | Definition                                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------------- |
+| **MCP Gateway**            | The two-tool CQRS surface: `cleo_query` (reads) and `cleo_mutate` (writes)                |
+| **CLI**                    | The TypeScript command-line interface invoked via `cleo` or `ct` alias                    |
+| **Native operation**       | An operation implemented in TypeScript that runs cross-platform without Bash              |
+| **CLI-only operation**     | An operation that requires the CLI subprocess                                             |
+| **Agent consumer**         | An LLM agent (Claude Code, Cursor, Windsurf, etc.) interacting with CLEO programmatically |
+| **Human consumer**         | A developer interacting with CLEO directly via terminal                                   |
+| **Progressive disclosure** | Layered context injection that reveals complexity only when needed                        |
 
 ## 4. MCP-First Principle
 
@@ -52,15 +52,15 @@ When an AI agent needs to interact with CLEO, it SHOULD prefer MCP tools (`cleo_
 
 ### 4.2 Rationale
 
-| Dimension | MCP Gateway | CLI via Bash |
-|-----------|-------------|-------------|
-| **Structured I/O** | JSON in, JSON out (guaranteed) | Text parsing required, format varies |
-| **Error contract** | Structured error objects with codes | Exit codes + stderr (requires parsing) |
-| **Token efficiency** | Direct tool call, no shell overhead | Bash tool + command string + output parsing |
-| **Cross-platform** | Native operations work on any OS | Requires Bash + Unix utilities |
-| **Tool discovery** | 2 tools, domain-routed | 65+ commands to learn |
-| **Concurrency safety** | Server-managed state | Race conditions possible |
-| **Provider neutrality** | Works with any MCP-compatible agent | Tied to agents with Bash tool access |
+| Dimension               | MCP Gateway                         | CLI via Bash                                |
+| ----------------------- | ----------------------------------- | ------------------------------------------- |
+| **Structured I/O**      | JSON in, JSON out (guaranteed)      | Text parsing required, format varies        |
+| **Error contract**      | Structured error objects with codes | Exit codes + stderr (requires parsing)      |
+| **Token efficiency**    | Direct tool call, no shell overhead | Bash tool + command string + output parsing |
+| **Cross-platform**      | Native operations work on any OS    | Requires Bash + Unix utilities              |
+| **Tool discovery**      | 2 tools, domain-routed              | 65+ commands to learn                       |
+| **Concurrency safety**  | Server-managed state                | Race conditions possible                    |
+| **Provider neutrality** | Works with any MCP-compatible agent | Tied to agents with Bash tool access        |
 
 ### 4.3 When to Use MCP (Default)
 
@@ -101,7 +101,7 @@ Key insight: even CLI-only operations can be invoked through MCP tools. The MCP 
 
 ## 5. Capability Matrix Summary
 
-The MCP server maintains a capability matrix (`mcp-server/src/engine/capability-matrix.ts`) that defines which operations run natively versus requiring CLI. As of v0.91.0:
+The MCP server maintains a capability matrix (`src/mcp/engine/capability-matrix.ts`) that defines which operations run natively versus requiring CLI. As of v0.91.0:
 
 ### 5.1 Native Operations (Cross-Platform, No Bash)
 
@@ -225,7 +225,7 @@ Errors:
   E_VALIDATION (6): Field validation failed
   E_PARENT_NOT_FOUND (10): Parent task does not exist
   E_DEPTH_EXCEEDED (11): Max depth 3 (epic > task > subtask)
-  E_SIBLING_LIMIT (12): Max 7 children per parent
+  E_SIBLING_LIMIT (12): Configured sibling limit exceeded (`hierarchy.maxSiblings`, default: unlimited)
 
 Example:
   cleo_mutate { domain: "tasks", operation: "add", params: {
@@ -245,13 +245,13 @@ Example:
 
 ### 6.3 Level Selection Matrix
 
-| Agent Role | Default Level | May Escalate To |
-|------------|---------------|-----------------|
-| Generic coding agent | Level 0 | Level 1, Level 2 |
-| Task executor subagent | Level 1 | Level 2 |
-| Orchestrator | Level 3 | N/A (already max) |
-| Human via CLI | N/A | N/A (uses CLI docs) |
-| External MCP client | Level 0 | Level 1 |
+| Agent Role             | Default Level | May Escalate To     |
+| ---------------------- | ------------- | ------------------- |
+| Generic coding agent   | Level 0       | Level 1, Level 2    |
+| Task executor subagent | Level 1       | Level 2             |
+| Orchestrator           | Level 3       | N/A (already max)   |
+| Human via CLI          | N/A           | N/A (uses CLI docs) |
+| External MCP client    | Level 0       | Level 1             |
 
 ### 6.4 Escalation Mechanism
 
@@ -299,7 +299,7 @@ This is self-service: agents discover what they need when they need it, rather t
 ### 7.2 CLI Entry Point
 
 **Surface:** `cleo` / `ct` command with subcommands
-**Routing:** Subcommand + flags parsed by Bash
+**Routing:** Subcommand + flags parsed by Commander.js (TypeScript)
 **Advantages:** Human ergonomics, rich formatting, scriptable
 
 ```
@@ -315,18 +315,18 @@ Both entry points converge on the same business logic:
 - Native operations share TypeScript engine code
 - CLI-routed operations execute the same Bash scripts
 - Validation rules, lifecycle gates, and audit logging are identical
-- Data files (todo.json, todo-log.jsonl) are the single source of truth
+- Data storage (`tasks.db` via SQLite/Drizzle ORM) is the single source of truth
 
 ### 7.4 Semantic Equivalence
 
 Every MCP operation MUST have a CLI equivalent. Every CLI command SHOULD be accessible through MCP (modulo operations that are inherently interactive).
 
-| MCP | CLI |
-|-----|-----|
-| `cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }` | `ct show T1234` |
-| `cleo_mutate { domain: "tasks", operation: "add", params: { title: "Fix bug" } }` | `ct add "Fix bug"` |
-| `cleo_mutate { domain: "tasks", operation: "complete", params: { id: "T42" } }` | `ct complete T42` |
-| `cleo_query { domain: "session", operation: "status" }` | `ct session status` |
+| MCP                                                                                     | CLI                                  |
+| --------------------------------------------------------------------------------------- | ------------------------------------ |
+| `cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }`            | `ct show T1234`                      |
+| `cleo_mutate { domain: "tasks", operation: "add", params: { title: "Fix bug" } }`       | `ct add "Fix bug"`                   |
+| `cleo_mutate { domain: "tasks", operation: "complete", params: { id: "T42" } }`         | `ct complete T42`                    |
+| `cleo_query { domain: "session", operation: "status" }`                                 | `ct session status`                  |
 | `cleo_mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }` | `ct session start --scope epic:T001` |
 
 ## 8. Agent Injection Evolution Plan
@@ -345,6 +345,7 @@ Both are CLI-first. Neither mentions MCP tools.
 Both files evolve to MCP-first with CLI as documented fallback:
 
 **AGENT-INJECTION.md** (project-level, ~200 lines):
+
 - Section 1: MCP-first quick reference (Level 0 + Level 1 content)
 - Section 2: CLI fallback reference (condensed)
 - Section 3: Session protocol (MCP-first with CLI alternative)
@@ -352,6 +353,7 @@ Both files evolve to MCP-first with CLI as documented fallback:
 - Section 5: Error handling (MCP error objects first, exit codes second)
 
 **CLEO-INJECTION.md** (global, ~600 lines):
+
 - Section 1: MCP-first entry (Level 0)
 - Section 2: Progressive disclosure guidance (how to escalate)
 - Section 3: Full protocol stack (Level 3, unchanged)
@@ -372,20 +374,20 @@ Phase 1-3 are documentation changes. Phase 4 requires MCP server implementation.
 
 ### 9.1 Current Cost (CLI-First Injection)
 
-| Component | Tokens (approx) |
-|-----------|-----------------|
-| AGENT-INJECTION.md (always loaded) | ~1,200 |
-| CLEO-INJECTION.md (subagent spawn) | ~4,500 |
-| **Total per subagent** | **~5,700** |
+| Component                          | Tokens (approx) |
+| ---------------------------------- | --------------- |
+| AGENT-INJECTION.md (always loaded) | ~1,200          |
+| CLEO-INJECTION.md (subagent spawn) | ~4,500          |
+| **Total per subagent**             | **~5,700**      |
 
 ### 9.2 Target Cost (MCP-First with Progressive Disclosure)
 
-| Level | Tokens (approx) | Agents Using |
-|-------|-----------------|--------------|
-| Level 0 (minimal) | ~200 | All agents |
-| Level 1 (domain discovery) | ~500 | Multi-step workflows |
-| Level 2 (operation-specific) | ~500-2,000 per operation | On-demand |
-| Level 3 (full protocol) | ~4,500 | Orchestrators only |
+| Level                        | Tokens (approx)          | Agents Using         |
+| ---------------------------- | ------------------------ | -------------------- |
+| Level 0 (minimal)            | ~200                     | All agents           |
+| Level 1 (domain discovery)   | ~500                     | Multi-step workflows |
+| Level 2 (operation-specific) | ~500-2,000 per operation | On-demand            |
+| Level 3 (full protocol)      | ~4,500                   | Orchestrators only   |
 
 ### 9.3 Savings
 
@@ -432,16 +434,16 @@ All MCP operations return structured errors:
 
 Every MCP error code maps to a CLI exit code for equivalence:
 
-| MCP Error Code | CLI Exit Code | Description |
-|----------------|---------------|-------------|
-| E_NOT_FOUND | 4 | Resource not found |
-| E_VALIDATION | 6 | Validation failure |
-| E_PARENT_NOT_FOUND | 10 | Parent task missing |
-| E_DEPTH_EXCEEDED | 11 | Hierarchy too deep |
-| E_SIBLING_LIMIT | 12 | Too many siblings |
-| E_ACTIVE_TASK_REQUIRED | 38 | No start |
-| E_PROTOCOL | 60-67 | Protocol violations |
-| E_LIFECYCLE_GATE | 75 | Lifecycle gate failed |
+| MCP Error Code         | CLI Exit Code | Description                       |
+| ---------------------- | ------------- | --------------------------------- |
+| E_NOT_FOUND            | 4             | Resource not found                |
+| E_VALIDATION           | 6             | Validation failure                |
+| E_PARENT_NOT_FOUND     | 10            | Parent task missing               |
+| E_DEPTH_EXCEEDED       | 11            | Hierarchy too deep                |
+| E_SIBLING_LIMIT        | 12            | Configured sibling limit exceeded |
+| E_ACTIVE_TASK_REQUIRED | 38            | No start                          |
+| E_PROTOCOL             | 60-67         | Protocol violations               |
+| E_LIFECYCLE_GATE       | 75            | Lifecycle gate failed             |
 
 ## 11. Conformance Requirements
 
@@ -476,10 +478,10 @@ The following tasks implement this specification:
 
 ## 13. References
 
-- `docs/concepts/vision.mdx` - CLEO canonical vision
+- `docs/concepts/vision.md` - CLEO canonical vision
 - `docs/specs/PORTABLE-BRAIN-SPEC.md` - Product contract
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server internals
-- `mcp-server/src/engine/capability-matrix.ts` - Native vs CLI routing
+- `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing
 - `templates/CLEO-INJECTION.md` - Current global agent injection
 - `.cleo/templates/AGENT-INJECTION.md` - Current project agent injection
 - `docs/specs/PROJECT-LIFECYCLE-SPEC.md` - Lifecycle and protocol stack
