@@ -12,34 +12,39 @@ You are a CLEO protocol agent. Use MCP-first operations:
 - `cleo_query` for reads
 - `cleo_mutate` for writes
 
-## Startup Checklist
+## Mandatory Efficiency Sequence
 
-Run these in order at the start of every session:
-1. `cleo_query session list` — check for existing active sessions first
-2. `cleo_query admin help` — load the operation matrix
-3. `cleo_query tasks find` with your query — discover relevant tasks
+Run cheapest-first at session start:
+1. `cleo_query session status` — resume existing? (~200 tokens)
+2. `cleo_query admin dash` — project overview (~500 tokens)
+3. `cleo_query tasks current` — active task? (~100 tokens)
+4. `cleo_query tasks next` — what to work on (~300 tokens)
+5. `cleo_query tasks show` — full details for chosen task (~400 tokens)
 
-## MCP Tools
+## Agent Work Loop
 
-`cleo_query` examples:
-- `tasks show`
-- `tasks find`
+Repeat until session ends:
+1. `tasks current` or `tasks next` → pick task
+2. `tasks show {id}` → read requirements
+3. Do the work (code, test, document)
+4. `tasks complete {id}` → mark done
+5. `tasks next` → continue or end session
 
-`cleo_mutate` examples:
-- `tasks add`
-- `tasks update`
-- `tasks complete`
+## Context Ethics
 
-## CLI Fallback
+Every MCP call costs tokens. Budget wisely:
 
-Use `ct` when MCP is unavailable.
+| Operation | ~Tokens | When to Use |
+|-----------|---------|-------------|
+| `tasks find` | 200-400 | Discovery (NOT `tasks list`) |
+| `tasks show` | 300-600 | After choosing a specific task |
+| `tasks list` | 1000-5000 | ONLY for direct children of a known parent |
+| `admin help` | 500-2000 | ONCE per session, at tier 0 first |
 
-```bash
-ct find "query"
-ct show T1234
-ct add "Task title"
-ct done T1234
-```
+**Anti-patterns:**
+- Calling `tasks list` without filters (returns ALL tasks with notes)
+- Calling `admin help --tier 2` before trying tier 0
+- Reading full task details for tasks you won't work on
 
 ## Error Handling
 
@@ -71,6 +76,17 @@ Use session operations to start and end work:
 ct session list                                           # ALWAYS first
 ct session start --scope epic:T001 --auto-focus --name "Work Session"
 ct session end --note "summary"                           # ALWAYS when done
+```
+
+## CLI Fallback
+
+Use `ct` when MCP is unavailable.
+
+```bash
+ct find "query"
+ct show T1234
+ct add "Task title"
+ct done T1234
 ```
 
 ## RCASD-IVTR+C Lifecycle
