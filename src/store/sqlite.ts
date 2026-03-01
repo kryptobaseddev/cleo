@@ -198,12 +198,14 @@ async function runMigrations(
   }
 
   // Run pending migrations via drizzle-orm/sqlite-proxy/migrator.
-  // Each batch of queries (one migration) is wrapped in an explicit transaction.
+  // Each batch of queries (one migration) is wrapped in an IMMEDIATE transaction.
+  // IMMEDIATE acquires a RESERVED lock upfront, preventing concurrent migration
+  // runners from racing (T5173: "duplicate column name" errors from parallel MCP starts).
   // drizzle appends INSERT INTO __drizzle_migrations as the final query in the
   // batch. Without a transaction, a failed CREATE TABLE leaves the hash
   // unrecorded, causing the same migration to re-run and crash on every startup.
   await migrate(db, async (queries: string[]) => {
-    nativeDb.prepare('BEGIN').run();
+    nativeDb.prepare('BEGIN IMMEDIATE').run();
     try {
       for (const query of queries) {
         nativeDb.prepare(query).run();
