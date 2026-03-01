@@ -21,15 +21,18 @@ vi.mock('node:fs', () => ({
 vi.mock('../../../paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
   getTaskPath: vi.fn(() => '/mock/project/.cleo/tasks.json'),
+  getAgentOutputsDir: vi.fn(() => '/mock/project/.cleo/agent-outputs'),
 }));
 
 vi.mock('../../discovery.js', () => ({
   findSkill: vi.fn(),
+  mapSkillName: vi.fn(() => ({ canonical: 'task-executor', mapped: true })),
 }));
 
 import { existsSync, readFileSync } from 'node:fs';
 import { findSkill } from '../../discovery.js';
 import { injectProtocol, orchestratorSpawnSkill, filterProtocolByTier } from '../../injection/subagent.js';
+import { buildPrompt, spawn, spawnBatch } from '../spawn.js';
 
 const TIERED_PROTOCOL = `# Protocol
 <!-- TIER:minimal -->
@@ -166,5 +169,65 @@ describe('injectProtocol tier parameter', () => {
     expect(result).toContain('Minimal Section');
     expect(result).not.toContain('Standard Section');
     expect(result).not.toContain('Orchestrator Section');
+  });
+});
+
+describe('buildPrompt tier passthrough', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readFileSync).mockImplementation((path: unknown) => {
+      const p = String(path);
+      if (p.includes('subagent-protocol-base')) return TIERED_PROTOCOL;
+      if (p.includes('todo') || p.includes('tasks')) return MOCK_TASKS_JSON;
+      return '';
+    });
+    vi.mocked(findSkill).mockReturnValue({
+      name: 'task-executor',
+      path: '/mock/project/skills/task-executor',
+      content: '# Task Executor\nExecute {{TASK_ID}}.',
+    });
+  });
+
+  it('buildPrompt with tier 0 filters protocol to minimal only', () => {
+    const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 0);
+    expect(result.prompt).toContain('Minimal Section');
+    expect(result.prompt).not.toContain('Standard Section');
+    expect(result.prompt).not.toContain('Orchestrator Section');
+    expect(result.prompt).toContain('SUBAGENT PROTOCOL');
+  });
+
+  it('buildPrompt with tier 1 includes minimal + standard', () => {
+    const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 1);
+    expect(result.prompt).toContain('Minimal Section');
+    expect(result.prompt).toContain('Standard Section');
+    expect(result.prompt).not.toContain('Orchestrator Section');
+  });
+
+  it('buildPrompt without tier includes full protocol', () => {
+    const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project');
+    // No tier = unfiltered, so tier markers present
+    expect(result.prompt).toContain('TIER:minimal');
+    expect(result.prompt).toContain('TIER:orchestrator');
+  });
+
+  it('buildPrompt injects task context', () => {
+    const result = buildPrompt('T100', 'TASK-EXECUTOR', '/mock/project', 0);
+    expect(result.prompt).toContain('Task Context');
+    expect(result.prompt).toContain('T100');
+  });
+
+  it('spawn passes tier through', () => {
+    const result = spawn('T100', 'TASK-EXECUTOR', '/mock/project', 0);
+    expect(result.prompt).toContain('Minimal Section');
+    expect(result.prompt).not.toContain('Orchestrator Section');
+    expect(result.spawnTimestamp).toBeDefined();
+  });
+
+  it('spawnBatch passes tier through', () => {
+    const result = spawnBatch(['T100'], 'TASK-EXECUTOR', '/mock/project', 0);
+    expect(result.succeeded).toBe(1);
+    expect(result.spawns[0].result!.prompt).toContain('Minimal Section');
+    expect(result.spawns[0].result!.prompt).not.toContain('Orchestrator Section');
   });
 });

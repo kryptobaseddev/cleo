@@ -185,10 +185,19 @@ describe('Task Relations Persistence (T5168)', () => {
       await accessor.upsertSingleTask!(task1);
       await accessor.upsertSingleTask!(task2);
 
-      // All valid types should work
+      // Each valid type should work with a distinct target
+      // PK is (taskId, relatedTo) so we need unique pairs per type
       const validTypes = ['related', 'blocks', 'duplicates', 'absorbs', 'fixes', 'extends', 'supersedes'];
-      for (const type of validTypes) {
-        await accessor.addRelation!('T001', 'T002', type);
+      for (let i = 0; i < validTypes.length; i++) {
+        const target: Task = {
+          id: `T${100 + i}`,
+          title: `Target ${i}`,
+          status: 'pending' as const,
+          priority: 'medium' as const,
+          createdAt: new Date().toISOString(),
+        };
+        await accessor.upsertSingleTask!(target);
+        await accessor.addRelation!('T001', target.id, validTypes[i]);
       }
 
       const taskFile = await accessor.loadTaskFile();

@@ -182,3 +182,88 @@ describe('createProjectionMiddleware', () => {
     expect(result.error?.code).toBe('E_NOT_FOUND');
   });
 });
+
+describe('MCP compact default for tasks.list', () => {
+  function makeRequest(overrides: Partial<DispatchRequest> = {}): DispatchRequest {
+    return {
+      gateway: 'query',
+      domain: 'tasks',
+      operation: 'list',
+      params: {},
+      source: 'mcp',
+      requestId: 'test-compact-1',
+      ...overrides,
+    };
+  }
+
+  function makeSuccessResponse(data: unknown = {}): DispatchResponse {
+    return {
+      _meta: {
+        gateway: 'query',
+        domain: 'tasks',
+        operation: 'list',
+        timestamp: new Date().toISOString(),
+        duration_ms: 0,
+        source: 'mcp',
+        requestId: 'test-compact-1',
+      },
+      success: true,
+      data,
+    };
+  }
+
+  it('should inject compact: true for MCP tasks.list', async () => {
+    const middleware = createProjectionMiddleware();
+    const req = makeRequest();
+    let capturedParams: Record<string, unknown> | undefined;
+    await middleware(req, async () => {
+      capturedParams = req.params;
+      return makeSuccessResponse();
+    });
+    expect(capturedParams!['compact']).toBe(true);
+  });
+
+  it('should NOT inject compact for CLI tasks.list', async () => {
+    const middleware = createProjectionMiddleware();
+    const req = makeRequest({ source: 'cli' });
+    let capturedParams: Record<string, unknown> | undefined;
+    await middleware(req, async () => {
+      capturedParams = req.params;
+      return makeSuccessResponse();
+    });
+    expect(capturedParams!['compact']).toBeUndefined();
+  });
+
+  it('should NOT override explicit compact: false', async () => {
+    const middleware = createProjectionMiddleware();
+    const req = makeRequest({ params: { compact: false } });
+    let capturedParams: Record<string, unknown> | undefined;
+    await middleware(req, async () => {
+      capturedParams = req.params;
+      return makeSuccessResponse();
+    });
+    expect(capturedParams!['compact']).toBe(false);
+  });
+
+  it('should NOT inject compact for non-list operations', async () => {
+    const middleware = createProjectionMiddleware();
+    const req = makeRequest({ operation: 'show' });
+    let capturedParams: Record<string, unknown> | undefined;
+    await middleware(req, async () => {
+      capturedParams = req.params;
+      return makeSuccessResponse();
+    });
+    expect(capturedParams!['compact']).toBeUndefined();
+  });
+
+  it('should NOT inject compact for non-tasks domains', async () => {
+    const middleware = createProjectionMiddleware();
+    const req = makeRequest({ domain: 'session', operation: 'list' });
+    let capturedParams: Record<string, unknown> | undefined;
+    await middleware(req, async () => {
+      capturedParams = req.params;
+      return makeSuccessResponse();
+    });
+    expect(capturedParams!['compact']).toBeUndefined();
+  });
+});
