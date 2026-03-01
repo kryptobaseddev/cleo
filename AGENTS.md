@@ -77,52 +77,58 @@ jq 'select(.linkedTask != null and (.linkedTask | startswith("T")))' .cleo/metri
 ### Documentation Standards
 @docs/CLEO-DOCUMENTATION-SOP.md
 
-## Architecture: MCP-First + Shared Core
+## Architecture: Dispatch-First + Shared Core
 
-CLEO uses a **shared-core** architecture where both MCP and CLI are thin wrappers around `src/core/`:
+CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route through a central dispatch layer to `src/core/`:
 
 ```
-MCP Gateway (2 tools) ──► src/mcp/domains/ ──► src/mcp/engine/ ──► src/core/ ◄── src/cli/commands/
-     cleo_query (97 ops)                                                              (80+ commands)
+MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► src/core/ ◄── src/cli/commands/
+     cleo_query (97 ops)                                                                   (80+ commands)
      cleo_mutate (80 ops)
 ```
 
 - **MCP is PRIMARY**: 2 tools, 177 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 80+ commands for human use and fallback
 - **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
+- **src/dispatch/engines/ is the engine layer**: All engine adapters live here (task, session, system, etc.)
+- **src/mcp/engine/ is a barrel**: Re-exports from `src/dispatch/engines/` for backward compatibility
 - **Canonical operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
 - **Verb standards**: `docs/specs/VERB-STANDARDS.md` (add, show, find, list, etc.)
 
 ## Project Structure & Module Organization
 
 ```
-src/                # TypeScript source (primary codebase)
-  src/cli/          #   CLI entry point (Commander.js) and command registrations
-  src/cli/commands/ #   75 command handlers (parse args -> core -> format output)
-  src/core/         #   Shared business logic (tasks, sessions, lifecycle, etc.)
-  src/mcp/          #   MCP server (domains, engine adapters)
-  src/mcp/domains/  #     MCP tool definitions and routing
-  src/mcp/engine/   #     Adapters from MCP protocol to src/core/
-  src/store/        #   Data access layer (JSON, atomic ops, backup, lock)
-  src/types/        #   Shared TypeScript type definitions
-  src/validation/   #   Schema validation and anti-hallucination checks
-schemas/            # JSON Schema definitions for validation
-docs/               # User-facing documentation
-docs/adrs/          #   Architecture Decision Records
-claudedocs/         # Legacy internal research (migrated to .cleo/)
-tests/              # Test suite (Vitest + legacy BATS)
-dev/                # Development scripts (bump-version, benchmark, validation)
-dev/migrations/     # Internal one-time migration scripts (NOT user commands)
-scripts/            # Legacy Bash CLI (deprecated, pending removal)
-lib/                # Legacy Bash helpers (deprecated, pending removal)
+src/                  # TypeScript source (primary codebase)
+  src/cli/            #   CLI entry point (Commander.js) and command registrations
+  src/cli/commands/   #   75 command handlers (parse args -> core -> format output)
+  src/core/           #   Shared business logic (tasks, sessions, lifecycle, etc.)
+  src/dispatch/       #   Central dispatch layer (registry, middleware, engines)
+  src/dispatch/engines/ # Engine adapters (task, session, system, etc.) — canonical location
+  src/dispatch/domains/ # Domain routing
+  src/mcp/            #   MCP server (gateways, barrel re-exports)
+  src/mcp/domains/    #     MCP tool definitions and routing
+  src/mcp/engine/     #     Barrel re-exports from src/dispatch/engines/ + utilities
+  src/store/          #   Data access layer (JSON, atomic ops, backup, lock)
+  src/types/          #   Shared TypeScript type definitions
+  src/validation/     #   Schema validation and anti-hallucination checks
+schemas/              # JSON Schema definitions for validation
+docs/                 # User-facing documentation
+docs/adrs/            #   Architecture Decision Records
+claudedocs/           # Legacy internal research (migrated to .cleo/)
+tests/                # Test suite (Vitest + legacy BATS)
+dev/                  # Development scripts (bump-version, benchmark, validation)
+dev/migrations/       # Internal one-time migration scripts (NOT user commands)
+scripts/              # Legacy Bash CLI (deprecated, pending removal)
+lib/                  # Legacy Bash helpers (deprecated, pending removal)
 ```
 
 ### Key Architecture Principles
 - **MCP is the PRIMARY entry point**; CLI is the backup interface
 - **src/core/** is the single source of truth for all business logic
 - **Both CLI and MCP** delegate to `src/core/` (shared-core pattern, verified by T4565/T4566 audit)
+- **src/dispatch/engines/** is the canonical engine layer: translate params -> call core -> format response
+- **src/mcp/engine/** is a thin barrel of re-exports from `src/dispatch/engines/` (backward compatibility)
 - **src/cli/commands/** contains thin handlers: parse args -> call core -> format output
-- **src/mcp/engine/** contains thin adapters: translate MCP params -> call core -> format response
 - **Atomic file operations** are mandatory for all write operations
 - **JSON Schema validation** runs on every data modification
 - **Append-only logging** to audit log in `tasks.db` for audit trails
@@ -311,7 +317,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/mcp/gateways/query.ts` - 97 query operations (CANONICAL operation registry)
 - `src/mcp/gateways/mutate.ts` - 80 mutate operations (CANONICAL operation registry)
 - `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing)
-- `src/mcp/engine/` - Engine adapters (MCP params → core calls)
+- `src/dispatch/engines/` - Engine adapters (params → core calls) — canonical location
+- `src/mcp/engine/` - Barrel re-exports from dispatch + utilities (capability-matrix, id-generator, CAAMP)
 - `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing matrix
 
 ### CLI Entry Points (Backup Interface)
