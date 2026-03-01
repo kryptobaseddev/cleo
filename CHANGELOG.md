@@ -5,7 +5,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [2026.2.10] - 2026-02-28
+## [2026.3.0] - 2026-03-01
 
 ### Major Changes
 
