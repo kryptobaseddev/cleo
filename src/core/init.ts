@@ -31,7 +31,7 @@
  * @epic T4663
  */
 
-import { chmod, mkdir, access, writeFile, readFile, copyFile, symlink, lstat, unlink } from 'node:fs/promises';
+import { chmod, mkdir, access, writeFile, readFile, copyFile, symlink, lstat, unlink, rm } from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';
 import { readJson } from '../store/json.js';
@@ -97,6 +97,18 @@ async function stripCLEOBlocks(filePath: string): Promise<void> {
     /\n?<!-- CLEO:START -->[\s\S]*?<!-- CLEO:END -->\n?/g, ''
   );
   if (stripped !== content) await writeFile(filePath, stripped, 'utf8');
+}
+
+/**
+ * Remove deprecated .cleo/templates/AGENT-INJECTION.md if it exists.
+ * This file was replaced by the global ~/.cleo/templates/CLEO-INJECTION.md
+ * pattern in v0.75.0. Auto-cleaned during init and upgrade.
+ */
+async function removeStaleAgentInjection(projectRoot: string): Promise<boolean> {
+  const stalePath = join(projectRoot, '.cleo', 'templates', 'AGENT-INJECTION.md');
+  if (!existsSync(stalePath)) return false;
+  await rm(stalePath, { force: true });
+  return true;
 }
 
 
@@ -549,12 +561,16 @@ async function initInjection(
       return;
     }
 
-    // Step 0: Strip legacy CLEO blocks from all provider files and AGENTS.md
+    // Step 0: Strip legacy CLEO blocks and remove deprecated AGENT-INJECTION.md
     for (const provider of providers) {
       const instructFile = join(projectRoot, provider.pathProject, provider.instructFile);
       await stripCLEOBlocks(instructFile);
     }
     await stripCLEOBlocks(join(projectRoot, 'AGENTS.md'));
+    const removedStale = await removeStaleAgentInjection(projectRoot);
+    if (removedStale) {
+      created.push('removed deprecated .cleo/templates/AGENT-INJECTION.md');
+    }
 
     // Step 1: Inject @AGENTS.md into all provider instruction files (CLAUDE.md, GEMINI.md, etc.)
     const injectionContent = buildInjectionContent({ references: ['@AGENTS.md'] });
