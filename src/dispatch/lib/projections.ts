@@ -42,8 +42,14 @@ export const PROJECTIONS: Record<MviTier, ProjectionConfig> = {
 const VALID_TIERS = new Set<string>(['minimal', 'standard', 'orchestrator']);
 
 /** Resolve tier from request params, defaulting to 'standard'. */
-export function resolveTier(params?: Record<string, unknown>): MviTier {
+export function resolveTier(
+  params?: Record<string, unknown>,
+  sessionScope?: { type: string; epicId?: string } | null,
+): MviTier {
+  // Explicit param always wins
   const mvi = params?._mviTier;
   if (typeof mvi === 'string' && VALID_TIERS.has(mvi)) return mvi as MviTier;
+  // Auto-map epic scope to orchestrator tier
+  if (sessionScope?.type === 'epic') return 'orchestrator';
   return 'standard';
 }
