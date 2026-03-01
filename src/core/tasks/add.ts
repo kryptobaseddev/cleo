@@ -17,6 +17,7 @@ import { loadConfig } from '../config.js';
 import { createTaskSafe, updateTask } from '../../store/task-store.js';
 import { setMetaValue } from '../../store/sqlite-data-accessor.js';
 import { resolveHierarchyPolicy, validateHierarchyPlacement, countActiveChildren } from './hierarchy-policy.js';
+import { allocateNextTaskId } from '../sequence/index.js';
 
 /** Options for creating a task. */
 export interface AddTaskOptions {
@@ -219,6 +220,10 @@ export function validateDepends(depends: string[], tasks: Task[]): void {
 
 /**
  * Generate the next task ID by scanning existing tasks and archive.
+ *
+ * @deprecated Use {@link allocateNextTaskId} for SQLite paths. This function
+ * is vulnerable to TOCTOU race conditions under concurrent access (T5184).
+ * Kept for legacy JSON accessor paths where single-process guarantees hold.
  * @task T4460
  */
 export function generateTaskId(tasks: Task[], archivedTasks?: Array<{ id: string }>): string {
@@ -412,23 +417,26 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     ? await accessor.loadTaskFile()
     : await readJsonRequired<TaskFile>(taskPath);
 
-  // Read archive for ID generation
+  // Read archive for ID generation (only needed for non-SQLite paths)
   let archivedTasks: Array<{ id: string }> = [];
-  try {
-    if (accessor) {
-      const archive = await accessor.loadArchive();
-      if (archive?.archivedTasks) {
-        archivedTasks = archive.archivedTasks;
+  const useSqliteAlloc = accessor?.engine === 'sqlite' || (!accessor && (await import('../../store/sqlite.js')).getNativeDb() !== null);
+  if (!useSqliteAlloc) {
+    try {
+      if (accessor) {
+        const archive = await accessor.loadArchive();
+        if (archive?.archivedTasks) {
+          archivedTasks = archive.archivedTasks;
+        }
+      } else {
+        const { readJson } = await import('../../store/json.js');
+        const archive = await readJson<{ archivedTasks: Array<{ id: string }> }>(archivePath);
+        if (archive?.archivedTasks) {
+          archivedTasks = archive.archivedTasks;
+        }
       }
-    } else {
-      const { readJson } = await import('../../store/json.js');
-      const archive = await readJson<{ archivedTasks: Array<{ id: string }> }>(archivePath);
-      if (archive?.archivedTasks) {
-        archivedTasks = archive.archivedTasks;
-      }
+    } catch {
+      // Archive may not exist
     }
-  } catch {
-    // Archive may not exist
   }
 
   // Resolve defaults
@@ -531,12 +539,16 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     return { task: duplicate, duplicate: true };
   }
 
-  // Generate ID
-  const taskId = generateTaskId(data.tasks, archivedTasks);
-
-  // ID uniqueness check
-  if (data.tasks.some(t => t.id === taskId)) {
-    throw new CleoError(ExitCode.ID_COLLISION, `Generated ID ${taskId} already exists`);
+  // Generate ID — use atomic SQLite allocation when available (T5184)
+  let taskId: string;
+  if (useSqliteAlloc) {
+    taskId = await allocateNextTaskId(cwd);
+  } else {
+    // Legacy path: scan tasks in memory (acceptable TOCTOU for single-process JSON accessor)
+    taskId = generateTaskId(data.tasks, archivedTasks);
+    if (data.tasks.some(t => t.id === taskId)) {
+      throw new CleoError(ExitCode.ID_COLLISION, `Generated ID ${taskId} already exists`);
+    }
   }
 
   const now = new Date().toISOString();

@@ -70,6 +70,9 @@ export function findHighestId(existingIds: Set<string>): number {
  * Finds the highest existing ID number across todo.json and archive,
  * then returns the next sequential ID.
  *
+ * @deprecated Use {@link import('../sequence/index.js').allocateNextTaskId} for
+ * SQLite paths. This function is vulnerable to TOCTOU race conditions
+ * under concurrent access (T5184).
  * @param projectRoot - Project root directory
  * @returns New unique task ID (e.g., "T4321")
  */
