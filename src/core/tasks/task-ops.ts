@@ -14,7 +14,7 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../mcp/engine/store.js';
+import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../store/file-utils.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
 import { depsReady } from './deps-ready.js';
 

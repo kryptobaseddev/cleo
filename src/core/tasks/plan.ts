@@ -6,7 +6,7 @@
 
 import type { TaskRow } from '../../store/schema.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { readJsonFile, getDataPath } from '../../mcp/engine/store.js';
+import { readJsonFile, getDataPath } from '../../store/file-utils.js';
 import { depsReady } from './deps-ready.js';
 
 // Internal task record — subset of Drizzle TaskRow for plan computation
