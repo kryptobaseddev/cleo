@@ -14,6 +14,7 @@ export {
   checkNodeVersion,
   checkRootGitignore,
   checkCoreFilesNotIgnored,
+  checkSqliteNotTracked,
   runAllGlobalChecks,
   calculateHealthStatus,
 } from './checks.js';

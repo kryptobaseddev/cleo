@@ -1,2 +1,90 @@
-# CLEO Project Data - Selective Git Tracking
-agent-outputs/
+# =============================================================================
+# .cleo/.gitignore — Deny-by-default for CLEO project data
+# =============================================================================
+# STRATEGY: Ignore everything, then explicitly allow only tracked files.
+# This prevents runtime data (databases, logs, caches, metrics) from ever
+# being accidentally committed.
+#
+# Canonical audit: .cleo/agent-outputs/T5159-cleo-file-audit.md
+# ADR: ADR-013-data-integrity-checkpoint-architecture.md
+# =============================================================================
+
+# Step 1: Ignore everything in .cleo/
+*
+
+# =============================================================================
+# ALLOW LIST — files and directories that SHOULD be tracked
+# =============================================================================
+
+# Step 2: Allow this .gitignore itself
+!.gitignore
+
+# Step 3: Allow project configuration files
+!config.json
+!project-context.json
+!project-info.json
+!setup-otel.sh
+!DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
+
+# Step 4: Allow schemas directory
+!schemas/
+!schemas/**
+
+# Step 5: Allow templates directory
+!templates/
+!templates/**
+
+# Step 6: Allow ADRs directory (architecture decisions — project-level, not CLEO-specific)
+!adrs/
+!adrs/**
+
+# Step 7: Allow consensus directory (provenance evidence trail)
+!consensus/
+!consensus/**
+
+# Step 8: Allow RCASD lifecycle provenance directory
+# Structure: rcasd/{epic#}/research/, consensus/, architecture/, specs/, contributions/
+!rcasd/
+!rcasd/**
+
+# Step 9: Allow contributions directory (provenance attribution)
+!contributions/
+!contributions/**
+
+# Step 10: Allow agent-outputs directory
+!agent-outputs/
+!agent-outputs/**
+
+# =============================================================================
+# EXPLICIT DENY — safety net that overrides allow rules above
+# =============================================================================
+
+# SQLite databases — NEVER track (data loss root cause, ADR-013)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Logs — NEVER track (append-only runtime data)
+log.json
+tasks-log.jsonl
+todo-log.jsonl
+bypass-log.json
+qa-log.json
+
+# Caches and transient state
+.deps-cache/
+.context-alert-state.json
+.context-state*.json
+context-states/
+.git-checkpoint-state
+.migration-state.json
+
+# Instance-specific runtime data
+migrations.json
+sync/
+metrics/
+
+# Backups — NEVER track
+.backups/
+backups/

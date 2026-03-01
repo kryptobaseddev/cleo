@@ -23,7 +23,7 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync };
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -33,6 +33,7 @@ import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import * as schema from './schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
 import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
+import { getLogger } from '../core/logger.js';
 
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'tasks.db';
@@ -47,6 +48,8 @@ let _nativeDb: DatabaseSync | null = null;
 let _dbPath: string | null = null;
 /** Guard against concurrent initialization (async migration). */
 let _initPromise: Promise<SqliteRemoteDatabase<typeof schema>> | null = null;
+/** Guard: git-tracking check runs only once per process. */
+let _gitTrackingChecked = false;
 
 /**
  * Get the path to the SQLite database file.
@@ -102,6 +105,26 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
     nativeDb.exec(
       `INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('task_id_sequence', '{"counter":0,"lastId":"T000","checksum":"seed"}')`,
     );
+
+    // Check if tasks.db is dangerously tracked by git (ADR-013, T5158)
+    if (!_gitTrackingChecked) {
+      _gitTrackingChecked = true;
+      try {
+        const { execFileSync } = await import('node:child_process');
+        execFileSync('git', ['ls-files', '--error-unmatch', dbPath], {
+          cwd: resolve(dbPath, '..', '..'),
+          stdio: 'pipe',
+        });
+        // If we get here, the file IS tracked — that's dangerous
+        const log = getLogger('sqlite');
+        log.warn(
+          { dbPath },
+          'tasks.db is tracked by project git — this risks data loss on git operations. Run: git rm --cached .cleo/tasks.db (see ADR-013)',
+        );
+      } catch {
+        // Exit code 1 = not tracked = good, do nothing
+      }
+    }
 
     // Set singleton only after migrations complete
     _db = db;
