@@ -1057,3 +1057,13 @@ export async function validateManifestEntries(
     warningCount: issues.filter(i => i.severity === 'warning').length,
   };
 }
+
+// === BRAIN Memory modules (brain.db backed) ===
+export * from './decisions.js';
+export * from './brain-migration.js';
+export * from './brain-search.js';
+export * from './brain-links.js';
+
+// === JSONL Memory modules (legacy, still active) ===
+export * from './patterns.js';
+export * from './learnings.js';
