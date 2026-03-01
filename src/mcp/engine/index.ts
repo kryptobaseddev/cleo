@@ -113,6 +113,12 @@ export {
   sessionStats,
   sessionSwitch,
   sessionArchive,
+  sessionHandoff,
+  sessionComputeHandoff,
+  sessionBriefing,
+  sessionComputeDebrief,
+  sessionDebriefShow,
+  sessionChainShow,
   type SessionRecord,
   type DecisionRecord,
 } from '../../dispatch/engines/session-engine.js';

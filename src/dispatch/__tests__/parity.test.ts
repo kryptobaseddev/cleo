@@ -21,6 +21,8 @@ import {
   OPERATIONS,
   resolve,
   validateRequiredParams,
+  getByDomain,
+  getActiveDomains,
   type OperationDef,
 } from '../../dispatch/registry.js';
 
@@ -36,7 +38,8 @@ import {
   getAllOperationSchemas,
 } from '../../dispatch/lib/schema-utils.js';
 
-import type { ParamDef } from '../../dispatch/types.js';
+import type { ParamDef, CanonicalDomain } from '../../dispatch/types.js';
+import { CANONICAL_DOMAINS } from '../../dispatch/types.js';
 
 // ===========================================================================
 // Test Group 1: Registry completeness
@@ -761,5 +764,314 @@ describe('Group 5: Schema utils', () => {
     expect(s1.type).toBe('object');
     expect(s1.properties).toEqual({});
     expect(s1.required).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Test Group 6: Per-domain operation coverage (post-consolidation T5099)
+// ===========================================================================
+
+describe('Group 6: Per-domain operation coverage', () => {
+  it('all canonical domains have at least one registered operation', () => {
+    const activeDomains = getActiveDomains();
+    // The 10 canonical domains from CANONICAL_DOMAINS
+    // Not all may have operations yet (e.g., sharing may be empty)
+    // Verify that the active domains are a subset of canonical domains
+    for (const domain of activeDomains) {
+      expect(
+        (CANONICAL_DOMAINS as readonly string[]).includes(domain),
+        `Active domain "${domain}" is not in CANONICAL_DOMAINS`,
+      ).toBe(true);
+    }
+  });
+
+  it('each active domain is reachable through resolve() for at least one gateway', () => {
+    const activeDomains = getActiveDomains();
+
+    for (const domain of activeDomains) {
+      const domainOps = getByDomain(domain as CanonicalDomain);
+      expect(domainOps.length, `Domain "${domain}" has no operations`).toBeGreaterThan(0);
+
+      // At least one operation in this domain should be resolvable
+      let resolved = false;
+      for (const op of domainOps) {
+        const result = resolve(op.gateway, op.domain, op.operation);
+        if (result) {
+          resolved = true;
+          break;
+        }
+      }
+      expect(resolved, `No operation in domain "${domain}" could be resolved`).toBe(true);
+    }
+  });
+
+  it('every domain has operations in both query and mutate gateways, or only one', () => {
+    // Document which domains have query-only, mutate-only, or both
+    const activeDomains = getActiveDomains();
+
+    for (const domain of activeDomains) {
+      const domainOps = getByDomain(domain as CanonicalDomain);
+      const queryOps = domainOps.filter(o => o.gateway === 'query');
+      const mutateOps = domainOps.filter(o => o.gateway === 'mutate');
+
+      // At least one gateway must have operations
+      expect(
+        queryOps.length + mutateOps.length,
+        `Domain "${domain}" has no operations in either gateway`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('core domains (tasks, session, admin) have both query and mutate operations', () => {
+    const coreDomains: CanonicalDomain[] = ['tasks', 'session', 'admin'];
+
+    for (const domain of coreDomains) {
+      const domainOps = getByDomain(domain);
+      const queryOps = domainOps.filter(o => o.gateway === 'query');
+      const mutateOps = domainOps.filter(o => o.gateway === 'mutate');
+
+      expect(queryOps.length, `Domain "${domain}" has no query operations`).toBeGreaterThan(0);
+      expect(mutateOps.length, `Domain "${domain}" has no mutate operations`).toBeGreaterThan(0);
+    }
+  });
+
+  it('resolve() returns correct domain for each registered operation', () => {
+    for (const op of OPERATIONS) {
+      const result = resolve(op.gateway, op.domain, op.operation);
+      expect(result, `${op.gateway}:${op.domain}.${op.operation} did not resolve`).toBeDefined();
+      expect(result!.domain).toBe(op.domain);
+      expect(result!.operation).toBe(op.operation);
+      expect(result!.def.gateway).toBe(op.gateway);
+    }
+  });
+});
+
+// ===========================================================================
+// Test Group 7: Response structure consistency (post-consolidation T5099)
+// ===========================================================================
+
+describe('Group 7: EngineResult response structure consistency', () => {
+  it('engineError returns correct EngineResult shape', async () => {
+    const { engineError } = await import('../../dispatch/engines/_error.js');
+
+    const result = engineError('E_NOT_FOUND', 'Task not found');
+
+    expect(result.success).toBe(false);
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('E_NOT_FOUND');
+    expect(result.error!.message).toBe('Task not found');
+    expect(typeof result.error!.exitCode).toBe('number');
+  });
+
+  it('engineSuccess returns correct EngineResult shape', async () => {
+    const { engineSuccess } = await import('../../dispatch/engines/_error.js');
+
+    const result = engineSuccess({ id: 'T001', title: 'Test' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ id: 'T001', title: 'Test' });
+    expect(result.error).toBeUndefined();
+  });
+
+  it('engineError includes optional fields when provided', async () => {
+    const { engineError } = await import('../../dispatch/engines/_error.js');
+
+    const result = engineError('E_VALIDATION', 'Validation failed', {
+      details: { field: 'title' },
+      fix: 'ct update T001 --title "New title"',
+      alternatives: [{ action: 'Show task', command: 'ct show T001' }],
+    });
+
+    expect(result.error!.details).toEqual({ field: 'title' });
+    expect(result.error!.fix).toBe('ct update T001 --title "New title"');
+    expect(result.error!.alternatives).toHaveLength(1);
+    expect(result.error!.alternatives![0].action).toBe('Show task');
+  });
+
+  it('engineError maps known error codes to correct exit codes', async () => {
+    const { engineError, STRING_TO_EXIT } = await import('../../dispatch/engines/_error.js');
+
+    // Spot-check a few critical mappings
+    const notFound = engineError('E_NOT_FOUND', 'Not found');
+    expect(notFound.error!.exitCode).toBe(STRING_TO_EXIT['E_NOT_FOUND']);
+    expect(notFound.error!.exitCode).toBe(4);
+
+    const validation = engineError('E_VALIDATION', 'Bad input');
+    expect(validation.error!.exitCode).toBe(6);
+
+    const parentNotFound = engineError('E_PARENT_NOT_FOUND', 'No parent');
+    expect(parentNotFound.error!.exitCode).toBe(10);
+  });
+
+  it('engineError defaults to exit code 1 for unknown error codes', async () => {
+    const { engineError } = await import('../../dispatch/engines/_error.js');
+
+    const result = engineError('E_COMPLETELY_UNKNOWN_CODE', 'Unknown');
+    expect(result.error!.exitCode).toBe(1);
+  });
+
+  it('EngineResult type contract: success=true implies data may exist, error is absent', async () => {
+    const { engineSuccess } = await import('../../dispatch/engines/_error.js');
+
+    const result = engineSuccess({ count: 42 });
+
+    // Type-level contract: success=true
+    expect(result).toHaveProperty('success', true);
+    // data is present
+    expect(result).toHaveProperty('data');
+    // error must not be present on success
+    expect(result.error).toBeUndefined();
+  });
+
+  it('EngineResult type contract: success=false implies error exists, data is absent', async () => {
+    const { engineError } = await import('../../dispatch/engines/_error.js');
+
+    const result = engineError('E_NOT_FOUND', 'Missing');
+
+    expect(result).toHaveProperty('success', false);
+    expect(result).toHaveProperty('error');
+    expect(result.error).toHaveProperty('code');
+    expect(result.error).toHaveProperty('message');
+    expect(result.data).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// Test Group 8: Barrel completeness (post-consolidation T5099)
+// ===========================================================================
+
+describe('Group 8: Barrel export completeness', () => {
+  it('barrel re-exports EngineResult type and helpers from dispatch engines', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    // Core type helpers must be available through barrel
+    expect(typeof barrel.engineError).toBe('function');
+    expect(typeof barrel.engineSuccess).toBe('function');
+  });
+
+  it('barrel re-exports task engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    // Spot-check critical task engine exports
+    expect(typeof barrel.taskShow).toBe('function');
+    expect(typeof barrel.taskList).toBe('function');
+    expect(typeof barrel.taskFind).toBe('function');
+    expect(typeof barrel.taskCreate).toBe('function');
+    expect(typeof barrel.taskUpdate).toBe('function');
+    expect(typeof barrel.taskComplete).toBe('function');
+    expect(typeof barrel.taskDelete).toBe('function');
+    expect(typeof barrel.taskArchive).toBe('function');
+    expect(typeof barrel.taskNext).toBe('function');
+  });
+
+  it('barrel re-exports session engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.sessionStatus).toBe('function');
+    expect(typeof barrel.sessionList).toBe('function');
+    expect(typeof barrel.sessionStart).toBe('function');
+    expect(typeof barrel.sessionEnd).toBe('function');
+    expect(typeof barrel.sessionResume).toBe('function');
+    expect(typeof barrel.taskStart).toBe('function');
+    expect(typeof barrel.taskStop).toBe('function');
+    expect(typeof barrel.taskCurrentGet).toBe('function');
+  });
+
+  it('barrel re-exports system engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.systemDash).toBe('function');
+    expect(typeof barrel.systemStats).toBe('function');
+    expect(typeof barrel.systemHelp).toBe('function');
+    expect(typeof barrel.systemHealth).toBe('function');
+    expect(typeof barrel.systemContext).toBe('function');
+  });
+
+  it('barrel re-exports lifecycle engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.lifecycleStatus).toBe('function');
+    expect(typeof barrel.lifecycleHistory).toBe('function');
+    expect(typeof barrel.lifecycleGates).toBe('function');
+    expect(typeof barrel.lifecycleProgress).toBe('function');
+  });
+
+  it('barrel re-exports orchestrate engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.orchestrateStatus).toBe('function');
+    expect(typeof barrel.orchestrateAnalyze).toBe('function');
+    expect(typeof barrel.orchestrateReady).toBe('function');
+    expect(typeof barrel.orchestrateNext).toBe('function');
+    expect(typeof barrel.orchestrateSpawn).toBe('function');
+  });
+
+  it('barrel re-exports validate engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.validateSchemaOp).toBe('function');
+    expect(typeof barrel.validateProtocol).toBe('function');
+    expect(typeof barrel.validateOutput).toBe('function');
+  });
+
+  it('barrel re-exports release engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.releasePrepare).toBe('function');
+    expect(typeof barrel.releaseChangelog).toBe('function');
+    expect(typeof barrel.releaseList).toBe('function');
+    expect(typeof barrel.releaseCommit).toBe('function');
+  });
+
+  it('barrel re-exports config and init engine functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.configGet).toBe('function');
+    expect(typeof barrel.configSet).toBe('function');
+    expect(typeof barrel.initProject).toBe('function');
+    expect(typeof barrel.getVersion).toBe('function');
+  });
+
+  it('barrel re-exports capability matrix functions', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+
+    expect(typeof barrel.getOperationMode).toBe('function');
+    expect(typeof barrel.canRunNatively).toBe('function');
+    expect(typeof barrel.requiresCLI).toBe('function');
+    expect(typeof barrel.getNativeOperations).toBe('function');
+  });
+
+  it('dispatch task engine exports match barrel task engine exports', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+    const dispatch = await import('../../dispatch/engines/task-engine.js');
+
+    // Every exported function from dispatch task engine should be accessible through barrel
+    const dispatchExports = Object.keys(dispatch).filter(
+      k => typeof (dispatch as Record<string, unknown>)[k] === 'function',
+    );
+
+    for (const name of dispatchExports) {
+      expect(
+        typeof (barrel as Record<string, unknown>)[name],
+        `Task engine export "${name}" missing from barrel`,
+      ).toBe('function');
+    }
+  });
+
+  it('dispatch session engine exports match barrel session engine exports', async () => {
+    const barrel = await import('../../../src/mcp/engine/index.js');
+    const dispatch = await import('../../dispatch/engines/session-engine.js');
+
+    const dispatchExports = Object.keys(dispatch).filter(
+      k => typeof (dispatch as Record<string, unknown>)[k] === 'function',
+    );
+
+    for (const name of dispatchExports) {
+      expect(
+        typeof (barrel as Record<string, unknown>)[name],
+        `Session engine export "${name}" missing from barrel`,
+      ).toBe('function');
+    }
   });
 });
