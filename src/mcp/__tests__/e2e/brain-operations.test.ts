@@ -22,11 +22,11 @@ import {
 
 import {
   taskComplexityEstimate,
-} from '../../engine/task-engine.js';
+} from '../../../dispatch/engines/task-engine.js';
 
 import {
   validateCoherenceCheck,
-} from '../../engine/validate-engine.js';
+} from '../../../dispatch/engines/validate-engine.js';
 
 import {
   sessionRecordDecision,
