@@ -5,6 +5,14 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.3.2] - 2026-03-01
+
+### Bug Fixes
+
+- **Add missing drizzle migrations for task_relations (T5168)** — Generated migration to add `reason` column to `task_relations` table. Generated custom migration to update CHECK constraint on `relation_type` from 3 values (`related`, `blocks`, `duplicates`) to 7 values (`related`, `blocks`, `duplicates`, `absorbs`, `fixes`, `extends`, `supersedes`). Fixes 58 test failures in relations, core-parity, and MCP E2E tests.
+
+---
+
 ## [2026.3.1] - 2026-03-01
 
 ### Bug Fixes
