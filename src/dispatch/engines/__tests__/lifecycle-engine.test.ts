@@ -20,8 +20,8 @@ import {
   lifecycleReset,
   lifecycleGatePass,
   lifecycleGateFail,
-} from '../../../dispatch/engines/lifecycle-engine.js';
-import { readJsonFile } from '../store.js';
+} from '../lifecycle-engine.js';
+import { readJsonFile } from '../../../store/file-utils.js';
 
 const TEST_ROOT = join(process.cwd(), '.test-lifecycle-engine');
 const RCSD_DIR = join(TEST_ROOT, '.cleo', 'rcasd');

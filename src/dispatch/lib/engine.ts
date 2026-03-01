@@ -2,8 +2,7 @@
  * Engine Re-exports for Dispatch Domain Handlers
  *
  * Centralizes the dispatch layer's engine imports into a single barrel.
- * All imports use dispatch/engines/ (which delegate to src/core/),
- * eliminating the prior mcp/engine coupling.
+ * All imports use dispatch/engines/ (which delegate to src/core/).
  *
  * @epic T4820
  * @task T4815

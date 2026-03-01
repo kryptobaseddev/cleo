@@ -3,8 +3,7 @@
  *
  * Verifies that key operations produce structurally correct results when
  * called through the dispatch layer. After the engine consolidation (T5099),
- * all engines live in src/dispatch/engines/ and the barrel at
- * src/mcp/engine/index.ts re-exports them.
+ * all engines live in src/dispatch/engines/.
  *
  * These tests validate:
  *  1. Key operations return EngineResult with correct shape
@@ -197,74 +196,5 @@ describe('Integration: Cross-domain registry consistency', () => {
 
     // Most query operations should be idempotent (>90%)
     expect(idempotentCount / queryOps.length).toBeGreaterThan(0.9);
-  });
-});
-
-// ===========================================================================
-// Test Group 4: Barrel functional equivalence
-// ===========================================================================
-
-describe('Integration: Barrel functional equivalence', () => {
-  it('engineError from barrel and dispatch produce identical results', async () => {
-    const barrel = await import('../../../src/mcp/engine/index.js');
-    const dispatch = await import('../../dispatch/engines/_error.js');
-
-    const barrelResult = barrel.engineError('E_NOT_FOUND', 'Not found');
-    const dispatchResult = dispatch.engineError('E_NOT_FOUND', 'Not found');
-
-    expect(barrelResult.success).toBe(dispatchResult.success);
-    expect(barrelResult.error!.code).toBe(dispatchResult.error!.code);
-    expect(barrelResult.error!.exitCode).toBe(dispatchResult.error!.exitCode);
-  });
-
-  it('engineSuccess from barrel and dispatch produce identical results', async () => {
-    const barrel = await import('../../../src/mcp/engine/index.js');
-    const dispatch = await import('../../dispatch/engines/_error.js');
-
-    const testData = { id: 'T001', title: 'Test' };
-    const barrelResult = barrel.engineSuccess(testData);
-    const dispatchResult = dispatch.engineSuccess(testData);
-
-    expect(barrelResult).toEqual(dispatchResult);
-  });
-
-  it('barrel task functions reference same implementation as dispatch', async () => {
-    const barrel = await import('../../../src/mcp/engine/index.js');
-    const dispatch = await import('../../dispatch/engines/task-engine.js');
-
-    // Same function reference — barrel re-exports, not copies
-    expect(barrel.taskShow).toBe(dispatch.taskShow);
-    expect(barrel.taskList).toBe(dispatch.taskList);
-    expect(barrel.taskFind).toBe(dispatch.taskFind);
-    expect(barrel.taskCreate).toBe(dispatch.taskCreate);
-    expect(barrel.taskComplete).toBe(dispatch.taskComplete);
-  });
-
-  it('barrel session functions reference same implementation as dispatch', async () => {
-    const barrel = await import('../../../src/mcp/engine/index.js');
-    const dispatch = await import('../../dispatch/engines/session-engine.js');
-
-    expect(barrel.sessionStatus).toBe(dispatch.sessionStatus);
-    expect(barrel.sessionList).toBe(dispatch.sessionList);
-    expect(barrel.sessionStart).toBe(dispatch.sessionStart);
-    expect(barrel.sessionEnd).toBe(dispatch.sessionEnd);
-  });
-
-  it.skip('tasks.find end-to-end — requires initialized DB', () => {
-    // End-to-end dispatch through taskFind() requires an initialized project
-    // with a tasks.db database. See cli-mcp-parity.integration.test.ts for
-    // mocked end-to-end tests.
-  });
-
-  it.skip('tasks.show end-to-end — requires initialized DB', () => {
-    // Same as above — requires real data store.
-  });
-
-  it.skip('session.status end-to-end — requires initialized DB', () => {
-    // Session status requires an active session in the database.
-  });
-
-  it.skip('admin.help end-to-end — may require runtime context', () => {
-    // admin.help may require MCP server context or dispatch infrastructure.
   });
 });

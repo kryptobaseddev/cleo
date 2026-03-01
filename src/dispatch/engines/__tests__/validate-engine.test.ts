@@ -16,7 +16,7 @@ import {
   validateComplianceViolations,
   validateComplianceRecord,
   validateTestStatus,
-} from '../../../dispatch/engines/validate-engine.js';
+} from '../validate-engine.js';
 
 const TEST_ROOT = join(process.cwd(), '.test-validate-engine');
 const CLEO_DIR = join(TEST_ROOT, '.cleo');
