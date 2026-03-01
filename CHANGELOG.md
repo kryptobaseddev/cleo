@@ -5,6 +5,18 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.3.1] - 2026-03-01
+
+### Bug Fixes
+
+- **Prevent database wipe on branch switch (T5184)** — Removed `.cleo/tasks.db-wal` and `.cleo/tasks.db-shm` from git tracking. Git-tracked empty WAL/SHM blobs overwrote live SQLite WAL on branch switch, destroying pending writes. Added auto-recovery safety net that detects empty databases with valid backups and restores on startup. Added extended git-tracking warning on MCP server startup.
+
+- **Relates add persistence bug (T5168)** — Fixed `addRelation()` in `src/core/tasks/relates.ts` to write to `task_relations` junction table via `accessor.addRelation()`. Previously, relates data was silently lost because `taskToRow()` has no `relates` column. Added 5 new Vitest tests for relates persistence.
+
+- **Pre-commit hook blocks WAL/SHM removal (T5184)** — Fixed pre-commit hook to allow `git rm --cached` operations on WAL/SHM files using `--diff-filter=ACMR`.
+
+---
+
 ## [2026.3.0] - 2026-03-01
 
 ### Major Changes
