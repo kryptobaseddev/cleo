@@ -26,24 +26,16 @@
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 
-# Step 4: Allow schemas directory
-!schemas/
-!schemas/**
-
-# Step 5: Allow templates directory
-!templates/
-!templates/**
-
-# Step 6: Allow ADRs directory (architecture decisions — project-level, not CLEO-specific)
+# Step 4: Allow ADRs directory (architecture decisions — project-level, not CLEO-specific)
 !adrs/
 !adrs/**
 
-# Step 7: Allow RCASD lifecycle provenance directory
+# Step 5: Allow RCASD lifecycle provenance directory
 # Structure: rcasd/{epic#}/research/, consensus/, architecture/, specs/, contributions/
 !rcasd/
 !rcasd/**
 
-# Step 8: Allow agent-outputs directory
+# Step 6: Allow agent-outputs directory
 !agent-outputs/
 !agent-outputs/**
 

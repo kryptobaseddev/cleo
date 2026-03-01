@@ -4,21 +4,10 @@
  * @epic T4454
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { getManifestPath as getManifestPathFromPaths } from '../paths.js';
+import { readComplianceJsonl } from './store.js';
 // CleoError and ExitCode available if needed for future error cases
-
-function getCleoDir(cwd?: string): string {
-  return join(cwd ?? process.cwd(), '.cleo');
-}
-
-function readJsonlFile(filePath: string): Record<string, unknown>[] {
-  if (!existsSync(filePath)) return [];
-  const content = readFileSync(filePath, 'utf-8').trim();
-  if (!content) return [];
-  return content.split('\n').map(line => JSON.parse(line));
-}
 
 /** Get compliance summary. */
 export async function getComplianceSummary(opts: {
@@ -26,8 +15,7 @@ export async function getComplianceSummary(opts: {
   agent?: string;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  const compliancePath = join(getCleoDir(opts.cwd), 'metrics', 'COMPLIANCE.jsonl');
-  let entries = readJsonlFile(compliancePath);
+  let entries = readComplianceJsonl(opts.cwd ?? process.cwd());
 
   if (opts.since) {
     entries = entries.filter(e => (e.timestamp as string) >= opts.since!);
@@ -63,8 +51,7 @@ export async function listComplianceViolations(opts: {
   agent?: string;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  const compliancePath = join(getCleoDir(opts.cwd), 'metrics', 'COMPLIANCE.jsonl');
-  let entries = readJsonlFile(compliancePath);
+  let entries = readComplianceJsonl(opts.cwd ?? process.cwd());
 
   entries = entries.filter(e => {
     const c = (e.compliance ?? {}) as Record<string, unknown>;
@@ -105,8 +92,7 @@ export async function getComplianceTrend(
   days: number = 7,
   cwd?: string,
 ): Promise<Record<string, unknown>> {
-  const compliancePath = join(getCleoDir(cwd), 'metrics', 'COMPLIANCE.jsonl');
-  const entries = readJsonlFile(compliancePath);
+  const entries = readComplianceJsonl(cwd ?? process.cwd());
   const cutoff = new Date(Date.now() - days * 86400000).toISOString();
 
   const filtered = entries.filter(e => (e.timestamp as string) >= cutoff);
@@ -147,8 +133,7 @@ export async function auditEpicCompliance(
   epicId: string,
   opts: { since?: string; cwd?: string },
 ): Promise<Record<string, unknown>> {
-  const compliancePath = join(getCleoDir(opts.cwd), 'metrics', 'COMPLIANCE.jsonl');
-  const entries = readJsonlFile(compliancePath);
+  const entries = readComplianceJsonl(opts.cwd ?? process.cwd());
 
   const epicEntries = entries.filter(e => {
     const ctx = (e._context ?? {}) as Record<string, unknown>;
@@ -189,8 +174,7 @@ export async function getSkillReliability(opts: {
   global?: boolean;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  const compliancePath = join(getCleoDir(opts.cwd), 'metrics', 'COMPLIANCE.jsonl');
-  const entries = readJsonlFile(compliancePath);
+  const entries = readComplianceJsonl(opts.cwd ?? process.cwd());
 
   const byAgent: Record<string, { count: number; passRateSum: number; violations: number }> = {};
   for (const e of entries) {
@@ -218,8 +202,6 @@ export async function getValueMetrics(
   days: number = 7,
   cwd?: string,
 ): Promise<Record<string, unknown>> {
-  const cleoDir = getCleoDir(cwd);
-  const compliancePath = join(cleoDir, 'metrics', 'COMPLIANCE.jsonl');
   const manifestPath = getManifestPathFromPaths(cwd);
 
   let manifestEntries = 0;
@@ -239,18 +221,16 @@ export async function getValueMetrics(
   let violationsCaught = 0;
   let realValidations = 0;
 
-  if (existsSync(compliancePath)) {
-    const entries = readJsonlFile(compliancePath);
-    totalValidations = entries.length;
-    violationsCaught = entries.filter(e => {
-      const c = (e.compliance ?? {}) as Record<string, unknown>;
-      return ((c.violation_count as number) ?? 0) > 0;
-    }).length;
-    realValidations = entries.filter(e => {
-      const ctx = (e._context ?? {}) as Record<string, unknown>;
-      return ctx.validation_score !== undefined;
-    }).length;
-  }
+  const entries = readComplianceJsonl(cwd ?? process.cwd());
+  totalValidations = entries.length;
+  violationsCaught = entries.filter(e => {
+    const c = (e.compliance ?? {}) as Record<string, unknown>;
+    return ((c.violation_count as number) ?? 0) > 0;
+  }).length;
+  realValidations = entries.filter(e => {
+    const ctx = (e._context ?? {}) as Record<string, unknown>;
+    return ctx.validation_score !== undefined;
+  }).length;
 
   const violationRate = totalValidations > 0
     ? Math.round((violationsCaught / totalValidations) * 100)

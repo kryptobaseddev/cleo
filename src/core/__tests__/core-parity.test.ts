@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { initLogger, closeLogger } from '../logger.js';
 
 // ============================================================================
 // Section 1: Import Graph Verification
@@ -134,7 +135,7 @@ describe('Import Graph Verification (T4796)', () => {
       'utf-8',
     );
 
-    expect(content).toContain("from '../../core/lifecycle/engine.js'");
+    expect(content).toContain("from '../../core/lifecycle/index.js'");
   });
 
   it('validate-engine.ts imports from core/validation/', async () => {
@@ -274,9 +275,16 @@ describe('Task CRUD Data Parity (T4796)', () => {
     testDir = project.testDir;
     cleoDir = project.cleoDir;
     process.env['CLEO_DIR'] = cleoDir;
+    initLogger(cleoDir, {
+      level: 'fatal',
+      filePath: 'logs/test.log',
+      maxFileSize: 1024 * 1024,
+      maxFiles: 1,
+    });
   });
 
   afterEach(async () => {
+    closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeDb } = await import('../../store/sqlite.js');
@@ -467,9 +475,16 @@ describe('Session Engine Delegation (T4796)', () => {
     testDir = project.testDir;
     cleoDir = project.cleoDir;
     process.env['CLEO_DIR'] = cleoDir;
+    initLogger(cleoDir, {
+      level: 'fatal',
+      filePath: 'logs/test.log',
+      maxFileSize: 1024 * 1024,
+      maxFiles: 1,
+    });
   });
 
   afterEach(async () => {
+    closeLogger();
     delete process.env['CLEO_DIR'];
     try {
       const { closeDb } = await import('../../store/sqlite.js');
@@ -583,9 +598,16 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     await mkdir(join(cleoDir, 'rcasd', 'T100'), { recursive: true });
 
     process.env['CLEO_DIR'] = cleoDir;
+    initLogger(cleoDir, {
+      level: 'fatal',
+      filePath: 'logs/test.log',
+      maxFileSize: 1024 * 1024,
+      maxFiles: 1,
+    });
   });
 
   afterEach(async () => {
+    closeLogger();
     delete process.env['CLEO_DIR'];
     await rm(testDir, { recursive: true, force: true });
   });
@@ -595,7 +617,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     const coreMod = await import('../lifecycle/index.js');
 
     // Engine function uses PIPELINE_STAGES from core for status
-    const result = engineMod.lifecycleStatus('NONEXISTENT', testDir);
+    const result = await engineMod.lifecycleStatus('NONEXISTENT', testDir);
     expect(result.success).toBe(true);
     const data = result.data as { stages: Array<{ stage: string }> };
     const engineStageNames = data.stages.map((s: { stage: string }) => s.stage);
@@ -607,7 +629,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
       '../../dispatch/engines/lifecycle-engine.js'
     );
 
-    const result = lifecycleStatus('T100', testDir);
+    const result = await lifecycleStatus('T100', testDir);
 
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
@@ -625,7 +647,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     );
 
     // Record research as completed
-    const progressResult = lifecycleProgress(
+    const progressResult = await lifecycleProgress(
       'T100',
       'research',
       'completed',
@@ -639,7 +661,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     expect(progressData.stage).toBe('research');
 
     // Now check status reflects it
-    const statusResult = lifecycleStatus('T100', testDir);
+    const statusResult = await lifecycleStatus('T100', testDir);
     expect(statusResult.success).toBe(true);
     const statusData = statusResult.data as Record<string, unknown>;
     expect(statusData.initialized).toBe(true);
@@ -651,7 +673,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
       '../../dispatch/engines/lifecycle-engine.js'
     );
 
-    const result = lifecyclePrerequisites('specification', testDir);
+    const result = await lifecyclePrerequisites('specification', testDir);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -665,7 +687,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     );
 
     // Check specification without completing research
-    const checkResult = lifecycleCheck('T100', 'specification', testDir);
+    const checkResult = await lifecycleCheck('T100', 'specification', testDir);
 
     expect(checkResult.success).toBe(true);
     const checkData = checkResult.data as Record<string, unknown>;
@@ -676,10 +698,10 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     ).toBeGreaterThan(0);
 
     // Complete research
-    lifecycleProgress('T100', 'research', 'completed', 'Done', testDir);
+    await lifecycleProgress('T100', 'research', 'completed', 'Done', testDir);
 
     // Now the gate for consensus should be valid
-    const checkAfter = lifecycleCheck('T100', 'consensus', testDir);
+    const checkAfter = await lifecycleCheck('T100', 'consensus', testDir);
     expect(checkAfter.success).toBe(true);
     const afterData = checkAfter.data as Record<string, unknown>;
     expect(afterData.valid).toBe(true);
@@ -690,7 +712,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
       '../../dispatch/engines/lifecycle-engine.js'
     );
 
-    const skipResult = lifecycleSkip(
+    const skipResult = await lifecycleSkip(
       'T100',
       'consensus',
       'Solo developer, no consensus needed',
@@ -702,7 +724,7 @@ describe('Lifecycle Engine Parity (T4796)', () => {
     expect(skipData.skipped).toBe(true);
 
     // History should include the skip
-    const histResult = lifecycleHistory('T100', testDir);
+    const histResult = await lifecycleHistory('T100', testDir);
     expect(histResult.success).toBe(true);
     const histData = histResult.data as {
       history: Array<{ stage: string; action: string }>;
@@ -771,7 +793,7 @@ describe('EngineResult Wrapper Consistency (T4796)', () => {
     );
 
     // Empty epicId should fail
-    const result = lifecycleStatus('');
+    const result = await lifecycleStatus('');
     assertEngineResult(result);
     if (!result.success) {
       expect(result.error!.code).toMatch(/^E_/);

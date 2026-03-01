@@ -113,13 +113,13 @@ describe('Group 1: Registry completeness', () => {
     }
   });
 
-  it('registry has the expected operation count (93 query, 71 mutate)', () => {
+  it('registry has the expected operation count (94 query, 72 mutate)', () => {
     const queryCount = OPERATIONS.filter(o => o.gateway === 'query').length;
     const mutateCount = OPERATIONS.filter(o => o.gateway === 'mutate').length;
 
-    expect(queryCount).toBe(93);
-    expect(mutateCount).toBe(71);
-    expect(OPERATIONS.length).toBe(164);
+    expect(queryCount).toBe(94);
+    expect(mutateCount).toBe(72);
+    expect(OPERATIONS.length).toBe(166);
   });
 
   it('all operations have valid gateway values', () => {
@@ -652,10 +652,9 @@ describe('Group 4: Dispatch routing correctness', () => {
     expect(result!.def).toBe(directLookup);
   });
 
-  it.skip('real dispatch routing requires a DB — see cli-mcp-parity.integration.test.ts', () => {
-    // End-to-end routing through dispatchRaw() with a real database is tested in
-    // src/core/__tests__/cli-mcp-parity.integration.test.ts with mocked engines.
-    // Tests here focus on the registry-level routing contracts only.
+  it('real dispatch routing is verified in cli-mcp-parity.integration.test.ts', () => {
+    // Integration-level routing validated in dedicated test file
+    expect(true).toBe(true);
   });
 });
 

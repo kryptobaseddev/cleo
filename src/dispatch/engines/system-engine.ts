@@ -1196,6 +1196,42 @@ export function systemUncancel(
   }
 }
 
+// ===== Doctor Report =====
+
+/**
+ * Run comprehensive doctor diagnostics.
+ * @task T4795
+ */
+export async function systemDoctor(
+  projectRoot: string,
+): Promise<EngineResult<import('../../core/system/health.js').DoctorReport>> {
+  const { coreDoctorReport } = await import('../../core/system/health.js');
+  try {
+    const result = await coreDoctorReport(projectRoot);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message);
+  }
+}
+
+// ===== Doctor Fix =====
+
+/**
+ * Run auto-fix for failed doctor checks.
+ * @task T4795
+ */
+export async function systemFix(
+  projectRoot: string,
+): Promise<EngineResult<import('../../core/system/health.js').FixResult[]>> {
+  const { runDoctorFixes } = await import('../../core/system/health.js');
+  try {
+    const result = await runDoctorFixes(projectRoot);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message);
+  }
+}
+
 /**
  * Runtime/channel diagnostics for CLI/MCP installation mode checks.
  * @task T4815
