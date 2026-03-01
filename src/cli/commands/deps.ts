@@ -24,9 +24,11 @@ export function registerDepsCommand(program: Command): void {
   deps
     .command('show <taskId>')
     .description('Show dependencies for a specific task')
-    .action(async (taskId: string) => {
+    .option('--tree', 'Show full transitive dependency tree')
+    .action(async (taskId: string, opts: Record<string, unknown>) => {
       await dispatchFromCli('query', 'tasks', 'depends', {
         taskId,
+        tree: opts['tree'] as boolean | undefined,
       }, { command: 'deps', operation: 'tasks.depends' });
     });
 

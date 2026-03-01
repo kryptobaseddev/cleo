@@ -18,7 +18,6 @@ import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 
-const logger = getLogger('domain:tasks');
 import {
   taskShow,
   taskList,
@@ -43,6 +42,8 @@ import {
   taskReopen,
   taskComplexityEstimate,
   taskDepends,
+  taskDepsOverview,
+  taskDepsCycles,
   taskCurrentGet,
   taskStart,
   taskStop,
@@ -116,12 +117,24 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'depends': {
+          // Action-based routing for overview/cycles (T5157)
+          const action = params?.action as string | undefined;
+          if (action === 'overview') {
+            const result = await taskDepsOverview(this.projectRoot);
+            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          }
+          if (action === 'cycles') {
+            const result = await taskDepsCycles(this.projectRoot);
+            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          }
+          // Default: single-task dependency query requires taskId
           const taskId = params?.taskId as string;
           if (!taskId) {
-            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required (or use action: overview|cycles)', startTime);
           }
           const direction = params?.direction as 'upstream' | 'downstream' | 'both' | undefined;
-          const result = await taskDepends(this.projectRoot, taskId, direction);
+          const tree = params?.tree as boolean | undefined;
+          const result = await taskDepends(this.projectRoot, taskId, direction, tree);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -314,10 +327,11 @@ export class TasksHandler implements DomainHandler {
 
         case 'relates.add': {
           const taskId = params?.taskId as string;
-          const relatedId = params?.relatedId as string;
+          // Accept both targetId and relatedId for compatibility (T5149)
+          const relatedId = (params?.relatedId ?? params?.targetId) as string;
           const type = params?.type as string;
           if (!taskId || !relatedId || !type) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId, relatedId, and type are required', startTime);
+            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId, relatedId (or targetId), and type are required', startTime);
           }
           const result = await taskRelatesAdd(
             this.projectRoot,
@@ -413,7 +427,7 @@ export class TasksHandler implements DomainHandler {
 
   private handleError(gateway: string, domain: string, operation: string, error: unknown, startTime: number): DispatchResponse {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error({ gateway, domain, operation, err: error }, message);
+    getLogger('domain:tasks').error({ gateway, domain, operation, err: error }, message);
     return {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: false,
