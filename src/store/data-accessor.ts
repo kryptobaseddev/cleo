@@ -82,7 +82,7 @@ export interface DataAccessor {
   removeSingleTask?(taskId: string): Promise<void>;
 
   /** Insert a row into the task_relations table (T5168). */
-  addRelation?(taskId: string, relatedTo: string, relationType: string): Promise<void>;
+  addRelation?(taskId: string, relatedTo: string, relationType: string, reason?: string): Promise<void>;
 
   // ---- Metadata (schema_meta KV store) ----
 

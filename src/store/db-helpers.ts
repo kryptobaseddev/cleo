@@ -185,3 +185,40 @@ export async function loadDependenciesForTasks(
     }
   }
 }
+
+/**
+ * Batch-load relations for a list of tasks and apply them in-place.
+ * Mirrors loadDependenciesForTasks pattern for task_relations table (T5168).
+ */
+export async function loadRelationsForTasks(
+  db: DrizzleDb,
+  tasks: Task[],
+): Promise<void> {
+  if (tasks.length === 0) return;
+  const taskIds = tasks.map(t => t.id);
+
+  const allRels = await db.select().from(schema.taskRelations)
+    .where(inArray(schema.taskRelations.taskId, taskIds))
+    .all();
+
+  const relMap = new Map<string, Array<{ taskId: string; type: string; reason?: string }>>();
+  for (const rel of allRels) {
+    let arr = relMap.get(rel.taskId);
+    if (!arr) {
+      arr = [];
+      relMap.set(rel.taskId, arr);
+    }
+    arr.push({
+      taskId: rel.relatedTo,
+      type: rel.relationType,
+      reason: rel.reason ?? undefined,
+    });
+  }
+
+  for (const task of tasks) {
+    const relations = relMap.get(task.id);
+    if (relations && relations.length > 0) {
+      task.relates = relations;
+    }
+  }
+}

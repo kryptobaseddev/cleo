@@ -149,8 +149,9 @@ export const taskRelations = sqliteTable('task_relations', {
   taskId: text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
   relatedTo: text('related_to').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
   relationType: text('relation_type', {
-    enum: ['related', 'blocks', 'duplicates'],
+    enum: ['related', 'blocks', 'duplicates', 'absorbs', 'fixes', 'extends', 'supersedes'],
   }).notNull().default('related'),
+  reason: text('reason'),
 }, (table) => [
   primaryKey({ columns: [table.taskId, table.relatedTo] }),
 ]);
