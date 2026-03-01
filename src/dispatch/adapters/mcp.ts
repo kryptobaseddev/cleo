@@ -19,6 +19,7 @@ import { createRateLimiter } from '../middleware/rate-limiter.js';
 import { createVerificationGates } from '../middleware/verification-gates.js';
 import { createProtocolEnforcement } from '../middleware/protocol-enforcement.js';
 import { createAudit } from '../middleware/audit.js';
+import { createProjectionMiddleware } from '../middleware/projection.js';
 import { getProjectRoot } from '../../core/paths.js';
 import type { RateLimitingConfig } from '../../mcp/lib/rate-limiter.js';
 
@@ -43,6 +44,7 @@ export function initMcpDispatcher(config: McpDispatcherConfig = {}): Dispatcher 
     middlewares: [
       createSessionResolver(),  // T4959: session identity first
       createSanitizer(() => getProjectRoot()),
+      createProjectionMiddleware(),  // T5096: MVI tier-based domain/field projection
       createFieldFilter(),
       createRateLimiter(config.rateLimiting),
       createVerificationGates(strictMode),
