@@ -99,33 +99,45 @@ describe('CLEO-INJECTION MVI tiers (T4717)', () => {
       expect(minimalContent).toContain('CLEO Identity');
     });
 
+    it('includes Mandatory Efficiency Sequence section', () => {
+      expect(minimalContent).toContain('Mandatory Efficiency Sequence');
+      expect(minimalContent).toContain('cheapest-first');
+      expect(minimalContent).toContain('cleo_query session status');
+      expect(minimalContent).toContain('cleo_query admin dash');
+      expect(minimalContent).toContain('cleo_query tasks current');
+      expect(minimalContent).toContain('cleo_query tasks next');
+      expect(minimalContent).toContain('cleo_query tasks show');
+    });
+
+    it('includes Agent Work Loop section', () => {
+      expect(minimalContent).toContain('Agent Work Loop');
+      expect(minimalContent).toContain('tasks current');
+      expect(minimalContent).toContain('tasks complete');
+      expect(minimalContent).toContain('tasks next');
+    });
+
+    it('includes Context Ethics section', () => {
+      expect(minimalContent).toContain('Context Ethics');
+      expect(minimalContent).toContain('tokens');
+      expect(minimalContent).toContain('Anti-patterns');
+    });
+
     it('includes time estimates prohibition', () => {
       expect(minimalContent).toContain('Time Estimates Prohibited');
       expect(minimalContent).toContain('MUST NOT');
     });
 
-    it('includes MCP Tools section', () => {
-      expect(minimalContent).toContain('MCP Tools');
-    });
-
-    it('documents cleo_query operations', () => {
+    it('documents MCP-first operations in CLEO Identity', () => {
       expect(minimalContent).toContain('cleo_query');
-      expect(minimalContent).toContain('tasks');
-      expect(minimalContent).toContain('show');
-      expect(minimalContent).toContain('find');
-      expect(minimalContent).toContain('list');
-    });
-
-    it('documents cleo_mutate operations', () => {
       expect(minimalContent).toContain('cleo_mutate');
-      expect(minimalContent).toContain('add');
-      expect(minimalContent).toContain('update');
-      expect(minimalContent).toContain('complete');
     });
 
-    it('includes CLI Fallback section', () => {
-      expect(minimalContent).toContain('CLI Fallback');
-      expect(minimalContent).toContain('ct ');
+    it('does NOT include CLI Fallback (moved to standard tier)', () => {
+      expect(minimalContent).not.toContain('## CLI Fallback');
+    });
+
+    it('does NOT include MCP Tools (replaced by efficiency sequence)', () => {
+      expect(minimalContent).not.toContain('## MCP Tools');
     });
 
     it('includes Error Handling section', () => {
@@ -160,6 +172,11 @@ describe('CLEO-INJECTION MVI tiers (T4717)', () => {
       expect(standardContent).toContain('ct session');
       expect(standardContent).toContain('--scope');
       expect(standardContent).toContain('--auto-focus');
+    });
+
+    it('includes CLI Fallback section (moved from minimal)', () => {
+      expect(standardContent).toContain('CLI Fallback');
+      expect(standardContent).toContain('ct ');
     });
 
     it('includes RCASD-IVTR+C Lifecycle section', () => {
