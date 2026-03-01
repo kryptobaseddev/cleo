@@ -55,7 +55,7 @@ export type { ShellType } from './aliases.js';
 
 // Injection & MCP config: DELETED (T4674, T4675, T4677)
 // All injection, provider detection, and MCP config management is now
-// delegated to @cleocode/caamp via src/mcp/engine/caamp-adapter.ts.
+// delegated to @cleocode/caamp via src/core/caamp/adapter.ts.
 // See Wave 8 epic T4663 for migration context.
 //
 // Legacy exports removed:

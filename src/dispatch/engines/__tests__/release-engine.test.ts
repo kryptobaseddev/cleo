@@ -18,7 +18,7 @@ import {
   releaseTag,
   releaseGatesRun,
   releaseRollback,
-} from '../../../dispatch/engines/release-engine.js';
+} from '../release-engine.js';
 
 const TEST_ROOT = join(process.cwd(), '.test-release-engine');
 const CLEO_DIR = join(TEST_ROOT, '.cleo');

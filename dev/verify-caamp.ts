@@ -1,7 +1,7 @@
 /**
  * CAAMP v0.3.0 API surface verification
  * This file verifies all CAAMP exports are accessible from the MCP server.
- * Run: npx tsx src/engine/caamp-verify.ts
+ * Run: npx tsx dev/verify-caamp.ts
  */
 import {
   // Provider Registry
