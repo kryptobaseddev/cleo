@@ -1688,6 +1688,26 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['query'],
   },
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'doctor',
+    description: 'admin.doctor (query) — comprehensive health check and diagnostics report',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'admin',
+    operation: 'fix',
+    description: 'admin.fix (mutate) — auto-fix failed doctor checks',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
 
   // ---------------------------------------------------------------------------
   // nexus — BRAIN Network placeholder (all ops return E_NOT_IMPLEMENTED)

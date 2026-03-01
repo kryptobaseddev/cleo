@@ -159,6 +159,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
   // ── Canonical: admin (system alias) ────────────────────────────────
   admin: [
     'init',              // Initialize CLEO
+    'fix',               // Auto-fix failed doctor checks
     'config.set',        // Set config value
     'backup',            // Create backup
     'restore',           // Restore from backup

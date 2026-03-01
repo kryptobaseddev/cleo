@@ -173,6 +173,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
   admin: [
     'version',        // CLEO version
     'health',         // Health check
+    'doctor',         // Comprehensive doctor report
     'config.show',    // Show config value
     'config.get',     // Alias (backward compat)
     'stats',          // Project statistics

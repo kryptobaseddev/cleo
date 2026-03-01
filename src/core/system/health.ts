@@ -8,9 +8,14 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { homedir } from 'node:os';
 import { checkStorageMigration } from '../migration/preflight.js';
 import { checkCleoGitignore, checkVitalFilesTracked, checkCoreFilesNotIgnored, checkLegacyAgentOutputs, checkNodeVersion, type CheckResult } from '../validation/doctor/checks.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { checkProjectInfo, checkProjectContext } from '../scaffold.js';
+import { checkGitHooks, type HookCheckResult } from '../hooks.js';
+import { checkGlobalSchemas, type CheckResult as SchemaCheckResult } from '../schema-management.js';
+import { checkInjection } from '../injection.js';
 
 const execAsync = promisify(execFile);
 
@@ -240,6 +245,7 @@ export interface DoctorCheck {
   status: 'ok' | 'error' | 'warning';
   message: string;
   details?: Record<string, unknown>;
+  fix?: string;
 }
 
 export interface DoctorReport {
@@ -271,7 +277,64 @@ function mapCheckResult(cr: CheckResult): DoctorCheck {
     check: cr.id,
     status: cr.status === 'passed' ? 'ok' : cr.status === 'info' ? 'ok' : cr.status === 'warning' ? 'warning' : 'error',
     message: cr.message,
-    ...(cr.fix ? { details: { fix: cr.fix } } : {}),
+    ...(cr.fix ? { fix: cr.fix } : {}),
+  };
+}
+
+/** Map HookCheckResult[] from hooks.ts into a single DoctorCheck summary. */
+function mapHookResults(results: HookCheckResult[]): DoctorCheck {
+  const missing = results.filter(r => !r.installed);
+  const stale = results.filter(r => r.installed && !r.current);
+
+  if (missing.length > 0) {
+    return {
+      check: 'git_hooks',
+      status: 'warning',
+      message: `Missing git hooks: ${missing.map(r => r.hook).join(', ')}`,
+      details: { missing: missing.map(r => r.hook), fix: 'cleo init --force' },
+    };
+  }
+
+  if (stale.length > 0) {
+    return {
+      check: 'git_hooks',
+      status: 'warning',
+      message: `Stale git hooks: ${stale.map(r => r.hook).join(', ')}`,
+      details: { stale: stale.map(r => r.hook), fix: 'cleo upgrade' },
+    };
+  }
+
+  return {
+    check: 'git_hooks',
+    status: 'ok',
+    message: `All ${results.length} managed git hooks installed and current`,
+  };
+}
+
+/** Map schema-management.ts CheckResult into a DoctorCheck. */
+function mapSchemaCheckResult(sr: SchemaCheckResult): DoctorCheck {
+  if (sr.missing.length > 0) {
+    return {
+      check: 'global_schemas',
+      status: 'warning',
+      message: `Missing global schemas: ${sr.missing.join(', ')}`,
+      details: { missing: sr.missing, fix: 'cleo upgrade' },
+    };
+  }
+
+  if (sr.stale.length > 0) {
+    return {
+      check: 'global_schemas',
+      status: 'warning',
+      message: `Stale global schemas: ${sr.stale.join(', ')}`,
+      details: { stale: sr.stale, fix: 'cleo upgrade' },
+    };
+  }
+
+  return {
+    check: 'global_schemas',
+    status: 'ok',
+    message: `All ${sr.installed} global schemas installed and current`,
   };
 }
 
@@ -332,6 +395,26 @@ export async function coreDoctorReport(
         status: 'error',
         message: 'Failed to read tasks from SQLite database',
       });
+    }
+
+    // SQLite integrity check
+    try {
+      const { getNativeDb, getDb: getDbInit } = await import('../../store/sqlite.js');
+      // Ensure the DB is initialized so getNativeDb() returns a valid handle
+      await getDbInit(projectRoot);
+      const nativeDb = getNativeDb();
+      if (nativeDb) {
+        const result = nativeDb.prepare('PRAGMA integrity_check').get() as Record<string, unknown> | undefined;
+        const integrityOk = result?.integrity_check === 'ok';
+        checks.push({
+          check: 'sqlite_integrity',
+          status: integrityOk ? 'ok' : 'warning',
+          message: integrityOk ? 'SQLite integrity check passed' : 'SQLite integrity check reported issues',
+          ...(integrityOk ? {} : { fix: 'Run: cleo upgrade' }),
+        });
+      }
+    } catch {
+      // SQLite integrity check is best-effort
     }
   }
 
@@ -401,6 +484,30 @@ export async function coreDoctorReport(
       : '.cleo/.git not found — run: cleo init',
   });
 
+  // 5c. Shared module checks: git hooks, global schemas, project-info, injection
+  const hookResults = await checkGitHooks(projectRoot);
+  checks.push(mapHookResults(hookResults));
+
+  checks.push(mapSchemaCheckResult(checkGlobalSchemas()));
+
+  checks.push(mapCheckResult(checkProjectInfo(projectRoot)));
+
+  // Project context check
+  checks.push(mapCheckResult(checkProjectContext(projectRoot)));
+
+  checks.push(mapCheckResult(checkInjection(projectRoot)));
+
+  // Agent definition presence check
+  const agentDefPath = join(homedir(), '.agents', 'agents', 'cleo-subagent');
+  checks.push({
+    check: 'agent_definition',
+    status: existsSync(agentDefPath) ? 'ok' : 'warning',
+    message: existsSync(agentDefPath)
+      ? 'cleo-subagent agent definition installed'
+      : 'cleo-subagent not found — run: cleo init',
+    ...(existsSync(agentDefPath) ? {} : { fix: 'cleo init' }),
+  });
+
   // 6. Environment - Node.js version validation
   checks.push(mapCheckResult(checkNodeVersion()));
 
@@ -416,4 +523,94 @@ export async function coreDoctorReport(
   const healthy = errorCount === 0;
 
   return { healthy, errors: errorCount, warnings: warningCount, checks };
+}
+
+// ============================================================================
+// Doctor --fix Support
+// ============================================================================
+
+export interface FixResult {
+  check: string;
+  action: 'fixed' | 'skipped' | 'failed';
+  message: string;
+}
+
+/**
+ * Run auto-fix for failed doctor checks by calling the corresponding ensure* functions.
+ * Returns a list of fix results for each attempted repair.
+ */
+export async function runDoctorFixes(
+  projectRoot: string,
+): Promise<FixResult[]> {
+  const { ensureCleoStructure, ensureGitignore, ensureConfig, ensureProjectInfo, ensureProjectContext, ensureCleoGitRepo } = await import('../scaffold.js');
+  const { ensureGitHooks } = await import('../hooks.js');
+  const { ensureGlobalSchemas } = await import('../schema-management.js');
+  const { ensureInjection } = await import('../injection.js');
+
+  const report = await coreDoctorReport(projectRoot);
+  const failedChecks = report.checks.filter(c => c.status !== 'ok');
+  const results: FixResult[] = [];
+
+  // Map check names to their fix functions
+  const fixMap: Record<string, () => Promise<FixResult>> = {
+    project_dir: async () => {
+      const r = await ensureCleoStructure(projectRoot);
+      return { check: 'project_dir', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    cleo_gitignore: async () => {
+      const r = await ensureGitignore(projectRoot);
+      return { check: 'cleo_gitignore', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    config_file: async () => {
+      const r = await ensureConfig(projectRoot);
+      return { check: 'config_file', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    cleo_project_info: async () => {
+      const r = await ensureProjectInfo(projectRoot, { force: true });
+      return { check: 'cleo_project_info', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    cleo_project_context: async () => {
+      const r = await ensureProjectContext(projectRoot, { force: true });
+      return { check: 'cleo_project_context', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    cleo_git_repo: async () => {
+      const r = await ensureCleoGitRepo(projectRoot);
+      return { check: 'cleo_git_repo', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    git_hooks: async () => {
+      const r = await ensureGitHooks(projectRoot, { force: true });
+      return { check: 'git_hooks', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    global_schemas: async () => {
+      const r = ensureGlobalSchemas();
+      const msg = `Installed ${r.installed}, updated ${r.updated} of ${r.total} schemas`;
+      return { check: 'global_schemas', action: r.installed + r.updated > 0 ? 'fixed' : 'skipped', message: msg };
+    },
+    injection_health: async () => {
+      const r = await ensureInjection(projectRoot);
+      return { check: 'injection_health', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    cleo_structure: async () => {
+      const r = await ensureCleoStructure(projectRoot);
+      return { check: 'cleo_structure', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+  };
+
+  for (const check of failedChecks) {
+    const fixer = fixMap[check.check];
+    if (!fixer) continue;
+
+    try {
+      const result = await fixer();
+      results.push(result);
+    } catch (err) {
+      results.push({
+        check: check.check,
+        action: 'failed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return results;
 }

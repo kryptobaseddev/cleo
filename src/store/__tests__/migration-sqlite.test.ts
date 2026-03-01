@@ -278,6 +278,50 @@ describe('JSON to SQLite migration', () => {
       expect(task!.provenance?.sessionId).toBe('sess-001');
     });
 
+    it('handles tasks with null/undefined descriptions', async () => {
+      const todoData = {
+        version: '2.10.0',
+        project: { name: 'test' },
+        _meta: { schemaVersion: '2.10.0' },
+        tasks: [
+          {
+            id: 'T001',
+            title: 'No description task',
+            // description intentionally omitted (undefined)
+            status: 'pending',
+            priority: 'medium',
+            type: 'task',
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'T002',
+            title: 'Null description task',
+            description: null,
+            status: 'pending',
+            priority: 'medium',
+            type: 'task',
+            createdAt: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+      };
+
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData));
+
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+
+      expect(result.success).toBe(true);
+      expect(result.tasksImported).toBe(2);
+      expect(result.errors).toHaveLength(0);
+
+      const { getTask } = await import('../task-store.js');
+      const task1 = await getTask('T001');
+      const task2 = await getTask('T002');
+
+      expect(task1!.description).toBe('Task: No description task');
+      expect(task2!.description).toBe('Task: Null description task');
+    });
+
     it('does not duplicate tasks on re-migration (onConflictDoNothing)', async () => {
       const todoData = {
         version: '2.10.0',
@@ -309,6 +353,160 @@ describe('JSON to SQLite migration', () => {
       const { countTasks } = await import('../task-store.js');
       const count = await countTasks();
       expect(count).toBe(1);
+    });
+  });
+
+  // === Topological sort: parent/child ordering ===
+
+  describe('parent/child ordering (topological sort)', () => {
+    it('imports child tasks when they appear before their parent in the array', async () => {
+      // T002 (child of T001) appears BEFORE T001 — this used to fail FK constraint
+      const todoData = {
+        version: '2.10.0',
+        project: { name: 'test' },
+        _meta: { schemaVersion: '2.10.0' },
+        tasks: [
+          {
+            id: 'T002',
+            title: 'Child task',
+            description: 'Child of T001',
+            status: 'pending',
+            priority: 'medium',
+            type: 'task',
+            parentId: 'T001',
+            createdAt: '2026-01-02T00:00:00.000Z',
+          },
+          {
+            id: 'T001',
+            title: 'Parent task',
+            description: 'The parent',
+            status: 'pending',
+            priority: 'medium',
+            type: 'epic',
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      };
+
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData));
+
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+
+      expect(result.success).toBe(true);
+      expect(result.tasksImported).toBe(2);
+      expect(result.errors).toHaveLength(0);
+
+      const { getTask } = await import('../task-store.js');
+      const parent = await getTask('T001');
+      const child = await getTask('T002');
+      expect(parent).not.toBeNull();
+      expect(child).not.toBeNull();
+      expect(child!.parentId).toBe('T001');
+    });
+
+    it('handles deep hierarchy in reverse insertion order', async () => {
+      // Grandchild → child → parent (worst case ordering)
+      const todoData = {
+        version: '2.10.0',
+        project: { name: 'test' },
+        _meta: { schemaVersion: '2.10.0' },
+        tasks: [
+          {
+            id: 'T003',
+            title: 'Grandchild task',
+            description: 'Child of T002',
+            status: 'pending',
+            priority: 'low',
+            type: 'task',
+            parentId: 'T002',
+            createdAt: '2026-01-03T00:00:00.000Z',
+          },
+          {
+            id: 'T002',
+            title: 'Child task',
+            description: 'Child of T001',
+            status: 'pending',
+            priority: 'medium',
+            type: 'task',
+            parentId: 'T001',
+            createdAt: '2026-01-02T00:00:00.000Z',
+          },
+          {
+            id: 'T001',
+            title: 'Root task',
+            description: 'The root',
+            status: 'pending',
+            priority: 'high',
+            type: 'epic',
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      };
+
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData));
+
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+
+      expect(result.success).toBe(true);
+      expect(result.tasksImported).toBe(3);
+      expect(result.errors).toHaveLength(0);
+
+      const { getTask } = await import('../task-store.js');
+      const root = await getTask('T001');
+      const child = await getTask('T002');
+      const grandchild = await getTask('T003');
+      expect(root).not.toBeNull();
+      expect(child!.parentId).toBe('T001');
+      expect(grandchild!.parentId).toBe('T002');
+    });
+
+    it('handles tasks with no parentId (roots) in any order', async () => {
+      // Multiple root tasks (no parentId) in any order — all should import fine
+      const todoData = {
+        version: '2.10.0',
+        project: { name: 'test' },
+        _meta: { schemaVersion: '2.10.0' },
+        tasks: [
+          {
+            id: 'T003',
+            title: 'Root C',
+            description: 'Third root',
+            status: 'pending',
+            priority: 'low',
+            type: 'task',
+            createdAt: '2026-01-03T00:00:00.000Z',
+          },
+          {
+            id: 'T001',
+            title: 'Root A',
+            description: 'First root',
+            status: 'pending',
+            priority: 'high',
+            type: 'epic',
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'T002',
+            title: 'Root B',
+            description: 'Second root',
+            status: 'pending',
+            priority: 'medium',
+            type: 'task',
+            createdAt: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+      };
+
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData));
+
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+
+      expect(result.success).toBe(true);
+      expect(result.tasksImported).toBe(3);
+      expect(result.errors).toHaveLength(0);
     });
   });
 

@@ -95,6 +95,8 @@ export {
   systemInjectGenerate,
   systemMetrics,
   systemHealth,
+  systemDoctor,
+  systemFix,
   systemDiagnostics,
   systemHelp,
   systemRoadmap,
