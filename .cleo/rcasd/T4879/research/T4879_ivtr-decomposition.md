@@ -1,3 +1,10 @@
+---
+epic: T4879
+stage: research
+task: T4879
+created: 2026-03-01
+updated: 2026-03-01
+---
 # T4879: IVTR Protocol Validation Decomposition
 
 **Task:** T4879 -- Decompose IVTR protocol validation for execution stages
