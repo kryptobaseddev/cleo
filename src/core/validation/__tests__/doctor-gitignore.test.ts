@@ -106,13 +106,13 @@ describe('checkCoreFilesNotIgnored', () => {
   it('detects when a core file is gitignored', () => {
     tempDir = makeTempGitRepo();
     mkdirSync(join(tempDir, '.cleo'), { recursive: true });
-    writeFileSync(join(tempDir, '.cleo', 'tasks.db'), '');
-    // Add a gitignore rule that ignores tasks.db
-    writeFileSync(join(tempDir, '.gitignore'), '.cleo/tasks.db\n');
+    writeFileSync(join(tempDir, '.cleo', 'config.json'), '{}');
+    // Add a gitignore rule that ignores config.json (a CORE_PROTECTED_FILE)
+    writeFileSync(join(tempDir, '.gitignore'), '.cleo/config.json\n');
     const result = checkCoreFilesNotIgnored(tempDir);
     expect(result.status).toBe('failed');
-    expect(result.message).toContain('tasks.db');
-    expect(result.details.ignoredFiles).toContain('.cleo/tasks.db');
+    expect(result.message).toContain('config.json');
+    expect(result.details.ignoredFiles).toContain('.cleo/config.json');
   });
 
   it('detects when .cleo/.gitignore ignores a core file', () => {
