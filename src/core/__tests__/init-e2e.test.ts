@@ -111,8 +111,8 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     // Should contain agent-outputs/ and backup patterns
     expect(content).toContain('agent-outputs/');
     expect(content).toContain('.backups/');
-    // Should contain tasks.db entries
-    expect(content).toContain('tasks.db');
+    // Should contain database ignore patterns (deny-by-default uses *.db glob)
+    expect(content).toContain('*.db');
   });
 
   it('creates backup directories', async () => {
