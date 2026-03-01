@@ -180,12 +180,8 @@ const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default for CLEO
 !templates/**
 !adrs/
 !adrs/**
-!consensus/
-!consensus/**
 !rcasd/
 !rcasd/**
-!contributions/
-!contributions/**
 !agent-outputs/
 !agent-outputs/**
 
