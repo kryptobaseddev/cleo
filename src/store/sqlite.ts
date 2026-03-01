@@ -160,6 +160,22 @@ function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
 }
 
 /**
+ * Check if an error is a SQLite BUSY error (database locked by another process).
+ * node:sqlite throws native Error with message containing the SQLite error code.
+ * @task T5185
+ */
+export function isSqliteBusy(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes('sqlite_busy') || msg.includes('database is locked');
+}
+
+/** Migration retry constants for SQLITE_BUSY handling (T5185). */
+const MAX_MIGRATION_RETRIES = 5;
+const MIGRATION_RETRY_BASE_DELAY_MS = 100;
+const MIGRATION_RETRY_MAX_DELAY_MS = 2000;
+
+/**
  * Run drizzle migrations to create/update tables.
  *
  * Handles three cases:
@@ -168,7 +184,13 @@ function tableExists(nativeDb: DatabaseSync, tableName: string): boolean {
  *    the baseline migration as already applied, then runs remaining migrations.
  * 3. Already-migrated database — runs only pending migrations.
  *
+ * BEGIN IMMEDIATE acquires a RESERVED lock upfront, preventing concurrent
+ * migration runners from racing (T5173). If another process already holds a
+ * RESERVED lock, BEGIN IMMEDIATE throws SQLITE_BUSY. This function retries
+ * with exponential backoff + jitter to handle concurrent MCP server starts (T5185).
+ *
  * @task T4837 - ADR-012 drizzle-kit migration system
+ * @task T5185 - Retry+backoff for SQLITE_BUSY during migrations
  */
 async function runMigrations(
   nativeDb: DatabaseSync,
@@ -204,17 +226,48 @@ async function runMigrations(
   // drizzle appends INSERT INTO __drizzle_migrations as the final query in the
   // batch. Without a transaction, a failed CREATE TABLE leaves the hash
   // unrecorded, causing the same migration to re-run and crash on every startup.
+  //
+  // T5185: BEGIN IMMEDIATE itself can throw SQLITE_BUSY if another connection
+  // already holds a RESERVED lock. Retry with exponential backoff + jitter.
+  // busy_timeout (5000ms) provides first-line defense; this retry handles cases
+  // where the lock holder runs long migrations that exceed busy_timeout.
   await migrate(db, async (queries: string[]) => {
-    nativeDb.prepare('BEGIN IMMEDIATE').run();
-    try {
-      for (const query of queries) {
-        nativeDb.prepare(query).run();
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= MAX_MIGRATION_RETRIES; attempt++) {
+      try {
+        nativeDb.prepare('BEGIN IMMEDIATE').run();
+        try {
+          for (const query of queries) {
+            nativeDb.prepare(query).run();
+          }
+          nativeDb.prepare('COMMIT').run();
+          return; // Success — exit retry loop
+        } catch (err) {
+          nativeDb.prepare('ROLLBACK').run();
+          throw err; // Re-throw DDL errors (not retryable)
+        }
+      } catch (err) {
+        if (!isSqliteBusy(err) || attempt === MAX_MIGRATION_RETRIES) {
+          throw err; // Non-busy error or exhausted retries
+        }
+        lastError = err;
+
+        // Exponential backoff with jitter to de-correlate competing processes
+        const exponentialDelay = MIGRATION_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        const jitter = Math.random() * exponentialDelay * 0.5;
+        const delay = Math.min(exponentialDelay + jitter, MIGRATION_RETRY_MAX_DELAY_MS);
+
+        // Sync sleep — node:sqlite DatabaseSync is sync, Atomics.wait is the
+        // established pattern (see node-sqlite-adapter.ts WAL retry)
+        const buf = new SharedArrayBuffer(4);
+        Atomics.wait(new Int32Array(buf), 0, 0, Math.round(delay));
       }
-      nativeDb.prepare('COMMIT').run();
-    } catch (err) {
-      nativeDb.prepare('ROLLBACK').run();
-      throw err;
     }
+
+    // Should not reach here, but TypeScript needs exhaustive paths
+    /* c8 ignore next */
+    throw lastError;
   }, { migrationsFolder });
 }
 
