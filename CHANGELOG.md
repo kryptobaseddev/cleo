@@ -5,7 +5,19 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [2026.3.2] - 2026-03-01
+## [2026.3.2-beta.1] - 2026-03-01
+
+### Release Prep
+
+- **Beta channel release cut from `develop`** — Prepared prerelease package version `2026.3.2-beta.1` and tag flow for npm `@beta` per ADR-016 channel policy.
+
+### Quality
+
+- **Suppress Node experimental warnings in tests** — Added default `NODE_NO_WARNINGS=1` initialization in `vitest.config.ts` so `vitest` worker processes run without recurring Node experimental warning noise.
+
+### Features
+
+- **RCASD lifecycle artifact wiring completed (T5216, T5217)** — `pipeline.stage.record` now scaffolds stage markdown under `.cleo/rcasd/{epicId}/{stage}/`, writes YAML frontmatter/backlinks, persists `outputFile` and provenance chain in SQLite, records lifecycle evidence on stage completion, and auto-triggers ADR sync/link on `architecture_decision` completion.
 
 ### Bug Fixes
 
