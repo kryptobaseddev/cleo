@@ -17,7 +17,8 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { readLogFileEntries, getDataPath } from './store.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import type { EngineResult, TaskRecord } from './task-engine.js';
+import type { EngineResult } from '../../dispatch/engines/_error.js';
+import type { TaskRecord } from './task-engine.js';
 
 // Core module imports
 import { getDashboard, getProjectStats } from '../../core/stats/index.js';

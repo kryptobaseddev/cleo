@@ -14,19 +14,7 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join} from 'path';
 import { parse as parseYaml } from 'yaml';
 import { writeJsonFileAtomic, getDataPath } from './store.js';
-
-/**
- * Engine result wrapper (matches config-engine.ts pattern)
- */
-export interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 /**
  * A single section/field within an issue template

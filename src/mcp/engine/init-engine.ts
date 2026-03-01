@@ -16,19 +16,7 @@ import {
   ensureInitialized as coreEnsureInitialized,
   getVersion as coreGetVersion,
 } from '../../core/init.js';
-
-/**
- * Engine result wrapper
- */
-export interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 /**
  * Initialize a CLEO project directory.

@@ -8,19 +8,7 @@
  */
 
 import { getRawConfig, getRawConfigValue, setConfigValue } from '../../core/config.js';
-
-/**
- * Engine result wrapper
- */
-export interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 /**
  * Get config value by key (dot-notation supported)

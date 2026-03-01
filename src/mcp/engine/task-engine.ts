@@ -17,6 +17,7 @@
 
 import { getAccessor } from '../../store/data-accessor.js';
 import type { Task } from '../../types/task.js';
+import type { EngineResult } from '../../dispatch/engines/_error.js';
 // validation-rules.js still used by other engines; core modules handle their own validation
 // Core module imports for accessor-based operations
 import { addTask as coreAddTask } from '../../core/tasks/add.js';
@@ -130,19 +131,7 @@ export interface MinimalTaskRecord {
   parentId?: string | null;
 }
 
-/**
- * Engine result wrapper
- */
-export interface EngineResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-    exitCode?: number;
-  };
-}
+// EngineResult imported from ../../dispatch/engines/_error.js (canonical source)
 
 // loadTaskFile and saveTaskFile removed — all operations now use DataAccessor.
 // Config reads (hierarchy limits, phase meta) still use readJsonFile directly

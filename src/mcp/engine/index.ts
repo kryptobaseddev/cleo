@@ -6,6 +6,9 @@
  * 'native' or 'auto' (when CLI is unavailable).
  */
 
+// Canonical EngineResult type (re-exported from dispatch layer)
+export { type EngineResult, engineError, engineSuccess } from '../../dispatch/engines/_error.js';
+
 // Store: atomic file I/O, locking, backup rotation
 export {
   readJsonFile,
