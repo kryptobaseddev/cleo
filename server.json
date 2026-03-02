@@ -3,7 +3,7 @@
   "name": "io.github.kryptobaseddev/cleo-mcp-server",
   "title": "CLEO MCP Server",
   "description": "Task management for solo developers and AI coding agents — CQRS pattern, 177 operations",
-  "version": "2026.3.6",
+  "version": "2026.3.7",
   "websiteUrl": "https://github.com/kryptobaseddev/cleo",
   "repository": {
     "url": "https://github.com/kryptobaseddev/cleo.git",
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "@cleocode/cleo",
-      "version": "2026.3.6",
+      "version": "2026.3.7",
       "transport": {
         "type": "stdio"
       },
