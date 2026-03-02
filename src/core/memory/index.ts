@@ -1067,3 +1067,6 @@ export * from './brain-links.js';
 // === JSONL Memory modules (legacy, still active) ===
 export * from './patterns.js';
 export * from './learnings.js';
+
+// === BRAIN Retrieval functions (3-layer pattern) ===
+export * from './brain-retrieval.js';
