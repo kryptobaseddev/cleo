@@ -23,9 +23,9 @@ Implementation source files:
 
 | Gateway | Operations | Domains |
 |---------|-----------|---------|
-| cleo_query | 102 | 10 |
-| cleo_mutate | 82 | 10 |
-| **Total** | **184** | **10** |
+| cleo_query | 105 | 10 |
+| cleo_mutate | 83 | 10 |
+| **Total** | **188** | **10** |
 
 Canonical domains: tasks, session, orchestrate, memory, check, pipeline, admin, tools, nexus, sharing
 
@@ -475,7 +475,7 @@ Complete protocol stack including RCSD-IVTR lifecycle, orchestration waves, mani
 ### v1.2.0 (2026-03-02)
 
 - Full refresh against gateway matrices (`query.ts` and `mutate.ts`)
-- 185 canonical operations (102 query + 83 mutate) across 10 domains
+- 188 canonical operations (105 query + 83 mutate) across 10 domains
 - Restructured to use canonical domain names throughout (tasks, session, orchestrate, memory, check, pipeline, admin, tools, nexus, sharing)
 - Legacy aliases documented in dedicated table with operation count mapping
 - Added new operations: session.find, admin.doctor/runtime/help/adr.*/grade/grade.list/fix, memory.pattern.*/learning.*, tools.skill.catalog.*/issue.templates/issue.validate.labels/issue.generate.config

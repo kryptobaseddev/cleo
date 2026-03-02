@@ -81,6 +81,7 @@ describe('TasksHandler', () => {
       expect(ops.query).toEqual([
         'show', 'list', 'find', 'exists', 'tree', 'blockers',
         'depends', 'analyze', 'next', 'plan', 'relates', 'complexity.estimate', 'current',
+        'label.list', 'label.show',
       ]);
     });
 

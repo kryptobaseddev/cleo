@@ -646,7 +646,7 @@ export async function loadPipelineContext(
     fromStage: t.fromStageId,
     toStage: t.toStageId,
     transitionedAt: new Date(t.createdAt),
-    transitionedBy: 'system', // TODO: Store agent in transitions table
+    transitionedBy: t.transitionedBy ?? 'system',
     reason: undefined,
   }));
 

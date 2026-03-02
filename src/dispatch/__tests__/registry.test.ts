@@ -110,7 +110,7 @@ describe('Operation Registry', () => {
   describe('Filtered Views', () => {
     it('should get operations by domain', () => {
       const tasksOps = getByDomain('tasks');
-      expect(tasksOps.length).toBe(26);
+      expect(tasksOps.length).toBe(28);
       expect(tasksOps.every(o => o.domain === 'tasks')).toBe(true);
 
       const memoryOps = getByDomain('memory');

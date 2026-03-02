@@ -367,12 +367,12 @@ export async function getPipeline(taskId: string): Promise<Pipeline | null> {
     id: taskId,
     currentStage: row.currentStageId as Stage,
     createdAt: new Date(row.startedAt),
-    updatedAt: new Date(row.startedAt), // TODO: Add updated_at column
+    updatedAt: new Date(row.updatedAt ?? row.startedAt),
     status: row.status as PipelineStatus,
     isActive,
     completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
     transitionCount,
-    version: 1, // TODO: Add version column for optimistic locking
+    version: row.version ?? 1,
   };
 }
 

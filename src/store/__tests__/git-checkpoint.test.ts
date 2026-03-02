@@ -27,7 +27,8 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-import { loadCheckpointConfig } from '../git-checkpoint.js';
+import { loadCheckpointConfig, loadStateFileAllowlist } from '../git-checkpoint.js';
+import { readJson } from '../json.js';
 
 describe('loadCheckpointConfig', () => {
   beforeEach(() => {
@@ -79,5 +80,79 @@ describe('shouldCheckpoint', () => {
     const { shouldCheckpoint } = await import('../git-checkpoint.js');
     const result = await shouldCheckpoint();
     expect(result).toBe(false);
+  });
+});
+
+describe('loadStateFileAllowlist', () => {
+  const mockedReadJson = vi.mocked(readJson);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should return empty array when no config exists', async () => {
+    mockedReadJson.mockResolvedValue(null);
+    const result = await loadStateFileAllowlist();
+    expect(result).toEqual([]);
+  });
+
+  it('should return empty array when checkpoint key is absent', async () => {
+    mockedReadJson.mockResolvedValue({ gitCheckpoint: { enabled: true } });
+    const result = await loadStateFileAllowlist();
+    expect(result).toEqual([]);
+  });
+
+  it('should return empty array when stateFileAllowlist is not an array', async () => {
+    mockedReadJson.mockResolvedValue({ checkpoint: { stateFileAllowlist: 'not-array' } });
+    const result = await loadStateFileAllowlist();
+    expect(result).toEqual([]);
+  });
+
+  it('should return allowlist entries from config', async () => {
+    mockedReadJson.mockResolvedValue({
+      checkpoint: { stateFileAllowlist: ['custom.json', 'my-data/'] },
+    });
+    const result = await loadStateFileAllowlist();
+    expect(result).toEqual(['custom.json', 'my-data/']);
+  });
+
+  it('should filter out non-string entries', async () => {
+    mockedReadJson.mockResolvedValue({
+      checkpoint: { stateFileAllowlist: ['valid.json', 42, null, 'also-valid/'] },
+    });
+    const result = await loadStateFileAllowlist();
+    expect(result).toEqual(['valid.json', 'also-valid/']);
+  });
+
+  it('should return empty array when readJson throws', async () => {
+    mockedReadJson.mockRejectedValue(new Error('corrupt config'));
+    const result = await loadStateFileAllowlist();
+    expect(result).toEqual([]);
+  });
+});
+
+describe('state file merging', () => {
+  it('core STATE_FILES are always present in the source', async () => {
+    // Structural: verify the hardcoded array includes the expected core files
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(process.cwd(), 'src/store/git-checkpoint.ts'), 'utf-8');
+    expect(src).toContain("'config.json'");
+    expect(src).toContain("'project-info.json'");
+    expect(src).toContain("'project-context.json'");
+    expect(src).toContain("'adrs/'");
+    expect(src).toContain("'agent-outputs/'");
+  });
+
+  it('getAllStateFiles merges core and config allowlist', async () => {
+    // Structural: verify getAllStateFiles spreads both STATE_FILES and custom
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(process.cwd(), 'src/store/git-checkpoint.ts'), 'utf-8');
+    expect(src).toMatch(/\[\.\.\.STATE_FILES,\s*\.\.\.custom\]/);
   });
 });

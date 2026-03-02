@@ -1,7 +1,7 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 185 operations mapped to 10 canonical domains.
+ * Single source of truth for all 188 operations mapped to 10 canonical domains.
  * Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
@@ -188,6 +188,30 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+  },
+  // Label operations (dispatch migration)
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'label.list',
+    description: 'List all labels with task counts',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'label.show',
+    description: 'Show tasks with a specific label',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['label'],
+    params: [
+      { name: 'label', type: 'string', required: true, description: 'Label name to filter by' },
+    ],
   },
   {
     gateway: 'query',
@@ -1733,6 +1757,23 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
+  },
+
+  // Archive stats (dispatch migration)
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'archive.stats',
+    description: 'Archive statistics and analytics',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      { name: 'report', type: 'string', required: false, description: 'Report type (summary, by-phase, by-label, by-priority, cycle-times, trends)' },
+      { name: 'since', type: 'string', required: false, description: 'Filter by archived since date (YYYY-MM-DD)' },
+      { name: 'until', type: 'string', required: false, description: 'Filter by archived until date (YYYY-MM-DD)' },
+    ],
   },
 
   // ADR operations (ADR-017 §2, Tier 2 — admin domain)
