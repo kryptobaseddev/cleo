@@ -5,6 +5,24 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.3.5] - 2026-03-02
+
+### Added
+- **Native BRAIN Memory System** — CLEO now has built-in observation storage, 3-layer retrieval, and session memory integration, replacing the external claude-mem dependency
+  - `brain-retrieval.ts`: searchBrainCompact, timelineBrain, fetchBrainEntries, observeBrain — the 4 core retrieval functions matching claude-mem's search->timeline->fetch pattern
+  - `session-memory.ts`: persistSessionMemory auto-captures decisions/patterns/learnings to brain.db when sessions end
+  - Session briefing and resume now include relevant brain memory context
+  - MCP memory domain: brain.search, brain.timeline, brain.fetch (query) + brain.observe (mutate)
+  - claude-mem migration CLI: `cleo migrate claude-mem` imports all observations from claude-mem.db
+  - FTS5 full-text search across all brain.db tables with BM25 relevance scoring
+  - 37 E2E tests covering full observation lifecycle, multi-type search, token efficiency, cross-linking, session capture, and FTS5 quality
+
+### Fixed
+- brain-search.ts: Extended FTS5 virtual table support for observations with auto-sync triggers
+- engine-compat.ts: Added 4 async wrappers for dispatch layer (memoryBrainSearch, memoryBrainTimeline, memoryBrainFetch, memoryBrainObserve)
+
+---
+
 ## [2026.3.4] - 2026-03-02
 
 ### Fixed
