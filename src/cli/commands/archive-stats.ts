@@ -1,16 +1,14 @@
 /**
  * CLI archive-stats command - analytics and insights from archived tasks.
- * Provides cycle time analysis, trend reporting, phase/label breakdowns.
+ * Routes through dispatch layer to admin.archive.stats.
  *
  * @task T4555
  * @epic T4545
  */
 
 import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /** Archived task shape (subset of fields used for stats). */
 interface ArchivedTask {
@@ -282,6 +280,7 @@ export async function getArchiveStats(opts: {
 
 /**
  * Register the archive-stats command.
+ * Routes through dispatch layer to admin.archive.stats.
  * @task T4555
  */
 export function registerArchiveStatsCommand(program: Command): void {
@@ -297,26 +296,17 @@ export function registerArchiveStatsCommand(program: Command): void {
     .option('--since <date>', 'Only include tasks archived since DATE (YYYY-MM-DD)')
     .option('--until <date>', 'Only include tasks archived until DATE (YYYY-MM-DD)')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        let report: ReportType = 'summary';
-        if (opts['byPhase']) report = 'by-phase';
-        else if (opts['byLabel']) report = 'by-label';
-        else if (opts['byPriority']) report = 'by-priority';
-        else if (opts['cycleTimes']) report = 'cycle-times';
-        else if (opts['trends']) report = 'trends';
+      let report: ReportType = 'summary';
+      if (opts['byPhase']) report = 'by-phase';
+      else if (opts['byLabel']) report = 'by-label';
+      else if (opts['byPriority']) report = 'by-priority';
+      else if (opts['cycleTimes']) report = 'cycle-times';
+      else if (opts['trends']) report = 'trends';
 
-        const result = await getArchiveStats({
-          report,
-          since: opts['since'] as string | undefined,
-          until: opts['until'] as string | undefined,
-        });
-        cliOutput(result, { command: 'archive-stats' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'admin', 'archive.stats', {
+        report,
+        since: opts['since'] as string | undefined,
+        until: opts['until'] as string | undefined,
+      }, { command: 'archive-stats' });
     });
 }

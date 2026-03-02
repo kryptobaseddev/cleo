@@ -188,6 +188,34 @@ export class TasksHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
+        case 'label.list': {
+          const { listLabels } = await import('../../core/tasks/labels.js');
+          const { getAccessor } = await import('../../store/data-accessor.js');
+          const accessor = await getAccessor(this.projectRoot);
+          const result = await listLabels(this.projectRoot, accessor);
+          return {
+            _meta: dispatchMeta('query', 'tasks', operation, startTime),
+            success: true,
+            data: { labels: result, count: result.length },
+          };
+        }
+
+        case 'label.show': {
+          const label = params?.label as string;
+          if (!label) {
+            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'label is required', startTime);
+          }
+          const { showLabelTasks } = await import('../../core/tasks/labels.js');
+          const { getAccessor } = await import('../../store/data-accessor.js');
+          const accessor = await getAccessor(this.projectRoot);
+          const result = await showLabelTasks(label, this.projectRoot, accessor);
+          return {
+            _meta: dispatchMeta('query', 'tasks', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         default:
           return this.unsupported('query', 'tasks', operation, startTime);
       }
@@ -385,6 +413,7 @@ export class TasksHandler implements DomainHandler {
       query: [
         'show', 'list', 'find', 'exists', 'tree', 'blockers',
         'depends', 'analyze', 'next', 'plan', 'relates', 'complexity.estimate', 'current',
+        'label.list', 'label.show',
       ],
       mutate: [
         'add', 'update', 'complete', 'delete', 'archive', 'restore',

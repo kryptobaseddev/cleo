@@ -4,9 +4,11 @@
  * @epic T4454
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { getManifestPath as getManifestPathFromPaths } from '../paths.js';
-import { readComplianceJsonl } from './store.js';
+import { atomicWriteJson } from '../../store/atomic.js';
+import { readComplianceJsonl, getComplianceJsonlPath } from './store.js';
 // CleoError and ExitCode available if needed for future error cases
 
 /** Get compliance summary. */
@@ -161,12 +163,85 @@ export async function auditEpicCompliance(
   };
 }
 
-/** Sync compliance metrics to global. */
-export async function syncComplianceMetrics(_opts: {
+/** Sync compliance metrics to a summary file. */
+export async function syncComplianceMetrics(opts: {
   force?: boolean;
   cwd?: string;
 }): Promise<Record<string, unknown>> {
-  return { synced: 0, skipped: 0, message: 'Sync not yet implemented in V2' };
+  const cwd = opts.cwd ?? process.cwd();
+  const force = opts.force ?? false;
+  const jsonlPath = getComplianceJsonlPath(cwd);
+  const summaryPath = join(cwd, '.cleo', 'metrics', 'compliance-summary.json');
+
+  // If JSONL doesn't exist, nothing to sync
+  if (!existsSync(jsonlPath)) {
+    return { synced: 0, skipped: 0, message: 'No compliance data found', timestamp: new Date().toISOString() };
+  }
+
+  // Skip re-syncing if summary is newer than JSONL (unless forced)
+  if (!force && existsSync(summaryPath)) {
+    const jsonlMtime = statSync(jsonlPath).mtimeMs;
+    const summaryMtime = statSync(summaryPath).mtimeMs;
+    if (summaryMtime > jsonlMtime) {
+      const existing = JSON.parse(readFileSync(summaryPath, 'utf-8')) as Record<string, unknown>;
+      const totalEntries = (existing.totalEntries as number) ?? 0;
+      return {
+        synced: 0,
+        skipped: totalEntries,
+        message: `Summary up-to-date (${totalEntries} entries)`,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  const entries = readComplianceJsonl(cwd);
+  const totalEntries = entries.length;
+
+  if (totalEntries === 0) {
+    const summary = {
+      totalEntries: 0,
+      averagePassRate: 0,
+      averageAdherence: 0,
+      totalViolations: 0,
+      entriesByType: {},
+      generatedAt: new Date().toISOString(),
+    };
+    await atomicWriteJson(summaryPath, summary);
+    return { synced: 0, skipped: 0, message: 'No entries to sync', timestamp: summary.generatedAt };
+  }
+
+  // Compute aggregate statistics
+  const compliance = entries.map(e => (e.compliance ?? {}) as Record<string, unknown>);
+  const avgPassRate = compliance.reduce((sum, c) => sum + ((c.compliance_pass_rate as number) ?? 0), 0) / totalEntries;
+  const avgAdherence = compliance.reduce((sum, c) => sum + ((c.rule_adherence_score as number) ?? 0), 0) / totalEntries;
+  const totalViolations = compliance.reduce((sum, c) => sum + ((c.violation_count as number) ?? 0), 0);
+
+  // Group entries by source_type
+  const entriesByType: Record<string, number> = {};
+  for (const e of entries) {
+    const sourceType = (e.source_type as string) ?? 'unknown';
+    entriesByType[sourceType] = (entriesByType[sourceType] ?? 0) + 1;
+  }
+
+  const generatedAt = new Date().toISOString();
+  const globalStats = {
+    totalEntries,
+    averagePassRate: Math.round(avgPassRate * 1000) / 1000,
+    averageAdherence: Math.round(avgAdherence * 1000) / 1000,
+    totalViolations,
+    entriesByType,
+    generatedAt,
+  };
+
+  await atomicWriteJson(summaryPath, globalStats);
+
+  return {
+    synced: totalEntries,
+    skipped: 0,
+    message: `Synced ${totalEntries} compliance entries`,
+    timestamp: generatedAt,
+    globalStats,
+  };
 }
 
 /** Get skill reliability stats. */

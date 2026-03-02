@@ -1,0 +1,1 @@
+ALTER TABLE `lifecycle_transitions` ADD `transitioned_by` text;

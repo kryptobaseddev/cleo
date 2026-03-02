@@ -214,6 +214,8 @@ export const lifecyclePipelines = sqliteTable('lifecycle_pipelines', {
   currentStageId: text('current_stage_id'),
   startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
   completedAt: text('completed_at'),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+  version: integer('version').notNull().default(1),
 }, (table) => [
   index('idx_lifecycle_pipelines_task_id').on(table.taskId),
   index('idx_lifecycle_pipelines_status').on(table.status),
@@ -295,6 +297,7 @@ export const lifecycleTransitions = sqliteTable('lifecycle_transitions', {
   transitionType: text('transition_type', {
     enum: ['automatic', 'manual', 'forced'],
   }).notNull().default('automatic'),
+  transitionedBy: text('transitioned_by'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_lifecycle_transitions_pipeline_id').on(table.pipelineId),
