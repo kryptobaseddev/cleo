@@ -529,7 +529,7 @@ export function memoryInject(
   if (!protocolContent) {
     return {
       success: false,
-      error: { code: 'E_NOT_FOUND', message: `Protocol '${protocolType}' not found in protocols/, skills/_shared/, or agents/cleo-subagent/protocols/` },
+      error: { code: 'E_NOT_FOUND', message: `Protocol '${protocolType}' not found in src/protocols/, skills/_shared/, or agents/cleo-subagent/protocols/` },
     };
   }
 

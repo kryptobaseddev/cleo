@@ -47,10 +47,10 @@ describe('autoDispatch', () => {
   });
 
   it('should dispatch test tasks by keyword', () => {
-    const task = makeTask({ title: 'Add BATS testing for parser module' });
+    const task = makeTask({ title: 'Add vitest testing for parser module' });
     const result = autoDispatch(task);
 
-    expect(result.skill).toBe('ct-test-writer-bats');
+    expect(result.skill).toBe('ct-dev-workflow');
     expect(result.strategy).toBe('keyword');
   });
 
@@ -58,7 +58,7 @@ describe('autoDispatch', () => {
     const task = makeTask({ title: 'Implement the new feature' });
     const result = autoDispatch(task);
 
-    expect(result.skill).toBe('ct-library-implementer-bash');
+    expect(result.skill).toBe('ct-task-executor');
     expect(result.strategy).toBe('keyword');
     expect(result.protocol).toBe('implementation');
   });

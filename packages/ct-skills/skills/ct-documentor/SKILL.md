@@ -23,7 +23,7 @@ license: MIT
 
 # Documentation Specialist Context Injection
 
-**Protocol**: @protocols/implementation.md
+**Protocol**: @src/protocols/implementation.md
 **Type**: Context Injection (cleo-subagent)
 **Version**: 3.0.0
 

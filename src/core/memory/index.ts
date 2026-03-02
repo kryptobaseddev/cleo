@@ -912,7 +912,7 @@ export async function readProtocolInjection(
   if (!protocolContent || !protocolPath) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
-      `Protocol '${protocolType}' not found in protocols/, skills/_shared/, or agents/cleo-subagent/protocols/`,
+      `Protocol '${protocolType}' not found in src/protocols/, skills/_shared/, or agents/cleo-subagent/protocols/`,
     );
   }
 

@@ -48,7 +48,7 @@ This specification is **AUTHORITATIVE** for:
 
 This specification **DEFERS TO**:
 
-- Individual protocol files (`protocols/*.md`) for specific requirement definitions
+- Individual protocol files (`src/protocols/*.md`) for specific requirement definitions
 - [COMMIT-TASK-ENFORCEMENT-SPEC.md](COMMIT-TASK-ENFORCEMENT-SPEC.md) for commit-msg hook implementation
 - [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) for RCSD pipeline integration
 

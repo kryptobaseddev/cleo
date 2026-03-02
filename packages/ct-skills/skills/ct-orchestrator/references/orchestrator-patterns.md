@@ -138,7 +138,7 @@ cleo release ship v0.85.0 --bump-version --dry-run
 **IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0).
 Always use `cleo release create` → `cleo release ship`.
 
-See `protocols/release.md` for the full release protocol specification.
+See `src/protocols/release.md` for the full release protocol specification.
 
 ## Full RCSD-to-Release Lifecycle
 

@@ -35,7 +35,7 @@ This specification is **AUTHORITATIVE** for:
 This specification **DEFERS TO**:
 
 - [PROTOCOL-ENFORCEMENT-SPEC.md](PROTOCOL-ENFORCEMENT-SPEC.md) for enforcement architecture
-- Individual protocol files (`protocols/*.md`) for specific requirement definitions (post-correction)
+- Individual protocol files (`src/protocols/*.md`) for specific requirement definitions (post-correction)
 - [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) for RCSD pipeline integration
 
 ### 1.3 Scope
@@ -70,7 +70,7 @@ This specification incorporates findings from:
 **Issue**: Protocol specifies 80% threshold, code implements >50% majority
 
 **Evidence**:
-- **Protocol** (`protocols/consensus.md` line 84):
+- **Protocol** (`src/protocols/consensus.md` line 84):
   ```
   | **PROVEN** | 4/5 agents OR 80%+ weighted confidence | Reproducible evidence |
   ```
@@ -94,7 +94,7 @@ This specification incorporates findings from:
 
 **Correction Required**:
 
-**File**: `protocols/consensus.md`
+**File**: `src/protocols/consensus.md`
 
 **Line 84** (current):
 ```markdown
@@ -126,7 +126,7 @@ This specification incorporates findings from:
 **Evidence**:
 - **T2681 Audit**: `contribution_compute_consensus()`, `contribution_weighted_vote()`, `contribution_detect_conflicts()` implemented but never called
 - **No CLI Command**: No `scripts/consensus.sh` exists to access functions
-- **Protocol Silence**: `protocols/consensus.md` doesn't mention how orchestrator triggers consensus
+- **Protocol Silence**: `src/protocols/consensus.md` doesn't mention how orchestrator triggers consensus
 
 **Impact**: Consensus protocol 100% theoretical, cannot be used in practice (0% enforcement)
 
@@ -139,7 +139,7 @@ This specification incorporates findings from:
 | ORPH-003 | Consensus protocol MUST document function location: `lib/contribution-protocol.sh` | Discoverability for maintainers |
 | ORPH-004 | Consensus protocol SHOULD document typical workflow: Research → Voting Matrix → Consensus Computation → Decision | User journey clarity |
 
-**Protocol Addition** (after line 200 in `protocols/consensus.md`):
+**Protocol Addition** (after line 200 in `src/protocols/consensus.md`):
 
 ```markdown
 ## Implementation Integration
@@ -224,7 +224,7 @@ fi
 **Evidence**:
 - **T2684 Audit**: `contribution_create_manifest_entry()`, `contribution_validate_task()` implemented but never called (14% enforcement)
 - **No CLI Command**: No `scripts/contribution.sh` exists
-- **Protocol Silence**: `protocols/contribution.md` doesn't mention how to trigger contribution tracking
+- **Protocol Silence**: `src/protocols/contribution.md` doesn't mention how to trigger contribution tracking
 
 **Impact**: Contribution protocol mostly theoretical, lacks automated enforcement
 
@@ -237,7 +237,7 @@ fi
 | ORPH-007 | Contribution protocol MUST document function location: `lib/contribution-protocol.sh` | Discoverability |
 | ORPH-008 | Contribution protocol SHOULD document typical workflow: Implementation → Manifest → Contribution Record → Attribution | User journey |
 
-**Protocol Addition** (after line 180 in `protocols/contribution.md`):
+**Protocol Addition** (after line 180 in `src/protocols/contribution.md`):
 
 ```markdown
 ## Implementation Integration
@@ -319,8 +319,8 @@ fi
 **Issue**: IMPL-003 and CONT-002 define `@task T####` provenance tags but no validation exists
 
 **Evidence**:
-- **Protocol** (`protocols/implementation.md` lines 59-102): Defines provenance tag format
-- **Protocol** (`protocols/contribution.md` lines 45-78): Defines same provenance format
+- **Protocol** (`src/protocols/implementation.md` lines 59-102): Defines provenance tag format
+- **Protocol** (`src/protocols/contribution.md` lines 45-78): Defines same provenance format
 - **Code**: Zero validation - no grep for `@task`, no pre-commit hook, no runtime check
 
 **Impact**: Attribution system exists in theory only, cannot trace code to tasks
@@ -407,7 +407,7 @@ cleo provenance validate --threshold 80
 **Issue**: RSCH-001 prohibits code changes but no enforcement exists
 
 **Evidence**:
-- **Protocol** (`protocols/research.md` line 30): "MUST NOT implement code or make changes to codebase"
+- **Protocol** (`src/protocols/research.md` line 30): "MUST NOT implement code or make changes to codebase"
 - **Code**: No tool allowlist, no git diff check, no validation
 
 **Impact**: Research agents could accidentally modify code without detection
@@ -490,7 +490,7 @@ cleo research validate "$task_id" || {
 **Issue**: SPEC-003 requires authority section but only 1/5 sampled specs have it (20% adoption)
 
 **Evidence**:
-- **Protocol** (`protocols/specification.md` line 45): "MUST include authority/scope section"
+- **Protocol** (`src/protocols/specification.md` line 45): "MUST include authority/scope section"
 - **Reality** (T2682 audit): 1/5 specs have authority section, 4/5 lack it
 - **Drift**: Increasing over time as discipline declines
 
@@ -504,7 +504,7 @@ cleo research validate "$task_id" || {
 
 **Protocol Correction**:
 
-**Line 45** (current in `protocols/specification.md`):
+**Line 45** (current in `src/protocols/specification.md`):
 ```markdown
 | SPEC-003 | MUST include authority/scope section defining what specification governs |
 ```
@@ -532,7 +532,7 @@ Note: Authority section required for new specifications (v0.70.0+). Legacy speci
 **Issue**: DCMP-004 defines 6-point atomicity test but no `validate_atomicity()` function exists
 
 **Evidence**:
-- **Protocol** (`protocols/decomposition.md` lines 79-88): Defines atomicity test (single file, <300 lines, clear acceptance criteria, etc.)
+- **Protocol** (`src/protocols/decomposition.md` lines 79-88): Defines atomicity test (single file, <300 lines, clear acceptance criteria, etc.)
 - **Code**: No validation function, no atomicity checking
 
 **Impact**: Non-atomic leaf tasks create hidden work, poor decomposition quality
@@ -676,7 +676,7 @@ Valid values: `research` (research protocol), `analysis` (consensus protocol), `
 **Issue**: RSCH-006 requires 3-7 key findings but only checks existence, not count
 
 **Evidence**:
-- **Protocol** (`protocols/research.md` line 36): "MUST include 3-7 key findings"
+- **Protocol** (`src/protocols/research.md` line 36): "MUST include 3-7 key findings"
 - **Code** (`lib/research-manifest.sh` line 120): `check_manifest_entry()` checks field exists, not count
 
 **Impact**: Research manifests may have 0, 1, or 50+ findings without detection
@@ -734,7 +734,7 @@ jq '.key_findings | length' manifest-entry.json | awk '$1 >= 3 && $1 <= 7 || exi
 ### 5.1 Wave 3 Critical Corrections (Immediate)
 
 **T2694**: Fix consensus threshold mismatch
-- Update `protocols/consensus.md` line 84: "3/5 agents OR 50%+ weighted confidence"
+- Update `src/protocols/consensus.md` line 84: "3/5 agents OR 50%+ weighted confidence"
 - Optional: Add PROVEN_STRICT for 80% threshold
 - Expected outcome: Protocol matches code (50% majority)
 

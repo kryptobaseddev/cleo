@@ -1,6 +1,6 @@
 {
   "name": "core",
-  "description": "Minimum viable CLEO skill set",
+  "description": "Orchestration and pipeline awareness",
   "extends": "minimal",
   "skills": ["ct-orchestrator"],
   "includeProtocols": ["agent-protocol"]

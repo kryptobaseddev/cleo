@@ -47,7 +47,7 @@ A comprehensive JSON document produced by the Research protocol stage:
 
 ### Protocol Relationship
 
-**Protocol file:** `protocols/research.md` (id: RSCH, v1.0.1, status: active)
+**Protocol file:** `src/protocols/research.md` (id: RSCH, v1.0.1, status: active)
 - The protocol defines trigger conditions (investigation, analysis, discovery, documentation)
 - Protocol references RFC 2119 MUST/SHOULD/MAY requirements
 - Protocol's `skillRef` points to `ct-research-agent`
@@ -102,7 +102,7 @@ A JSON document produced by the Consensus protocol stage:
 
 ### Protocol Relationship
 
-**Protocol file:** `protocols/consensus.md` (id: CONS, v1.0.1, status: active)
+**Protocol file:** `src/protocols/consensus.md` (id: CONS, v1.0.1, status: active)
 - Protocol defines trigger conditions (decision making, agreement, conflict resolution, validation)
 - Protocol's `skillRef` points to `ct-validator`
 - The schema was designed to validate the structured consensus report — the voting matrix, agent weights, and verdict computation
@@ -172,7 +172,7 @@ YAML frontmatter in specification documents (`*-SPEC.md`):
 
 ### Protocol Relationship
 
-**Protocol file:** `protocols/specification.md` (id: SPEC, v1.0.1, status: active)
+**Protocol file:** `src/protocols/specification.md` (id: SPEC, v1.0.1, status: active)
 - Protocol defines trigger conditions (design, contract, definition, protocol)
 - Protocol's `skillRef` points to `ct-spec-writer`
 - The schema validates the YAML frontmatter that spec writers MUST include in their output
@@ -232,7 +232,7 @@ Multi-agent contribution records implementing CONTRIB-001 through CONTRIB-015 RF
 
 ### Protocol Relationship
 
-**Protocol file:** `protocols/contribution.md` (id: CONT, v1.1.1, status: active, type: cross-cutting)
+**Protocol file:** `src/protocols/contribution.md` (id: CONT, v1.1.1, status: active, type: cross-cutting)
 - Cross-cutting protocol — applies across ALL RCSD-IVTR stages
 - Protocol's `skillRef` points to `ct-contribution`
 - The schema implements the full CONTRIB-001 through CONTRIB-015 specification
