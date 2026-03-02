@@ -1,1 +1,1 @@
-ALTER TABLE `lifecycle_pipelines` ADD `updated_at` text DEFAULT (datetime('now'));
+ALTER TABLE `lifecycle_pipelines` ADD `updated_at` text;
