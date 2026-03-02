@@ -1,9 +1,9 @@
 ---
 title: "CLEO BRAIN Specification"
-version: "1.1.0"
-status: "draft"
+version: "1.2.0"
+status: "approved"
 created: "2026-02-03"
-updated: "2026-02-09"
+updated: "2026-03-02"
 epic: "T2975"
 task: "T3002"
 authors: ["Claude Opus 4.5", "CLEO Development Team"]
@@ -11,11 +11,13 @@ authors: ["Claude Opus 4.5", "CLEO Development Team"]
 
 # CLEO BRAIN Specification
 
-**Version**: 1.1.0
-**Status**: DRAFT
-**Date**: 2026-02-09
+**Version**: 1.2.0
+**Status**: APPROVED
+**Date**: 2026-03-02
 **Epic**: T2975 - CLEO Consolidation Sprint
 **Task**: T3002 - Specification: Define AGENTIC BRAIN Concrete Requirements
+**Implementation**: Phases 1-2 SHIPPED (brain.db schema, 3-layer retrieval, 22 MCP operations, 5,122 observations migrated from claude-mem)
+**Remaining**: Phases 3-5 (SQLite-vec embeddings, reasoning engine, claude-mem full retirement)
 
 ---
 
@@ -34,9 +36,9 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 **BRAIN** is not metaphor but architecture:
 
-| Dimension | What It Means | Current Gap |
-|-----------|---------------|-------------|
-| **B**ase (Memory) | Persistent knowledge across sessions | Pattern/learning memory shipped (JSONL); brain.db migration pending |
+| Dimension | What It Means | Current State |
+|-----------|---------------|---------------|
+| **B**ase (Memory) | Persistent knowledge across sessions | SHIPPED: brain.db with decisions, patterns, learnings, observations tables; 3-layer retrieval (search/timeline/fetch); 5,122 observations migrated |
 | **R**easoning | Causal inference and temporal analysis | Static dependency graph only |
 | **A**gent | Autonomous multi-agent orchestration | No self-healing or learning |
 | **I**ntelligence | Adaptive validation and prediction | No pattern extraction |
@@ -84,11 +86,22 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 - Research artifact manifest
 - RCASD lifecycle state
 
-**Limitations**:
-- **Decision memory**: ADR cognitive search shipped (in tasks.db); dedicated brain_decisions table is [TARGET]
-- **Pattern memory**: Shipped via JSONL (`src/core/memory/patterns.ts`); brain_patterns table is [TARGET]
-- **Learning memory**: Shipped via JSONL (`src/core/memory/learnings.ts`); brain_learnings table is [TARGET]
+**BRAIN Database (SHIPPED)**:
+- **brain.db**: Dedicated SQLite database at `.cleo/brain.db` with Drizzle ORM schema (`src/store/brain-schema.ts`)
+- **Decision memory**: `brain_decisions` table — SHIPPED in brain.db
+- **Pattern memory**: `brain_patterns` table — SHIPPED in brain.db (legacy JSONL still present)
+- **Learning memory**: `brain_learnings` table — SHIPPED in brain.db (legacy JSONL still present)
+- **Observations**: `brain_observations` table — SHIPPED in brain.db (5,122 entries migrated from claude-mem)
+- **Memory links**: `brain_memory_links` table — SHIPPED in brain.db (cross-references to tasks.db)
+- **3-layer retrieval**: search/timeline/fetch pattern — SHIPPED via MCP (`memory brain.search`, `memory brain.timeline`, `memory brain.fetch`)
+- **Observe**: `memory brain.observe` — SHIPPED via MCP mutate gateway
 - **Session continuity**: Shipped via session chains and handoff/briefing system (ADR-020)
+
+**Remaining gaps**:
+- FTS5 virtual tables with auto-sync triggers (gated on SQLite-vec integration)
+- Vector embeddings via SQLite-vec (Phase 3)
+- PageIndex graph tables (Phase 3)
+- Knowledge graph with version chains (Phase 3)
 
 #### 2.1.2 Target Capabilities
 
@@ -104,7 +117,7 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 #### 2.1.3 Data Structures
 
-> **Storage Note (ADR-006 / ADR-009)**: Target state: all BRAIN memory data in SQLite tables (`brain.db`). Current state: pattern and learning memory use JSONL files (`src/core/memory/patterns.ts`, `src/core/memory/learnings.ts`); ADR/decision memory is in `tasks.db`. The `brain_decisions`, `brain_patterns`, and `brain_learnings` tables below are TARGET schema not yet in `src/store/schema.ts`. See ADR-009 Section 9.2-9.3 for the interim storage model.
+> **Storage Note (ADR-006 / ADR-009)**: BRAIN memory data is stored in dedicated `.cleo/brain.db` (SQLite via Drizzle ORM). Schema defined in `src/store/brain-schema.ts`. Tables shipped: `brain_decisions`, `brain_patterns`, `brain_learnings`, `brain_observations`, `brain_memory_links`, `brain_schema_meta`. Legacy JSONL files remain for backward compatibility but brain.db is the canonical store. 5,122 observations migrated from claude-mem via `src/core/memory/claude-mem-migration.ts`.
 
 **Session Context** — stored in `sessions` table (`.cleo/tasks.db`, per ADR-006)
 
@@ -1668,7 +1681,8 @@ All 5 dimensions MUST meet certification criteria:
 
 ---
 
-**Specification Status**: DRAFT
-**Next Steps**: HITL review → Approval → Phase 1 implementation planning
+**Specification Status**: APPROVED
+**Implementation**: Phases 1-2 shipped (brain.db, 3-layer retrieval, 22 MCP operations, claude-mem migration)
+**Next Steps**: Phase 3 planning (SQLite-vec embeddings, reasoning engine, knowledge graph)
 **Approval Authority**: CLEO Development Team
 **Review Cycle**: Quarterly (or after each phase gate)
