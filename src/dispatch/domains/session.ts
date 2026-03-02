@@ -215,8 +215,9 @@ export class SessionHandler implements DomainHandler {
             const sessionId = (endResult.data as { sessionId: string }).sessionId;
             if (sessionId) {
               // T4959: Compute rich debrief (superset of handoff)
+              let debriefResult: { success: boolean; data?: import('../../core/sessions/handoff.js').DebriefData } | null = null;
               try {
-                await sessionComputeDebrief(this.projectRoot, sessionId, {
+                debriefResult = await sessionComputeDebrief(this.projectRoot, sessionId, {
                   note: params?.note as string | undefined,
                   nextAction: params?.nextAction as string | undefined,
                 });
@@ -229,6 +230,16 @@ export class SessionHandler implements DomainHandler {
                   });
                 } catch {
                   // Handoff computation failure should not fail the end operation
+                }
+              }
+
+              // Wave 3A: Persist session memory to brain.db (best-effort)
+              if (debriefResult?.success && debriefResult.data) {
+                try {
+                  const { persistSessionMemory } = await import('../../core/memory/session-memory.js');
+                  await persistSessionMemory(this.projectRoot, sessionId, debriefResult.data);
+                } catch {
+                  // Memory persistence failure should not fail session end
                 }
               }
             }
