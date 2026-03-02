@@ -1,7 +1,7 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 188 operations mapped to 10 canonical domains.
+ * Single source of truth for all 198 operations mapped to 10 canonical domains.
  * Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
@@ -1953,13 +1953,77 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // nexus — BRAIN Network placeholder (all ops return E_NOT_IMPLEMENTED)
+  // nexus — Cross-project coordination (BRAIN Network)
   // ---------------------------------------------------------------------------
+
+  // Query operations
   {
     gateway: 'query' as const,
     domain: 'nexus',
     operation: 'status',
-    description: 'nexus.status (query) — BRAIN Network status [not yet implemented]',
+    description: 'nexus.status (query) — overall NEXUS health status',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'list',
+    description: 'nexus.list (query) — list all registered NEXUS projects',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'show',
+    description: 'nexus.show (query) — show a specific project by name or hash',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name'],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'query',
+    description: 'nexus.query (query) — resolve a cross-project project:taskId query',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['query'],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'deps',
+    description: 'nexus.deps (query) — cross-project dependency analysis',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['query'],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'graph',
+    description: 'nexus.graph (query) — global dependency graph across all projects',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+
+  // Mutate operations
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'init',
+    description: 'nexus.init (mutate) — initialize NEXUS (creates registry and directories)',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -1968,12 +2032,52 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate' as const,
     domain: 'nexus',
-    operation: 'connect',
-    description: 'nexus.connect (mutate) — connect to BRAIN Network [not yet implemented]',
+    operation: 'register',
+    description: 'nexus.register (mutate) — register a project in NEXUS',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
+    requiredParams: ['path'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'unregister',
+    description: 'nexus.unregister (mutate) — remove a project from NEXUS',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['name'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'sync',
+    description: 'nexus.sync (mutate) — sync project metadata (task count, labels)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'sync.all',
+    description: 'nexus.sync.all (mutate) — sync all registered projects',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
     requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'permission.set',
+    description: 'nexus.permission.set (mutate) — update project permissions',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name', 'level'],
   },
 ];
 
