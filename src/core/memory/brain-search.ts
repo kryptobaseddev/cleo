@@ -10,21 +10,22 @@
 
 import { getBrainNativeDb, getBrainDb } from '../../store/brain-sqlite.js';
 import type { DatabaseSync } from 'node:sqlite';
-import type { BrainDecisionRow, BrainPatternRow, BrainLearningRow } from '../../store/brain-schema.js';
+import type { BrainDecisionRow, BrainPatternRow, BrainLearningRow, BrainObservationRow } from '../../store/brain-schema.js';
 
 /** Search result with BM25 rank. */
 export interface BrainSearchResult {
   decisions: BrainDecisionRow[];
   patterns: BrainPatternRow[];
   learnings: BrainLearningRow[];
+  observations: BrainObservationRow[];
 }
 
 /** Search options. */
 export interface BrainSearchOptions {
   /** Max results per table. Default 10. */
   limit?: number;
-  /** Which tables to search. Default: all three. */
-  tables?: Array<'decisions' | 'patterns' | 'learnings'>;
+  /** Which tables to search. Default: all four. */
+  tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
 }
 
 /** Track whether FTS5 is available in the current SQLite build. */
@@ -154,6 +155,34 @@ export function ensureFts5Tables(nativeDb: DatabaseSync): boolean {
     END
   `);
 
+  // Observations FTS
+  execDDL(nativeDb, `
+    CREATE VIRTUAL TABLE IF NOT EXISTS brain_observations_fts
+    USING fts5(id, title, narrative, content=brain_observations, content_rowid=rowid)
+  `);
+
+  // Content-sync triggers for observations
+  execDDL(nativeDb, `
+    CREATE TRIGGER IF NOT EXISTS brain_observations_ai AFTER INSERT ON brain_observations BEGIN
+      INSERT INTO brain_observations_fts(rowid, id, title, narrative)
+      VALUES (new.rowid, new.id, new.title, new.narrative);
+    END
+  `);
+  execDDL(nativeDb, `
+    CREATE TRIGGER IF NOT EXISTS brain_observations_ad AFTER DELETE ON brain_observations BEGIN
+      INSERT INTO brain_observations_fts(brain_observations_fts, rowid, id, title, narrative)
+      VALUES('delete', old.rowid, old.id, old.title, old.narrative);
+    END
+  `);
+  execDDL(nativeDb, `
+    CREATE TRIGGER IF NOT EXISTS brain_observations_au AFTER UPDATE ON brain_observations BEGIN
+      INSERT INTO brain_observations_fts(brain_observations_fts, rowid, id, title, narrative)
+      VALUES('delete', old.rowid, old.id, old.title, old.narrative);
+      INSERT INTO brain_observations_fts(rowid, id, title, narrative)
+      VALUES (new.rowid, new.id, new.title, new.narrative);
+    END
+  `);
+
   return true;
 }
 
@@ -171,6 +200,13 @@ export function rebuildFts5Index(nativeDb: DatabaseSync): void {
   nativeDb.prepare("INSERT INTO brain_decisions_fts(brain_decisions_fts) VALUES('rebuild')").run();
   nativeDb.prepare("INSERT INTO brain_patterns_fts(brain_patterns_fts) VALUES('rebuild')").run();
   nativeDb.prepare("INSERT INTO brain_learnings_fts(brain_learnings_fts) VALUES('rebuild')").run();
+
+  // Observations FTS rebuild — table may not exist yet in older DBs
+  try {
+    nativeDb.prepare("INSERT INTO brain_observations_fts(brain_observations_fts) VALUES('rebuild')").run();
+  } catch {
+    // brain_observations_fts not created yet — skip
+  }
 }
 
 /**
@@ -187,7 +223,7 @@ export async function searchBrain(
   options?: BrainSearchOptions,
 ): Promise<BrainSearchResult> {
   if (!query || !query.trim()) {
-    return { decisions: [], patterns: [], learnings: [] };
+    return { decisions: [], patterns: [], learnings: [], observations: [] };
   }
 
   // Ensure brain.db is initialized
@@ -195,11 +231,11 @@ export async function searchBrain(
   const nativeDb = getBrainNativeDb();
 
   if (!nativeDb) {
-    return { decisions: [], patterns: [], learnings: [] };
+    return { decisions: [], patterns: [], learnings: [], observations: [] };
   }
 
   const limit = options?.limit ?? 10;
-  const tables = options?.tables ?? ['decisions', 'patterns', 'learnings'];
+  const tables = options?.tables ?? ['decisions', 'patterns', 'learnings', 'observations'];
 
   const ftsAvailable = ensureFts5Tables(nativeDb);
 
@@ -222,13 +258,14 @@ export async function searchBrain(
 function searchWithFts5(
   nativeDb: DatabaseSync,
   query: string,
-  tables: Array<'decisions' | 'patterns' | 'learnings'>,
+  tables: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>,
   limit: number,
 ): BrainSearchResult {
   const result: BrainSearchResult = {
     decisions: [],
     patterns: [],
     learnings: [],
+    observations: [],
   };
 
   // Escape FTS5 special characters for safety
@@ -283,6 +320,22 @@ function searchWithFts5(
     }
   }
 
+  if (tables.includes('observations')) {
+    try {
+      const rows = nativeDb.prepare(`
+        SELECT o.*
+        FROM brain_observations_fts fts
+        JOIN brain_observations o ON o.rowid = fts.rowid
+        WHERE brain_observations_fts MATCH ?
+        ORDER BY bm25(brain_observations_fts)
+        LIMIT ?
+      `).all(safeQuery, limit) as unknown as BrainObservationRow[];
+      result.observations = rows;
+    } catch {
+      result.observations = likeSearchObservations(nativeDb, query, limit);
+    }
+  }
+
   return result;
 }
 
@@ -292,13 +345,14 @@ function searchWithFts5(
 function searchWithLike(
   nativeDb: DatabaseSync,
   query: string,
-  tables: Array<'decisions' | 'patterns' | 'learnings'>,
+  tables: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>,
   limit: number,
 ): BrainSearchResult {
   const result: BrainSearchResult = {
     decisions: [],
     patterns: [],
     learnings: [],
+    observations: [],
   };
 
   if (tables.includes('decisions')) {
@@ -311,6 +365,10 @@ function searchWithLike(
 
   if (tables.includes('learnings')) {
     result.learnings = likeSearchLearnings(nativeDb, query, limit);
+  }
+
+  if (tables.includes('observations')) {
+    result.observations = likeSearchObservations(nativeDb, query, limit);
   }
 
   return result;
@@ -344,6 +402,16 @@ function likeSearchLearnings(nativeDb: DatabaseSync, query: string, limit: numbe
     ORDER BY confidence DESC
     LIMIT ?
   `).all(likePattern, likePattern, limit) as unknown as BrainLearningRow[];
+}
+
+function likeSearchObservations(nativeDb: DatabaseSync, query: string, limit: number): BrainObservationRow[] {
+  const likePattern = `%${query}%`;
+  return nativeDb.prepare(`
+    SELECT * FROM brain_observations
+    WHERE title LIKE ? OR narrative LIKE ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(likePattern, likePattern, limit) as unknown as BrainObservationRow[];
 }
 
 /**

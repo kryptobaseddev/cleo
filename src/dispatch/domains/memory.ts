@@ -35,6 +35,11 @@ import {
   memoryLearningStore,
   memoryLearningSearch,
   memoryLearningStats,
+  // BRAIN retrieval operations (T5131-T5135)
+  memoryBrainSearch,
+  memoryBrainTimeline,
+  memoryBrainFetch,
+  memoryBrainObserve,
 } from '../../core/memory/engine-compat.js';
 
 // ---------------------------------------------------------------------------
@@ -157,6 +162,50 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
+        // BRAIN retrieval query operations (T5131-T5135)
+        case 'brain.search': {
+          const query = params?.query as string;
+          if (!query) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          }
+          const result = await memoryBrainSearch(
+            {
+              query,
+              limit: params?.limit as number | undefined,
+              tables: params?.tables as string[] | undefined,
+              dateStart: params?.dateStart as string | undefined,
+              dateEnd: params?.dateEnd as string | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'brain.timeline': {
+          const anchor = params?.anchor as string;
+          if (!anchor) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'anchor is required', startTime);
+          }
+          const result = await memoryBrainTimeline(
+            {
+              anchor,
+              depthBefore: params?.depthBefore as number | undefined,
+              depthAfter: params?.depthAfter as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'brain.fetch': {
+          const ids = params?.ids as string[] | undefined;
+          if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'ids is required (non-empty array)', startTime);
+          }
+          const result = await memoryBrainFetch({ ids }, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'memory', operation, startTime);
       }
@@ -261,6 +310,26 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
+        // BRAIN retrieval mutate operations (T5131-T5135)
+        case 'brain.observe': {
+          const text = params?.text as string;
+          if (!text) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'text is required', startTime);
+          }
+          const result = await memoryBrainObserve(
+            {
+              text,
+              title: params?.title as string | undefined,
+              type: params?.type as string | undefined,
+              project: params?.project as string | undefined,
+              sourceSessionId: params?.sourceSessionId as string | undefined,
+              sourceType: params?.sourceType as string | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
         default:
           return this.unsupported('mutate', 'memory', operation, startTime);
       }
@@ -275,8 +344,8 @@ export class MemoryHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['show', 'list', 'find', 'pending', 'stats', 'manifest.read', 'contradictions', 'superseded', 'pattern.search', 'pattern.stats', 'learning.search', 'learning.stats'],
-      mutate: ['inject', 'link', 'manifest.append', 'manifest.archive', 'pattern.store', 'learning.store'],
+      query: ['show', 'list', 'find', 'pending', 'stats', 'manifest.read', 'contradictions', 'superseded', 'pattern.search', 'pattern.stats', 'learning.search', 'learning.stats', 'brain.search', 'brain.timeline', 'brain.fetch'],
+      mutate: ['inject', 'link', 'manifest.append', 'manifest.archive', 'pattern.store', 'learning.store', 'brain.observe'],
     };
   }
 
