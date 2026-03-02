@@ -62,7 +62,7 @@ export function isCleoGitInitialized(cleoDir: string): boolean {
 }
 
 /**
- * State files and directories eligible for checkpointing (relative to .cleo/).
+ * Core state files and directories eligible for checkpointing (relative to .cleo/).
  *
  * Only human-editable JSON config files (per ADR-006) and documentation
  * output directories. All operational data lives in tasks.db (SQLite).
@@ -71,8 +71,7 @@ export function isCleoGitInitialized(cleoDir: string): boolean {
  * Directory entries (trailing slash) are passed directly to git; git handles
  * them recursively for add/diff/ls-files operations.
  *
- * TODO: make this list config-driven via a .cleoignore-style allowlist in
- * config.json so users can add custom files without touching source code.
+ * Users can add custom entries via config.json `checkpoint.stateFileAllowlist`.
  */
 const STATE_FILES = [
   // Human-editable config files (ADR-006: JSON retained for human-editable config only)
@@ -83,6 +82,34 @@ const STATE_FILES = [
   'adrs/',
   'agent-outputs/',
 ] as const;
+
+/**
+ * Load additional state file paths from config.json `checkpoint.stateFileAllowlist`.
+ * Returns an empty array if config is missing, malformed, or the key is absent.
+ */
+export async function loadStateFileAllowlist(cwd?: string): Promise<string[]> {
+  try {
+    const configPath = getConfigPath(cwd);
+    const config = await readJson<Record<string, unknown>>(configPath);
+    const checkpoint = (config as Record<string, Record<string, unknown>> | null)?.checkpoint;
+    const allowlist = checkpoint?.stateFileAllowlist;
+    if (!Array.isArray(allowlist)) return [];
+    // Filter to strings only, ignore non-string entries
+    return allowlist.filter((entry): entry is string => typeof entry === 'string');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get the full list of state files: core defaults merged with config allowlist.
+ */
+async function getAllStateFiles(cwd?: string): Promise<string[]> {
+  const custom = await loadStateFileAllowlist(cwd);
+  const all = [...STATE_FILES, ...custom];
+  // Deduplicate
+  return [...new Set(all)];
+}
 
 /** Debounce state file name (relative to .cleo/). */
 const CHECKPOINT_STATE_FILE = '.git-checkpoint-state';
@@ -214,10 +241,11 @@ async function getLastCheckpointTime(cleoDir: string): Promise<number> {
  * @task T4552
  * @task T4872
  */
-async function getChangedStateFiles(cleoDir: string): Promise<ChangedFile[]> {
+async function getChangedStateFiles(cleoDir: string, cwd?: string): Promise<ChangedFile[]> {
   const changed: ChangedFile[] = [];
+  const allStateFiles = await getAllStateFiles(cwd);
 
-  for (const stateFile of STATE_FILES) {
+  for (const stateFile of allStateFiles) {
     const fullPath = join(cleoDir, stateFile);
     if (!existsSync(fullPath)) continue;
 
@@ -282,7 +310,7 @@ export async function shouldCheckpoint(
   }
 
   // Check if any state files have changes
-  const changed = await getChangedStateFiles(cleoDir);
+  const changed = await getChangedStateFiles(cleoDir, cwd);
   return changed.length > 0;
 }
 
@@ -310,7 +338,7 @@ export async function gitCheckpoint(
 
   const config = await loadCheckpointConfig(cwd);
   const cleoDir = getCleoDir(cwd);
-  const changed = await getChangedStateFiles(cleoDir);
+  const changed = await getChangedStateFiles(cleoDir, cwd);
 
   if (changed.length === 0) return;
 
@@ -372,7 +400,7 @@ export async function gitCheckpointStatus(cwd?: string): Promise<CheckpointStatu
 
   let pendingChanges = 0;
   if (isRepo) {
-    const changed = await getChangedStateFiles(cleoDir);
+    const changed = await getChangedStateFiles(cleoDir, cwd);
     pendingChanges = changed.length;
   }
 
@@ -401,5 +429,5 @@ export async function gitCheckpointDryRun(cwd?: string): Promise<ChangedFile[]> 
 
   if (!isRepo) return [];
 
-  return getChangedStateFiles(cleoDir);
+  return getChangedStateFiles(cleoDir, cwd);
 }

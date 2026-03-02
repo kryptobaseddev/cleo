@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-// TODO T4894: operation 'phases' not yet in registry — no phases domain in dispatch.\n// Leave bypass until pipeline or admin domain exposes phase list operation.
+// CLI-only: no dispatch route for phase listing (pipeline domain covers stage lifecycle only)
 import { Command } from 'commander';
 import {
   listPhases,

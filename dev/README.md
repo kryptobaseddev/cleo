@@ -56,7 +56,8 @@ parallel-safe behavior with stable installs.
 | `teardown-dev.sh` | Remove dev mode, optionally install production |
 | `validate-version.sh` | Verify version consistency across repo files |
 | `generate-command-docs.sh` | Generate Mintlify MDX docs from COMMANDS-INDEX.json |
-| `generate-features.sh` | Generate FEATURES.md from FEATURES.json |
+| `generate-features.ts` | Generate docs/FEATURES.md from docs/FEATURES.json |
+| `generate-features.sh` | Compatibility wrapper for the TypeScript generator |
 | `generate-protocol-docs.sh` | Generate Mintlify MDX from protocol markdown |
 
 ### Directories

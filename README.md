@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.2.9-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.3.8-blue.svg" alt="Version"></a>
   <a href="docs/mintlify/developer/specifications/LLM-AGENT-FIRST.mdx"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -98,8 +98,8 @@ CLEO is composed of four interdependent systems:
 
 | State | What It Means |
 |------|----------------|
-| **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, vectorless RAG (5 discovery methods), LAFS envelopes |
-| **Gated** | Dedicated `brain.db` (FTS5, vector, PageIndex), `nexus.db` (cross-project graph), knowledge graph with version chains, agent profiles, federated queries |
+| **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db` + `brain.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, 3-layer BRAIN retrieval (`brain.search/timeline/fetch`), BRAIN observe writes, NEXUS dispatch domain wiring (12 operations), LAFS envelopes |
+| **In Progress / Planned** | Embedding generation + vector similarity pipeline (`T5158`/`T5159`), PageIndex traversal/query API (`T5161`), reasoning/session integration (`T5153`), `nexus.db` migration from JSON registry, full claude-mem automation retirement hooks (`T5145`) |
 
 ### MCP Server
 
@@ -142,7 +142,7 @@ Or if installed globally (`npm install -g @cleocode/cleo`):
 
 Supports: Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex
 
-- Canonical MCP contract: [`docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md`](docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md)
+- Canonical MCP contract: [`docs/specs/MCP-SERVER-SPECIFICATION.md`](docs/specs/MCP-SERVER-SPECIFICATION.md)
 - MCP source: [`src/mcp/`](src/mcp/) (gateways, domains, engine)
 - Operation matrix: `src/mcp/gateways/query.ts` and `src/mcp/gateways/mutate.ts`
 
@@ -153,7 +153,7 @@ Your AI agent gets two tools: `cleo_query` (read) and `cleo_mutate` (write). Eac
 ```bash
 # Read operations (never changes anything)
 cleo_query  domain=tasks   operation=find   params={"query": "auth"}
-cleo_query  domain=system  operation=dash
+cleo_query  domain=admin  operation=dash
 cleo_query  domain=tasks   operation=next
 
 # Write operations (creates or modifies data)
@@ -162,15 +162,15 @@ cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes"
 cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
 ```
 
-10 canonical domains, 177 operations (97 query + 80 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+10 canonical domains, 198 operations (110 query + 88 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
 
 ### Source of Truth Hierarchy
 
 1. [`docs/concepts/vision.md`](docs/concepts/vision.md) - immutable product vision
-2. [`docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md`](docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
+2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
 3. [`README.md`](README.md) - operational public contract
-4. [`docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
-5. [`docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
+4. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
+5. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
 
 ---
 
@@ -204,7 +204,7 @@ cleo list | jq '.tasks[0].id'          # Parse with jq
 # Human-readable when you need it (developer-friendly)
 cleo list --human                      # Formatted text output
 
-# Exit codes for programmatic branching (17 documented codes)
+# Exit codes for programmatic branching (82 unique codes across 13 ranges)
 cleo exists T042 --quiet && echo "Found"
 ```
 
@@ -516,7 +516,7 @@ cleo start <TAB>             # Shows pending/active task IDs
 <details>
 <summary><h2>Command Reference</h2></summary>
 
-### 48 Commands Across 5 Categories
+### 86 Commands Across 5 Categories
 
 | Category | Commands | Purpose |
 |----------|----------|---------|
@@ -772,7 +772,7 @@ cleo list --format text      # Same as --human
 
 ### Exit Codes
 
-17 documented exit codes for programmatic handling:
+82 unique exit codes across 13 ranges for programmatic handling:
 
 | Range | Purpose | Examples |
 |-------|---------|----------|
@@ -912,17 +912,17 @@ CLEO_FORMAT=json              # Force output format
 ~/.cleo/                     # Global installation
 ├── nexus.db                 # Cross-project network: registry, graph, permissions (gated)
 ├── config.json              # Global CLEO configuration
-├── skills/                  # Modular agent skills (14 skills)
+├── skills/                  # Modular agent skills (15 skills)
 │   ├── manifest.json        # Skill registry with versions
 │   ├── ct-epic-architect/   # Epic creation skill
 │   ├── ct-orchestrator/     # Workflow coordination
-│   └── ...                  # 12 more skills
+│   └── ...                  # 13 more skills
 ├── templates/               # Starter templates
 └── docs/                    # Documentation
 
 your-project/.cleo/          # Per-project instance
 ├── tasks.db                 # Project work: tasks, sessions, lifecycle, audit (SQLite)
-├── brain.db                 # Memory & cognition: observations, patterns, learnings (gated)
+├── brain.db                 # Memory & cognition: observations, patterns, learnings, decisions, links (shipped)
 ├── config.json              # Runtime settings: policies, validation, session behavior
 ├── project-info.json        # Project identity: projectHash, schema versions, health
 ├── project-context.json     # LLM agent metadata: language, framework, conventions
@@ -1030,7 +1030,7 @@ CLEO uses a **2-tier subagent architecture** for multi-agent coordination:
 
 > **Architecture Reference**: See [CLEO-SUBAGENT.md](docs/architecture/CLEO-SUBAGENT.md) for complete documentation.
 
-CLEO includes 14 modular skills for AI agent workflows:
+CLEO includes 15 modular skills for AI agent workflows:
 
 ### Token Injection System (v0.60.0+)
 
@@ -1045,21 +1045,17 @@ The token injection system provides validated placeholder replacement for skill 
 
 Token validation prevents hallucinated or malformed values from reaching skill templates.
 
-### Orchestrator Automation (v0.60.0+)
+### Orchestrator Automation
 
-The `orchestrator_spawn_for_task()` function consolidates subagent spawning into a single call:
+Subagent spawning is handled via the MCP orchestration domain:
 
-```bash
-# Programmatic spawning (from lib/orchestrator-spawn.sh)
-source lib/orchestrator-spawn.sh
-prompt=$(orchestrator_spawn_for_task "T1234")              # Default protocol
-prompt=$(orchestrator_spawn_for_task "T1234" "ct-research-agent")  # Specific protocol
-
-# NOTE: All spawns use subagent_type: "cleo-subagent"
-# The second argument selects the protocol to inject, not a separate agent type
+```
+# Spawn a subagent for a task (via MCP)
+cleo_mutate orchestrate.spawn { taskId: "T1234" }
+cleo_mutate orchestrate.spawn { taskId: "T1234", skill: "ct-research-agent" }
 ```
 
-Automates: task validation, context loading, token injection, template rendering, and prompt generation.
+The spawn pipeline (implemented in `src/core/skills/orchestrator/spawn.ts`) automates: task validation, context loading, token injection, template rendering, and prompt generation.
 
 ### Installed Skills (Protocol Identifiers)
 
@@ -1067,20 +1063,21 @@ Automates: task validation, context loading, token injection, template rendering
 
 | Skill Protocol | Purpose |
 |----------------|---------|
-| `ct-epic-architect` | Create epics with task decomposition |
-| `ct-orchestrator` | Multi-agent workflow coordination |
+| `ct-cleo` | Core CLEO protocol and session management |
+| `ct-contribution` | Contribution workflow protocol |
+| `ct-dev-workflow` | Developer workflow automation |
 | `ct-docs-lookup` | Documentation search via Context7 |
-| `ct-docs-write` | Documentation generation |
 | `ct-docs-review` | Documentation compliance review |
-| `ct-research-agent` | Multi-source research protocol |
-| `ct-task-executor` | Generic task execution protocol |
-| `ct-spec-writer` | Technical specification writing |
-| `ct-test-writer-bats` | BATS test generation |
-| `ct-validator` | Compliance validation |
-| `ct-skill-creator` | Create new skills |
-| `ct-skill-lookup` | Search prompts.chat skills |
-| `ct-library-implementer-bash` | Bash library creation |
+| `ct-docs-write` | Documentation generation |
 | `ct-documentor` | Documentation orchestration |
+| `ct-epic-architect` | Create epics with task decomposition |
+| `ct-grade` | Quality grading and assessment |
+| `ct-orchestrator` | Multi-agent workflow coordination |
+| `ct-research-agent` | Multi-source research protocol |
+| `ct-skill-creator` | Create new skills |
+| `ct-spec-writer` | Technical specification writing |
+| `ct-task-executor` | Generic task execution protocol |
+| `ct-validator` | Compliance validation |
 
 ### Skills Installation
 
@@ -1176,7 +1173,7 @@ See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
 | Problem | Solution |
 |---------|----------|
 | `command not found` | Check `~/.local/bin` in PATH, run `source ~/.bashrc` |
-| `Permission denied` | `chmod 755 ~/.cleo/scripts/*.sh` |
+| `Permission denied` | Check `~/.local/bin` permissions, ensure CLEO binaries are executable |
 | `Invalid JSON` | `cleo validate --fix` or `cleo restore` |
 | `Duplicate ID` | `cleo validate --fix` or `cleo restore` |
 | `Checksum mismatch` | `cleo validate --fix` |
