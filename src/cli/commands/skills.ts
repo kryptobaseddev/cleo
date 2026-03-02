@@ -5,7 +5,7 @@
  * @epic T4545
  */
 
-// TODO T4894: tools.skill.list exists in registry but skills.ts implements multi-subcommand\n// logic (list/search/discover/validate/info/install) with complex core imports. Leave bypass.
+// CLI-only: skills.ts implements multi-subcommand logic (list/search/discover/validate/info/install)
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';

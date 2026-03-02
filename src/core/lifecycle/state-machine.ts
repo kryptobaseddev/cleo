@@ -27,10 +27,7 @@ import {
   STAGE_DEFINITIONS,
   PIPELINE_STAGES,
 } from './stages.js';
-// TODO(T4801): Import once schema is ready
-// import { getDb } from '../../store/sqlite.js';
-// import * as schema from '../../store/schema.js';
-// import { eq, and } from 'drizzle-orm';
+// State machine uses in-memory stage map; DB queries are in pipeline.ts and resume.ts
 
 // =============================================================================
 // TYPE DEFINITIONS
@@ -196,14 +193,7 @@ export async function checkPrerequisites(
   targetStage: Stage,
   currentStages: Record<Stage, StageState>
 ): Promise<PrereqCheck> {
-  // STUB: Implementation pending T4801 schema completion
-  //
-  // TODO(T4801): Full implementation will query from database:
-  // 1. Query pipeline_stages for all stages of the pipeline
-  // 2. Check each prerequisite status
-  // 3. Return comprehensive PrereqCheck result
-  //
-  // Current behavior: Calculate from provided currentStages
+  // Calculate prerequisites from provided currentStages map
   const prerequisites = getPrerequisites(targetStage);
   
   const completed: Stage[] = [];

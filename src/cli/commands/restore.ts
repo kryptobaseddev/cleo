@@ -5,9 +5,7 @@
  * @task T4795
  * @task T4904
  */
-// TODO T4894: tasks.restore (mutate) and admin.restore (mutate) exist in registry but
-// this command implements complex multi-branch logic (active task reopen vs archive unarchive
-// vs backup restore). Handler would need to support all branches before migration is safe.
+// CLI-only: implements complex multi-branch logic (task reopen vs archive unarchive vs backup restore)
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';

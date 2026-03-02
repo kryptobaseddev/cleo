@@ -35,6 +35,12 @@ export interface OperationDef {
    * @see T4897 for progressive migration
    */
   params?: ParamDef[];
+  /**
+   * Backward-compatible operation aliases (e.g., 'config.get' for 'config.show').
+   * These are included in derived gateway matrices so validation passes for both names.
+   * Runtime translation happens in resolveOperationAlias() in the MCP adapter.
+   */
+  aliases?: string[];
 }
 
 /**
@@ -1929,6 +1935,94 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Legacy Domain Aliases
+// ---------------------------------------------------------------------------
+
+/**
+ * Legacy domain alias mapping.
+ *
+ * Maps legacy MCP domain names to their canonical domain + operation prefix.
+ * Used to generate backward-compatible gateway operation matrices and to
+ * resolve domain aliases at runtime in the MCP adapter.
+ *
+ * When a legacy domain has a prefix, the canonical operation name is expected
+ * to start with that prefix (e.g., `skill.list` in canonical `tools` domain
+ * maps to `list` in legacy `skills` domain).
+ */
+export const LEGACY_DOMAIN_ALIASES: Record<string, { canonical: CanonicalDomain; prefix: string }> = {
+  research:  { canonical: 'memory',   prefix: '' },
+  validate:  { canonical: 'check',    prefix: '' },
+  lifecycle: { canonical: 'pipeline', prefix: 'stage.' },
+  release:   { canonical: 'pipeline', prefix: 'release.' },
+  system:    { canonical: 'admin',    prefix: '' },
+  skills:    { canonical: 'tools',    prefix: 'skill.' },
+  providers: { canonical: 'tools',    prefix: 'provider.' },
+  issues:    { canonical: 'tools',    prefix: 'issue.' },
+};
+
+// ---------------------------------------------------------------------------
+// Gateway Matrix Derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a gateway operation matrix from the registry.
+ *
+ * Returns `Record<string, string[]>` containing:
+ * - All 10 canonical domains with their operations (including aliases)
+ * - All legacy alias domains with reverse-mapped operation names
+ *
+ * This is the SINGLE derivation point — gateways use this instead of
+ * maintaining independent operation lists.
+ */
+export function deriveGatewayMatrix(gateway: Gateway): Record<string, string[]> {
+  const matrix: Record<string, string[]> = {};
+
+  // Step 1: Populate canonical domains from the OPERATIONS array
+  for (const op of OPERATIONS) {
+    if (op.gateway !== gateway) continue;
+    if (!matrix[op.domain]) matrix[op.domain] = [];
+    matrix[op.domain].push(op.operation);
+    // Include aliases in the canonical domain entry
+    if (op.aliases) {
+      for (const alias of op.aliases) {
+        matrix[op.domain].push(alias);
+      }
+    }
+  }
+
+  // Step 2: Populate legacy alias domains by reverse-mapping
+  for (const [alias, { canonical, prefix }] of Object.entries(LEGACY_DOMAIN_ALIASES)) {
+    const canonicalOps = matrix[canonical];
+    if (!canonicalOps) continue;
+
+    const legacyOps: string[] = [];
+    for (const op of canonicalOps) {
+      if (prefix) {
+        // Only include operations that start with the prefix
+        if (op.startsWith(prefix)) {
+          legacyOps.push(op.slice(prefix.length));
+        }
+      } else {
+        // No prefix — all operations map directly
+        legacyOps.push(op);
+      }
+    }
+    if (legacyOps.length > 0) {
+      matrix[alias] = legacyOps;
+    }
+  }
+
+  return matrix;
+}
+
+/**
+ * Get all accepted domain names for a gateway (canonical + legacy aliases).
+ */
+export function getGatewayDomains(gateway: Gateway): string[] {
+  return Object.keys(deriveGatewayMatrix(gateway));
+}
 
 // ---------------------------------------------------------------------------
 // Lookup & Validation

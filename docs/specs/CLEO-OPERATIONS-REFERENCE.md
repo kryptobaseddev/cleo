@@ -459,7 +459,7 @@ Complete protocol stack including RCSD-IVTR lifecycle, orchestration waves, mani
 
 ## References
 
-- MCP Server Specification: `docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md`
+- MCP Server Specification: `docs/specs/MCP-SERVER-SPECIFICATION.md`
 - MCP Agent Interaction Spec: `docs/specs/MCP-AGENT-INTERACTION-SPEC.md`
 - Gateway Source (query): `src/mcp/gateways/query.ts`
 - Gateway Source (mutate): `src/mcp/gateways/mutate.ts`

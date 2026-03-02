@@ -15,6 +15,8 @@
  * @task T2929
  */
 
+import { deriveGatewayMatrix } from '../../dispatch/registry.js';
+
 /**
  * Request from MCP gateway (inline — replaces legacy router.ts import)
  */
@@ -80,201 +82,14 @@ export interface MutateRequest {
 export type MutateResponse = DomainResponse;
 
 /**
- * Mutate operation matrix - all write operations by domain
+ * Mutate operation matrix - all write operations by domain.
  *
- * Contains BOTH legacy domain names (for backward compatibility with
- * existing agents) AND canonical domain aliases (for the dispatch layer).
- * The dispatch adapter resolves legacy -> canonical at routing time.
+ * DERIVED from the dispatch registry — single source of truth.
+ * Contains both canonical domains and legacy alias domains.
  *
  * Reference: MCP-SERVER-SPECIFICATION.md Section 2.2.2
  */
-export const MUTATE_OPERATIONS: Record<string, string[]> = {
-  // ── Canonical domains ──────────────────────────────────────────────
-  tasks: [
-    'add',         // Create new task
-    'update',      // Update task fields
-    'complete',    // Mark task done
-    'delete',      // Delete task
-    'archive',     // Archive done tasks
-    'restore',     // Restore from archive
-    'reparent',    // Change task parent
-    'promote',     // Promote subtask to task
-    'reorder',     // Reorder siblings
-    'reopen',      // Alias for restore (completed tasks)
-    'relates.add', // Add task relationship
-    'start',       // Start working on task
-    'stop',        // Stop working on task
-  ],
-  session: [
-    'start',            // Start new session
-    'end',              // End current session
-    'resume',           // Resume existing session
-    'suspend',          // Suspend session
-    'gc',               // Garbage collect sessions
-    'record.decision',    // Record a decision
-    'record.assumption',  // Record an assumption
-  ],
-  orchestrate: [
-    'start',           // Initialize orchestration
-    'spawn',           // Generate spawn prompt
-    'validate',        // Validate spawn readiness
-    'parallel.start',  // Start parallel wave
-    'parallel.end',    // End parallel wave
-  ],
-
-  // ── Canonical: memory (research alias) ─────────────────────────────
-  memory: [
-    'inject',          // Get protocol injection
-    'link',            // Link research to task
-    'manifest.append', // Append manifest entry
-    'manifest.archive', // Archive old entries
-    'pattern.store',   // Store BRAIN pattern memory
-    'learning.store',  // Store BRAIN learning memory
-    'brain.observe',    // Save observation to brain.db
-  ],
-
-  // ── Canonical: check (validate alias) ──────────────────────────────
-  check: [
-    'compliance.record', // Record compliance check
-    'test.run',         // Execute test suite
-  ],
-
-  // ── Canonical: pipeline (lifecycle + release alias) ────────────────
-  pipeline: [
-    // lifecycle operations (stage.* prefix used in dispatch)
-    'stage.record',      // Record stage completion
-    'stage.skip',        // Skip optional stage
-    'stage.reset',       // Reset stage (emergency)
-    'stage.gate.pass',   // Mark gate as passed
-    'stage.gate.fail',   // Mark gate as failed
-    // release operations (release.* prefix used in dispatch)
-    'release.prepare',     // Prepare release
-    'release.changelog',   // Generate changelog
-    'release.commit',      // Create release commit
-    'release.tag',         // Create git tag
-    'release.push',        // Push to remote
-    'release.gates.run',   // Run release gates
-    'release.rollback',    // Rollback release
-  ],
-
-  // ── Canonical: admin (system alias) ────────────────────────────────
-  admin: [
-    'init',              // Initialize CLEO
-    'fix',               // Auto-fix failed doctor checks
-    'config.set',        // Set config value
-    'backup',            // Create backup
-    'restore',           // Restore from backup
-    'migrate',           // Run migrations
-    'sync',              // Sync with TodoWrite
-    'cleanup',           // Cleanup stale data
-    'job.cancel',        // Cancel background job
-    'safestop',          // Graceful agent shutdown
-    'inject.generate',   // Generate MVI injection
-    'sequence',          // Repair ID sequence (action=repair)
-    'adr.sync',          // Sync ADRs from markdown to DB
-    'adr.validate',      // Validate ADR frontmatter
-    'install.global',    // Refresh global CLEO setup (T4916)
-  ],
-
-  // ── Canonical: tools (skills + issues + providers alias) ───────────
-  tools: [
-    // skill.* operations
-    'skill.install',        // Install a skill
-    'skill.uninstall',      // Uninstall a skill
-    'skill.enable',         // Enable a skill
-    'skill.disable',        // Disable a skill
-    'skill.configure',      // Configure a skill
-    'skill.refresh',        // Refresh skill registry
-    // issue.* operations
-    'issue.add.bug',        // File a bug report
-    'issue.add.feature',    // Request a feature
-    'issue.add.help',       // Ask a question
-    'issue.create.bug',     // Alias (backward compat)
-    'issue.create.feature', // Alias (backward compat)
-    'issue.create.help',    // Alias (backward compat)
-    'issue.generate.config', // Generate issue template config
-    // provider.* operations
-    'provider.inject',      // Inject content into provider instruction files
-  ],
-
-  // ── Canonical: sharing (multi-contributor operations) ──────────────
-  sharing: [
-    'snapshot.export',
-    'snapshot.import',
-    'sync.gitignore',
-    'remote.add',
-    'remote.remove',
-    'push',
-    'pull',
-  ],
-
-  // ── Canonical: nexus (BRAIN Network placeholder) ───────────────────
-  nexus: [
-    // Placeholder — NexusHandler returns E_NOT_IMPLEMENTED for all ops.
-    // Entries here allow domain routing to reach the handler without
-    // triggering E_INVALID_DOMAIN at the gateway validation layer.
-    'connect',        // Connect to BRAIN network (not yet implemented)
-  ],
-
-  // ── Legacy aliases (backward compat) ───────────────────────────────
-  research: [
-    'inject',          // Get protocol injection
-    'link',            // Link research to task
-    'manifest.append', // Append manifest entry
-    'manifest.archive', // Archive old entries
-  ],
-  lifecycle: [
-    'record',      // Record stage completion
-    'skip',        // Skip optional stage
-    'reset',       // Reset stage (emergency)
-    'gate.pass',   // Mark gate as passed
-    'gate.fail',   // Mark gate as failed
-  ],
-  validate: [
-    'compliance.record', // Record compliance check
-    'test.run',         // Execute test suite
-  ],
-  release: [
-    'prepare',     // Prepare release
-    'changelog',   // Generate changelog
-    'commit',      // Create release commit
-    'tag',         // Create git tag
-    'push',        // Push to remote
-    'gates.run',   // Run release gates
-    'rollback',    // Rollback release
-  ],
-  system: [
-    'init',              // Initialize CLEO
-    'config.set',        // Set config value
-    'backup',            // Create backup
-    'restore',           // Restore from backup
-    'migrate',           // Run migrations
-    'sync',              // Sync with TodoWrite
-    'cleanup',           // Cleanup stale data
-    'job.cancel',        // Cancel background job
-    'safestop',          // Graceful agent shutdown
-    'inject.generate',   // Generate MVI injection
-  ],
-  issues: [
-    'add.bug',        // File a bug report
-    'add.feature',    // Request a feature
-    'add.help',       // Ask a question
-    'create.bug',     // Alias (backward compat)
-    'create.feature', // Alias (backward compat)
-    'create.help',    // Alias (backward compat)
-  ],
-  skills: [
-    'install',        // Install a skill
-    'uninstall',      // Uninstall a skill
-    'enable',         // Enable a skill
-    'disable',        // Disable a skill
-    'configure',      // Configure a skill
-    'refresh',        // Refresh skill registry
-  ],
-  providers: [
-    'inject',         // Inject content into provider instruction files
-  ],
-};
+export const MUTATE_OPERATIONS: Record<string, string[]> = deriveGatewayMatrix('mutate');
 
 /**
  * Dynamic operation count (derived from MUTATE_OPERATIONS).

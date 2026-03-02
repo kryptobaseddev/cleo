@@ -15,6 +15,8 @@
  * @task T2915
  */
 
+import { deriveGatewayMatrix } from '../../dispatch/registry.js';
+
 /**
  * Request from MCP gateway (inline — replaces legacy router.ts import)
  */
@@ -80,221 +82,14 @@ export interface QueryRequest {
 export type QueryResponse = DomainResponse;
 
 /**
- * Query operation matrix - all read operations by domain
+ * Query operation matrix - all read operations by domain.
  *
- * Contains BOTH legacy domain names (for backward compatibility with
- * existing agents) AND canonical domain aliases (for the dispatch layer).
- * The dispatch adapter resolves legacy -> canonical at routing time.
+ * DERIVED from the dispatch registry — single source of truth.
+ * Contains both canonical domains and legacy alias domains.
  *
  * Reference: MCP-SERVER-SPECIFICATION.md Section 2.1.2
  */
-export const QUERY_OPERATIONS: Record<string, string[]> = {
-  // ── Canonical domains ──────────────────────────────────────────────
-  tasks: [
-    'show',       // Get single task details
-    'list',       // List tasks with filters
-    'find',       // Fuzzy search tasks
-    'exists',     // Check task existence
-    'tree',       // Hierarchical task view
-    'blockers',   // Get blocking tasks
-    'depends',    // Get dependencies
-    'analyze',    // Triage analysis
-    'next',       // Next task suggestion
-    'plan',       // Composite planning view
-    'relates',              // Query task relationships
-    'complexity.estimate',  // Deterministic complexity scoring
-    'current',              // Get currently active task
-  ],
-  session: [
-    'status',       // Current session status
-    'list',         // List all sessions
-    'show',         // Session details
-    'find',         // Lightweight session discovery (T5119)
-    'history',      // Session history
-    'decision.log',   // Decision audit log
-    'context.drift',  // Session context drift analysis
-    'handoff.show',   // Show handoff data
-    'briefing.show',  // Composite session-start context
-    'debrief.show',   // Rich debrief data (T4959)
-    'chain.show',     // Session chain linked via previous/next (T4959)
-  ],
-  orchestrate: [
-    'status',     // Orchestrator status
-    'next',       // Next task to spawn
-    'ready',      // Parallel-safe tasks
-    'analyze',    // Dependency analysis
-    'context',    // Context usage check
-    'waves',      // Wave computation
-    'bootstrap',  // Brain state bootstrap
-    'unblock.opportunities', // Unblocking opportunities analysis
-    'critical.path', // Longest dependency chain analysis
-  ],
-
-  // ── Canonical: memory (research alias) ─────────────────────────────
-  memory: [
-    'show',           // Research entry details
-    'list',           // List research entries
-    'find',           // Find research
-    'pending',        // Pending research
-    'stats',            // Research statistics
-    'manifest.read',    // Read manifest entries
-    'contradictions',   // Find conflicting research findings
-    'superseded',       // Find superseded research entries
-    'pattern.search',   // Search BRAIN pattern memory
-    'pattern.stats',    // Pattern memory statistics
-    'learning.search',  // Search BRAIN learning memory
-    'learning.stats',   // Learning memory statistics
-    'brain.search',     // 3-layer retrieval step 1: search index
-    'brain.timeline',   // 3-layer retrieval step 2: context around anchor
-    'brain.fetch',      // 3-layer retrieval step 3: full details for filtered IDs
-  ],
-
-  // ── Canonical: check (validate alias) ──────────────────────────────
-  check: [
-    'schema',               // JSON Schema validation
-    'protocol',             // Protocol compliance
-    'task',                 // Anti-hallucination check
-    'manifest',             // Manifest entry check
-    'output',               // Output file validation
-    'compliance.summary',   // Aggregated compliance
-    'compliance.violations', // List violations
-    'test.status',          // Test suite status
-    'test.coverage',        // Coverage metrics
-    'coherence.check',      // Task graph consistency
-  ],
-
-  // ── Canonical: pipeline (lifecycle + release alias) ────────────────
-  pipeline: [
-    // lifecycle operations (stage.* prefix used in dispatch)
-    'stage.validate',       // Check stage prerequisites
-    'stage.status',         // Current lifecycle state
-    'stage.history',        // Stage transition history
-    'stage.gates',          // All gate statuses
-    'stage.prerequisites',  // Required prior stages
-  ],
-
-  // ── Canonical: admin (system alias) ────────────────────────────────
-  admin: [
-    'version',        // CLEO version
-    'health',         // Health check
-    'doctor',         // Comprehensive doctor report
-    'config.show',    // Show config value
-    'config.get',     // Alias (backward compat)
-    'stats',          // Project statistics
-    'context',        // Context window info
-    'runtime',        // Runtime environment info
-    'job.status',     // Get background job status
-    'job.list',       // List background jobs
-    'dash',           // Project overview dashboard
-    'log',            // Audit log entries
-    'sequence',       // ID sequence inspection
-    'help',           // Operation list filtered by disclosure tier
-    'adr.list',       // List architecture decision records
-    'adr.show',       // Show single ADR by ID
-    'adr.find',       // Fuzzy search ADRs
-    'grade',          // Grade agent behavioral session
-    'grade.list',     // List past session grade results
-  ],
-
-  // ── Canonical: tools (skills + issues + providers alias) ───────────
-  tools: [
-    // skill.* operations
-    'skill.list',           // List available skills
-    'skill.show',           // Skill details
-    'skill.find',           // Find skills
-    'skill.dispatch',       // Simulate skill dispatch
-    'skill.verify',         // Validate skill frontmatter
-    'skill.dependencies',   // Skill dependency tree
-    // skill.catalog.* operations
-    'skill.catalog.protocols',  // List catalog protocols
-    'skill.catalog.profiles',   // List catalog profiles
-    'skill.catalog.resources',  // List catalog shared resources
-    'skill.catalog.info',       // Catalog metadata and availability
-    // issue.* operations
-    'issue.diagnostics',    // System diagnostics for bug reports
-    'issue.templates',      // List/get issue templates
-    'issue.validate.labels', // Validate issue labels
-    // provider.* operations
-    'provider.list',           // List all registered providers
-    'provider.detect',         // Detect installed providers
-    'provider.inject.status',  // Check injection status
-  ],
-
-  // ── Canonical: sharing (multi-contributor operations) ──────────────
-  sharing: [
-    'status',
-    'remotes',
-    'sync.status',
-  ],
-
-  // ── Canonical: nexus (BRAIN Network placeholder) ───────────────────
-  nexus: [
-    // Placeholder — NexusHandler returns E_NOT_IMPLEMENTED for all ops.
-    // Entries here allow domain routing to reach the handler without
-    // triggering E_INVALID_DOMAIN at the gateway validation layer.
-    'status',         // Nexus network status (not yet implemented)
-  ],
-
-  // ── Legacy aliases (backward compat) ───────────────────────────────
-  research: [
-    'show',           // Research entry details
-    'list',           // List research entries
-    'find',           // Find research
-    'pending',        // Pending research
-    'stats',            // Research statistics
-    'manifest.read',    // Read manifest entries
-    'contradictions',   // Find conflicting research findings
-    'superseded',       // Find superseded research entries
-  ],
-  lifecycle: [
-    'validate',       // Check stage prerequisites
-    'status',         // Current lifecycle state
-    'history',        // Stage transition history
-    'gates',          // All gate statuses
-    'prerequisites',  // Required prior stages
-  ],
-  validate: [
-    'schema',               // JSON Schema validation
-    'protocol',             // Protocol compliance
-    'task',                 // Anti-hallucination check
-    'manifest',             // Manifest entry check
-    'output',               // Output file validation
-    'compliance.summary',   // Aggregated compliance
-    'compliance.violations', // List violations
-    'test.status',          // Test suite status
-    'test.coverage',        // Coverage metrics
-    'coherence.check',      // Task graph consistency
-  ],
-  system: [
-    'version',        // CLEO version
-    'health',         // Health check
-    'config.show',    // Show config value
-    'config.get',     // Alias (backward compat)
-    'stats',          // Project statistics
-    'context',        // Context window info
-    'job.status',     // Get background job status
-    'job.list',       // List background jobs
-    'dash',           // Project overview dashboard
-    'log',            // Audit log entries
-    'sequence',       // ID sequence inspection
-  ],
-  issues: [
-    'diagnostics',    // System diagnostics for bug reports
-  ],
-  skills: [
-    'list',           // List available skills
-    'show',           // Skill details
-    'find',           // Find skills
-    'dispatch',       // Simulate skill dispatch
-    'verify',         // Validate skill frontmatter
-    'dependencies',   // Skill dependency tree
-  ],
-  providers: [
-    'list',           // List all registered providers
-    'detect',         // Detect installed providers
-    'inject.status',  // Check injection status
-  ],
-};
+export const QUERY_OPERATIONS: Record<string, string[]> = deriveGatewayMatrix('query');
 
 /**
  * Dynamic operation count (derived from QUERY_OPERATIONS).

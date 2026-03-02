@@ -11,7 +11,7 @@
  * @epic T4454
  */
 
-// TODO T4894: operation 'self-update' not yet in registry — no dispatch equivalent.\n// Leave bypass; self-update requires file system ops and external process execution.
+// CLI-only: self-update requires file system ops and external process execution
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
