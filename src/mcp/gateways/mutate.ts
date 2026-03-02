@@ -173,6 +173,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'sequence',          // Repair ID sequence (action=repair)
     'adr.sync',          // Sync ADRs from markdown to DB
     'adr.validate',      // Validate ADR frontmatter
+    'install.global',    // Refresh global CLEO setup (T4916)
   ],
 
   // ── Canonical: tools (skills + issues + providers alias) ───────────
