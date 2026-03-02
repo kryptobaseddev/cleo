@@ -546,7 +546,27 @@ export async function sessionResume(
     await accessor.saveTaskFile(taskData);
     await accessor.saveSessions(sessions);
 
-    return { success: true, data: session };
+    // Wave 3B: Enrich resumed session with brain memory context (best-effort)
+    let memoryContext: import('../../core/memory/session-memory.js').SessionMemoryContext | undefined;
+    try {
+      const { getSessionMemoryContext } = await import('../../core/memory/session-memory.js');
+      const scopeType = session.scope?.type;
+      const rootTaskId = session.scope?.rootTaskId;
+      memoryContext = await getSessionMemoryContext(projectRoot, {
+        type: scopeType ?? 'global',
+        rootTaskId,
+        epicId: rootTaskId,
+      });
+    } catch {
+      // Best-effort -- memory context failure should not fail resume
+    }
+
+    const enrichedSession = {
+      ...session,
+      ...(memoryContext && { memoryContext }),
+    };
+
+    return { success: true, data: enrichedSession as Session };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }

@@ -22,6 +22,7 @@ import { getLastHandoff, type HandoffData } from './handoff.js';
 import type { Session } from '../../types/session.js';
 import type { TaskFileExt } from './types.js';
 import { depsReady } from '../tasks/deps-ready.js';
+import type { SessionMemoryContext } from '../memory/session-memory.js';
 
 /**
  * Task summary for briefing output.
@@ -99,6 +100,8 @@ export interface SessionBriefing {
   activeEpics: BriefingEpic[];
   pipelineStage?: PipelineStageInfo;
   warnings?: string[];
+  /** Brain memory context -- decisions/patterns/observations relevant to this scope. */
+  memoryContext?: SessionMemoryContext;
 }
 
 /**
@@ -179,6 +182,15 @@ export async function computeBriefing(
   // 7. Pipeline stage (optional - may not be available)
   const pipelineStage = computePipelineStage(current);
 
+  // 8. Brain memory context (optional, best-effort)
+  let memoryContext: SessionMemoryContext | undefined;
+  try {
+    const { getSessionMemoryContext } = await import('../memory/session-memory.js');
+    memoryContext = await getSessionMemoryContext(projectRoot, scopeFilter);
+  } catch {
+    // Brain memory not available -- proceed without
+  }
+
   // Compute warnings
   const warnings: string[] = [];
   if (currentTaskInfo?.blockedBy?.length) {
@@ -196,6 +208,7 @@ export async function computeBriefing(
     activeEpics,
     ...(pipelineStage && { pipelineStage }),
     ...(warnings.length > 0 && { warnings }),
+    ...(memoryContext && { memoryContext }),
   };
 }
 
