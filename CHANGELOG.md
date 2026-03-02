@@ -5,6 +5,29 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.3.8] - 2026-03-02
+
+### Added
+- **NEXUS domain handler shipped with full dispatch wiring (T5241)** — Added `nexus` domain support in the dispatch layer with 12 operations, registry integration, and parity coverage.
+- **BRAIN PageIndex + vector extension support (T5241)** — Added PageIndex graph tables and sqlite-vec extension loading with new storage tests and schema/migration coverage.
+
+### Fixed
+- **Gateway and registry alignment hardening (T5239)** — Synced dispatch registry derivation with gateway matrices, fixed `relates.add` routing, and added `note` alias coverage.
+- **Single-source operation cleanup and stale TODO resolution (T5239)** — Consolidated canonical operation mappings, cleaned stale operation/docs drift, and completed dispatch migration follow-through across CLI/MCP.
+- **SQLite migration + dependency correction (T5241)** — Upgraded CAAMP to v1.5.2, corrected ALTER TABLE migration behavior, and aligned sqlite-vec dependency setup.
+- **Skill anti-hallucination corrections (T5149)** — Fixed guidance in `ct-cleo` and `ct-orchestrator` skills for `validate.report` and `orchestrate.start` usage.
+
+### Documentation
+- Updated `README.md` and `AGENTS.md` operation counts/content to match current dispatch and gateway reality (T5149).
+- Updated BRAIN docs to shipped status: `docs/concepts/vision.md` and `docs/specs/CLEO-BRAIN-SPECIFICATION.md` now reflect approved v1.2.0 and shipped `brain.db` baseline (T5144).
+- Promoted and refreshed roadmap/features documentation: canonical `docs/ROADMAP.md`, canonical `docs/FEATURES.json`, generated `docs/FEATURES.md`, and TypeScript-based `dev/generate-features.ts` generator.
+- Added/updated protocol and lifecycle documentation artifacts from completion sweep and compliance follow-through (T5239).
+
+### Chore
+- Added `.cleo/agent-outputs/MANIFEST.jsonl` release artifact tracking entry (T5241).
+
+---
+
 ## [2026.3.5] - 2026-03-02
 
 ### Added
