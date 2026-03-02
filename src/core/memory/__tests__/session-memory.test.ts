@@ -261,16 +261,13 @@ describe('Session Memory', () => {
       const result1 = await persistSessionMemory(tempDir, 'S-001', debrief);
       const result2 = await persistSessionMemory(tempDir, 'S-001', debrief);
 
-      // Both calls succeed — each creates new observations (unique IDs)
-      // but the content is the same. Idempotency note: observeBrain generates
-      // unique IDs per call, so technically these are different observations.
-      // A future guard could check for existing observations by sessionId.
+      // First call creates observations
       expect(result1.observationsCreated).toBeGreaterThan(0);
+      // Second call succeeds (observeBrain returns existing or new IDs).
+      // With content-hash dedup (native DB), duplicates return existing IDs;
+      // without native DB, new observations are created. Either way, no errors.
       expect(result2.observationsCreated).toBeGreaterThan(0);
-      // IDs should be different between calls
-      const allIds = [...result1.observationIds, ...result2.observationIds];
-      const uniqueIds = new Set(allIds);
-      expect(uniqueIds.size).toBe(allIds.length);
+      expect(result2.errors).toHaveLength(0);
     });
   });
 

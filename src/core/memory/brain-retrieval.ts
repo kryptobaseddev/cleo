@@ -16,6 +16,7 @@
  * @epic T5149
  */
 
+import { createHash } from 'node:crypto';
 import { searchBrain } from './brain-search.js';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
@@ -497,11 +498,31 @@ export async function observeBrain(
     throw new Error('Observation text is required');
   }
 
-  const id = `O-${Date.now().toString(36)}`;
   const type = typeParam ?? classifyObservationType(text);
   const title = titleParam ?? text.slice(0, 120);
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
+  // Content-hash dedup: SHA-256 prefix of title+text
+  const contentHash = createHash('sha256').update(title + text).digest('hex').slice(0, 16);
+
+  // Check for recent duplicate (same content within last 30 seconds)
+  const nativeDb = getBrainNativeDb();
+  if (nativeDb) {
+    const cutoff = new Date(Date.now() - 30000).toISOString().replace('T', ' ').slice(0, 19);
+    const existing = nativeDb.prepare(
+      'SELECT id, type, created_at FROM brain_observations WHERE content_hash = ? AND created_at > ?',
+    ).all(contentHash, cutoff) as Array<{ id: string; type: string; created_at: string }>;
+
+    if (existing.length > 0) {
+      return {
+        id: existing[0].id,
+        type: existing[0].type,
+        createdAt: existing[0].created_at,
+      };
+    }
+  }
+
+  const id = `O-${Date.now().toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
 
   const row = await accessor.addObservation({
@@ -509,6 +530,7 @@ export async function observeBrain(
     type,
     title,
     narrative: text,
+    contentHash,
     project: project ?? null,
     sourceSessionId: sourceSessionId ?? null,
     sourceType: sourceType ?? 'agent',

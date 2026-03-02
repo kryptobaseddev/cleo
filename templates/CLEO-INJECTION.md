@@ -72,6 +72,30 @@ For advanced session ops (find, suspend, resume, debrief, decisions): see `.cleo
 
 **Budget note**: `session list` defaults to 10 results (~500-2000 tokens). Prefer `session find` for discovery (~200-400 tokens).
 
+## Memory Protocol
+
+CLEO includes a native BRAIN memory system. Use the 3-layer retrieval pattern for token-efficient access:
+
+| Step | Operation | Gateway | ~Tokens | Purpose |
+|------|-----------|---------|---------|---------|
+| 1 | `memory brain.search` | query | 50/hit | Search index (IDs + titles) |
+| 2 | `memory brain.timeline` | query | 200-500 | Context around an anchor ID |
+| 3 | `memory brain.fetch` | query | 500/entry | Full details for filtered IDs |
+| Save | `memory brain.observe` | mutate | — | Save observation to brain.db |
+
+**Workflow**: Search first (cheap) → filter interesting IDs → fetch only what you need.
+
+**Example**:
+```
+cleo_query memory brain.search {query: "authentication"}
+cleo_query memory brain.fetch {ids: ["O-abc123"]}
+cleo_mutate memory brain.observe {text: "Found auth uses JWT", title: "Auth discovery"}
+```
+
+**Anti-patterns:**
+- Fetching all entries without searching first (expensive)
+- Skipping brain.search and going straight to brain.fetch
+
 ## Escalation
 
 For deeper guidance beyond this minimal protocol:

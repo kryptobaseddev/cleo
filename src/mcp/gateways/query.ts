@@ -144,6 +144,9 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'pattern.stats',    // Pattern memory statistics
     'learning.search',  // Search BRAIN learning memory
     'learning.stats',   // Learning memory statistics
+    'brain.search',     // 3-layer retrieval step 1: search index
+    'brain.timeline',   // 3-layer retrieval step 2: context around anchor
+    'brain.fetch',      // 3-layer retrieval step 3: full details for filtered IDs
   ],
 
   // ── Canonical: check (validate alias) ──────────────────────────────
