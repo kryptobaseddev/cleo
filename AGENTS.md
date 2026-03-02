@@ -87,7 +87,7 @@ MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ �
      cleo_mutate (80 ops)
 ```
 
-- **MCP is PRIMARY**: 2 tools, 177 operations across 10 canonical domains (~1,800 tokens)
+- **MCP is PRIMARY**: 2 tools, 185 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 80+ commands for human use and fallback
 - **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
 - **src/dispatch/engines/ is the engine layer**: All engine adapters live here (task, session, system, etc.)
@@ -355,7 +355,7 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/store/lock.ts` - File locking
 
 ### Canonical Specifications
-- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 177 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
+- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 185 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
 - `docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
 - `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns

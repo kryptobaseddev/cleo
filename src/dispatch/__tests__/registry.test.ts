@@ -114,10 +114,10 @@ describe('Operation Registry', () => {
       expect(tasksOps.every(o => o.domain === 'tasks')).toBe(true);
 
       const memoryOps = getByDomain('memory');
-      expect(memoryOps.length).toBe(18);
+      expect(memoryOps.length).toBe(22);
 
       const toolsOps = getByDomain('tools');
-      expect(toolsOps.length).toBe(27);
+      expect(toolsOps.length).toBe(30);
     });
 
     it('should get operations by gateway', () => {

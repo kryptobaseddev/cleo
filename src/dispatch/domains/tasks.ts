@@ -235,7 +235,7 @@ export class TasksHandler implements DomainHandler {
             description: params?.description as string | undefined,
             status: params?.status as string | undefined,
             priority: params?.priority as string | undefined,
-            notes: params?.notes as string | undefined,
+            notes: (params?.notes ?? params?.note) as string | undefined,
             labels: params?.labels as string[] | undefined,
             addLabels: params?.addLabels as string[] | undefined,
             removeLabels: params?.removeLabels as string[] | undefined,

@@ -1,10 +1,11 @@
 # CLEO Operations Reference
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Status**: CANONICAL
-**Date**: 2026-02-27
+**Date**: 2026-03-02
 **Task**: T4732
 **Supersedes**: docs/commands/COMMANDS-INDEX.json
+**Last verified against gateway matrices**: 2026-03-02
 
 ---
 
@@ -16,24 +17,32 @@ Implementation source files:
 - MCP Query: `src/mcp/gateways/query.ts`
 - MCP Mutate: `src/mcp/gateways/mutate.ts`
 - CLI: `src/cli/index.ts` + `src/cli/commands/*.ts`
-- Core: `src/core/` + `src/mcp/engine/`
+- Core: `src/core/` + `src/dispatch/engines/`
 
 ## Operation Counts
 
 | Gateway | Operations | Domains |
 |---------|-----------|---------|
-| cleo_query | 97 | 10 |
-| cleo_mutate | 80 | 10 |
-| **Total** | **177** | **10** |
+| cleo_query | 102 | 10 |
+| cleo_mutate | 82 | 10 |
+| **Total** | **184** | **10** |
 
 Canonical domains: tasks, session, orchestrate, memory, check, pipeline, admin, tools, nexus, sharing
-Legacy aliases (backward compat): research, lifecycle, validate, release, system, issues, skills, providers
 
-> **Note**: The per-domain tables below use legacy domain names (research, lifecycle, validate,
-> release, system, issues, skills, providers) for historical continuity. These map to canonical
-> domains (memory, pipeline, check, pipeline, admin, tools, tools, tools) via gateway alias routing.
-> Some per-domain counts are stale; refer to `src/mcp/gateways/query.ts` and `mutate.ts` for
-> current operation lists.
+## Legacy Aliases
+
+The following legacy domain names are supported for backward compatibility. The dispatch adapter resolves them to canonical domains at routing time:
+
+| Legacy Domain | Canonical Domain | Notes |
+|---------------|-----------------|-------|
+| `research` | `memory` | 8 query ops, 4 mutate ops (subset of memory) |
+| `lifecycle` | `pipeline` | 5 query ops, 5 mutate ops (without stage.* prefix) |
+| `validate` | `check` | 10 query ops, 2 mutate ops (same as check) |
+| `release` | `pipeline` | 0 query ops, 7 mutate ops (without release.* prefix) |
+| `system` | `admin` | 11 query ops, 10 mutate ops (subset of admin) |
+| `issues` | `tools` | 1 query op, 6 mutate ops (without issue.* prefix) |
+| `skills` | `tools` | 6 query ops, 6 mutate ops (without skill.* prefix) |
+| `providers` | `tools` | 3 query ops, 1 mutate op (without provider.* prefix) |
 
 ## Naming Conventions (T4732)
 
@@ -50,39 +59,39 @@ The core task management domain. Handles CRUD, hierarchy, dependencies, focus, a
 
 ### Query Operations (13)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `show` | `cleo show <id>` | Get task details | `taskId` | 0 |
-| `list` | `cleo list` | List tasks with filters | `parent?`, `status?`, `limit?` | 0 |
-| `find` | `cleo find <query>` | Search tasks by text | `query`, `limit?` | 0 |
-| `exists` | `cleo exists <id>` | Check task exists | `taskId` | 1 |
-| `tree` | `cleo tree` | Hierarchical view | `rootId?`, `depth?` | 1 |
-| `blockers` | `cleo blockers <id>` | Blocking chain analysis | `taskId` | 1 |
-| `depends` | `cleo deps <id>` | Dependency graph | `taskId`, `direction?` | 1 |
-| `analyze` | `cleo analyze` | Triage with scoring | `epicId?` | 2 |
-| `next` | `cleo next` | Smart task suggestion | `epicId?`, `count?` | 0 |
-| `plan` | `cleo plan` | Composite planning view | - | 0 |
-| `relates` | `cleo relates <id>` | Relationship query | `taskId` | 2 |
-| `complexity.estimate` | N/A | Complexity scoring | `taskId` | 2 |
-| `current` | `cleo current` | Currently active task | - | 0 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `show` | `cleo show <id>` | Get single task details | `taskId` |
+| `list` | `cleo list` | List tasks with filters | `parent?`, `status?`, `limit?` |
+| `find` | `cleo find <query>` | Fuzzy search tasks | `query`, `limit?` |
+| `exists` | `cleo exists <id>` | Check task existence | `taskId` |
+| `tree` | `cleo tree` | Hierarchical task view | `rootId?`, `depth?` |
+| `blockers` | `cleo blockers <id>` | Get blocking tasks | `taskId` |
+| `depends` | `cleo deps <id>` | Get dependencies | `taskId`, `direction?` |
+| `analyze` | `cleo analyze` | Triage analysis | `epicId?` |
+| `next` | `cleo next` | Next task suggestion | `epicId?`, `count?` |
+| `plan` | `cleo plan` | Composite planning view | - |
+| `relates` | `cleo relates <id>` | Query task relationships | `taskId` |
+| `complexity.estimate` | N/A | Deterministic complexity scoring | `taskId` |
+| `current` | `cleo current` | Get currently active task | - |
 
 ### Mutate Operations (13)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `add` | `cleo add <title>` | Create new task | `title`, `description?`, `parent?`, `priority?`, `labels?`, `depends?` | 0 |
-| `update` | `cleo update <id>` | Update task fields | `taskId`, `title?`, `status?`, `priority?`, `notes?` | 0 |
-| `complete` | `cleo complete <id>` | Mark task done | `taskId`, `notes?` | 0 |
-| `delete` | `cleo delete <id>` | Delete/cancel task | `taskId`, `force?`, `reason?` | 1 |
-| `archive` | `cleo archive` | Archive done tasks | `taskId?`, `before?` | 2 |
-| `restore` | `cleo restore <id>` | Restore from archive | `taskId` | 2 |
-| `reparent` | `cleo reparent <id> --to <parent>` | Change parent | `taskId`, `newParent` | 2 |
-| `promote` | `cleo promote <id>` | Promote to root level | `taskId` | 2 |
-| `reorder` | `cleo reorder <id>` | Reorder siblings | `taskId`, `position` | 2 |
-| `reopen` | N/A (MCP only) | Reopen completed task | `taskId` | 2 |
-| `relates.add` | `cleo relates <id> --add <other>` | Add relationship | `taskId`, `relatedId`, `type?` | 2 |
-| `start` | `cleo start <id>` | Start working (set focus) | `taskId` | 0 |
-| `stop` | `cleo stop` | Stop working (clear focus) | - | 0 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `add` | `cleo add <title>` | Create new task | `title`, `description`, `parent?`, `priority?`, `labels?`, `depends?` |
+| `update` | `cleo update <id>` | Update task fields | `taskId`, `title?`, `status?`, `priority?`, `notes?` |
+| `complete` | `cleo complete <id>` | Mark task done | `taskId`, `notes?` |
+| `delete` | `cleo delete <id>` | Delete task | `taskId`, `force?`, `reason?` |
+| `archive` | `cleo archive` | Archive done tasks | `taskId?`, `before?` |
+| `restore` | `cleo restore <id>` | Restore from archive | `taskId` |
+| `reparent` | `cleo reparent <id> --to <parent>` | Change task parent | `taskId`, `newParent` |
+| `promote` | `cleo promote <id>` | Promote subtask to task | `taskId` |
+| `reorder` | `cleo reorder <id>` | Reorder siblings | `taskId`, `position` |
+| `reopen` | N/A | Alias for restore (completed tasks) | `taskId` |
+| `relates.add` | `cleo relates <id> --add <other>` | Add task relationship | `taskId`, `targetId`, `type` |
+| `start` | `cleo start <id>` | Start working on task | `taskId` |
+| `stop` | `cleo stop` | Stop working on task | - |
 
 ---
 
@@ -90,32 +99,33 @@ The core task management domain. Handles CRUD, hierarchy, dependencies, focus, a
 
 Work session lifecycle and decision tracking.
 
-### Query Operations (10)
+### Query Operations (11)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `status` | `cleo session status` | Current session state | - | 1 |
-| `list` | `cleo session list` | List sessions | `active?` | 2 |
-| `show` | `cleo session show <id>` | Session details | `sessionId` | 2 |
-| `history` | `cleo session history` | Session history | `limit?` | 2 |
-| `decision.log` | N/A | Decision audit log | `sessionId?` | 2 |
-| `context.drift` | N/A | Context drift analysis | `sessionId?` | 3 |
-| `handoff.show` | `cleo session handoff` | Show handoff data | `scope?` | 0 |
-| `briefing.show` | `cleo briefing` | Session-start context | `scope?`, `maxNext?` | 0 |
-| `debrief.show` | N/A | Session debrief data | `sessionId?` | 2 |
-| `chain.show` | N/A | Session chain view | `sessionId?` | 2 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `status` | `cleo session status` | Current session status | - |
+| `list` | `cleo session list` | List all sessions | `active?` |
+| `show` | `cleo session show <id>` | Session details | `sessionId` |
+| `find` | `cleo session find` | Lightweight session discovery | `query?`, `status?` |
+| `history` | `cleo session history` | Session history | `limit?` |
+| `decision.log` | N/A | Decision audit log | `sessionId?` |
+| `context.drift` | N/A | Session context drift analysis | `sessionId?` |
+| `handoff.show` | `cleo session handoff` | Show handoff data | `scope?` |
+| `briefing.show` | `cleo briefing` | Composite session-start context | `scope?`, `maxNext?` |
+| `debrief.show` | N/A | Rich debrief data | `sessionId?` |
+| `chain.show` | N/A | Session chain linked via previous/next | `sessionId?` |
 
 ### Mutate Operations (7)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `start` | `cleo session start` | Start new session | `scope`, `name?` | 1 |
-| `end` | `cleo session end` | End session | `notes?` | 1 |
-| `resume` | `cleo session resume <id>` | Resume session | `sessionId` | 2 |
-| `suspend` | `cleo session suspend` | Suspend session | `notes?` | 2 |
-| `gc` | `cleo session gc` | Garbage collect | `olderThan?` | 3 |
-| `record.decision` | N/A | Record decision | `decision`, `rationale` | 1 |
-| `record.assumption` | N/A | Record assumption | `assumption`, `basis` | 2 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `start` | `cleo session start` | Start new session | `scope`, `name?` |
+| `end` | `cleo session end` | End current session | `notes?` |
+| `resume` | `cleo session resume <id>` | Resume existing session | `sessionId` |
+| `suspend` | `cleo session suspend` | Suspend session | `notes?` |
+| `gc` | `cleo session gc` | Garbage collect sessions | `olderThan?` |
+| `record.decision` | N/A | Record a decision | `sessionId`, `taskId`, `decision`, `rationale` |
+| `record.assumption` | N/A | Record an assumption | `assumption`, `confidence` |
 
 ---
 
@@ -125,268 +135,247 @@ Multi-agent coordination and parallel execution.
 
 ### Query Operations (9)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `status` | `cleo orchestrate status` | Orchestrator state | `epicId` | 3 |
-| `next` | `cleo orchestrate next` | Next to spawn | `epicId` | 3 |
-| `ready` | `cleo orchestrate ready` | Parallel-safe tasks | `epicId` | 3 |
-| `analyze` | `cleo orchestrate analyze` | Dependency analysis | `epicId` | 3 |
-| `context` | `cleo context` | Context budget | `tokens?` | 2 |
-| `waves` | `cleo orchestrate waves` | Wave computation | `epicId` | 3 |
-| `bootstrap` | N/A | Brain state bootstrap | `epicId?` | 3 |
-| `unblock.opportunities` | N/A | Unblock analysis | `epicId?` | 3 |
-| `critical.path` | N/A | Critical path | `epicId` | 3 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `status` | `cleo orchestrate status` | Orchestrator status | `epicId` |
+| `next` | `cleo orchestrate next` | Next task to spawn | `epicId` |
+| `ready` | `cleo orchestrate ready` | Parallel-safe tasks | `epicId` |
+| `analyze` | `cleo orchestrate analyze` | Dependency analysis | `epicId` |
+| `context` | `cleo context` | Context usage check | `tokens?` |
+| `waves` | `cleo orchestrate waves` | Wave computation | `epicId` |
+| `bootstrap` | N/A | Brain state bootstrap | `epicId?` |
+| `unblock.opportunities` | N/A | Unblocking opportunities analysis | `epicId?` |
+| `critical.path` | N/A | Longest dependency chain analysis | `epicId` |
 
 ### Mutate Operations (5)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `start` | `cleo orchestrate start` | Initialize | `epicId` | 3 |
-| `spawn` | `cleo orchestrate spawn` | Generate spawn | `taskId`, `skill?` | 3 |
-| `validate` | `cleo orchestrate validate` | Validate readiness | `taskId` | 3 |
-| `parallel.start` | N/A | Start wave | `epicId`, `wave` | 3 |
-| `parallel.end` | N/A | End wave | `epicId`, `wave` | 3 |
-
----
-
-## Domain: research
-
-Research protocol management and manifest operations.
-
-### Query Operations (8)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `show` | `cleo research show <id>` | Research details | `researchId` | 2 |
-| `list` | `cleo research list` | List entries | `epicId?`, `status?` | 2 |
-| `find` | `cleo research find` | Find research | `query` | 2 |
-| `pending` | `cleo research pending` | Needs follow-up | `epicId?` | 2 |
-| `stats` | `cleo research stats` | Statistics | `epicId?` | 2 |
-| `manifest.read` | N/A | Read manifest | `filter?`, `limit?` | 3 |
-| `contradictions` | N/A | Conflicting findings | `epicId?` | 3 |
-| `superseded` | N/A | Superseded entries | `epicId?` | 3 |
-
-### Mutate Operations (4)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `inject` | `cleo research inject` | Protocol injection | `protocolType`, `taskId?` | 3 |
-| `link` | `cleo research link` | Link to task | `researchId`, `taskId` | 2 |
-| `manifest.append` | N/A | Append entry | `entry` | 3 |
-| `manifest.archive` | N/A | Archive entries | `beforeDate?` | 3 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `start` | `cleo orchestrate start` | Initialize orchestration | `epicId` |
+| `spawn` | `cleo orchestrate spawn` | Generate spawn prompt | `taskId`, `skill?` |
+| `validate` | `cleo orchestrate validate` | Validate spawn readiness | `taskId` |
+| `parallel.start` | N/A | Start parallel wave | `epicId`, `wave` |
+| `parallel.end` | N/A | End parallel wave | `epicId`, `wave` |
 
 ---
 
 ## Domain: memory
 
-Native BRAIN memory system for persistent knowledge storage and retrieval across sessions.
+Research protocol management, manifest operations, and native BRAIN memory system.
 
-### Query Operations (3)
+### Query Operations (15)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `brain.search` | N/A | Search memory index | `query`, `limit?` (default 10), `tables?` (decisions/patterns/learnings/observations), `dateStart?`, `dateEnd?` | 2 |
-| `brain.timeline` | N/A | Context around anchor | `anchor` (entry ID), `depthBefore?` (default 3), `depthAfter?` (default 3) | 2 |
-| `brain.fetch` | N/A | Fetch full entry details | `ids` (string[]) | 2 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `show` | `cleo research show <id>` | Research entry details | `researchId` |
+| `list` | `cleo research list` | List research entries | `epicId?`, `status?` |
+| `find` | `cleo research find` | Find research | `query` |
+| `pending` | `cleo research pending` | Pending research | `epicId?` |
+| `stats` | `cleo research stats` | Research statistics | `epicId?` |
+| `manifest.read` | N/A | Read manifest entries | `filter?`, `limit?` |
+| `contradictions` | N/A | Find conflicting research findings | `epicId?` |
+| `superseded` | N/A | Find superseded research entries | `epicId?` |
+| `pattern.search` | N/A | Search BRAIN pattern memory | `query` |
+| `pattern.stats` | N/A | Pattern memory statistics | - |
+| `learning.search` | N/A | Search BRAIN learning memory | `query` |
+| `learning.stats` | N/A | Learning memory statistics | - |
+| `brain.search` | N/A | 3-layer retrieval step 1: search index | `query`, `limit?`, `tables?`, `dateStart?`, `dateEnd?` |
+| `brain.timeline` | N/A | 3-layer retrieval step 2: context around anchor | `anchor`, `depthBefore?`, `depthAfter?` |
+| `brain.fetch` | N/A | 3-layer retrieval step 3: full details for filtered IDs | `ids` (string[]) |
 
-### Mutate Operations (1)
+### Mutate Operations (7)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `brain.observe` | N/A | Save observation | `text`, `title?`, `type?` (auto-classified if omitted), `project?`, `sourceSessionId?`, `sourceType?` | 2 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `inject` | `cleo research inject` | Get protocol injection | `protocolType`, `taskId?` |
+| `link` | `cleo research link` | Link research to task | `researchId`, `taskId` |
+| `manifest.append` | N/A | Append manifest entry | `entry` |
+| `manifest.archive` | N/A | Archive old entries | `beforeDate?` |
+| `pattern.store` | N/A | Store BRAIN pattern memory | `pattern`, `context?` |
+| `learning.store` | N/A | Store BRAIN learning memory | `learning`, `context?` |
+| `brain.observe` | N/A | Save observation to brain.db | `text`, `title?`, `type?`, `project?`, `sourceSessionId?`, `sourceType?` |
 
-**Token budget**:
+**Token budget for BRAIN operations**:
 - `brain.search`: ~50 tokens per result (returns `{results: [{id, type, title, date, relevance}], total, tokensEstimated}`)
 - `brain.timeline`: ~200-500 tokens (returns `{anchor: {id, type, data}, before: [...], after: [...]}`)
 - `brain.fetch`: ~500 tokens per entry (returns `{results: [{id, type, data}], notFound: string[], tokensEstimated}`)
-- `brain.observe`: returns `{id, type, createdAt}` — content hash dedup prevents duplicates within 30-second window
+- `brain.observe`: returns `{id, type, createdAt}` -- content hash dedup prevents duplicates within 30-second window
 
-**3-layer retrieval pattern**: Search first (cheap) → filter interesting IDs → fetch only what you need.
-
----
-
-## Domain: lifecycle
-
-RCSD-IVTR pipeline stage management.
-
-### Query Operations (5)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `validate` | `cleo lifecycle validate` | Check prerequisites | `taskId`, `targetStage` | 3 |
-| `status` | `cleo lifecycle status` | Current state | `taskId` or `epicId` | 2 |
-| `history` | `cleo lifecycle history` | Transition log | `taskId` | 3 |
-| `gates` | `cleo lifecycle gates` | Gate statuses | `taskId` | 3 |
-| `prerequisites` | N/A | Required stages | `targetStage` | 3 |
-
-### Mutate Operations (5)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `record` | `cleo lifecycle record` | Record completion | `taskId`, `stage`, `status` | 3 |
-| `skip` | `cleo lifecycle skip` | Skip stage | `taskId`, `stage`, `reason` | 3 |
-| `reset` | `cleo lifecycle reset` | Reset stage | `taskId`, `stage`, `reason` | 3 |
-| `gate.pass` | `cleo verify --gate <g> --value pass` | Pass gate | `taskId`, `gateName`, `agent` | 3 |
-| `gate.fail` | `cleo verify --gate <g> --value fail` | Fail gate | `taskId`, `gateName`, `reason` | 3 |
+**3-layer retrieval pattern**: Search first (cheap) -> filter interesting IDs -> fetch only what you need.
 
 ---
 
-## Domain: validate
+## Domain: check
 
 Validation, compliance, and quality checks.
 
 ### Query Operations (10)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `schema` | `cleo validate` | JSON Schema check | `fileType`, `filePath?` | 2 |
-| `protocol` | `cleo compliance` | Protocol compliance | `taskId`, `protocolType` | 2 |
-| `task` | N/A | Anti-hallucination check | `taskId`, `checkMode` | 2 |
-| `manifest` | N/A | Manifest integrity | `entry` or `taskId` | 3 |
-| `output` | N/A | Output file check | `taskId`, `filePath` | 3 |
-| `compliance.summary` | `cleo compliance summary` | Compliance metrics | `scope?`, `since?` | 2 |
-| `compliance.violations` | `cleo compliance violations` | List violations | `severity?` | 2 |
-| `test.status` | N/A | Test suite status | `taskId?` | 2 |
-| `test.coverage` | N/A | Coverage metrics | `taskId?` | 3 |
-| `coherence.check` | N/A | Graph consistency | `scope?` | 3 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `schema` | `cleo validate` | JSON Schema validation | `fileType`, `filePath?` |
+| `protocol` | `cleo compliance` | Protocol compliance | `taskId`, `protocolType` |
+| `task` | N/A | Anti-hallucination check | `taskId`, `checkMode` |
+| `manifest` | N/A | Manifest entry check | `entry` or `taskId` |
+| `output` | N/A | Output file validation | `taskId`, `filePath` |
+| `compliance.summary` | `cleo compliance summary` | Aggregated compliance | `scope?`, `since?` |
+| `compliance.violations` | `cleo compliance violations` | List violations | `severity?` |
+| `test.status` | N/A | Test suite status | `taskId?` |
+| `test.coverage` | N/A | Coverage metrics | `taskId?` |
+| `coherence.check` | N/A | Task graph consistency | `scope?` |
 
 ### Mutate Operations (2)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `compliance.record` | N/A | Record check result | `taskId`, `result` | 3 |
-| `test.run` | `cleo testing` | Execute tests | `scope?`, `pattern?` | 3 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `compliance.record` | N/A | Record compliance check | `taskId`, `result` |
+| `test.run` | `cleo testing` | Execute test suite | `scope?`, `pattern?` |
 
 ---
 
-## Domain: release
+## Domain: pipeline
 
-Release lifecycle management.
+RCSD-IVTR lifecycle stage management and release lifecycle.
 
-### Query Operations (0)
+### Query Operations (5)
 
-No query operations.
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `stage.validate` | `cleo lifecycle validate` | Check stage prerequisites | `taskId`, `targetStage` |
+| `stage.status` | `cleo lifecycle status` | Current lifecycle state | `taskId` or `epicId` |
+| `stage.history` | `cleo lifecycle history` | Stage transition history | `taskId` |
+| `stage.gates` | `cleo lifecycle gates` | All gate statuses | `taskId` |
+| `stage.prerequisites` | N/A | Required prior stages | `targetStage` |
 
-### Mutate Operations (7)
+### Mutate Operations (12)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `prepare` | `cleo release prepare` | Prepare release | `version`, `type` | 3 |
-| `changelog` | `cleo release changelog` | Generate changelog | `version` | 3 |
-| `commit` | `cleo release commit` | Create commit | `version` | 3 |
-| `tag` | `cleo release tag` | Create git tag | `version` | 3 |
-| `push` | `cleo release push` | Push to remote | `version` | 3 |
-| `gates.run` | `cleo release gates` | Run release gates | `gates?` | 3 |
-| `rollback` | `cleo release rollback` | Rollback release | `version`, `reason` | 3 |
-
----
-
-## Domain: system
-
-System administration, configuration, and observability.
-
-### Query Operations (14)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `version` | `cleo --version` | Version info | - | 1 |
-| `health` | `cleo doctor` | Health check | - | 1 |
-| `config.get` | `cleo config get <key>` | Get config | `key` | 1 |
-| `stats` | `cleo stats` | Project statistics | - | 1 |
-| `context` | `cleo context` | Context window | - | 2 |
-| `job.status` | N/A | Background job status | `jobId` | 3 |
-| `job.list` | N/A | List jobs | `status?` | 3 |
-| `dash` | `cleo dash` | Dashboard | - | 1 |
-| `roadmap` | `cleo roadmap` | Roadmap view | `epicId?` | 2 |
-| `labels` | `cleo labels` | Label listing | `filter?` | 2 |
-| `compliance` | `cleo compliance` | Compliance metrics | `scope?` | 2 |
-| `log` | `cleo log` | Audit log | `limit?`, `since?` | 2 |
-| `archive.stats` | `cleo archive-stats` | Archive analytics | - | 2 |
-| `sequence` | `cleo sequence` | ID sequence | - | 3 |
-
-### Mutate Operations (11)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `init` | `cleo init` | Initialize project | `projectType?` | 1 |
-| `config.set` | `cleo config set <key> <val>` | Set config | `key`, `value` | 2 |
-| `backup` | `cleo backup` | Create backup | `type?`, `note?` | 2 |
-| `restore` | `cleo restore <id>` | Restore backup | `backupId` | 2 |
-| `migrate` | `cleo migrate` | Run migrations | `version?`, `dryRun?` | 2 |
-| `sync` | `cleo sync` | Sync TodoWrite | `direction?` | 2 |
-| `cleanup` | N/A | Cleanup stale data | `type`, `olderThan?` | 3 |
-| `job.cancel` | N/A | Cancel job | `jobId` | 3 |
-| `safestop` | `cleo safestop` | Agent shutdown | `reason?` | 1 |
-| `uncancel` | N/A | Restore cancelled | `taskId` | 2 |
-| `inject.generate` | N/A | Generate injection | `level?`, `format?` | 3 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `stage.record` | `cleo lifecycle record` | Record stage completion | `taskId`, `stage`, `status` |
+| `stage.skip` | `cleo lifecycle skip` | Skip optional stage | `taskId`, `stage`, `reason` |
+| `stage.reset` | `cleo lifecycle reset` | Reset stage (emergency) | `taskId`, `stage`, `reason` |
+| `stage.gate.pass` | `cleo verify --gate <g> --value pass` | Mark gate as passed | `taskId`, `gateName`, `agent` |
+| `stage.gate.fail` | `cleo verify --gate <g> --value fail` | Mark gate as failed | `taskId`, `gateName`, `reason` |
+| `release.prepare` | `cleo release prepare` | Prepare release | `version`, `type` |
+| `release.changelog` | `cleo release changelog` | Generate changelog | `version` |
+| `release.commit` | `cleo release commit` | Create release commit | `version` |
+| `release.tag` | `cleo release tag` | Create git tag | `version` |
+| `release.push` | `cleo release push` | Push to remote | `version` |
+| `release.gates.run` | `cleo release gates` | Run release gates | `gates?` |
+| `release.rollback` | `cleo release rollback` | Rollback release | `version`, `reason` |
 
 ---
 
-## Domain: issues
+## Domain: admin
 
-GitHub issue integration.
+System administration, configuration, observability, and ADR management.
+
+### Query Operations (19)
+
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `version` | `cleo --version` | CLEO version | - |
+| `health` | `cleo doctor` | Health check | - |
+| `doctor` | `cleo doctor` | Comprehensive doctor report | - |
+| `config.show` | `cleo config get <key>` | Show config value | `key` |
+| `config.get` | `cleo config get <key>` | Alias (backward compat) | `key` |
+| `stats` | `cleo stats` | Project statistics | - |
+| `context` | `cleo context` | Context window info | - |
+| `runtime` | N/A | Runtime environment info | - |
+| `job.status` | N/A | Get background job status | `jobId` |
+| `job.list` | N/A | List background jobs | `status?` |
+| `dash` | `cleo dash` | Project overview dashboard | - |
+| `log` | `cleo log` | Audit log entries | `limit?`, `since?` |
+| `sequence` | `cleo sequence` | ID sequence inspection | - |
+| `help` | N/A | Operation list filtered by disclosure tier | `tier?` |
+| `adr.list` | N/A | List architecture decision records | - |
+| `adr.show` | N/A | Show single ADR by ID | `adrId` |
+| `adr.find` | N/A | Fuzzy search ADRs | `query` |
+| `grade` | N/A | Grade agent behavioral session | `sessionId?` |
+| `grade.list` | N/A | List past session grade results | - |
+
+### Mutate Operations (14)
+
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `init` | `cleo init` | Initialize CLEO | `projectType?` |
+| `fix` | `cleo doctor --fix` | Auto-fix failed doctor checks | - |
+| `config.set` | `cleo config set <key> <val>` | Set config value | `key`, `value` |
+| `backup` | `cleo backup` | Create backup | `type?`, `note?` |
+| `restore` | `cleo restore <id>` | Restore from backup | `backupId` |
+| `migrate` | `cleo migrate` | Run migrations | `version?`, `dryRun?` |
+| `sync` | `cleo sync` | Sync with TodoWrite | `direction?` |
+| `cleanup` | N/A | Cleanup stale data | `type`, `olderThan?` |
+| `job.cancel` | N/A | Cancel background job | `jobId` |
+| `safestop` | `cleo safestop` | Graceful agent shutdown | `reason?` |
+| `inject.generate` | N/A | Generate MVI injection | `level?`, `format?` |
+| `sequence` | `cleo sequence --repair` | Repair ID sequence | `action` (repair) |
+| `adr.sync` | N/A | Sync ADRs from markdown to DB | - |
+| `adr.validate` | N/A | Validate ADR frontmatter | - |
+
+---
+
+## Domain: tools
+
+Skill management, GitHub issue integration, and agent provider management.
+
+### Query Operations (16)
+
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `skill.list` | `cleo skills list` | List available skills | `filter?` |
+| `skill.show` | `cleo skills show <id>` | Skill details | `skillId` |
+| `skill.find` | `cleo skills find` | Find skills | `query` |
+| `skill.dispatch` | N/A | Simulate skill dispatch | `taskId` |
+| `skill.verify` | N/A | Validate skill frontmatter | `skillId` |
+| `skill.dependencies` | N/A | Skill dependency tree | `skillId` |
+| `skill.catalog.protocols` | N/A | List catalog protocols | - |
+| `skill.catalog.profiles` | N/A | List catalog profiles | - |
+| `skill.catalog.resources` | N/A | List catalog shared resources | - |
+| `skill.catalog.info` | N/A | Catalog metadata and availability | - |
+| `issue.diagnostics` | `cleo issue diagnostics` | System diagnostics for bug reports | - |
+| `issue.templates` | N/A | List/get issue templates | - |
+| `issue.validate.labels` | N/A | Validate issue labels | - |
+| `provider.list` | N/A | List all registered providers | - |
+| `provider.detect` | N/A | Detect installed providers | - |
+| `provider.inject.status` | N/A | Check injection status | `providerId?` |
+
+### Mutate Operations (14)
+
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `skill.install` | `cleo skills install` | Install a skill | `name`, `source?` |
+| `skill.uninstall` | `cleo skills uninstall` | Uninstall a skill | `name` |
+| `skill.enable` | `cleo skills enable` | Enable a skill | `name` |
+| `skill.disable` | `cleo skills disable` | Disable a skill | `name` |
+| `skill.configure` | `cleo skills configure` | Configure a skill | `name`, `config` |
+| `skill.refresh` | `cleo skills refresh` | Refresh skill registry | - |
+| `issue.add.bug` | `cleo issue bug` | File a bug report | `title`, `body` |
+| `issue.add.feature` | `cleo issue feature` | Request a feature | `title`, `body` |
+| `issue.add.help` | `cleo issue help` | Ask a question | `title`, `body` |
+| `issue.create.bug` | N/A | Alias (backward compat) | `title`, `body` |
+| `issue.create.feature` | N/A | Alias (backward compat) | `title`, `body` |
+| `issue.create.help` | N/A | Alias (backward compat) | `title`, `body` |
+| `issue.generate.config` | N/A | Generate issue template config | - |
+| `provider.inject` | N/A | Inject content into provider instruction files | `providerId`, `content?` |
+
+---
+
+## Domain: nexus
+
+BRAIN Network placeholder (not yet implemented).
 
 ### Query Operations (1)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `diagnostics` | `cleo issue diagnostics` | System diagnostics | - | 2 |
-
-### Mutate Operations (3)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `create.bug` | `cleo issue bug` | File bug report | `title`, `body` | 2 |
-| `create.feature` | `cleo issue feature` | Request feature | `title`, `body` | 2 |
-| `create.help` | `cleo issue help` | Ask question | `title`, `body` | 2 |
-
----
-
-## Domain: skills
-
-Skill management system.
-
-### Query Operations (6)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `list` | `cleo skills list` | List skills | `filter?` | 2 |
-| `show` | `cleo skills show <id>` | Skill details | `skillId` | 2 |
-| `find` | `cleo skills find` | Find skills | `query` | 2 |
-| `dispatch` | N/A | Dispatch simulation | `taskId` | 3 |
-| `verify` | N/A | Validate frontmatter | `skillId` | 3 |
-| `dependencies` | N/A | Dependency tree | `skillId` | 3 |
-
-### Mutate Operations (6)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `install` | `cleo skills install` | Install skill | `skillId`, `source?` | 2 |
-| `uninstall` | `cleo skills uninstall` | Remove skill | `skillId` | 2 |
-| `enable` | `cleo skills enable` | Enable skill | `skillId` | 2 |
-| `disable` | `cleo skills disable` | Disable skill | `skillId` | 2 |
-| `configure` | `cleo skills configure` | Configure skill | `skillId`, `config` | 3 |
-| `refresh` | `cleo skills refresh` | Refresh registry | - | 3 |
-
----
-
-## Domain: providers
-
-Agent provider management (CAAMP integration).
-
-### Query Operations (3)
-
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `list` | N/A | List providers | - | 2 |
-| `detect` | N/A | Detect installed | - | 2 |
-| `inject.status` | N/A | Injection status | `providerId?` | 2 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `status` | N/A | Nexus network status (not yet implemented) | - |
 
 ### Mutate Operations (1)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `inject` | N/A | Inject into provider | `providerId`, `content?` | 3 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `connect` | N/A | Connect to BRAIN network (not yet implemented) | - |
 
 ---
 
@@ -396,23 +385,23 @@ Multi-contributor operations for task database sharing and synchronization.
 
 ### Query Operations (3)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `status` | N/A | Sharing status | - | 2 |
-| `remotes` | N/A | List remotes | - | 2 |
-| `sync.status` | N/A | Sync status | - | 2 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `status` | N/A | Sharing status | - |
+| `remotes` | N/A | List remotes | - |
+| `sync.status` | N/A | Sync status | - |
 
 ### Mutate Operations (7)
 
-| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
-|-----------|---------------|-------------|------------|-----------------|
-| `snapshot.export` | N/A | Export snapshot | - | 2 |
-| `snapshot.import` | N/A | Import snapshot | - | 2 |
-| `sync.gitignore` | N/A | Sync gitignore | - | 2 |
-| `remote.add` | N/A | Add remote | `name`, `url` | 2 |
-| `remote.remove` | N/A | Remove remote | `name` | 2 |
-| `push` | N/A | Push to remote | `remote?` | 2 |
-| `pull` | N/A | Pull from remote | `remote?` | 2 |
+| Operation | CLI Equivalent | Description | Key Params |
+|-----------|---------------|-------------|------------|
+| `snapshot.export` | N/A | Export snapshot | - |
+| `snapshot.import` | N/A | Import snapshot | - |
+| `sync.gitignore` | N/A | Sync gitignore | - |
+| `remote.add` | N/A | Add remote | `name`, `url` |
+| `remote.remove` | N/A | Remove remote | `name` |
+| `push` | N/A | Push to remote | `remote?` |
+| `pull` | N/A | Pull from remote | `remote?` |
 
 ---
 
@@ -434,13 +423,13 @@ tasks.add     tasks.complete    tasks.start   tasks.current
 ```
 tasks.tree    tasks.blockers    tasks.delete    tasks.stop    tasks.update
 session.start    session.end    session.status    session.record.decision
-system.dash    system.health    system.version    system.init    system.safestop
-system.stats    system.config.get
+admin.dash    admin.health    admin.version    admin.init    admin.safestop
+admin.stats    admin.config.show
 ```
 
 ### Level 2: Extended (~2-5K tokens, on-demand)
 
-All domain operations for: validate, research, lifecycle, skills, issues, providers, plus remaining tasks/session/system operations.
+All domain operations for: check, memory, pipeline, tools, plus remaining tasks/session/admin operations.
 
 ### Level 3: Full Protocol (~5-15K tokens, orchestrators only)
 
@@ -470,17 +459,28 @@ Complete protocol stack including RCSD-IVTR lifecycle, orchestration waves, mani
 
 ## References
 
-- MCP Server Specification: `docs/specs/MCP-SERVER-SPECIFICATION.md`
+- MCP Server Specification: `docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md`
 - MCP Agent Interaction Spec: `docs/specs/MCP-AGENT-INTERACTION-SPEC.md`
 - Gateway Source (query): `src/mcp/gateways/query.ts`
 - Gateway Source (mutate): `src/mcp/gateways/mutate.ts`
 - CLI Entry: `src/cli/index.ts`
 - Core Logic: `src/core/`
+- Dispatch Engines: `src/dispatch/engines/`
 - Deprecated: `docs/commands/COMMANDS-INDEX.json` (replaced by this document)
 
 ---
 
 ## Changelog
+
+### v1.2.0 (2026-03-02)
+
+- Full refresh against gateway matrices (`query.ts` and `mutate.ts`)
+- 185 canonical operations (102 query + 83 mutate) across 10 domains
+- Restructured to use canonical domain names throughout (tasks, session, orchestrate, memory, check, pipeline, admin, tools, nexus, sharing)
+- Legacy aliases documented in dedicated table with operation count mapping
+- Added new operations: session.find, admin.doctor/runtime/help/adr.*/grade/grade.list/fix, memory.pattern.*/learning.*, tools.skill.catalog.*/issue.templates/issue.validate.labels/issue.generate.config
+- Removed stale disclaimer about approximate counts
+- Removed Disclosure Level column (progressive disclosure is documented separately)
 
 ### v1.1.0 (2026-02-27)
 
