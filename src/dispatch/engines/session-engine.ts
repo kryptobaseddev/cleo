@@ -387,6 +387,7 @@ export async function sessionStart(
     if (params.grade) {
       process.env.CLEO_SESSION_GRADE = 'true';
       process.env.CLEO_SESSION_ID = sessionId;
+      process.env.CLEO_SESSION_GRADE_ID = sessionId;
     }
 
     // T4959: Auto-briefing — enrich response with briefing + predecessor debrief
@@ -451,11 +452,9 @@ export async function sessionEnd(
     const sessionId = taskData._meta?.activeSession || 'default';
     const now = new Date().toISOString();
 
-    // Clear grade mode env vars when session ends
-    if (process.env.CLEO_SESSION_GRADE === 'true') {
-      delete process.env.CLEO_SESSION_GRADE;
-      delete process.env.CLEO_SESSION_ID;
-    }
+    // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
+    // to query audit entries after the session ends. The caller (admin.grade handler)
+    // is responsible for cleanup after evaluation completes.
 
     // Clear focus
     if (taskData.focus) {
