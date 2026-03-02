@@ -5,6 +5,27 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.3.4] - 2026-03-02
+
+### Fixed
+
+- **S4 audit race condition** — Await `writeToSqlite()` in grade mode to prevent race between audit persistence and grading query.
+- **Premature grade env var cleanup in endSession** — Removed early deletion of `CLEO_SESSION_GRADE` and `CLEO_SESSION_GRADE_ID` env vars; caller is now responsible for cleanup after evaluation completes.
+- **CLEO_SESSION_GRADE_ID dead code** — Env var is now set during grade session start in both `session-engine` and core `sessions/index`, fixing references that previously read an unset variable.
+
+### Added
+
+- **53 grade rubric tests** — 46 unit tests covering all 5 dimensions (S1-S5) with edge cases, plus 7 integration tests for full grading flow with CLEO_HOME isolation.
+- **CLEO-GRADE-SPEC.md** — Formal 5-dimension rubric specification for session behavioral grading.
+- **GRADE-SCENARIO-PLAYBOOK.md** — 5 grading scenarios with pass criteria and expected dimension scores.
+- **ct-grade skill** — Agent guidance skill for session behavioral grading.
+
+### Completed
+
+- **6 BRAIN database tasks** (T5127-T5130, T5155-T5156) confirmed done — brain.db Drizzle schema, data accessor, decision memory, JSONL migration, FTS5 search, memory links.
+
+---
+
 ## [2026.3.3] - 2026-03-01
 
 ### Quality
