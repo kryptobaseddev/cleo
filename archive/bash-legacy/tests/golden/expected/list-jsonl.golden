@@ -1,8 +1,0 @@
-{"_type":"meta","version":"0.15.0","command":"list","timestamp":"TIMESTAMP","checksum":"CHECKSUM","execution_ms": XXX}
-{"_type":"task","id":"T002","title":"Implement core feature A","description":"Build the main feature","status":"done","priority":"critical","phase":"core","labels":["feature","core"],"createdAt":"TIMESTAMP","completedAt":"TIMESTAMP","depends":["T001"]}
-{"_type":"task","id":"T001","title":"Setup project structure","description":"Create initial directory structure","status":"done","priority":"high","phase":"setup","labels":["setup","infrastructure"],"createdAt":"TIMESTAMP","completedAt":"TIMESTAMP"}
-{"_type":"task","id":"T003","title":"Add authentication","description":"Implement user authentication","status":"active","priority":"high","phase":"core","labels":["feature","security"],"createdAt":"TIMESTAMP","depends":["T001"]}
-{"_type":"task","id":"T005","title":"Fix login bug","description":"Users cannot login with special characters","status":"blocked","priority":"high","phase":"core","labels":["bug","security"],"createdAt":"TIMESTAMP","blockedBy":"Waiting for T003 to complete"}
-{"_type":"task","id":"T004","title":"Write documentation","description":"Create user documentation","status":"pending","priority":"medium","phase":"polish","labels":["docs"],"createdAt":"TIMESTAMP","depends":["T002","T003"]}
-{"_type":"task","id":"T006","title":"Performance optimization","description":"Optimize database queries","status":"pending","priority":"low","phase":"polish","labels":["performance"],"createdAt":"TIMESTAMP"}
-{"_type":"summary","total":6,"filtered":6,"pending":2,"active":1,"blocked":1,"done":2}

@@ -50,10 +50,10 @@ All existing validators follow an identical structure:
 
 | Protocol File | Stage (`stages.ts`) | Exit Code | Existing Validator |
 |---------------|--------------------|-----------|--------------------|
-| `protocols/implementation.md` (IMPL) | `implement` | 64 | `implementation.ts` |
-| `protocols/validation.md` (VALID) | `verify` | -- (not assigned) | None |
-| `protocols/testing.md` (TEST) | `test` | -- (not assigned) | None |
-| `protocols/release.md` (REL) | `release` | 66 | None |
+| `src/protocols/implementation.md` (IMPL) | `implement` | 64 | `implementation.ts` |
+| `src/protocols/validation.md` (VALID) | `verify` | -- (not assigned) | None |
+| `src/protocols/testing.md` (TEST) | `test` | -- (not assigned) | None |
+| `src/protocols/release.md` (REL) | `release` | 66 | None |
 
 **Note:** The protocol IDs (IMPL, VALID, TEST, REL) use different naming than `stages.ts` stage identifiers (`implement`, `verify`, `test`, `release`). The protocol files use long-form names; `stages.ts` uses short canonical names.
 
@@ -63,7 +63,7 @@ All existing validators follow an identical structure:
 
 ### 2.1 Implementation Stage (`implement`)
 
-**Protocol:** `protocols/implementation.md` (IMPL, v1.0.1)
+**Protocol:** `src/protocols/implementation.md` (IMPL, v1.0.1)
 **Existing validator:** `src/core/validation/protocols/implementation.ts`
 **Exit code:** 64
 
@@ -112,7 +112,7 @@ The existing `implementation.ts` validator is adequate for the gate-at-complete 
 
 ### 2.2 Validation Stage (`verify`)
 
-**Protocol:** `protocols/validation.md` (VALID, v1.0.1)
+**Protocol:** `src/protocols/validation.md` (VALID, v1.0.1)
 **Existing validator:** None
 **Exit code:** Not assigned (recommend using 67 = generic, or allocating a new code)
 
@@ -169,7 +169,7 @@ Create `src/core/validation/protocols/validation-protocol.ts`. This is the most 
 
 ### 2.3 Testing Stage (`test`)
 
-**Protocol:** `protocols/testing.md` (TEST, v1.0.1)
+**Protocol:** `src/protocols/testing.md` (TEST, v1.0.1)
 **Existing validator:** None
 **Exit code:** Not assigned (recommend 67 or new allocation)
 
@@ -222,7 +222,7 @@ Create `src/core/validation/protocols/testing-protocol.ts`. The test report stru
 
 ### 2.4 Release Stage (`release`)
 
-**Protocol:** `protocols/release.md` (REL, v2.2.0)
+**Protocol:** `src/protocols/release.md` (REL, v2.2.0)
 **Existing validator:** None (release has its own validation via `cleo release validate`)
 **Exit code:** 66
 

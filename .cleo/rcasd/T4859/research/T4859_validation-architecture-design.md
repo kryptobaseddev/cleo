@@ -249,7 +249,7 @@ These can be added later as `z.passthrough()` extensions if needed.
 ### Decision: **Protocol files are agent instructions only — NOT machine-parseable for validation**
 
 **Rationale:**
-- The 13 protocol files in `protocols/` are markdown documents with YAML frontmatter
+- The 13 protocol files in `src/protocols/` are markdown documents with YAML frontmatter
 - They define RFC 2119 requirements in natural language for agent consumption
 - Parsing markdown to extract validation rules is fragile and error-prone
 - The Zod schemas in `src/core/validation/protocols/` are the machine-readable validation counterpart
@@ -269,18 +269,18 @@ Produces output file             Validates output metadata
 
 | Protocol File | Validator File | Exit Code |
 |---------------|----------------|-----------|
-| `protocols/research.md` | `src/core/validation/protocols/research.ts` | 60 |
-| `protocols/consensus.md` | `src/core/validation/protocols/consensus.ts` | 61 |
-| `protocols/specification.md` | `src/core/validation/protocols/specification.ts` | 62 |
-| `protocols/decomposition.md` | (manifest entry check) | 63 |
-| `protocols/implementation.md` | (manifest entry check) | 64 |
-| `protocols/contribution.md` | `src/core/validation/protocols/contribution.ts` | 65 |
-| `protocols/release.md` | (manifest entry check) | 66 |
-| `protocols/adr.md` | (no validator — new stage) | — |
-| `protocols/validation.md` | (manifest entry check) | — |
-| `protocols/testing.md` | (manifest entry check) | — |
-| `protocols/artifact-publish.md` | (manifest entry check) | 67 |
-| `protocols/provenance.md` | (manifest entry check) | 67 |
+| `src/protocols/research.md` | `src/core/validation/protocols/research.ts` | 60 |
+| `src/protocols/consensus.md` | `src/core/validation/protocols/consensus.ts` | 61 |
+| `src/protocols/specification.md` | `src/core/validation/protocols/specification.ts` | 62 |
+| `src/protocols/decomposition.md` | (manifest entry check) | 63 |
+| `src/protocols/implementation.md` | (manifest entry check) | 64 |
+| `src/protocols/contribution.md` | `src/core/validation/protocols/contribution.ts` | 65 |
+| `src/protocols/release.md` | (manifest entry check) | 66 |
+| `src/protocols/adr.md` | (no validator — new stage) | — |
+| `src/protocols/validation.md` | (manifest entry check) | — |
+| `src/protocols/testing.md` | (manifest entry check) | — |
+| `src/protocols/artifact-publish.md` | (manifest entry check) | 67 |
+| `src/protocols/provenance.md` | (manifest entry check) | 67 |
 
 **Priority for Zod schema creation:** Research, Consensus, Specification, Contribution (the 4 that had archived schemas). Other protocols use manifest-entry-level validation only.
 
@@ -293,7 +293,7 @@ Produces output file             Validates output metadata
 │                     Agent Workflow                           │
 │                                                             │
 │  1. Agent receives task with protocol label                 │
-│  2. Agent reads protocols/<type>.md for instructions        │
+│  2. Agent reads src/protocols/<type>.md for instructions        │
 │  3. Agent produces output file(s)                           │
 │  4. Agent calls ct complete <taskId>                        │
 │                                                             │

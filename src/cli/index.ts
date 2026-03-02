@@ -114,6 +114,9 @@ import { registerAdrCommand } from './commands/adr.js';
 // T4770: BRAIN memory commands (patterns, learnings)
 import { registerMemoryBrainCommand } from './commands/memory-brain.js';
 
+// T5143: Claude-mem to brain.db migration
+import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
+
 // Core: pre-flight migration check (@task T4699)
 import { checkStorageMigration } from '../core/migration/preflight.js';
 
@@ -312,6 +315,9 @@ registerAdrCommand(program);
 
 // T4770: BRAIN memory commands
 registerMemoryBrainCommand(program);
+
+// T5143: Claude-mem to brain.db migration
+registerMigrateClaudeMemCommand(program);
 
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).

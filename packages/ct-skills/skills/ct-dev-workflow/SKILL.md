@@ -20,7 +20,7 @@ license: MIT
 
 # Development Workflow Context Injection
 
-**Protocol**: @protocols/contribution.md
+**Protocol**: @src/protocols/contribution.md
 **Type**: Context Injection (cleo-subagent)
 **Version**: 3.0.0
 

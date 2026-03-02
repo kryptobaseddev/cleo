@@ -211,5 +211,5 @@ In `.cleo/config.json`:
 
 - **Bash Implementation**: `lib/protocol-validation.sh`
 - **MCP Spec**: `docs/specs/MCP-SERVER-SPECIFICATION.md`
-- **Protocol Specs**: `protocols/*.md`
+- **Protocol Specs**: `src/protocols/*.md`
 - **Lifecycle Spec**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`

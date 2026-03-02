@@ -20,7 +20,7 @@ license: MIT
 
 # Research Context Injection
 
-**Protocol**: @protocols/research.md
+**Protocol**: @src/protocols/research.md
 **Type**: Context Injection (cleo-subagent)
 **Version**: 2.0.0
 

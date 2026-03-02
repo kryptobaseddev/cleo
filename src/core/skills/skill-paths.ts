@@ -150,7 +150,7 @@ export function resolveSkillPath(skillName: string, projectRoot?: string): strin
  *
  * Search order per base path:
  * 1. {base}/_ct-skills-protocols/{protocol_name}.md (Strategy B shared dir)
- * 2. {PROJECT_ROOT}/protocols/{protocol_name}.md (legacy embedded fallback)
+ * 2. {PROJECT_ROOT}/src/protocols/{protocol_name}.md (legacy embedded fallback)
  *
  * @task T4552
  */
@@ -170,7 +170,7 @@ export function resolveProtocolPath(
 
   // Legacy fallback: project root protocols directory
   const root = getProjectRoot(projectRoot);
-  const legacy = join(root, 'protocols', `${protocolName}.md`);
+  const legacy = join(root, 'src', 'protocols', `${protocolName}.md`);
   if (existsSync(legacy)) {
     return safeRealpath(legacy);
   }

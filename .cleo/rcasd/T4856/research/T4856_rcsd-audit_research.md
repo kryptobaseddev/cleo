@@ -147,7 +147,7 @@ updated: 2026-03-01
 ### 5a. `rcsd-research-output.schema.json` (v1.0.0)
 - **Validates:** Research phase JSON output
 - **Required fields:** `$schema`, `_meta` (researchId, taskId, shortName, createdAt), `query`, `status`, `sources`, `findings`
-- **Relationship:** Validates output of research protocol (`protocols/research.md`)
+- **Relationship:** Validates output of research protocol (`src/protocols/research.md`)
 - **Status:** Archived — actual research now uses markdown files + MANIFEST.jsonl entries
 
 ### 5b. `rcsd-consensus-report.schema.json` (v1.0.0)

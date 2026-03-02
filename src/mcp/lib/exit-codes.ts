@@ -727,7 +727,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: true,
     fixTemplate: 'Fix research protocol violations: {violations}',
-    documentation: 'protocols/research.md',
+    documentation: 'src/protocols/research.md',
   },
 
   [ExitCode.E_PROTOCOL_CONSENSUS]: {
@@ -738,7 +738,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: true,
     fixTemplate: 'Fix consensus protocol violations: {violations}',
-    documentation: 'protocols/consensus.md',
+    documentation: 'src/protocols/consensus.md',
   },
 
   [ExitCode.E_PROTOCOL_SPECIFICATION]: {
@@ -749,7 +749,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: true,
     fixTemplate: 'Fix specification protocol violations: {violations}',
-    documentation: 'protocols/specification.md',
+    documentation: 'src/protocols/specification.md',
   },
 
   [ExitCode.E_PROTOCOL_DECOMPOSITION]: {
@@ -760,7 +760,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: true,
     fixTemplate: 'Fix decomposition protocol violations: {violations}',
-    documentation: 'protocols/decomposition.md',
+    documentation: 'src/protocols/decomposition.md',
   },
 
   [ExitCode.E_PROTOCOL_IMPLEMENTATION]: {
@@ -771,7 +771,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Fix implementation protocol violations: {violations}',
-    documentation: 'protocols/implementation.md',
+    documentation: 'src/protocols/implementation.md',
   },
 
   [ExitCode.E_PROTOCOL_CONTRIBUTION]: {
@@ -782,7 +782,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Fix contribution protocol violations: {violations}',
-    documentation: 'protocols/contribution.md',
+    documentation: 'src/protocols/contribution.md',
   },
 
   [ExitCode.E_PROTOCOL_RELEASE]: {
@@ -793,7 +793,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Fix release protocol violations: {violations}',
-    documentation: 'protocols/release.md',
+    documentation: 'src/protocols/release.md',
   },
 
   [ExitCode.E_PROTOCOL_GENERIC]: {
@@ -814,7 +814,7 @@ export const ERROR_MAP: Record<number, ErrorMapping> = {
     severity: ErrorSeverity.ERROR,
     retryable: false,
     fixTemplate: 'Fix validation protocol violations: {violations}',
-    documentation: 'protocols/validation.md',
+    documentation: 'src/protocols/validation.md',
   },
 
   [ExitCode.E_TESTS_SKIPPED]: {

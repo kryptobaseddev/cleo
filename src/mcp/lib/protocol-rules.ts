@@ -6,7 +6,7 @@
  *
  * Defines validation rules for all 9 RCASD-IVTR+C protocols.
  *
- * Reference: lib/protocol-validation.sh, protocols/*.md
+ * Reference: lib/protocol-validation.sh, src/protocols/*.md
  */
 
 /**

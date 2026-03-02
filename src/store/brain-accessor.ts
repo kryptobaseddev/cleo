@@ -21,6 +21,8 @@ import type {
   NewBrainPatternRow,
   BrainLearningRow,
   NewBrainLearningRow,
+  BrainObservationRow,
+  NewBrainObservationRow,
   BrainMemoryLinkRow,
   NewBrainMemoryLinkRow,
 } from './brain-schema.js';
@@ -212,6 +214,72 @@ export class BrainDataAccessor {
       .update(brainSchema.brainLearnings)
       .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
       .where(eq(brainSchema.brainLearnings.id, id));
+  }
+
+  // =========================================================================
+  // Observations CRUD
+  // =========================================================================
+
+  async addObservation(row: NewBrainObservationRow): Promise<BrainObservationRow> {
+    await this.db.insert(brainSchema.brainObservations).values(row);
+    const result = await this.db
+      .select()
+      .from(brainSchema.brainObservations)
+      .where(eq(brainSchema.brainObservations.id, row.id));
+    return result[0]!;
+  }
+
+  async getObservation(id: string): Promise<BrainObservationRow | null> {
+    const result = await this.db
+      .select()
+      .from(brainSchema.brainObservations)
+      .where(eq(brainSchema.brainObservations.id, id));
+    return result[0] ?? null;
+  }
+
+  async findObservations(params: {
+    type?: typeof brainSchema.BRAIN_OBSERVATION_TYPES[number];
+    project?: string;
+    sourceType?: typeof brainSchema.BRAIN_OBSERVATION_SOURCE_TYPES[number];
+    sourceSessionId?: string;
+    limit?: number;
+  } = {}): Promise<BrainObservationRow[]> {
+    const conditions: SQL[] = [];
+
+    if (params.type) {
+      conditions.push(eq(brainSchema.brainObservations.type, params.type));
+    }
+    if (params.project) {
+      conditions.push(eq(brainSchema.brainObservations.project, params.project));
+    }
+    if (params.sourceType) {
+      conditions.push(eq(brainSchema.brainObservations.sourceType, params.sourceType));
+    }
+    if (params.sourceSessionId) {
+      conditions.push(eq(brainSchema.brainObservations.sourceSessionId, params.sourceSessionId));
+    }
+
+    let query = this.db
+      .select()
+      .from(brainSchema.brainObservations)
+      .orderBy(desc(brainSchema.brainObservations.createdAt));
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+
+    if (params.limit) {
+      query = query.limit(params.limit) as typeof query;
+    }
+
+    return query;
+  }
+
+  async updateObservation(id: string, updates: Partial<NewBrainObservationRow>): Promise<void> {
+    await this.db
+      .update(brainSchema.brainObservations)
+      .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
+      .where(eq(brainSchema.brainObservations.id, id));
   }
 
   // =========================================================================

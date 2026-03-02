@@ -6,9 +6,7 @@
   "types": "index.d.ts",
   "files": [
     "skills",
-    "protocols",
     "profiles",
-    "_shared",
     "*.json",
     "*.js",
     "*.d.ts"

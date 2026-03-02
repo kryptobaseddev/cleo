@@ -16,7 +16,7 @@ This reference defines patterns for multi-level skill invocation and context pro
 
 ## Pattern 1: Single-Level Spawning
 
-The orchestrator delegates work to a subagent via Task tool with skill injection.
+The orchestrator delegates work to a subagent via `orchestrate.spawn` with skill injection.
 
 ### Flow
 
@@ -25,7 +25,7 @@ The orchestrator delegates work to a subagent via Task tool with skill injection
 │   ORCHESTRATOR  │
 │  (ct-orchestrator)
 └────────┬────────┘
-         │ Task tool + skill template
+         │ orchestrate.spawn → provider adapter
          ▼
 ┌─────────────────┐
 │    SUBAGENT     │
@@ -35,18 +35,15 @@ The orchestrator delegates work to a subagent via Task tool with skill injection
 
 ### Implementation
 
-```bash
-# Orchestrator prepares context
-source lib/token-inject.sh
-export TI_TASK_ID="T1234"
-export TI_DATE="$(date +%Y-%m-%d)"
-export TI_TOPIC_SLUG="auth-research"
-ti_set_defaults
+```
+# 1. Generate fully-resolved spawn prompt via MCP
+cleo_mutate({ domain: "orchestrate", operation: "spawn", params: { taskId: "T1234" }})
 
-# Load skill template with tokens
-template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
-
-# Spawn via Task tool (includes subagent protocol block)
+# 2. Provider adapter executes the prompt using its native mechanism
+#    - Claude Code: Task tool with cleo-subagent type
+#    - OpenCode: config-driven agent spawn
+#    - Codex: SDK agent creation
+#    - Others: file-based prompt handoff
 ```
 
 ### Context Propagation
@@ -127,13 +124,13 @@ A subagent can itself become an orchestrator, spawning further subagents for com
 │    ORCHESTRATOR     │  Level 0: Main workflow
 │   (ct-orchestrator) │
 └─────────┬───────────┘
-          │ Task tool
+          │ orchestrate.spawn
           ▼
 ┌─────────────────────┐
 │ SUB-ORCHESTRATOR    │  Level 1: Epic decomposition
 │ (ct-epic-architect) │
 └─────────┬───────────┘
-          │ Task tool
+          │ orchestrate.spawn
           ▼
 ┌─────────────────────┐
 │    WORKER AGENT     │  Level 2: Task execution
@@ -184,13 +181,13 @@ Detailed findings go to output files, not manifest or response:
 
 ### Rule 4: Token Injection (SHOULD)
 
-Use `lib/token-inject.sh` for dynamic token replacement:
+All tokens are resolved before prompt injection via `orchestrate.spawn`:
 
-```bash
+```
 # Required tokens for all subagents
-TI_TASK_ID    # Current task identifier
-TI_DATE       # Execution date (YYYY-MM-DD)
-TI_TOPIC_SLUG # URL-safe topic name
+TASK_ID       # Current task identifier
+DATE          # Execution date (YYYY-MM-DD)
+TOPIC_SLUG    # URL-safe topic name
 ```
 
 ---
@@ -211,14 +208,14 @@ TI_TOPIC_SLUG # URL-safe topic name
 
 Before spawning subagent:
 - [ ] Identify appropriate skill for task type
-- [ ] Prepare token context (TI_TASK_ID, TI_DATE, TI_TOPIC_SLUG)
-- [ ] Load skill template with `ti_load_template()`
-- [ ] Include subagent protocol block in prompt
+- [ ] Prepare token context (TASK_ID, DATE, TOPIC_SLUG)
+- [ ] Use `orchestrate.spawn` to generate fully-resolved prompt
+- [ ] Verify token resolution is complete (`tokenResolution.fullyResolved`)
 
 Before chaining to another skill:
 - [ ] Determine if skill shares context (same agent) or needs delegation
 - [ ] For same-agent: Use `Skill(skill="name")` or `/skill-name`
-- [ ] For new agent: Use Task tool with full protocol injection
+- [ ] For new agent: Use `orchestrate.spawn` with full protocol injection
 
 Before completion:
 - [ ] Verify manifest entry appended
@@ -231,7 +228,7 @@ Before completion:
 
 | Skill | Demonstrates |
 |-------|--------------|
-| `ct-orchestrator` | Single-level spawning via Task tool |
+| `ct-orchestrator` | Single-level spawning via orchestrate.spawn |
 | `ct-documentor` | Skill chaining (lookup → write → review) |
 | `ct-epic-architect` | Potential multi-level orchestration |
 

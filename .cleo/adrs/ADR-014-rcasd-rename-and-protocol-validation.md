@@ -89,7 +89,7 @@ Protocol output validation SHALL use a **hybrid approach** — validate critical
 
 ### 2.3 Protocol File Role
 
-Protocol markdown files (`protocols/*.md`) SHALL remain agent instructions only. They MUST NOT be parsed at runtime for validation rule extraction. The Zod schemas in `src/core/validation/protocols/` are the machine-readable validation counterpart.
+Protocol markdown files (`src/protocols/*.md`) SHALL remain agent instructions only. They MUST NOT be parsed at runtime for validation rule extraction. The Zod schemas in `src/core/validation/protocols/` are the machine-readable validation counterpart.
 
 ### 2.4 Protocol Type Alignment
 

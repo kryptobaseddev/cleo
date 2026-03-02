@@ -1,7 +1,7 @@
 {
   "name": "minimal",
-  "description": "Bare minimum — just the default fallback skill",
-  "skills": ["ct-task-executor"],
+  "description": "Solo task execution with core CLEO protocol — no orchestration needed",
+  "skills": ["ct-cleo", "ct-task-executor"],
   "includeShared": true,
-  "includeProtocols": ["implementation"]
+  "includeProtocols": []
 }

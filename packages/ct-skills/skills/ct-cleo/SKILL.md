@@ -40,6 +40,8 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `system` | `context` | Context window usage |
 | `skills` | `list` | Available skills |
 | `skills` | `show` | Skill details (`params: { name }`) |
+| `pipeline` | `stage.status` | Pipeline stage for epic (`params: { epicId }`) |
+| `pipeline` | `stage.validate` | Validate gate before advancing (`params: { epicId, stage }`) |
 
 ### Key Write Operations (`cleo_mutate`)
 
@@ -54,6 +56,8 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `tasks` | `start` | Start working on a task (`params: { taskId }`) |
 | `research` | `link` | Link research to task (`params: { taskId, entryId }`) |
 | `orchestrate` | `spawn` | Generate spawn prompt for subagent (`params: { taskId }`) |
+| `pipeline` | `stage.record` | Record pipeline stage progress (`params: { epicId, stage, status }`) |
+| `pipeline` | `stage.gate.pass` | Advance pipeline to next stage (`params: { epicId, stage }`) |
 
 ## CLI Fallback
 
@@ -180,6 +184,23 @@ After EVERY command:
 
 **Lifecycle**: See CLEO-INJECTION.md standard tier for full RCASD-IVTR+C pipeline details, or `references/rcsd-lifecycle.md` for gate enforcement and subagent architecture.
 
+## Pipeline Awareness
+
+Epics follow the RCASD-IVTR+C lifecycle managed through pipeline stages. Use `pipeline.stage.status` to check where an epic is in its lifecycle:
+
+| Stage | Purpose |
+|-------|---------|
+| `research` | Information gathering and analysis |
+| `consensus` | Validate claims and decisions |
+| `architecture_decision` | ADR and specification |
+| `specification` | Formal requirements |
+| `decomposition` | Task breakdown |
+| `implementation` | Build functionality |
+| `validation` | Verify against criteria |
+| `testing` | Test coverage |
+| `release` | Version and publish |
+| `contribution` | Multi-agent consensus tracking |
+
 ## Time Estimates Prohibited
 
 - **MUST NOT** estimate hours, days, weeks, or temporal duration
@@ -192,5 +213,4 @@ For detailed guidance on specific topics, see:
 
 - **Session Protocol**: `references/session-protocol.md`
 - **RCSD Lifecycle**: `references/rcsd-lifecycle.md`
-- **Orchestrator Constraints**: `references/orchestrator-constraints.md`
 - **Anti-Patterns**: `references/anti-patterns.md`

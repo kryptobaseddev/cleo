@@ -36,8 +36,8 @@ This specification is **AUTHORITATIVE** for:
 This specification **DEFERS TO**:
 
 - [PROTOCOL-ENFORCEMENT-SPEC.md](PROTOCOL-ENFORCEMENT-SPEC.md) for overall enforcement architecture
-- Implementation protocol (protocols/implementation.md) for IMPL-003 provenance requirements
-- Contribution protocol (protocols/contribution.md) for CONT-002 provenance requirements
+- Implementation protocol (src/protocols/implementation.md) for IMPL-003 provenance requirements
+- Contribution protocol (src/protocols/contribution.md) for CONT-002 provenance requirements
 - Multi-session architecture for session scope context
 
 ### 1.3 Scope
