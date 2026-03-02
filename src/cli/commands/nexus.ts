@@ -11,7 +11,7 @@
  * @epic T4545
  */
 
-// TODO T4894: operation 'nexus' not yet in registry — no nexus domain in dispatch.\n// Leave bypass until nexus domain handler is created.
+// CLI-only: nexus operations have no dispatch route (cross-project file system access)
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';

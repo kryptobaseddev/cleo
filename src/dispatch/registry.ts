@@ -1,7 +1,7 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 164 operations mapped to 9 canonical domains.
+ * Single source of truth for all 198 operations mapped to 10 canonical domains.
  * Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
@@ -35,6 +35,12 @@ export interface OperationDef {
    * @see T4897 for progressive migration
    */
   params?: ParamDef[];
+  /**
+   * Backward-compatible operation aliases (e.g., 'config.get' for 'config.show').
+   * These are included in derived gateway matrices so validation passes for both names.
+   * Runtime translation happens in resolveOperationAlias() in the MCP adapter.
+   */
+  aliases?: string[];
 }
 
 /**
@@ -183,6 +189,30 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // Label operations (dispatch migration)
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'label.list',
+    description: 'List all labels with task counts',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'tasks',
+    operation: 'label.show',
+    description: 'Show tasks with a specific label',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['label'],
+    params: [
+      { name: 'label', type: 'string', required: true, description: 'Label name to filter by' },
+    ],
+  },
   {
     gateway: 'query',
     domain: 'session',
@@ -283,6 +313,16 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['sessionId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'session',
+    operation: 'find',
+    description: 'session.find (query) — lightweight session discovery',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
   },
   {
     gateway: 'query',
@@ -495,6 +535,37 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // BRAIN 3-layer retrieval query operations (T5149)
+  {
+    gateway: 'query' as const,
+    domain: 'memory',
+    operation: 'brain.search',
+    description: 'memory.brain.search (query) — 3-layer retrieval step 1: search index',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'memory',
+    operation: 'brain.timeline',
+    description: 'memory.brain.timeline (query) — 3-layer retrieval step 2: context around anchor',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'memory',
+    operation: 'brain.fetch',
+    description: 'memory.brain.fetch (query) — 3-layer retrieval step 3: full details for filtered IDs',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
   {
     gateway: 'query',
     domain: 'pipeline',
@@ -668,8 +739,18 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
+    operation: 'config.show',
+    description: 'admin.config.show (query) — show config value',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'admin',
     operation: 'config.get',
-    description: 'admin.config.get (query)',
+    description: 'admin.config.get (query) — alias for config.show (backward compat)',
     tier: 0,
     idempotent: true,
     sessionRequired: false,
@@ -1246,6 +1327,16 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: ['insight', 'source'],
   },
   {
+    gateway: 'mutate' as const,
+    domain: 'memory',
+    operation: 'brain.observe',
+    description: 'memory.brain.observe (mutate) — save observation to brain.db',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['text'],
+  },
+  {
     gateway: 'mutate',
     domain: 'pipeline',
     operation: 'stage.record',
@@ -1525,6 +1616,37 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // Backward compat aliases for issue.create.* -> issue.add.*
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'issue.create.bug',
+    description: 'tools.issue.create.bug (mutate) — alias for issue.add.bug (backward compat)',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'issue.create.feature',
+    description: 'tools.issue.create.feature (mutate) — alias for issue.add.feature (backward compat)',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'tools',
+    operation: 'issue.create.help',
+    description: 'tools.issue.create.help (mutate) — alias for issue.add.help (backward compat)',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
   {
     gateway: 'mutate',
     domain: 'tools',
@@ -1637,6 +1759,23 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
   },
 
+  // Archive stats (dispatch migration)
+  {
+    gateway: 'query' as const,
+    domain: 'admin',
+    operation: 'archive.stats',
+    description: 'Archive statistics and analytics',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      { name: 'report', type: 'string', required: false, description: 'Report type (summary, by-phase, by-label, by-priority, cycle-times, trends)' },
+      { name: 'since', type: 'string', required: false, description: 'Filter by archived since date (YYYY-MM-DD)' },
+      { name: 'until', type: 'string', required: false, description: 'Filter by archived until date (YYYY-MM-DD)' },
+    ],
+  },
+
   // ADR operations (ADR-017 §2, Tier 2 — admin domain)
   {
     gateway: 'query' as const,
@@ -1710,13 +1849,181 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // nexus — BRAIN Network placeholder (all ops return E_NOT_IMPLEMENTED)
+  // sharing — multi-contributor operations
   // ---------------------------------------------------------------------------
+  {
+    gateway: 'query' as const,
+    domain: 'sharing',
+    operation: 'status',
+    description: 'sharing.status (query) — sharing status',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'sharing',
+    operation: 'remotes',
+    description: 'sharing.remotes (query) — list configured remotes',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'sharing',
+    operation: 'sync.status',
+    description: 'sharing.sync.status (query) — sync status',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sharing',
+    operation: 'snapshot.export',
+    description: 'sharing.snapshot.export (mutate) — export project snapshot',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sharing',
+    operation: 'snapshot.import',
+    description: 'sharing.snapshot.import (mutate) — import project snapshot',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sharing',
+    operation: 'sync.gitignore',
+    description: 'sharing.sync.gitignore (mutate) — sync gitignore',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sharing',
+    operation: 'remote.add',
+    description: 'sharing.remote.add (mutate) — add remote',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sharing',
+    operation: 'remote.remove',
+    description: 'sharing.remote.remove (mutate) — remove remote',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sharing',
+    operation: 'push',
+    description: 'sharing.push (mutate) — push to remote',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sharing',
+    operation: 'pull',
+    description: 'sharing.pull (mutate) — pull from remote',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+
+  // ---------------------------------------------------------------------------
+  // nexus — Cross-project coordination (BRAIN Network)
+  // ---------------------------------------------------------------------------
+
+  // Query operations
   {
     gateway: 'query' as const,
     domain: 'nexus',
     operation: 'status',
-    description: 'nexus.status (query) — BRAIN Network status [not yet implemented]',
+    description: 'nexus.status (query) — overall NEXUS health status',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'list',
+    description: 'nexus.list (query) — list all registered NEXUS projects',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'show',
+    description: 'nexus.show (query) — show a specific project by name or hash',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name'],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'query',
+    description: 'nexus.query (query) — resolve a cross-project project:taskId query',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['query'],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'deps',
+    description: 'nexus.deps (query) — cross-project dependency analysis',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['query'],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'nexus',
+    operation: 'graph',
+    description: 'nexus.graph (query) — global dependency graph across all projects',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+
+  // Mutate operations
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'init',
+    description: 'nexus.init (mutate) — initialize NEXUS (creates registry and directories)',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -1725,14 +2032,142 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate' as const,
     domain: 'nexus',
-    operation: 'connect',
-    description: 'nexus.connect (mutate) — connect to BRAIN Network [not yet implemented]',
+    operation: 'register',
+    description: 'nexus.register (mutate) — register a project in NEXUS',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
+    requiredParams: ['path'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'unregister',
+    description: 'nexus.unregister (mutate) — remove a project from NEXUS',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['name'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'sync',
+    description: 'nexus.sync (mutate) — sync project metadata (task count, labels)',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'sync.all',
+    description: 'nexus.sync.all (mutate) — sync all registered projects',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
     requiredParams: [],
   },
+  {
+    gateway: 'mutate' as const,
+    domain: 'nexus',
+    operation: 'permission.set',
+    description: 'nexus.permission.set (mutate) — update project permissions',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['name', 'level'],
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// Legacy Domain Aliases
+// ---------------------------------------------------------------------------
+
+/**
+ * Legacy domain alias mapping.
+ *
+ * Maps legacy MCP domain names to their canonical domain + operation prefix.
+ * Used to generate backward-compatible gateway operation matrices and to
+ * resolve domain aliases at runtime in the MCP adapter.
+ *
+ * When a legacy domain has a prefix, the canonical operation name is expected
+ * to start with that prefix (e.g., `skill.list` in canonical `tools` domain
+ * maps to `list` in legacy `skills` domain).
+ */
+export const LEGACY_DOMAIN_ALIASES: Record<string, { canonical: CanonicalDomain; prefix: string }> = {
+  research:  { canonical: 'memory',   prefix: '' },
+  validate:  { canonical: 'check',    prefix: '' },
+  lifecycle: { canonical: 'pipeline', prefix: 'stage.' },
+  release:   { canonical: 'pipeline', prefix: 'release.' },
+  system:    { canonical: 'admin',    prefix: '' },
+  skills:    { canonical: 'tools',    prefix: 'skill.' },
+  providers: { canonical: 'tools',    prefix: 'provider.' },
+  issues:    { canonical: 'tools',    prefix: 'issue.' },
+};
+
+// ---------------------------------------------------------------------------
+// Gateway Matrix Derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a gateway operation matrix from the registry.
+ *
+ * Returns `Record<string, string[]>` containing:
+ * - All 10 canonical domains with their operations (including aliases)
+ * - All legacy alias domains with reverse-mapped operation names
+ *
+ * This is the SINGLE derivation point — gateways use this instead of
+ * maintaining independent operation lists.
+ */
+export function deriveGatewayMatrix(gateway: Gateway): Record<string, string[]> {
+  const matrix: Record<string, string[]> = {};
+
+  // Step 1: Populate canonical domains from the OPERATIONS array
+  for (const op of OPERATIONS) {
+    if (op.gateway !== gateway) continue;
+    if (!matrix[op.domain]) matrix[op.domain] = [];
+    matrix[op.domain].push(op.operation);
+    // Include aliases in the canonical domain entry
+    if (op.aliases) {
+      for (const alias of op.aliases) {
+        matrix[op.domain].push(alias);
+      }
+    }
+  }
+
+  // Step 2: Populate legacy alias domains by reverse-mapping
+  for (const [alias, { canonical, prefix }] of Object.entries(LEGACY_DOMAIN_ALIASES)) {
+    const canonicalOps = matrix[canonical];
+    if (!canonicalOps) continue;
+
+    const legacyOps: string[] = [];
+    for (const op of canonicalOps) {
+      if (prefix) {
+        // Only include operations that start with the prefix
+        if (op.startsWith(prefix)) {
+          legacyOps.push(op.slice(prefix.length));
+        }
+      } else {
+        // No prefix — all operations map directly
+        legacyOps.push(op);
+      }
+    }
+    if (legacyOps.length > 0) {
+      matrix[alias] = legacyOps;
+    }
+  }
+
+  return matrix;
+}
+
+/**
+ * Get all accepted domain names for a gateway (canonical + legacy aliases).
+ */
+export function getGatewayDomains(gateway: Gateway): string[] {
+  return Object.keys(deriveGatewayMatrix(gateway));
+}
 
 // ---------------------------------------------------------------------------
 // Lookup & Validation

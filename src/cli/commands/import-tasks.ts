@@ -4,7 +4,7 @@
  * @task T4551
  * @epic T4545
  */
-// TODO T4894: operation not yet in registry — no tasks.import dispatch route
+// CLI-only: no dispatch equivalent for cross-project task import
 
 import { Command } from 'commander';
 import { readFile, access } from 'node:fs/promises';

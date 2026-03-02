@@ -10,6 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Gateway, DispatchRequest, DispatchResponse } from '../types.js';
+import { LEGACY_DOMAIN_ALIASES } from '../registry.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createDomainHandlers } from '../domains/index.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
@@ -76,44 +77,26 @@ export function resetMcpDispatcher(): void {
 /**
  * Resolve legacy MCP domain names to canonical dispatch domain/operation.
  *
- * Legacy domain names (used by MCP gateway schemas) are translated to the
- * canonical 9-domain dispatch model:
+ * Uses LEGACY_DOMAIN_ALIASES from the registry as the single source of truth
+ * for domain alias mapping. Legacy domain names are translated to the
+ * canonical 10-domain dispatch model with operation prefix rewriting.
  *
- *   research   -> memory
- *   validate   -> check
- *   lifecycle  -> pipeline  (operations prefixed with stage.*)
- *   release    -> pipeline  (operations prefixed with release.*)
- *   skills     -> tools     (operations prefixed with skill.*)
- *   providers  -> tools     (operations prefixed with provider.*)
- *   issues     -> tools     (operations prefixed with issue.*)
- *   issue      -> tools     (operations prefixed with issue.*)
- *   system     -> admin
+ * Also handles the undocumented 'issue' (singular) alias for 'issues'.
  */
 function resolveDomainAlias(
   domain: string,
   operation: string,
 ): { domain: string; operation: string } {
-  switch (domain) {
-    case 'research':
-      return { domain: 'memory', operation };
-    case 'validate':
-      return { domain: 'check', operation };
-    case 'lifecycle':
-      return { domain: 'pipeline', operation: `stage.${operation}` };
-    case 'release':
-      return { domain: 'pipeline', operation: `release.${operation}` };
-    case 'skills':
-      return { domain: 'tools', operation: `skill.${operation}` };
-    case 'providers':
-      return { domain: 'tools', operation: `provider.${operation}` };
-    case 'issues':
-    case 'issue':
-      return { domain: 'tools', operation: `issue.${operation}` };
-    case 'system':
-      return { domain: 'admin', operation };
-    default:
-      return { domain, operation };
-  }
+  // Handle 'issue' (singular) as synonym for 'issues'
+  const normalizedDomain = domain === 'issue' ? 'issues' : domain;
+
+  const alias = LEGACY_DOMAIN_ALIASES[normalizedDomain];
+  if (!alias) return { domain, operation };
+
+  return {
+    domain: alias.canonical,
+    operation: alias.prefix ? `${alias.prefix}${operation}` : operation,
+  };
 }
 
 /**

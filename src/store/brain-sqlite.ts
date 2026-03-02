@@ -10,6 +10,7 @@
  */
 
 import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
 // by openNativeDatabase() in node-sqlite-adapter.ts via createRequire.
 import type { DatabaseSync } from 'node:sqlite';
@@ -24,6 +25,8 @@ import * as brainSchema from './brain-schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
 import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
 
+const _require = createRequire(import.meta.url);
+
 /** Database file name within .cleo/ directory. */
 const DB_FILENAME = 'brain.db';
 
@@ -36,6 +39,8 @@ let _nativeDb: DatabaseSync | null = null;
 let _dbPath: string | null = null;
 /** Guard against concurrent initialization (async migration). */
 let _initPromise: Promise<SqliteRemoteDatabase<typeof brainSchema>> | null = null;
+/** Whether sqlite-vec extension loaded successfully. */
+let _vecLoaded = false;
 
 /**
  * Get the path to the brain.db SQLite database file.
@@ -116,6 +121,48 @@ async function runBrainMigrations(
 }
 
 /**
+ * Load the sqlite-vec extension into a native DatabaseSync instance.
+ * Returns true if the extension loaded successfully, false otherwise.
+ *
+ * The extension enables vec0 virtual tables for vector similarity search.
+ * Requires the database to be opened with allowExtension: true.
+ *
+ * @task T5157
+ */
+function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
+  try {
+    const sqliteVec = _require('sqlite-vec') as { load: (db: DatabaseSync) => void };
+    sqliteVec.load(nativeDb);
+    return true;
+  } catch {
+    // sqlite-vec not available or failed to load — non-fatal
+    return false;
+  }
+}
+
+/**
+ * Create the vec0 virtual table for brain embeddings.
+ * Called after migrations complete and sqlite-vec extension is loaded.
+ *
+ * The vec0 table is not managed by Drizzle (virtual tables are not
+ * supported by drizzle-orm's SQLite schema). Created via raw SQL.
+ *
+ * @task T5157
+ */
+function initializeBrainVec(nativeDb: DatabaseSync): void {
+  nativeDb.prepare(
+    'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384])',
+  ).run();
+}
+
+/**
+ * Check whether the sqlite-vec extension is loaded for the current brain.db.
+ */
+export function isBrainVecLoaded(): boolean {
+  return _vecLoaded;
+}
+
+/**
  * Initialize the brain.db SQLite database (lazy, singleton).
  * Creates the database file and tables if they don't exist.
  * Returns the drizzle ORM instance (async via sqlite-proxy).
@@ -143,9 +190,14 @@ export async function getBrainDb(cwd?: string): Promise<SqliteRemoteDatabase<typ
     // Ensure directory exists
     mkdirSync(dirname(dbPath), { recursive: true });
 
-    // Open file-backed SQLite via node:sqlite with WAL mode
-    const nativeDb = openNativeDatabase(dbPath);
+    // Open file-backed SQLite via node:sqlite with WAL mode.
+    // allowExtension: true enables sqlite-vec extension loading.
+    const nativeDb = openNativeDatabase(dbPath, { allowExtension: true });
     _nativeDb = nativeDb;
+
+    // Load sqlite-vec extension for vector similarity search (T5157).
+    // Non-fatal if unavailable — vec0 tables simply won't be created.
+    _vecLoaded = loadBrainVecExtension(nativeDb);
 
     // Create drizzle ORM wrapper via sqlite-proxy
     const callback = createDrizzleCallback(nativeDb);
@@ -155,10 +207,16 @@ export async function getBrainDb(cwd?: string): Promise<SqliteRemoteDatabase<typ
     // Run drizzle migrations (creates/updates tables)
     await runBrainMigrations(nativeDb, db);
 
+    // Create vec0 virtual table for embeddings if extension is loaded (T5157).
+    // Must run after migrations so the schema is consistent.
+    if (_vecLoaded) {
+      initializeBrainVec(nativeDb);
+    }
+
     // Seed schema version for new databases (no-op if already set)
-    nativeDb.exec(
+    nativeDb.prepare(
       `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
-    );
+    ).run();
 
     // Set singleton only after migrations complete
     _db = db;
@@ -188,6 +246,7 @@ export function closeBrainDb(): void {
   }
   _db = null;
   _dbPath = null;
+  _vecLoaded = false;
 }
 
 /**
@@ -209,6 +268,7 @@ export function resetBrainDbState(): void {
   _db = null;
   _dbPath = null;
   _initPromise = null;
+  _vecLoaded = false;
 }
 
 /**

@@ -33,26 +33,28 @@ describe('Query Gateway', () => {
     it('should have 17 query domains (10 canonical + 7 legacy)', () => {
       const domains = getQueryDomains();
       expect(domains).toHaveLength(17);
+      // Derived from registry — order follows OPERATIONS definition order
+      // for canonical domains, then LEGACY_DOMAIN_ALIASES iteration order
       expect(domains).toEqual([
-        // Canonical domains
+        // Canonical domains (order from OPERATIONS array)
         'tasks',
         'session',
         'orchestrate',
         'memory',
-        'check',
         'pipeline',
+        'check',
         'admin',
         'tools',
         'sharing',
         'nexus',
-        // Legacy aliases (backward compat)
+        // Legacy aliases (order from LEGACY_DOMAIN_ALIASES)
         'research',
-        'lifecycle',
         'validate',
+        'lifecycle',
         'system',
-        'issues',
         'skills',
         'providers',
+        'issues',
       ]);
     });
 
@@ -63,8 +65,8 @@ describe('Query Gateway', () => {
   });
 
   describe('Domain Operation Counts', () => {
-    it('tasks domain should have 13 operations', () => {
-      expect(getQueryOperationCount('tasks')).toBe(13);
+    it('tasks domain should have 15 operations', () => {
+      expect(getQueryOperationCount('tasks')).toBe(15);
     });
 
     it('session domain should have 11 operations', () => {
@@ -75,20 +77,20 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('orchestrate')).toBe(9);
     });
 
-    it('research domain should have 8 operations', () => {
-      expect(getQueryOperationCount('research')).toBe(8);
+    it('research domain should have all memory operations (derived, no prefix filter)', () => {
+      expect(getQueryOperationCount('research')).toBe(getQueryOperationCount('memory'));
     });
 
     it('lifecycle domain should have 5 operations', () => {
       expect(getQueryOperationCount('lifecycle')).toBe(5);
     });
 
-    it('validate domain should have 10 operations', () => {
-      expect(getQueryOperationCount('validate')).toBe(10);
+    it('validate domain should have all check operations (derived, no prefix filter)', () => {
+      expect(getQueryOperationCount('validate')).toBe(getQueryOperationCount('check'));
     });
 
-    it('system domain should have 11 operations (includes config.show + config.get alias)', () => {
-      expect(getQueryOperationCount('system')).toBe(11);
+    it('system domain should have all admin operations (derived, no prefix filter)', () => {
+      expect(getQueryOperationCount('system')).toBe(getQueryOperationCount('admin'));
     });
   });
 
@@ -163,7 +165,6 @@ describe('Query Gateway', () => {
     it('should have all query domains in enum', () => {
       const tool = registerQueryTool();
       const enumValues = tool.inputSchema.properties.domain.enum;
-      expect(enumValues).toHaveLength(17);
       expect(enumValues).toEqual(getQueryDomains());
     });
 
@@ -193,7 +194,7 @@ describe('Query Gateway', () => {
 
     it('should return all operations for domain', () => {
       const tasksOps = getQueryOperations('tasks');
-      expect(tasksOps).toHaveLength(13);
+      expect(tasksOps).toHaveLength(15);
       expect(tasksOps).toContain('show');
       expect(tasksOps).toContain('list');
       expect(tasksOps).toContain('find');

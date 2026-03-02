@@ -2,7 +2,7 @@
  * CLI import command - import tasks from export package.
  * @task T4454
  */
-// TODO T4894: operation not yet in registry — no admin.import or tasks.import dispatch route
+// CLI-only: no dispatch equivalent for data import
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
