@@ -24,10 +24,10 @@ This document is normative. Roadmap documents define sequencing. Capability docu
 Authority order for product truth:
 
 1. `docs/concepts/vision.md` (immutable vision identity)
-2. `docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md` (normative product contract)
+2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (normative product contract)
 3. `README.md` (operational public contract)
-4. `docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` (phase and gate execution plan)
-5. `docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md` (detailed capability target model)
+4. `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` (phase and gate execution plan)
+5. `docs/specs/CLEO-BRAIN-SPECIFICATION.md` (detailed capability target model)
 
 If conflicts occur, higher authority prevails.
 
@@ -155,8 +155,8 @@ Documentation and implementation MUST use the same canonical terms for:
 - `docs/concepts/vision.md`
 - `README.md`
 - `docs/mintlify/specs/CLEO-CANONICAL-PLAN-SPEC.md` (canonical strategy and decisions)
-- `docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`
-- `docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md`
-- `docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md`
+- `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`
+- `docs/specs/CLEO-BRAIN-SPECIFICATION.md`
+- `docs/specs/MCP-SERVER-SPECIFICATION.md`
 - `.cleo/agent-outputs/T4565-T4566-architecture-validation-report.md` (shared-core compliance audit, historical)
 - `.cleo/agent-outputs/T4557-documentation-audit-report.md` (documentation inventory)

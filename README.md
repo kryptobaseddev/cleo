@@ -142,7 +142,7 @@ Or if installed globally (`npm install -g @cleocode/cleo`):
 
 Supports: Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex
 
-- Canonical MCP contract: [`docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md`](docs/mintlify/specs/MCP-SERVER-SPECIFICATION.md)
+- Canonical MCP contract: [`docs/specs/MCP-SERVER-SPECIFICATION.md`](docs/specs/MCP-SERVER-SPECIFICATION.md)
 - MCP source: [`src/mcp/`](src/mcp/) (gateways, domains, engine)
 - Operation matrix: `src/mcp/gateways/query.ts` and `src/mcp/gateways/mutate.ts`
 
@@ -167,10 +167,10 @@ cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": ".
 ### Source of Truth Hierarchy
 
 1. [`docs/concepts/vision.md`](docs/concepts/vision.md) - immutable product vision
-2. [`docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md`](docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
+2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
 3. [`README.md`](README.md) - operational public contract
-4. [`docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
-5. [`docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/mintlify/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
+4. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
+5. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
 
 ---
 

@@ -27,27 +27,29 @@ describe('MUTATE_OPERATIONS', () => {
 
   it('should have all 18 domains (10 canonical + 8 legacy)', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
+    // Derived from registry — order follows OPERATIONS definition order
+    // for canonical domains, then LEGACY_DOMAIN_ALIASES iteration order
     expect(domains).toEqual([
-      // Canonical domains
+      // Canonical domains (order from OPERATIONS array)
       'tasks',
       'session',
       'orchestrate',
       'memory',
-      'check',
       'pipeline',
+      'check',
       'admin',
       'tools',
       'sharing',
       'nexus',
-      // Legacy aliases (backward compat)
+      // Legacy aliases (order from LEGACY_DOMAIN_ALIASES)
       'research',
-      'lifecycle',
       'validate',
+      'lifecycle',
       'release',
       'system',
-      'issues',
       'skills',
       'providers',
+      'issues',
     ]);
   });
 
@@ -61,13 +63,15 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(12);
     expect(MUTATE_OPERATIONS.admin.length).toBe(15);
     expect(MUTATE_OPERATIONS.tools.length).toBe(14);
-    // Legacy aliases
-    expect(MUTATE_OPERATIONS.research.length).toBe(4);
+    // Legacy aliases (derived from canonical — may include more ops than
+    // the old hand-maintained lists due to no-prefix aliases getting
+    // all canonical ops and prefix aliases getting new ops added to canonical)
+    expect(MUTATE_OPERATIONS.research.length).toBe(MUTATE_OPERATIONS.memory.length);
     expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
-    expect(MUTATE_OPERATIONS.validate.length).toBe(2);
+    expect(MUTATE_OPERATIONS.validate.length).toBe(MUTATE_OPERATIONS.check.length);
     expect(MUTATE_OPERATIONS.release.length).toBe(7);
-    expect(MUTATE_OPERATIONS.system.length).toBe(10);
-    expect(MUTATE_OPERATIONS.issues.length).toBe(6);
+    expect(MUTATE_OPERATIONS.system.length).toBe(MUTATE_OPERATIONS.admin.length);
+    expect(MUTATE_OPERATIONS.issues.length).toBe(7);
     expect(MUTATE_OPERATIONS.skills.length).toBe(6);
     expect(MUTATE_OPERATIONS.providers.length).toBe(1);
   });
@@ -515,13 +519,13 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('pipeline')).toBe(12);
     expect(getMutateOperationCount('admin')).toBe(15);
     expect(getMutateOperationCount('tools')).toBe(14);
-    // Legacy aliases
-    expect(getMutateOperationCount('research')).toBe(4);
+    // Legacy aliases (derived — no-prefix aliases equal canonical)
+    expect(getMutateOperationCount('research')).toBe(getMutateOperationCount('memory'));
     expect(getMutateOperationCount('lifecycle')).toBe(5);
-    expect(getMutateOperationCount('validate')).toBe(2);
+    expect(getMutateOperationCount('validate')).toBe(getMutateOperationCount('check'));
     expect(getMutateOperationCount('release')).toBe(7);
-    expect(getMutateOperationCount('system')).toBe(10);
-    expect(getMutateOperationCount('issues')).toBe(6);
+    expect(getMutateOperationCount('system')).toBe(getMutateOperationCount('admin'));
+    expect(getMutateOperationCount('issues')).toBe(7);
     expect(getMutateOperationCount('skills')).toBe(6);
     expect(getMutateOperationCount('providers')).toBe(1);
   });
@@ -547,28 +551,8 @@ describe('isMutateOperation', () => {
 describe('getMutateDomains', () => {
   it('should return all mutate domains', () => {
     const domains = getMutateDomains();
-    expect(domains).toEqual([
-      // Canonical domains
-      'tasks',
-      'session',
-      'orchestrate',
-      'memory',
-      'check',
-      'pipeline',
-      'admin',
-      'tools',
-      'sharing',
-      'nexus',
-      // Legacy aliases (backward compat)
-      'research',
-      'lifecycle',
-      'validate',
-      'release',
-      'system',
-      'issues',
-      'skills',
-      'providers',
-    ]);
+    expect(domains).toHaveLength(18); // 10 canonical + 8 legacy
+    expect(domains).toEqual(Object.keys(MUTATE_OPERATIONS));
   });
 });
 
@@ -594,27 +578,8 @@ describe('registerMutateTool', () => {
     expect(tool.description).toContain('write operations');
     expect(tool.inputSchema.type).toBe('object');
     expect(tool.inputSchema.required).toEqual(['domain', 'operation']);
-    expect(tool.inputSchema.properties.domain.enum).toEqual([
-      // Canonical domains
-      'tasks',
-      'session',
-      'orchestrate',
-      'memory',
-      'check',
-      'pipeline',
-      'admin',
-      'tools',
-      'sharing',
-      'nexus',
-      // Legacy aliases (backward compat)
-      'research',
-      'lifecycle',
-      'validate',
-      'release',
-      'system',
-      'issues',
-      'skills',
-      'providers',
-    ]);
+    expect(tool.inputSchema.properties.domain.enum).toEqual(
+      Object.keys(MUTATE_OPERATIONS),
+    );
   });
 });
