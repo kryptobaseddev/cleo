@@ -965,8 +965,7 @@ cleo upgrade
 
 **Agent Registry:**
 - Auto-discovers installed agents in `~/.claude/agents/`
-- Uses `templates/AGENT-INJECTION.md` for project injections
-- Uses `templates/CLEO-INJECTION.md` for global agent configs
+- Uses `templates/CLEO-INJECTION.md` for global agent injection
 - Full list: `cat ~/.cleo/registries/agent-registry.json`
 
 ### Claude Code Plugin (Optional)
@@ -986,7 +985,6 @@ cleo init --with-plugin
 **Documentation:**
 - Plugin architecture: [.claude-plugin/README.md](.claude-plugin/README.md)
 - Global injection: [templates/CLEO-INJECTION.md](templates/CLEO-INJECTION.md)
-- Project injection: [templates/AGENT-INJECTION.md](templates/AGENT-INJECTION.md)
 
 ### TodoWrite Sync
 

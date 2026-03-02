@@ -2,9 +2,6 @@
 @AGENTS.md
 <!-- CAAMP:END -->
 
-<!-- CLEO:START -->
-@.cleo/templates/AGENT-INJECTION.md
-<!-- CLEO:END -->
 # CLEO Project Development Guide
 
 For comprehensive repository guidelines, see @CLAUDE.md for:

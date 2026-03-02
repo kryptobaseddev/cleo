@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -15,6 +15,7 @@ import {
   completeStage,
   skipStage,
   checkGate,
+  recordStageProgress,
 } from '../index.js';
 
 let testDir: string;
@@ -29,9 +30,14 @@ beforeEach(async () => {
   process.env['CLEO_DIR'] = cleoDir;
   // Disable lifecycle enforcement for tests by default
   process.env['LIFECYCLE_ENFORCEMENT_MODE'] = 'off';
+  // Reset SQLite singleton so each test gets a fresh DB in the temp dir
+  const { closeDb } = await import('../../../store/sqlite.js');
+  closeDb();
 });
 
 afterEach(async () => {
+  const { closeDb } = await import('../../../store/sqlite.js');
+  closeDb();
   delete process.env['CLEO_DIR'];
   delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
   await rm(testDir, { recursive: true, force: true });
@@ -46,50 +52,16 @@ describe('getLifecycleState', () => {
   });
 
   it('reads existing manifest', async () => {
-    const manifest = {
-      epicId: 'T001',
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-01T00:00:00Z',
-      stages: {
-        research: { status: 'completed', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-02T00:00:00Z' },
-        consensus: { status: 'not_started' },
-        specification: { status: 'not_started' },
-        decomposition: { status: 'not_started' },
-        implementation: { status: 'not_started' },
-        contribution: { status: 'not_started' },
-        release: { status: 'not_started' },
-      },
-    };
-    await writeFile(
-      join(cleoDir, 'rcasd', 'T001', '_manifest.json'),
-      JSON.stringify(manifest),
-    );
+    // getLifecycleState is SQLite-native; seed state via recordStageProgress
+    await recordStageProgress('T001', 'research', 'completed');
     const state = await getLifecycleState('T001');
     expect(state.stages.research.status).toBe('completed');
   });
 
   it('reads existing manifest from RCASD directory when present', async () => {
     await mkdir(join(cleoDir, 'rcasd', 'T002'), { recursive: true });
-    const manifest = {
-      epicId: 'T002',
-      stages: {
-        research: { status: 'completed' },
-        consensus: { status: 'not_started' },
-        architecture_decision: { status: 'not_started' },
-        specification: { status: 'not_started' },
-        decomposition: { status: 'not_started' },
-        implementation: { status: 'not_started' },
-        validation: { status: 'not_started' },
-        testing: { status: 'not_started' },
-        release: { status: 'not_started' },
-      },
-    };
-
-    await writeFile(
-      join(cleoDir, 'rcasd', 'T002', '_manifest.json'),
-      JSON.stringify(manifest),
-    );
-
+    // getLifecycleState is SQLite-native; seed state via recordStageProgress
+    await recordStageProgress('T002', 'research', 'completed');
     const state = await getLifecycleState('T002');
     expect(state.stages.research.status).toBe('completed');
   });
@@ -169,9 +141,11 @@ describe('checkGate', () => {
 
 describe('listEpicsWithLifecycle', () => {
   it('includes epics from both RCASD and RCSD directories', async () => {
-    await mkdir(join(cleoDir, 'rcasd', 'T010'), { recursive: true });
-    await mkdir(join(cleoDir, 'rcasd', 'T011'), { recursive: true });
-    await mkdir(join(cleoDir, 'rcasd', 'T010'), { recursive: true });
+    // Initialize lifecycle pipeline records in SQLite (SQLite-native approach)
+    // Must record a stage to create the pipeline entry; fresh DB has no records yet
+    await recordStageProgress('T001', 'research', 'not_started');
+    await recordStageProgress('T010', 'research', 'not_started');
+    await recordStageProgress('T011', 'research', 'not_started');
 
     const epics = await listEpicsWithLifecycle();
     expect(epics).toEqual(['T001', 'T010', 'T011']);

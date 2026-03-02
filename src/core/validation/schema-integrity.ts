@@ -12,10 +12,10 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { getCleoDirAbsolute } from '../paths.js';
 import { checkSchema } from '../schema.js';
+import { resolveSchemaPath, getSchemaVersion } from '../schema-management.js';
 
 // ============================================================================
 // Types
@@ -93,42 +93,12 @@ const INTEGRITY_TARGETS: IntegrityTarget[] = [
 // ============================================================================
 
 /**
- * Resolve the absolute path to a schema file at runtime.
- * Searches relative to this compiled file's location so it works in both
- * development (src/) and production (dist/) trees.
- */
-function resolveSchemaPath(schemaName: string): string | null {
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    // dist/core/validation/ → schemas/
-    join(__dirname, '..', '..', '..', 'schemas', schemaName),
-    // src/core/validation/ → schemas/ (ts-node / vitest)
-    join(__dirname, '..', '..', 'schemas', schemaName),
-    // fallback: look relative to cwd
-    join(process.cwd(), 'schemas', schemaName),
-  ];
-  return candidates.find(existsSync) ?? null;
-}
-
-/**
  * Read the top-level `schemaVersion` field from a schema file.
+ * Delegates to the centralized schema-management module.
  * Returns null if the file cannot be read or has no such field.
  */
 export function readSchemaVersionFromFile(schemaName: string): string | null {
-  const path = resolveSchemaPath(schemaName);
-  if (!path) return null;
-  return readSchemaVersion(path);
-}
-
-function readSchemaVersion(schemaPath: string): string | null {
-  try {
-    const raw = readFileSync(schemaPath, 'utf-8');
-    const schema = JSON.parse(raw) as Record<string, unknown>;
-    const version = schema['schemaVersion'] ?? schema['_meta']?.['schemaVersion' as never];
-    return typeof version === 'string' ? version : null;
-  } catch {
-    return null;
-  }
+  return getSchemaVersion(schemaName);
 }
 
 // ============================================================================
@@ -196,7 +166,7 @@ function checkFile(target: IntegrityTarget, cleoDir: string): JsonFileIntegrityR
 
   // Version comparison
   const dataVersion = data[target.versionKey];
-  const expectedVersion = readSchemaVersion(schemaPath);
+  const expectedVersion = getSchemaVersion(target.schemaName);
 
   const dataVersionStr = typeof dataVersion === 'string' ? dataVersion : undefined;
   const result: JsonFileIntegrityResult = {

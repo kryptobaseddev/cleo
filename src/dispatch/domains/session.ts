@@ -36,6 +36,7 @@ import {
   sessionComputeDebrief,
   sessionDebriefShow,
   sessionChainShow,
+  sessionFind,
 } from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,16 @@ export class SessionHandler implements DomainHandler {
             return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
           }
           const result = await sessionChainShow(this.projectRoot, chainSessionId);
+          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+        }
+
+        case 'find': {
+          const result = await sessionFind(this.projectRoot, params as {
+            status?: string;
+            scope?: string;
+            query?: string;
+            limit?: number;
+          });
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -287,7 +298,7 @@ export class SessionHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'history', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show', 'debrief.show', 'chain.show'],
+      query: ['status', 'list', 'show', 'find', 'history', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show', 'debrief.show', 'chain.show'],
       mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
     };
   }
@@ -297,7 +308,7 @@ export class SessionHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
     gateway: string,
     domain: string,
     operation: string,
@@ -307,7 +318,15 @@ export class SessionHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
-      ...(result.error ? { error: { code: result.error.code, message: result.error.message, details: result.error.details as Record<string, unknown> | undefined } } : {}),
+      ...(result.error ? {
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          details: result.error.details as Record<string, unknown> | undefined,
+          fix: result.error.fix,
+          alternatives: result.error.alternatives,
+        }
+      } : {}),
     };
   }
 

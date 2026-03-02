@@ -399,7 +399,7 @@ export class TasksHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; exitCode?: number } },
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; exitCode?: number; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
     gateway: string,
     domain: string,
     operation: string,
@@ -409,7 +409,16 @@ export class TasksHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
-      ...(result.error ? { error: { code: result.error.code, message: result.error.message, exitCode: result.error.exitCode, details: result.error.details as Record<string, unknown> | undefined } } : {}),
+      ...(result.error ? {
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          exitCode: result.error.exitCode,
+          details: result.error.details as Record<string, unknown> | undefined,
+          fix: result.error.fix,
+          alternatives: result.error.alternatives,
+        }
+      } : {}),
     };
   }
 

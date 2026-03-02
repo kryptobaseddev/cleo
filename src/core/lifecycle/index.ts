@@ -3,10 +3,9 @@
  *
  * CANONICAL EXPORTS: `stages.ts` is the single source of truth for stage
  * definitions, ordering, prerequisites, and transition rules. This file
- * re-exports canonical types and provides JSON manifest I/O for on-disk
- * `.cleo/rcasd/<epicId>/_manifest.json` (canonical) and legacy
- * `.cleo/rcasd/<epicId>/_manifest.json` files (canonical) and legacy
- * `.cleo/rcsd/<epicId>/_manifest.json` files.
+ * re-exports canonical types and provides SQLite-native lifecycle operations
+ * backed by `lifecycle_pipelines`, `lifecycle_stages`, and
+ * `lifecycle_gate_results` tables.
  *
  * @task T4467
  * @task T4800 - Unified lifecycle barrel export
@@ -14,14 +13,19 @@
  * @epic T4454
  */
 
-import { readJson, saveJson } from '../../store/json.js';
+import { readJson } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { getCleoDirAbsolute, getBackupDir } from '../paths.js';
+import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { join } from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
 import { LIFECYCLE_STAGE_STATUSES } from '../../store/schema.js';
-import { syncManifestToDb, syncGateToDb } from './sync.js';
+import { getDb } from '../../store/sqlite.js';
+import * as schema from '../../store/schema.js';
+import { eq } from 'drizzle-orm';
+import { ensureStageArtifact } from './stage-artifacts.js';
+import { linkProvenance } from './evidence.js';
+import { syncAdrsToDb } from '../adrs/sync.js';
+import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 
 // =============================================================================
 // CANONICAL RE-EXPORTS from stages.ts (single source of truth)
@@ -62,7 +66,7 @@ export {
   getSkippableStages,
 } from './stages.js';
 
-import { PIPELINE_STAGES } from './stages.js';
+import { PIPELINE_STAGES, STAGE_ORDER, STAGE_DEFINITIONS, STAGE_PREREQUISITES, isValidStage } from './stages.js';
 import type { Stage } from './stages.js';
 
 // =============================================================================
@@ -93,9 +97,9 @@ export interface ManifestStageData {
 }
 
 /**
- * Canonical RCASD manifest interface for on-disk pipeline data.
- * Used by lifecycle-engine.ts and rcasd-index.ts for `.cleo/rcasd/` manifests
- * with fallback support for legacy `.cleo/rcsd/` manifests.
+ * Canonical RCASD manifest-shaped interface for compatibility payloads.
+ * Lifecycle persistence is SQLite-native; this shape is used for API
+ * responses that present stage+gate state in a manifest-like structure.
  *
  * Stage keys use full canonical names matching the DB CHECK constraint:
  * research, consensus, architecture_decision, specification, decomposition,
@@ -128,78 +132,8 @@ export interface StageTransitionResult {
 }
 
 // =============================================================================
-// ON-DISK MANIFEST I/O (.cleo/rcasd/ + legacy .cleo/rcsd/ JSON files)
+// LIFECYCLE DATA DISCOVERY
 // =============================================================================
-
-const LIFECYCLE_DATA_DIRS = ['rcasd', 'rcsd'] as const;
-const DEFAULT_LIFECYCLE_DATA_DIR = 'rcasd' as const;
-
-function getManifestReadPath(epicId: string, cwd?: string): string | null {
-  const cleoDir = getCleoDirAbsolute(cwd);
-  for (const dirName of LIFECYCLE_DATA_DIRS) {
-    const path = join(cleoDir, dirName, epicId, '_manifest.json');
-    if (existsSync(path)) {
-      return path;
-    }
-  }
-  return null;
-}
-
-function getManifestWritePath(epicId: string, cwd?: string): string {
-  const cleoDir = getCleoDirAbsolute(cwd);
-  for (const dirName of LIFECYCLE_DATA_DIRS) {
-    if (existsSync(join(cleoDir, dirName, epicId))) {
-      return join(cleoDir, dirName, epicId, '_manifest.json');
-    }
-  }
-  return join(cleoDir, DEFAULT_LIFECYCLE_DATA_DIR, epicId, '_manifest.json');
-}
-
-/**
- * Get lifecycle manifest path for an epic.
- * @task T4467
- */
-function getRcsdPath(epicId: string, cwd?: string): string {
-  return getManifestWritePath(epicId, cwd);
-}
-
-/**
- * Read or initialize lifecycle manifest for an epic.
- * On-disk manifests use full-form stage names (matching DB schema).
- * @task T4467
- */
-async function readRcsdManifest(epicId: string, cwd?: string): Promise<RcasdManifest> {
-  const path = getManifestReadPath(epicId, cwd) ?? getRcsdPath(epicId, cwd);
-  const existing = await readJson<RcasdManifest>(path);
-  if (existing) return existing;
-
-  // Initialize new manifest with all 9 pipeline stages
-  const stages: RcasdManifest['stages'] = {};
-
-  for (const stage of PIPELINE_STAGES) {
-    stages[stage] = { status: 'not_started' };
-  }
-
-  return {
-    epicId,
-    stages,
-  };
-}
-
-/**
- * Save lifecycle manifest.
- * @task T4467
- */
-async function saveRcsdManifest(manifest: RcasdManifest, cwd?: string): Promise<void> {
-  const path = getRcsdPath(manifest.epicId, cwd);
-  await saveJson(path, manifest, { backupDir: getBackupDir(cwd) });
-  // Dual-write: mirror to SQLite (best-effort)
-  try {
-    await syncManifestToDb(manifest.epicId, cwd);
-  } catch (err) {
-    console.warn(`[lifecycle] SQLite sync failed for ${manifest.epicId}: ${err}`);
-  }
-}
 
 /**
  * Get the current lifecycle state for an epic.
@@ -209,7 +143,20 @@ export async function getLifecycleState(
   epicId: string,
   cwd?: string,
 ): Promise<RcasdManifest> {
-  return readRcsdManifest(epicId, cwd);
+  const status = await getLifecycleStatus(epicId, cwd);
+  const gates = await getLifecycleGates(epicId, cwd);
+
+  const stages: Record<string, ManifestStageData> = {};
+  for (const stage of status.stages) {
+    stages[stage.stage] = {
+      status: stage.status as ManifestStageData['status'],
+      completedAt: stage.completedAt,
+      notes: stage.notes,
+      gates: gates[stage.stage],
+    };
+  }
+
+  return { epicId, title: status.title, stages };
 }
 
 /**
@@ -221,8 +168,6 @@ export async function startStage(
   stage: string,
   cwd?: string,
 ): Promise<StageTransitionResult> {
-  const manifest = await readRcsdManifest(epicId, cwd);
-
   // Gate check
   const gateResult = await checkGate(epicId, stage, cwd);
   if (!gateResult.allowed) {
@@ -232,12 +177,12 @@ export async function startStage(
     );
   }
 
-  const stageData = manifest.stages[stage];
-  if (!stageData) {
+  if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${stage}`);
   }
 
-  const previousStatus = stageData.status;
+  const current = await getLifecycleStatus(epicId, cwd);
+  const previousStatus = current.stages.find(s => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
       ExitCode.LIFECYCLE_TRANSITION_INVALID,
@@ -245,17 +190,14 @@ export async function startStage(
     );
   }
 
-  const now = new Date().toISOString();
-  stageData.status = 'completed';
-
-  await saveRcsdManifest(manifest, cwd);
+  const result = await recordStageProgress(epicId, stage, 'completed', undefined, cwd);
 
   return {
     epicId,
     stage,
     previousStatus,
     newStatus: 'completed',
-    timestamp: now,
+    timestamp: result.timestamp,
   };
 }
 
@@ -269,14 +211,12 @@ export async function completeStage(
   artifacts?: string[],
   cwd?: string,
 ): Promise<StageTransitionResult> {
-  const manifest = await readRcsdManifest(epicId, cwd);
-  const stageData = manifest.stages[stage];
-
-  if (!stageData) {
+  if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${stage}`);
   }
 
-  const previousStatus = stageData.status;
+  const current = await getLifecycleStatus(epicId, cwd);
+  const previousStatus = current.stages.find(s => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
       ExitCode.LIFECYCLE_TRANSITION_INVALID,
@@ -284,21 +224,15 @@ export async function completeStage(
     );
   }
 
-  const now = new Date().toISOString();
-  stageData.status = 'completed';
-  stageData.completedAt = now;
-  if (artifacts?.length) {
-    stageData.artifacts = artifacts;
-  }
-
-  await saveRcsdManifest(manifest, cwd);
+  const notes = artifacts?.length ? `Artifacts: ${artifacts.join(', ')}` : undefined;
+  const result = await recordStageProgress(epicId, stage, 'completed', notes, cwd);
 
   return {
     epicId,
     stage,
     previousStatus,
     newStatus: 'completed',
-    timestamp: now,
+    timestamp: result.timestamp,
   };
 }
 
@@ -309,17 +243,15 @@ export async function completeStage(
 export async function skipStage(
   epicId: string,
   stage: string,
-  _reason: string,
+  reason: string,
   cwd?: string,
 ): Promise<StageTransitionResult> {
-  const manifest = await readRcsdManifest(epicId, cwd);
-  const stageData = manifest.stages[stage];
-
-  if (!stageData) {
+  if (!PIPELINE_STAGES.includes(stage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${stage}`);
   }
 
-  const previousStatus = stageData.status;
+  const current = await getLifecycleStatus(epicId, cwd);
+  const previousStatus = current.stages.find(s => s.stage === stage)?.status ?? 'not_started';
   if (previousStatus === 'completed') {
     throw new CleoError(
       ExitCode.LIFECYCLE_TRANSITION_INVALID,
@@ -327,17 +259,14 @@ export async function skipStage(
     );
   }
 
-  const now = new Date().toISOString();
-  stageData.status = 'skipped';
-
-  await saveRcsdManifest(manifest, cwd);
+  const result = await recordStageProgress(epicId, stage, 'skipped', reason, cwd);
 
   return {
     epicId,
     stage,
     previousStatus,
     newStatus: 'skipped',
-    timestamp: now,
+    timestamp: result.timestamp,
   };
 }
 
@@ -363,22 +292,12 @@ export async function checkGate(
     };
   }
 
-  const manifest = await readRcsdManifest(epicId, cwd);
-  const targetIndex = PIPELINE_STAGES.indexOf(targetStage as Stage);
-
-  if (targetIndex === -1) {
+  if (!PIPELINE_STAGES.includes(targetStage as Stage)) {
     throw new CleoError(ExitCode.INVALID_INPUT, `Unknown stage: ${targetStage}`);
   }
 
-  // Check all prior stages are completed or skipped
-  const missing: string[] = [];
-  for (let i = 0; i < targetIndex; i++) {
-    const stage = PIPELINE_STAGES[i]!;
-    const status = manifest.stages[stage]?.status ?? 'not_started';
-    if (status !== 'completed' && status !== 'skipped') {
-      missing.push(stage);
-    }
-  }
+  const prereqResult = await checkStagePrerequisites(epicId, targetStage, cwd);
+  const missing = prereqResult.missingPrerequisites;
 
   const allowed = mode === 'advisory' || missing.length === 0;
   const message = missing.length > 0
@@ -420,41 +339,10 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
   return 'strict';
 }
 
-// ============================================================================
-// ENGINE-COMPATIBLE LIFECYCLE STATUS (reads on-disk manifests)
-// ============================================================================
-
 /**
- * Read engine-compatible RCASD manifest (returns null if no data exists).
- * @task T4785
- */
-async function readEngineManifest(epicId: string, cwd?: string): Promise<RcasdManifest | null> {
-  const path = getManifestReadPath(epicId, cwd);
-  if (!path) {
-    return null;
-  }
-  return readJson<RcasdManifest>(path);
-}
-
-/**
- * Save engine-compatible RCASD manifest.
- * @task T4785
- */
-async function saveEngineManifest(epicId: string, manifest: RcasdManifest, cwd?: string): Promise<void> {
-  const path = getManifestWritePath(epicId, cwd);
-  await saveJson(path, manifest, { backupDir: getBackupDir(cwd) });
-  // Dual-write: mirror to SQLite (best-effort)
-  try {
-    await syncManifestToDb(epicId, cwd);
-  } catch (err) {
-    console.warn(`[lifecycle] SQLite sync failed for ${epicId}: ${err}`);
-  }
-}
-
-/**
- * Get lifecycle status for an epic (on-disk manifest format).
+ * Get lifecycle status for an epic from SQLite.
  * Returns stage progress, current/next stage, and blockers.
- * @task T4785
+ * @task T4801 - SQLite-native implementation
  */
 export async function getLifecycleStatus(
   epicId: string,
@@ -463,14 +351,33 @@ export async function getLifecycleStatus(
   epicId: string;
   title?: string;
   currentStage: Stage | null;
-  stages: Array<{ stage: string; status: string; completedAt?: string; notes?: string }>;
+  stages: Array<{
+    stage: string;
+    status: string;
+    completedAt?: string;
+    notes?: string;
+    outputFile?: string;
+    provenanceChain?: Record<string, unknown>;
+  }>;
   nextStage: Stage | null;
   blockedOn: string[];
   initialized: boolean;
 }> {
-  const manifest = await readEngineManifest(epicId, cwd);
+  const db = await getDb(cwd);
 
-  if (!manifest) {
+  // Query pipeline and task for this epic
+  const pipelineResult = await db
+    .select({
+      pipeline: schema.lifecyclePipelines,
+      task: schema.tasks,
+    })
+    .from(schema.lifecyclePipelines)
+    .innerJoin(schema.tasks, eq(schema.lifecyclePipelines.taskId, schema.tasks.id))
+    .where(eq(schema.lifecyclePipelines.taskId, epicId))
+    .limit(1);
+
+  // If no pipeline exists, return uninitialized status with default stages
+  if (pipelineResult.length === 0) {
     return {
       epicId,
       currentStage: null,
@@ -481,23 +388,67 @@ export async function getLifecycleStatus(
     };
   }
 
+  const task = pipelineResult[0].task;
+
+  // Query all stages for this pipeline
+  const pipelineId = `pipeline-${epicId}`;
+  const stageRows = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(eq(schema.lifecycleStages.pipelineId, pipelineId))
+    .orderBy(schema.lifecycleStages.sequence);
+
+  // Build a lookup map of stage data from DB
+  const stageDataMap = new Map<
+    string,
+    {
+      status: string;
+      completedAt?: string;
+      notes?: string;
+      outputFile?: string;
+      provenanceChain?: Record<string, unknown>;
+    }
+  >();
+  for (const row of stageRows) {
+    let parsedChain: Record<string, unknown> | undefined;
+    if (row.provenanceChainJson) {
+      try {
+        parsedChain = JSON.parse(row.provenanceChainJson) as Record<string, unknown>;
+      } catch {
+        parsedChain = undefined;
+      }
+    }
+
+    stageDataMap.set(row.stageName, {
+      status: row.status,
+      completedAt: row.completedAt ?? undefined,
+      notes: row.notesJson ? JSON.parse(row.notesJson)[0] : undefined,
+      outputFile: row.outputFile ?? undefined,
+      provenanceChain: parsedChain,
+    });
+  }
+
+  // Build stages array in PIPELINE_STAGES order
   const stages = PIPELINE_STAGES.map(s => {
-    const stageData = manifest.stages[s];
+    const data = stageDataMap.get(s);
     return {
       stage: s,
-      status: stageData?.status || 'not_started',
-      completedAt: stageData?.completedAt,
-      notes: stageData?.notes,
+      status: data?.status || 'not_started',
+      completedAt: data?.completedAt,
+      notes: data?.notes,
+      outputFile: data?.outputFile,
+      provenanceChain: data?.provenanceChain,
     };
   });
 
+  // Calculate currentStage and nextStage
   let currentStage: Stage | null = null;
   let nextStage: Stage | null = null;
 
   for (let i = PIPELINE_STAGES.length - 1; i >= 0; i--) {
     const s = PIPELINE_STAGES[i];
-    const status = manifest.stages[s]?.status;
-    if (status === 'completed' || status === 'skipped') {
+    const data = stageDataMap.get(s);
+    if (data?.status === 'completed' || data?.status === 'skipped') {
       currentStage = s;
       if (i < PIPELINE_STAGES.length - 1) {
         nextStage = PIPELINE_STAGES[i + 1];
@@ -510,12 +461,13 @@ export async function getLifecycleStatus(
     nextStage = 'research';
   }
 
+  // Calculate blockedOn based on prerequisites
   const blockedOn: string[] = [];
   if (nextStage) {
-    const { STAGE_PREREQUISITES: prereqMap } = await import('./stages.js');
-    const prereqs = prereqMap[nextStage] || [];
+    const prereqs = STAGE_PREREQUISITES[nextStage] || [];
     for (const prereq of prereqs) {
-      const prereqStatus = manifest.stages[prereq]?.status;
+      const prereqData = stageDataMap.get(prereq);
+      const prereqStatus = prereqData?.status;
       if (prereqStatus !== 'completed' && prereqStatus !== 'skipped') {
         blockedOn.push(prereq);
       }
@@ -524,7 +476,7 @@ export async function getLifecycleStatus(
 
   return {
     epicId,
-    title: manifest.title,
+    title: task.title,
     currentStage,
     stages,
     nextStage,
@@ -544,52 +496,102 @@ export interface LifecycleHistoryEntry {
 /**
  * Get lifecycle history for an epic.
  * Returns stage transitions and gate events sorted by timestamp.
+ * SQLite-native implementation - queries lifecycle_stages and lifecycle_gate_results tables.
  * @task T4785
+ * @task T4801
  */
 export async function getLifecycleHistory(
   epicId: string,
   cwd?: string,
 ): Promise<{ epicId: string; history: LifecycleHistoryEntry[] }> {
-  const manifest = await readEngineManifest(epicId, cwd);
+  const db = await getDb(cwd);
+  const pipelineId = `pipeline-${epicId}`;
 
-  if (!manifest) {
+  // Query stages for this pipeline
+  const stages = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(eq(schema.lifecycleStages.pipelineId, pipelineId));
+
+  if (stages.length === 0) {
     return { epicId, history: [] };
   }
 
   const history: LifecycleHistoryEntry[] = [];
 
-  for (const [stageName, stageData] of Object.entries(manifest.stages)) {
-    if (stageData.status === 'completed' && stageData.completedAt) {
+  // Build a map of stageId -> stageName for gate lookups
+  const stageIdToName = new Map<string, string>();
+  for (const stage of stages) {
+    stageIdToName.set(stage.id, stage.stageName);
+  }
+
+  // Add stage completion and skip events
+  for (const stage of stages) {
+    if (stage.status === 'completed' && stage.completedAt) {
+      const notes = stage.notesJson
+        ? JSON.parse(stage.notesJson).join(', ')
+        : undefined;
       history.push({
-        stage: stageName,
+        stage: stage.stageName,
         action: 'completed',
-        timestamp: stageData.completedAt,
-        notes: stageData.notes,
-      });
-    }
-    if (stageData.status === 'skipped' && stageData.skippedAt) {
-      history.push({
-        stage: stageName,
-        action: 'skipped',
-        timestamp: stageData.skippedAt,
-        notes: stageData.skippedReason,
+        timestamp: stage.completedAt,
+        notes,
       });
     }
 
-    if (stageData.gates) {
-      for (const [gateName, gateData] of Object.entries(stageData.gates)) {
-        if (gateData.timestamp) {
+    if (stage.status === 'skipped' && stage.skippedAt) {
+      history.push({
+        stage: stage.stageName,
+        action: 'skipped',
+        timestamp: stage.skippedAt,
+        notes: stage.skipReason ?? undefined,
+      });
+    }
+  }
+
+  // Query gate results for all stages in this pipeline
+  const stageIds = stages.map(s => s.id);
+  if (stageIds.length > 0) {
+    const gateResults = await db
+      .select()
+      .from(schema.lifecycleGateResults)
+      .where(eq(schema.lifecycleGateResults.stageId, stageIds[0]!));
+
+    // Add gate events
+    for (const gate of gateResults) {
+      const stageName = stageIdToName.get(gate.stageId);
+      if (stageName) {
+        history.push({
+          stage: stageName,
+          action: `gate.${gate.result}: ${gate.gateName}`,
+          timestamp: gate.checkedAt,
+          notes: (gate.details || gate.reason) ?? undefined,
+        });
+      }
+    }
+
+    // Query remaining stages
+    for (let i = 1; i < stageIds.length; i++) {
+      const additionalGates = await db
+        .select()
+        .from(schema.lifecycleGateResults)
+        .where(eq(schema.lifecycleGateResults.stageId, stageIds[i]!));
+
+      for (const gate of additionalGates) {
+        const stageName = stageIdToName.get(gate.stageId);
+        if (stageName) {
           history.push({
             stage: stageName,
-            action: `gate.${gateData.status}: ${gateName}`,
-            timestamp: gateData.timestamp,
-            notes: gateData.notes || gateData.reason,
+            action: `gate.${gate.result}: ${gate.gateName}`,
+            timestamp: gate.checkedAt,
+            notes: (gate.details || gate.reason) ?? undefined,
           });
         }
       }
     }
   }
 
+  // Sort by timestamp
   history.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
   return { epicId, history };
@@ -603,16 +605,43 @@ export async function getLifecycleGates(
   epicId: string,
   cwd?: string,
 ): Promise<Record<string, Record<string, GateData>>> {
-  const manifest = await readEngineManifest(epicId, cwd);
+  const db = await getDb(cwd);
+  const pipelineId = `pipeline-${epicId}`;
 
-  if (!manifest) {
+  const stages = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(eq(schema.lifecycleStages.pipelineId, pipelineId));
+
+  if (stages.length === 0) {
     return {};
   }
 
   const gates: Record<string, Record<string, GateData>> = {};
-  for (const [stageName, stageData] of Object.entries(manifest.stages)) {
-    if (stageData.gates && Object.keys(stageData.gates).length > 0) {
-      gates[stageName] = stageData.gates;
+
+  for (const stage of stages) {
+    const gateRows = await db
+      .select()
+      .from(schema.lifecycleGateResults)
+      .where(eq(schema.lifecycleGateResults.stageId, stage.id));
+
+    if (gateRows.length > 0) {
+      gates[stage.stageName] = {};
+      for (const gateRow of gateRows) {
+        const status: GateData['status'] = gateRow.result === 'pass'
+          ? 'passed'
+          : gateRow.result === 'fail'
+            ? 'failed'
+            : 'pending';
+
+        gates[stage.stageName][gateRow.gateName] = {
+          status,
+          agent: gateRow.checkedBy,
+          notes: gateRow.details ?? undefined,
+          reason: gateRow.reason ?? undefined,
+          timestamp: gateRow.checkedAt,
+        };
+      }
     }
   }
 
@@ -635,9 +664,6 @@ export function getStagePrerequisites(targetStage: string): {
     );
   }
 
-  // Use dynamic import to avoid circular reference at module level
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { STAGE_DEFINITIONS, STAGE_PREREQUISITES } = require('./stages.js');
   const def = STAGE_DEFINITIONS[targetStage as Stage];
   return {
     prerequisites: STAGE_PREREQUISITES[targetStage as Stage] || [],
@@ -668,15 +694,18 @@ export async function checkStagePrerequisites(
     );
   }
 
-  const manifest = await readEngineManifest(epicId, cwd);
-  const { STAGE_PREREQUISITES: prereqMap } = await import('./stages.js');
-  const prereqs: string[] = prereqMap[targetStage as Stage] || [];
+  const lifecycleStatus = await getLifecycleStatus(epicId, cwd);
+  const prereqs: string[] = STAGE_PREREQUISITES[targetStage as Stage] || [];
+
+  const stageStatusMap = new Map(
+    lifecycleStatus.stages.map(s => [s.stage, s.status]),
+  );
 
   const missingPrerequisites: string[] = [];
   const issues: Array<{ stage: string; severity: string; message: string }> = [];
 
   for (const prereq of prereqs) {
-    const prereqStatus = manifest?.stages[prereq]?.status;
+    const prereqStatus = stageStatusMap.get(prereq);
     if (prereqStatus !== 'completed' && prereqStatus !== 'skipped') {
       missingPrerequisites.push(prereq);
       issues.push({
@@ -697,9 +726,85 @@ export async function checkStagePrerequisites(
   };
 }
 
+interface EnsureLifecycleContextOptions {
+  now: string;
+  stageStatusOnCreate: typeof schema.LIFECYCLE_STAGE_STATUSES[number];
+  updateCurrentStage: boolean;
+}
+
+async function ensureLifecycleContext(
+  epicId: string,
+  stageName: string,
+  cwd: string | undefined,
+  options: EnsureLifecycleContextOptions,
+): Promise<{ db: Awaited<ReturnType<typeof getDb>>; pipelineId: string; stageId: string }> {
+  const db = await getDb(cwd);
+  const pipelineId = `pipeline-${epicId}`;
+  const stageId = `stage-${epicId}-${stageName}`;
+
+  const { getNativeDb } = await import('../../store/sqlite.js');
+  getNativeDb()!.prepare(
+    `INSERT OR IGNORE INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'pending', 'medium', datetime('now'))`,
+  ).run(epicId, `Task ${epicId}`);
+
+  const existingPipeline = await db
+    .select()
+    .from(schema.lifecyclePipelines)
+    .where(eq(schema.lifecyclePipelines.id, pipelineId))
+    .limit(1)
+    .all();
+
+  if (existingPipeline.length === 0) {
+    await db
+      .insert(schema.lifecyclePipelines)
+      .values({
+        id: pipelineId,
+        taskId: epicId,
+        status: 'active',
+        currentStageId: null,
+        startedAt: options.now,
+      })
+      .run();
+  }
+
+  const existingStage = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(eq(schema.lifecycleStages.id, stageId))
+    .limit(1)
+    .all();
+
+  if (existingStage.length === 0) {
+    const sequence = isValidStage(stageName) ? STAGE_ORDER[stageName as Stage] : 0;
+    await db
+      .insert(schema.lifecycleStages)
+      .values({
+        id: stageId,
+        pipelineId,
+        stageName: stageName as typeof schema.LIFECYCLE_STAGE_NAMES[number],
+        status: options.stageStatusOnCreate,
+        sequence,
+        startedAt: options.now,
+      })
+      .run();
+  }
+
+  if (options.updateCurrentStage) {
+    await db
+      .update(schema.lifecyclePipelines)
+      .set({ currentStageId: stageId })
+      .where(eq(schema.lifecyclePipelines.id, pipelineId))
+      .run();
+  }
+
+  return { db, pipelineId, stageId };
+}
+
 /**
  * Record a stage status transition (progress/record).
+ * SQLite-native implementation - T4801
  * @task T4785
+ * @task T4801
  */
 export async function recordStageProgress(
   epicId: string,
@@ -720,27 +825,79 @@ export async function recordStageProgress(
     );
   }
 
-  let manifest = await readEngineManifest(epicId, cwd);
-  if (!manifest) {
-    manifest = { epicId, stages: {} };
-  }
-
-  if (!manifest.stages[stage]) {
-    manifest.stages[stage] = { status: 'not_started' };
-  }
-
   const now = new Date().toISOString();
-  manifest.stages[stage].status = status as ManifestStageData['status'];
+  const stageName = stage as Stage;
+  const { db, stageId, pipelineId } = await ensureLifecycleContext(epicId, stage, cwd, {
+    now,
+    stageStatusOnCreate: status as typeof schema.LIFECYCLE_STAGE_STATUSES[number],
+    updateCurrentStage: true,
+  });
+
+  const artifact = await ensureStageArtifact(epicId, stageName, cwd);
+  const provenanceChain = {
+    recordedAt: now,
+    source: 'pipeline.stage.record',
+    stage,
+    status,
+    related: artifact.related,
+  };
+
+  // Upsert stage record
+  const existingStage = await db
+    .select()
+    .from(schema.lifecycleStages)
+    .where(eq(schema.lifecycleStages.id, stageId))
+    .limit(1)
+    .all();
+
+  const sequence = STAGE_ORDER[stage as Stage];
+  const stageValues: Partial<schema.NewLifecycleStageRow> = {
+    status: status as typeof schema.LIFECYCLE_STAGE_STATUSES[number],
+    completedAt: status === 'completed' ? now : null,
+    skippedAt: status === 'skipped' ? now : null,
+    skipReason: status === 'skipped' ? (notes ?? null) : null,
+    notesJson: notes ? JSON.stringify([notes]) : '[]',
+    outputFile: artifact.outputFile,
+    provenanceChainJson: JSON.stringify(provenanceChain),
+  };
+
+  if (existingStage.length === 0) {
+    // Insert new stage
+    await db
+      .insert(schema.lifecycleStages)
+      .values({
+        id: stageId,
+        pipelineId,
+        stageName: stage as typeof schema.LIFECYCLE_STAGE_NAMES[number],
+        status: status as typeof schema.LIFECYCLE_STAGE_STATUSES[number],
+        sequence,
+        startedAt: now,
+        completedAt: status === 'completed' ? now : null,
+        skippedAt: status === 'skipped' ? now : null,
+        skipReason: status === 'skipped' ? (notes ?? null) : null,
+        notesJson: notes ? JSON.stringify([notes]) : '[]',
+        outputFile: artifact.outputFile,
+        provenanceChainJson: JSON.stringify(provenanceChain),
+      })
+      .run();
+  } else {
+    // Update existing stage
+    await db
+      .update(schema.lifecycleStages)
+      .set(stageValues)
+      .where(eq(schema.lifecycleStages.id, stageId))
+      .run();
+  }
 
   if (status === 'completed') {
-    manifest.stages[stage].completedAt = now;
-  }
+    await linkProvenance(epicId, stageName, artifact.absolutePath, cwd);
 
-  if (notes) {
-    manifest.stages[stage].notes = notes;
+    if (stageName === 'architecture_decision') {
+      const projectRoot = getProjectRoot(cwd);
+      await syncAdrsToDb(projectRoot);
+      await linkPipelineAdr(projectRoot, epicId);
+    }
   }
-
-  await saveEngineManifest(epicId, manifest, cwd);
 
   return { epicId, stage, status, timestamp: now };
 }
@@ -755,23 +912,8 @@ export async function skipStageWithReason(
   reason: string,
   cwd?: string,
 ): Promise<{ epicId: string; stage: string; reason: string; timestamp: string }> {
-  let manifest = await readEngineManifest(epicId, cwd);
-  if (!manifest) {
-    manifest = { epicId, stages: {} };
-  }
-
-  if (!manifest.stages[stage]) {
-    manifest.stages[stage] = { status: 'not_started' };
-  }
-
-  const now = new Date().toISOString();
-  manifest.stages[stage].status = 'skipped';
-  manifest.stages[stage].skippedAt = now;
-  manifest.stages[stage].skippedReason = reason;
-
-  await saveEngineManifest(epicId, manifest, cwd);
-
-  return { epicId, stage, reason, timestamp: now };
+  const result = await recordStageProgress(epicId, stage, 'skipped', reason, cwd);
+  return { epicId, stage, reason, timestamp: result.timestamp };
 }
 
 /**
@@ -784,29 +926,37 @@ export async function resetStage(
   reason: string,
   cwd?: string,
 ): Promise<{ epicId: string; stage: string; reason: string }> {
-  const manifest = await readEngineManifest(epicId, cwd);
-
-  if (!manifest) {
-    throw new CleoError(ExitCode.NOT_FOUND, `No lifecycle data found for ${epicId}`);
+  if (!PIPELINE_STAGES.includes(stage as Stage)) {
+    throw new CleoError(ExitCode.INVALID_INPUT, `Invalid stage: ${stage}`);
   }
 
-  if (!manifest.stages[stage]) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Stage '${stage}' not found for ${epicId}`);
-  }
+  const now = new Date().toISOString();
+  const { db, stageId } = await ensureLifecycleContext(epicId, stage, cwd, {
+    now,
+    stageStatusOnCreate: 'not_started',
+    updateCurrentStage: false,
+  });
 
-  manifest.stages[stage] = {
-    status: 'not_started',
-    notes: `Reset: ${reason}`,
-  };
-
-  await saveEngineManifest(epicId, manifest, cwd);
+  await db
+    .update(schema.lifecycleStages)
+    .set({
+      status: 'not_started',
+      completedAt: null,
+      skippedAt: null,
+      skipReason: null,
+      notesJson: JSON.stringify([`Reset: ${reason}`]),
+    })
+    .where(eq(schema.lifecycleStages.id, stageId))
+    .run();
 
   return { epicId, stage, reason };
 }
 
 /**
  * Mark a gate as passed.
+ * SQLite-native implementation - T4801
  * @task T4785
+ * @task T4801
  */
 export async function passGate(
   epicId: string,
@@ -815,37 +965,45 @@ export async function passGate(
   notes?: string,
   cwd?: string,
 ): Promise<{ epicId: string; gateName: string; timestamp: string }> {
-  let manifest = await readEngineManifest(epicId, cwd);
-  if (!manifest) {
-    manifest = { epicId, stages: {} };
-  }
-
-  const stageParts = gateName.split('-');
-  const stageName = stageParts[0];
-
-  if (!manifest.stages[stageName]) {
-    manifest.stages[stageName] = { status: 'not_started' };
-  }
-
-  if (!manifest.stages[stageName].gates) {
-    manifest.stages[stageName].gates = {};
-  }
-
   const now = new Date().toISOString();
-  manifest.stages[stageName].gates![gateName] = {
-    status: 'passed',
-    agent,
-    notes,
-    timestamp: now,
+  const stageName = gateName.split('-')[0];
+  const gateId = `gate-${epicId}-${stageName}-${gateName}`;
+  const { db, stageId } = await ensureLifecycleContext(epicId, stageName, cwd, {
+    now,
+    stageStatusOnCreate: 'in_progress',
+    updateCurrentStage: true,
+  });
+
+  // Upsert gate result
+  const existingGate = await db
+    .select()
+    .from(schema.lifecycleGateResults)
+    .where(eq(schema.lifecycleGateResults.id, gateId))
+    .limit(1)
+    .all();
+
+  const gateValues = {
+    id: gateId,
+    stageId,
+    gateName,
+    result: 'pass' as const,
+    checkedAt: now,
+    checkedBy: agent ?? 'system',
+    details: notes ?? null,
+    reason: null as string | null,
   };
 
-  await saveEngineManifest(epicId, manifest, cwd);
-
-  // Dual-write: sync gate result to SQLite (best-effort)
-  try {
-    await syncGateToDb(epicId, stageName!, gateName, 'pass', agent, notes);
-  } catch (err) {
-    console.warn(`[lifecycle] Gate sync failed: ${err}`);
+  if (existingGate.length > 0) {
+    await db
+      .update(schema.lifecycleGateResults)
+      .set(gateValues)
+      .where(eq(schema.lifecycleGateResults.id, gateId))
+      .run();
+  } else {
+    await db
+      .insert(schema.lifecycleGateResults)
+      .values(gateValues)
+      .run();
   }
 
   return { epicId, gateName, timestamp: now };
@@ -853,7 +1011,9 @@ export async function passGate(
 
 /**
  * Mark a gate as failed.
+ * SQLite-native implementation - T4801
  * @task T4785
+ * @task T4801
  */
 export async function failGate(
   epicId: string,
@@ -861,36 +1021,45 @@ export async function failGate(
   reason?: string,
   cwd?: string,
 ): Promise<{ epicId: string; gateName: string; reason?: string; timestamp: string }> {
-  let manifest = await readEngineManifest(epicId, cwd);
-  if (!manifest) {
-    manifest = { epicId, stages: {} };
-  }
-
-  const stageParts = gateName.split('-');
-  const stageName = stageParts[0];
-
-  if (!manifest.stages[stageName]) {
-    manifest.stages[stageName] = { status: 'not_started' };
-  }
-
-  if (!manifest.stages[stageName].gates) {
-    manifest.stages[stageName].gates = {};
-  }
-
   const now = new Date().toISOString();
-  manifest.stages[stageName].gates![gateName] = {
-    status: 'failed',
-    reason,
-    timestamp: now,
+  const stageName = gateName.split('-')[0];
+  const gateId = `gate-${epicId}-${stageName}-${gateName}`;
+  const { db, stageId } = await ensureLifecycleContext(epicId, stageName, cwd, {
+    now,
+    stageStatusOnCreate: 'in_progress',
+    updateCurrentStage: true,
+  });
+
+  // Upsert gate result
+  const existingGate = await db
+    .select()
+    .from(schema.lifecycleGateResults)
+    .where(eq(schema.lifecycleGateResults.id, gateId))
+    .limit(1)
+    .all();
+
+  const gateValues = {
+    id: gateId,
+    stageId,
+    gateName,
+    result: 'fail' as const,
+    checkedAt: now,
+    checkedBy: 'system',
+    details: null as string | null,
+    reason: reason ?? null,
   };
 
-  await saveEngineManifest(epicId, manifest, cwd);
-
-  // Dual-write: sync gate result to SQLite (best-effort)
-  try {
-    await syncGateToDb(epicId, stageName!, gateName, 'fail', undefined, reason);
-  } catch (err) {
-    console.warn(`[lifecycle] Gate sync failed: ${err}`);
+  if (existingGate.length > 0) {
+    await db
+      .update(schema.lifecycleGateResults)
+      .set(gateValues)
+      .where(eq(schema.lifecycleGateResults.id, gateId))
+      .run();
+  } else {
+    await db
+      .insert(schema.lifecycleGateResults)
+      .values(gateValues)
+      .run();
   }
 
   return { epicId, gateName, reason, timestamp: now };
@@ -902,22 +1071,13 @@ export async function failGate(
  */
 export async function listEpicsWithLifecycle(cwd?: string): Promise<string[]> {
   try {
-    const cleoDir = getCleoDirAbsolute(cwd);
-    const taskIds = new Set<string>();
+    const db = await getDb(cwd);
+    const rows = await db
+      .select({ taskId: schema.lifecyclePipelines.taskId })
+      .from(schema.lifecyclePipelines)
+      .all();
 
-    for (const dirName of LIFECYCLE_DATA_DIRS) {
-      const lifecycleDir = join(cleoDir, dirName);
-      if (!existsSync(lifecycleDir)) {
-        continue;
-      }
-      for (const entry of readdirSync(lifecycleDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name.startsWith('T')) {
-          taskIds.add(entry.name);
-        }
-      }
-    }
-
-    return Array.from(taskIds).sort();
+    return rows.map(r => r.taskId).sort();
   } catch {
     return [];
   }

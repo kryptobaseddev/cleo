@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+process.env.NODE_NO_WARNINGS ??= '1';
+
 /**
  * Vitest configuration for CLEO V2
  * @epic T4454
