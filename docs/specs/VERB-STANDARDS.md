@@ -1041,7 +1041,7 @@ test.run    Execute test suite
 
 - **Tasks**: T4732 (Naming Standardization), T4791 (Missing Verb Documentation), T4792 (Fix Verb Violations)
 - **Related**: RFC 2119 (MUST/SHOULD/MAY definitions)
-- **Mintlify version**: `docs/mintlify/specs/VERB-STANDARDS.md`
+- **Mintlify version**: Removed (was `docs/mintlify/specs/VERB-STANDARDS.md`, now consolidated here)
 - **Validation**: `cleo compliance` commands
 
 ---

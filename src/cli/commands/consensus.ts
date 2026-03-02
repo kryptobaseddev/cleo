@@ -3,7 +3,7 @@
  * @task T4537
  * @epic T4454
  */
-// TODO T4894: operation not yet in registry — consensus protocol validation has no dispatch route
+// CLI-only: consensus protocol validation has no dispatch route
 
 import { Command } from 'commander';
 import {

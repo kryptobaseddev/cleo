@@ -18,8 +18,7 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
-// TODO(T4539): Replace with @cleocode/caamp injection provider when available
-// import { InstructionInjector } from '@cleocode/caamp';
+// CLEO-native injection (CAAMP InstructionInjector not yet available as separate package)
 
 /**
  * Select tasks eligible for injection based on filters.
@@ -62,7 +61,6 @@ function selectTasksForInjection(
 
 /**
  * Format tasks for TodoWrite injection.
- * TODO(T4539): Delegate to @cleocode/caamp InstructionInjector once available.
  * Format: [T###] [!]? [BLOCKED]? <title>
  * @task T4539
  */

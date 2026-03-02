@@ -1,0 +1,1 @@
+ALTER TABLE `lifecycle_pipelines` ADD `version` integer DEFAULT 1 NOT NULL;

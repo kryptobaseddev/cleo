@@ -1,0 +1,160 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/features.schema.json",
+  "_meta": {
+    "version": "2026.3.8",
+    "generatedAt": "2026-03-02T00:00:00Z",
+    "source": "manual-curated",
+    "description": "Canonical CLEO feature inventory aligned to vision and current implementation"
+  },
+  "categories": [
+    {
+      "id": "platform-core",
+      "name": "Platform Core",
+      "status": "shipped",
+      "features": [
+        {
+          "id": "shared-core-architecture",
+          "name": "Shared-Core Architecture",
+          "status": "shipped",
+          "details": "CLI and MCP route through shared business logic in src/core"
+        },
+        {
+          "id": "mcp-primary-interface",
+          "name": "MCP Primary Interface",
+          "status": "shipped",
+          "details": "2 MCP tools across 10 domains and 198 canonical operations"
+        },
+        {
+          "id": "cli-backup-interface",
+          "name": "CLI Backup Interface",
+          "status": "shipped",
+          "details": "86 commands for human and fallback workflows"
+        }
+      ]
+    },
+    {
+      "id": "brain-memory",
+      "name": "BRAIN Memory System",
+      "status": "in-progress",
+      "features": [
+        {
+          "id": "brain-db-foundation",
+          "name": "brain.db Foundation",
+          "status": "shipped",
+          "details": "Decisions, patterns, learnings, observations, memory links, schema metadata"
+        },
+        {
+          "id": "brain-3-layer-retrieval",
+          "name": "3-Layer Retrieval",
+          "status": "shipped",
+          "details": "memory brain.search, memory brain.timeline, memory brain.fetch, plus brain.observe"
+        },
+        {
+          "id": "sqlite-vec-loader",
+          "name": "SQLite-vec Loader",
+          "status": "shipped",
+          "details": "Extension loading and vec0 table initialization with graceful fallback"
+        },
+        {
+          "id": "cognitive-infra-closure",
+          "name": "Cognitive Infrastructure Closure",
+          "status": "in-progress",
+          "taskIds": ["T5241"],
+          "details": "End-to-end parity and closure work across BRAIN and NEXUS epics"
+        },
+        {
+          "id": "embedding-pipeline",
+          "name": "Embedding Generation Pipeline",
+          "status": "planned",
+          "taskIds": ["T5158", "T5159"],
+          "details": "Vector generation and semantic KNN retrieval"
+        },
+        {
+          "id": "reasoning-engine",
+          "name": "Reasoning + Session Integration",
+          "status": "planned",
+          "taskIds": ["T5153"],
+          "details": "Causal/similarity reasoning and richer session memory integration"
+        },
+        {
+          "id": "claude-mem-retirement",
+          "name": "Full claude-mem Retirement",
+          "status": "planned",
+          "taskIds": ["T5145"],
+          "details": "Native hook-driven automation replacing plugin dependency"
+        }
+      ]
+    },
+    {
+      "id": "nexus-network",
+      "name": "NEXUS Cross-Project Network",
+      "status": "in-progress",
+      "features": [
+        {
+          "id": "nexus-dispatch-domain",
+          "name": "NEXUS Dispatch Domain",
+          "status": "shipped",
+          "details": "12 operations wired in dispatch registry and domain handler"
+        },
+        {
+          "id": "json-registry-backend",
+          "name": "JSON Registry Backend",
+          "status": "shipped",
+          "details": "Current project registry and permission management implementation"
+        },
+        {
+          "id": "nexus-db-target",
+          "name": "Dedicated nexus.db",
+          "status": "planned",
+          "details": "Migration target for durable global graph and network storage"
+        }
+      ]
+    },
+    {
+      "id": "pageindex-graph",
+      "name": "PageIndex Graph",
+      "status": "in-progress",
+      "features": [
+        {
+          "id": "pageindex-schema",
+          "name": "Graph Table Schema",
+          "status": "shipped",
+          "taskIds": ["T5160"],
+          "details": "brain_page_nodes and brain_page_edges tables with indexes and migration"
+        },
+        {
+          "id": "pageindex-query-api",
+          "name": "Graph Traversal API",
+          "status": "planned",
+          "taskIds": ["T5161"],
+          "details": "BFS/DFS traversal, relation filters, recency and latest-version queries"
+        }
+      ]
+    },
+    {
+      "id": "safety-validation",
+      "name": "Safety and Validation",
+      "status": "shipped",
+      "features": [
+        {
+          "id": "four-layer-validation",
+          "name": "Four-Layer Anti-Hallucination Validation",
+          "status": "shipped",
+          "details": "Schema, semantic, referential, and state-machine enforcement"
+        },
+        {
+          "id": "atomic-write-pattern",
+          "name": "Atomic Write Pattern",
+          "status": "shipped",
+          "details": "temp -> validate -> backup -> rename across write paths"
+        },
+        {
+          "id": "audit-trail",
+          "name": "Append-Only Audit Trail",
+          "status": "shipped",
+          "details": "Operation traceability for mutations and lifecycle events"
+        }
+      ]
+    }
+  ]
+}

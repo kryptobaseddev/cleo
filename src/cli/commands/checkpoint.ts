@@ -4,7 +4,7 @@
  * @task T4551
  * @epic T4545
  */
-// TODO T4894: operation not yet in registry — git checkpoint has no dispatch route
+// CLI-only: git checkpoint has no dispatch route (git operations not suitable for MCP)
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';

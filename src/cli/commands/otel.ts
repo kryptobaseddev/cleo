@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-// TODO T4894: operation 'otel' not yet in registry — no otel domain in dispatch.\n// Leave bypass until admin.context or dedicated otel domain is created.
+// CLI-only: no otel domain in dispatch (telemetry is local-only)
 import { Command } from 'commander';
 import {
   getOtelStatus,

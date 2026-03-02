@@ -4,7 +4,7 @@
  * @task T4551
  * @epic T4545
  */
-// TODO T4894: operation not yet in registry — no tasks.export or admin.export dispatch route
+// CLI-only: no dispatch equivalent (cross-project export requires complex packaging)
 
 import { Command } from 'commander';
 import { writeFile } from 'node:fs/promises';

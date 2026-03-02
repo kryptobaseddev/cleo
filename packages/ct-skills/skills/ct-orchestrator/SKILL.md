@@ -118,7 +118,7 @@ This separation means the orchestrator protocol works identically regardless of 
 ### Quick Start — MCP (Recommended)
 
 ```
-cleo_query({ domain: "orchestrate", operation: "start", params: { epicId: "T1575" }})
+cleo_mutate({ domain: "orchestrate", operation: "start", params: { epicId: "T1575" }})
 ```
 
 **Returns**: Session state, context budget, next task, pipeline stage, and recommended action in one call.
@@ -230,7 +230,7 @@ The spawn prompt combines the **Base Protocol** (`agents/cleo-subagent/AGENT.md`
 ### Phase 1: Discovery
 
 ```
-cleo_query({ domain: "orchestrate", operation: "start", params: { epicId: "T1575" }})
+cleo_mutate({ domain: "orchestrate", operation: "start", params: { epicId: "T1575" }})
 cleo_query({ domain: "research", operation: "pending" })
 cleo_query({ domain: "pipeline", operation: "stage.status", params: { epicId: "T1575" }})
 ```
@@ -322,7 +322,7 @@ Content flows between subagents via **manifest-mediated handoffs**, not through 
 | Handling Manifest Followups | Subagent left TODOs | `research.pending`, `tasks.add` |
 | Parallel Execution | Independent tasks in same wave | `orchestrate.analyze`, `orchestrate.ready` |
 | Pipeline-Aware Orchestration | Multi-stage epics | `pipeline.stage.status`, `pipeline.stage.validate`, `pipeline.stage.gate.pass` |
-| Quality Gates | Verification required | `validate.report`, `pipeline.stage.validate` |
+| Quality Gates | Verification required | `check.schema`, `pipeline.stage.validate` |
 | Release | Ship a version | `release.create`, `release.ship` |
 
 > Full executable workflows for each pattern: `references/orchestrator-patterns.md`

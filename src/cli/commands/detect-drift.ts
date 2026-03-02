@@ -10,7 +10,7 @@
  *
  * Output: LAFS-compliant JSON envelope for agent consumption
  */
-// TODO T4894: operation not yet in registry — detect-drift runs local static analysis; session.context.drift is a different operation
+// CLI-only: detect-drift runs local static analysis; session.context.drift is a different operation
 
 import { Command } from 'commander';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';

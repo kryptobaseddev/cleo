@@ -5,7 +5,7 @@
  * @epic T4545
  */
 
-// TODO T4894: check.test.run exists in registry but testing.ts implements custom\n// manifest validation logic not supported by the current handler. Leave bypass.
+// CLI-only: implements custom manifest validation logic not supported by dispatch handler
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { formatError } from '../../core/output.js';

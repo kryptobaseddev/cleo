@@ -247,6 +247,21 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'archive.stats': {
+          const { getArchiveStats } = await import('../../cli/commands/archive-stats.js');
+          const result = await getArchiveStats({
+            report: params?.report as 'summary' | 'by-phase' | 'by-label' | 'by-priority' | 'cycle-times' | 'trends' | undefined,
+            since: params?.since as string | undefined,
+            until: params?.until as string | undefined,
+            cwd: this.projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         case 'grade': {
           const { gradeSession } = await import('../../core/sessions/session-grade.js');
           const sessionId = params?.sessionId as string;
@@ -425,7 +440,7 @@ export class AdminHandler implements DomainHandler {
       query: [
         'version', 'health', 'doctor', 'config.show', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
-        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list',
+        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
       ],
       mutate: [
         'init', 'fix', 'config.set', 'backup', 'restore', 'migrate',

@@ -35,7 +35,7 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `orchestrate` | `next` | Next task suggestion (`params: { epicId }`) |
 | `research` | `list` | Research manifest entries |
 | `research` | `show` | Research entry details (`params: { entryId }`) |
-| `validate` | `report` | Validate task data integrity |
+| `check` | `schema` | Validate task data schema integrity |
 | `system` | `dash` | Project overview dashboard |
 | `system` | `context` | Context window usage |
 | `skills` | `list` | Available skills |

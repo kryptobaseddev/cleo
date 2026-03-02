@@ -3,7 +3,7 @@
  * @task T4581
  * @epic T4577
  */
-// TODO T4894: operation not yet in registry — no admin.env or equivalent dispatch route
+// CLI-only: no dispatch equivalent for environment diagnostics
 
 import { Command } from 'commander';
 import { cliOutput } from '../renderers/index.js';

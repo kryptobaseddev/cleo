@@ -5,7 +5,7 @@
  * @epic T4545
  */
 
-// TODO T4894: operation 'extract' not yet in registry — no dispatch equivalent.\n// Leave bypass; extract implements TodoWrite state merge logic not yet in dispatch.
+// CLI-only: extract implements TodoWrite state merge logic not suitable for dispatch
 import { Command } from 'commander';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';

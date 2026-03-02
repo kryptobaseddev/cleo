@@ -632,7 +632,7 @@ export async function taskRelates(
     if (message.includes('not found')) {
       return engineError('E_NOT_FOUND', message);
     }
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+    return engineError('E_GENERAL', `Failed to read task relations: ${message}`);
   }
 }
 
@@ -655,7 +655,12 @@ export async function taskRelatesAdd(
     if (message.includes('not found')) {
       return engineError('E_NOT_FOUND', message);
     }
-    return engineError('E_NOT_INITIALIZED', 'Failed to update task relations');
+    if (message.includes('Invalid relation type')) {
+      return engineError('E_VALIDATION', message, {
+        fix: 'Use a valid relation type: related, blocks, duplicates, absorbs, fixes, extends, supersedes',
+      });
+    }
+    return engineError('E_GENERAL', `Failed to update task relations: ${message}`);
   }
 }
 
@@ -686,8 +691,12 @@ export async function taskAnalyze(
   try {
     const result = await coreTaskAnalyze(projectRoot, taskId);
     return { success: true, data: result };
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('not found')) {
+      return engineError('E_NOT_FOUND', message);
+    }
+    return engineError('E_GENERAL', `Task analysis failed: ${message}`);
   }
 }
 
