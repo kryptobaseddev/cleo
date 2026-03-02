@@ -74,7 +74,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 |  |  Observations  Patterns      |  |  Research -> Consensus     |   |
 |  |  Learnings     Decisions     |  |  -> Architecture Decision  |   |
 |  |  Sessions      Profiles      |  |  -> Specification          |   |
-|  |  FTS5 + Vector + Graph [TGT] |  |  -> Decomposition          |   |
+|  |  FTS5 [OK] + Vec/Graph [TGT] |  |  -> Decomposition          |   |
 |  |                              |  |  -> Implementation         |   |
 |  +------------------------------+  |  -> Validation -> Testing  |   |
 |                                    |  -> Release                |   |
@@ -95,7 +95,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 |  |  CLI (Commander.js)  |  MCP (cleo_query/cleo_mutate)  | API    |
 |  +-----------------------------------------------------------------+
 |  |                   SQLite (Drizzle ORM)                          |
-|  |  .cleo/tasks.db        .cleo/brain.db [TGT]  ~/.cleo/nexus.db [TGT]
+|  |  .cleo/tasks.db        .cleo/brain.db          ~/.cleo/nexus.db [TGT]
 |  |  (project work)        (memory/cognition)     (global network)  |
 |  +-----------------------------------------------------------------+
 +=====================================================================+
@@ -103,7 +103,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 
 ### The Four Systems
 
-- **BRAIN — Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions. Currently uses JSONL files for pattern/learning memory and `tasks.db` for ADR/session memory. Target state: dedicated `brain.db` with FTS5 search, vector similarity, and graph-based retrieval. The lifeblood of anti-hallucination.
+- **BRAIN — Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 6 tables, 3-layer retrieval (search/timeline/fetch), observe operation, and 5,122 migrated observations. Target: FTS5 search, vector similarity via SQLite-vec, and graph-based retrieval. The lifeblood of anti-hallucination.
 
 - **RCASD-IVTR+C — Structured Lifecycle**: The project lifecycle pipeline. Ten stages from Research through Release, plus the cross-cutting Contribution protocol. Provides deterministic gates, protocol validation, and manifest-based provenance.
 
@@ -115,7 +115,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 
 ## Five Pillars
 
-1. **Portable Memory (BRAIN)** — Every project carries its own `.cleo/` directory with SQLite storage (`tasks.db` for project work, sessions, ADRs, lifecycle, and audit; `brain.db` [TARGET] for dedicated memory/cognition) and three JSON configuration files (`config.json` for runtime settings, `project-info.json` for project identity/health, `project-context.json` for LLM agent guidance). Move the `.cleo/` directory, and the entire brain moves with it. Each project is identified by a unique `projectHash` in `project-info.json`. See ADR-011 for the complete configuration architecture.
+1. **Portable Memory (BRAIN)** — Every project carries its own `.cleo/` directory with SQLite storage (`tasks.db` for project work, sessions, ADRs, lifecycle, and audit; `brain.db` for dedicated memory/cognition) and three JSON configuration files (`config.json` for runtime settings, `project-info.json` for project identity/health, `project-context.json` for LLM agent guidance). Move the `.cleo/` directory, and the entire brain moves with it. Each project is identified by a unique `projectHash` in `project-info.json`. See ADR-011 for the complete configuration architecture.
 
 2. **Agent Communication Contract (LAFS)** — All agent-CLEO communication follows the LAFS protocol: JSON envelopes with metadata, MVI-tiered progressive disclosure (minimal/standard/full/custom), field filtering via `_fields`, and deterministic exit codes. This contract is provider-neutral — any LLM agent that speaks LAFS can use CLEO.
 
@@ -123,20 +123,20 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 
 4. **Deterministic Safety** — Four-layer validation (schema, semantic, referential, state machine), atomic write operations, immutable audit logs, and lifecycle gate enforcement. No partial writes. No hallucinated references. No skipped validation.
 
-5. **Cognitive Retrieval (BRAIN + NEXUS)** — Three-tier retrieval [TARGET]: FTS5 keyword search, vector similarity via SQLite-vec, and graph-based discovery via PageIndex and dependency traversal — all in `brain.db`. Currently, vectorless RAG (5 discovery methods) and ADR cognitive search (in `tasks.db`) are shipped. FTS5, vector, and PageIndex tiers are gated on the `brain.db` migration. NEXUS extends retrieval across project boundaries with federated queries and global pattern libraries.
+5. **Cognitive Retrieval (BRAIN + NEXUS)** — Three-tier retrieval in `brain.db`: FTS5 keyword search (SHIPPED), vector similarity via SQLite-vec (in progress), and graph-based discovery via PageIndex and dependency traversal (planned). The 3-layer retrieval API (search/timeline/fetch) is shipped and operational. Vectorless RAG (5 discovery methods) and ADR cognitive search are also shipped. NEXUS extends retrieval across project boundaries with federated queries and global pattern libraries.
 
 ---
 
 ## BRAIN: The Memory System
 
-BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool system. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) (observation compression, progressive disclosure, and the three-layer retrieval workflow) and [supermemory](https://github.com/supermemoryai/supermemory) (knowledge graphs, temporal decay, memory extraction, and semantic retrieval), BRAIN targets a dedicated memory database (`brain.db`) alongside the project work database (`tasks.db`). Currently, BRAIN memory is stored in JSONL files and `tasks.db`; the `brain.db` migration is the next major enabler.
+BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool system. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) (observation compression, progressive disclosure, and the three-layer retrieval workflow) and [supermemory](https://github.com/supermemoryai/supermemory) (knowledge graphs, temporal decay, memory extraction, and semantic retrieval), BRAIN uses a dedicated memory database (`brain.db`) alongside the project work database (`tasks.db`). The brain.db migration is complete: 6 tables shipped, 3-layer retrieval operational, and 5,122 observations migrated from claude-mem.
 
 ### Database Architecture
 
 | Database | Contents | Scope |
 |----------|----------|-------|
 | **`.cleo/tasks.db`** | Tasks, sessions, lifecycle pipelines, ADRs, audit log, status registry | Project work — the structured RCASD-IVTR+C pipeline |
-| **`.cleo/brain.db`** [TARGET] | Observations, patterns, learnings, decisions, FTS5 indexes, PageIndex, vector embeddings, knowledge graph | Memory and cognition — currently served by JSONL files and `tasks.db` |
+| **`.cleo/brain.db`** | Observations, patterns, learnings, decisions, memory links, FTS5 indexes | Memory and cognition — SHIPPED with 6 tables, 3-layer retrieval. Vector embeddings and PageIndex are planned. |
 | **`~/.cleo/nexus.db`** [TARGET] | Project registry, cross-project graph edges, permissions, global pattern library | Global NEXUS network — currently served by JSON registry |
 
 Three JSON configuration files complement the databases (exempt from SQLite-only storage per ADR-006, ADR-011):
@@ -147,7 +147,7 @@ Three JSON configuration files complement the databases (exempt from SQLite-only
 | **`.cleo/project-info.json`** | Project identity: `projectHash`, schema versions, injection status, health diagnostics, feature flags | CLEO internals, NEXUS registry |
 | **`.cleo/project-context.json`** | LLM agent guidance: detected language, test framework, package manager, conventions, LLM hints | LLM agents (via `@` injection into AGENTS.md) |
 
-When `brain.db` is implemented [TARGET], it will be linked to `tasks.db` via task IDs — every observation, pattern, and learning references the task context it came from. This separation will keep project work operations fast while allowing BRAIN to grow with rich memory structures (FTS5 virtual tables, vector indexes, graph edges) without impacting task CRUD performance.
+`brain.db` is linked to `tasks.db` via task IDs in the `brain_memory_links` table — every observation, pattern, and learning references the task context it came from. This separation keeps project work operations fast while allowing BRAIN to grow with rich memory structures (FTS5 virtual tables, vector indexes, graph edges) without impacting task CRUD performance.
 
 ### Memory Model
 
@@ -162,15 +162,15 @@ BRAIN distinguishes between **raw artifacts** (session transcripts, code diffs, 
 | **Sessions** | Handoff notes, briefings, and continuity context | Per-session |
 | **Profiles** | Static project facts + dynamic recent context | Auto-maintained |
 
-### Three-Layer Retrieval [TARGET]
+### Three-Layer Retrieval [SHIPPED]
 
-BRAIN targets a progressive retrieval workflow (inspired by claude-mem) that achieves ~10x token savings over traditional RAG:
+BRAIN implements a progressive retrieval workflow (inspired by claude-mem) that achieves ~10x token savings over traditional RAG:
 
-1. **Search** — Returns a compact index with IDs and titles (~50-100 tokens per result)
-2. **Timeline** — Shows chronological context around interesting results
-3. **Fetch** — Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
+1. **Search** (`memory brain.search`) — Returns a compact index with IDs and titles (~50-100 tokens per result)
+2. **Timeline** (`memory brain.timeline`) — Shows chronological context around interesting results
+3. **Fetch** (`memory brain.fetch`) — Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
 
-The agent manages its own token budget by deciding what to fetch based on relevance. This workflow is gated on the `brain.db` migration.
+The agent manages its own token budget by deciding what to fetch based on relevance. Saving new observations uses `memory brain.observe` via the mutate gateway.
 
 ### Knowledge Graph [GATED]
 
@@ -188,17 +188,19 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 | Tier | Technology | Status | Capability |
 |------|-----------|--------|------------|
-| **S** | `brain.db` + FTS5 | Gated | Full-text keyword search with auto-sync triggers |
-| **M** | `brain.db` + SQLite-vec | Gated | Vector embeddings for semantic similarity search |
-| **L** | `brain.db` + PageIndex + Graph | Gated | Graph-based traversal and cross-reference discovery via NEXUS |
+| **S** | `brain.db` + FTS5 | Shipped | Full-text keyword search across decisions, patterns, learnings, observations |
+| **M** | `brain.db` + SQLite-vec | In Progress (T5157) | Vector embeddings for semantic similarity search |
+| **L** | `brain.db` + PageIndex + Graph | Planned (T5160) | Graph-based traversal and cross-reference discovery via NEXUS |
 
-> **Current state**: BRAIN memory is stored in JSONL files (`.cleo/memory/patterns.jsonl`, `.cleo/memory/learnings.jsonl`). The migration to a dedicated `brain.db` database is the critical enabler for all three search tiers.
+> **Current state (2026-03-02)**: BRAIN memory is in `brain.db` (SQLite) with 5 tables, FTS5 search, 3-layer retrieval API, and 5,122 observations migrated from claude-mem. The JSONL file era is over.
 
 ### Current State vs Target
 
-**Shipped**: Pattern memory (JSONL), learning memory (JSONL), ADR cognitive search (in tasks.db), session handoffs, contradiction detection, vectorless RAG (label/description/file/hierarchy discovery), 263+ tests
+**Shipped**: `brain.db` (5 tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory.brain.search / timeline / fetch), memory.brain.observe, 22 MCP operations, 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, 3713+ tests
 
-**Gated**: Dedicated `brain.db` database (migration from JSONL files), FTS5 virtual tables with auto-sync, vector embeddings (SQLite-vec), PageIndex graph tables, knowledge graph with version chains, temporal decay, auto-extraction from sessions, memory consolidation, agent profiles
+**In Progress**: SQLite-vec integration (T5157), NEXUS MCP wiring (nexus-wirer), PageIndex graph tables (T5160)
+
+**Planned**: Vector embeddings pipeline (T5158-T5159), reasoning engine (T5162-T5163), memory consolidation (T5166), temporal decay (T5167), full claude-mem plugin retirement
 
 ---
 
@@ -316,14 +318,14 @@ NEXUS extends CLEO's tools across project boundaries. Each CLEO project is self-
 
 /project-a/.cleo/                 (Project A — fully portable)
   tasks.db                        Tasks, sessions, ADRs, lifecycle, audit
-  brain.db [TGT]                  Observations, patterns, learnings, decisions
+  brain.db                        Observations, patterns, learnings, decisions
   config.json                     Runtime settings (hierarchy, session, lifecycle)
   project-info.json               Project identity, projectHash (85f1cc25bb9f)
   project-context.json            LLM agent guidance (language, framework, conventions)
 
 /project-b/.cleo/                 (Project B — fully portable)
   tasks.db                        Tasks, sessions, ADRs, lifecycle, audit
-  brain.db [TGT]                  Observations, patterns, learnings, decisions
+  brain.db                        Observations, patterns, learnings, decisions
   config.json                     Runtime settings
   project-info.json               Project identity, projectHash (c4e9a1f03d72)
   project-context.json            LLM agent guidance
@@ -348,7 +350,7 @@ Portability:
 
 ### Graph Infrastructure
 
-NEXUS leverages graph structures built into each project's `tasks.db` (and `brain.db` [TARGET]):
+NEXUS leverages graph structures built into each project's `tasks.db` and `brain.db`:
 
 | Component | Purpose | Storage |
 |-----------|---------|---------|
@@ -423,7 +425,7 @@ When you use CLEO with any AI coding tool, you establish a formal contract:
 - **LAFS-Compliant Output** — All output follows the LAFS protocol: JSON envelopes with `_meta`, MVI-tiered progressive disclosure, and deterministic field filtering
 - **Numeric Exit Codes** — All errors have numeric exit codes for programmatic branching (0-99 standard, 100+ special conditions)
 - **Validation First** — All operations validate first, fail fast on invalid input — four-layer anti-hallucination
-- **Persistent Memory** — All project state is persisted in SQLite (`tasks.db` for work and sessions; `brain.db` [TARGET] for dedicated memory) as the single source of truth per project
+- **Persistent Memory** — All project state is persisted in SQLite (`tasks.db` for work and sessions; `brain.db` for dedicated memory) as the single source of truth per project
 - **Immutable Audit Trail** — All changes are logged in an append-only audit log with provenance tags
 - **Atomic Writes** — All writes are atomic with automatic backup and rollback — no partial corruption
 - **Lifecycle Governance** — Significant work follows the RCASD-IVTR+C pipeline with gate enforcement
@@ -461,7 +463,7 @@ CLEO is provider-agnostic by design. The LAFS protocol ensures that any LLM agen
 
 - Tool-specific integrations (Claude Code plugin, Cursor adapter) MAY optimize user experience
 - Core memory models, provenance semantics, and lifecycle enforcement MUST remain neutral and portable
-- BRAIN stores project knowledge in SQLite and JSONL — no cloud dependencies, no vendor lock-in
+- BRAIN stores project knowledge in SQLite (`tasks.db` + `brain.db`) — no cloud dependencies, no vendor lock-in
 - NEXUS connects projects locally — no external services required
 
 ---
