@@ -39,8 +39,14 @@ export const BRAIN_IMPACT_LEVELS = ['low', 'medium', 'high'] as const;
 /** Link types for cross-referencing BRAIN entries with tasks. */
 export const BRAIN_LINK_TYPES = ['produced_by', 'applies_to', 'informed_by', 'contradicts'] as const;
 
+/** Observation types for claude-mem compatible observations. */
+export const BRAIN_OBSERVATION_TYPES = ['discovery', 'change', 'feature', 'bugfix', 'decision', 'refactor'] as const;
+
+/** Source types for observations (how the observation was created). */
+export const BRAIN_OBSERVATION_SOURCE_TYPES = ['agent', 'session-debrief', 'claude-mem', 'manual'] as const;
+
 /** Memory entity types for the links table. */
-export const BRAIN_MEMORY_TYPES = ['decision', 'pattern', 'learning'] as const;
+export const BRAIN_MEMORY_TYPES = ['decision', 'pattern', 'learning', 'observation'] as const;
 
 // === BRAIN_DECISIONS TABLE ===
 
@@ -103,6 +109,35 @@ export const brainLearnings = sqliteTable('brain_learnings', {
   index('idx_brain_learnings_actionable').on(table.actionable),
 ]);
 
+// === BRAIN_OBSERVATIONS TABLE ===
+
+/** General-purpose observations — replaces claude-mem's observations table. */
+export const brainObservations = sqliteTable('brain_observations', {
+  id: text('id').primaryKey(),
+  type: text('type', { enum: BRAIN_OBSERVATION_TYPES }).notNull(),
+  title: text('title').notNull(),
+  subtitle: text('subtitle'),
+  narrative: text('narrative'),
+  factsJson: text('facts_json'),        // JSON array of fact strings
+  conceptsJson: text('concepts_json'),  // JSON array of concept strings
+  project: text('project'),
+  filesReadJson: text('files_read_json'),      // JSON array of file paths
+  filesModifiedJson: text('files_modified_json'), // JSON array of file paths
+  sourceSessionId: text('source_session_id'),  // soft FK to sessions
+  sourceType: text('source_type', { enum: BRAIN_OBSERVATION_SOURCE_TYPES }).notNull().default('agent'),
+  contentHash: text('content_hash'),               // SHA-256 prefix for dedup
+  discoveryTokens: integer('discovery_tokens'), // cost to produce this observation
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at'),
+}, (table) => [
+  index('idx_brain_observations_type').on(table.type),
+  index('idx_brain_observations_project').on(table.project),
+  index('idx_brain_observations_created_at').on(table.createdAt),
+  index('idx_brain_observations_source_type').on(table.sourceType),
+  index('idx_brain_observations_source_session').on(table.sourceSessionId),
+  index('idx_brain_observations_content_hash').on(table.contentHash),
+]);
+
 // === BRAIN_MEMORY_LINKS TABLE ===
 
 /** Cross-references between BRAIN entries and tasks in tasks.db. */
@@ -133,5 +168,7 @@ export type BrainPatternRow = typeof brainPatterns.$inferSelect;
 export type NewBrainPatternRow = typeof brainPatterns.$inferInsert;
 export type BrainLearningRow = typeof brainLearnings.$inferSelect;
 export type NewBrainLearningRow = typeof brainLearnings.$inferInsert;
+export type BrainObservationRow = typeof brainObservations.$inferSelect;
+export type NewBrainObservationRow = typeof brainObservations.$inferInsert;
 export type BrainMemoryLinkRow = typeof brainMemoryLinks.$inferSelect;
 export type NewBrainMemoryLinkRow = typeof brainMemoryLinks.$inferInsert;

@@ -177,6 +177,34 @@ Research protocol management and manifest operations.
 
 ---
 
+## Domain: memory
+
+Native BRAIN memory system for persistent knowledge storage and retrieval across sessions.
+
+### Query Operations (3)
+
+| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
+|-----------|---------------|-------------|------------|-----------------|
+| `brain.search` | N/A | Search memory index | `query`, `limit?` (default 10), `tables?` (decisions/patterns/learnings/observations), `dateStart?`, `dateEnd?` | 2 |
+| `brain.timeline` | N/A | Context around anchor | `anchor` (entry ID), `depthBefore?` (default 3), `depthAfter?` (default 3) | 2 |
+| `brain.fetch` | N/A | Fetch full entry details | `ids` (string[]) | 2 |
+
+### Mutate Operations (1)
+
+| Operation | CLI Equivalent | Description | Key Params | Disclosure Level |
+|-----------|---------------|-------------|------------|-----------------|
+| `brain.observe` | N/A | Save observation | `text`, `title?`, `type?` (auto-classified if omitted), `project?`, `sourceSessionId?`, `sourceType?` | 2 |
+
+**Token budget**:
+- `brain.search`: ~50 tokens per result (returns `{results: [{id, type, title, date, relevance}], total, tokensEstimated}`)
+- `brain.timeline`: ~200-500 tokens (returns `{anchor: {id, type, data}, before: [...], after: [...]}`)
+- `brain.fetch`: ~500 tokens per entry (returns `{results: [{id, type, data}], notFound: string[], tokensEstimated}`)
+- `brain.observe`: returns `{id, type, createdAt}` — content hash dedup prevents duplicates within 30-second window
+
+**3-layer retrieval pattern**: Search first (cheap) → filter interesting IDs → fetch only what you need.
+
+---
+
 ## Domain: lifecycle
 
 RCSD-IVTR pipeline stage management.
