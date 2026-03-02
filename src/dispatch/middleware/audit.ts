@@ -165,10 +165,15 @@ export function createAudit(): Middleware {
       `${entry.metadata.gateway ?? 'dispatch'} ${entry.domain}.${entry.operation}`,
     );
 
-    // SQLite write (fire-and-forget)
-    writeToSqlite(entry, req.requestId).catch(err => {
-      log.error({ err }, 'Failed to persist audit entry to SQLite');
-    });
+    // SQLite write — await in grade mode to avoid race with grading query;
+    // fire-and-forget otherwise for performance.
+    if (isGradeSession) {
+      await writeToSqlite(entry, req.requestId);
+    } else {
+      writeToSqlite(entry, req.requestId).catch(err => {
+        log.error({ err }, 'Failed to persist audit entry to SQLite');
+      });
+    }
 
     return response;
   };

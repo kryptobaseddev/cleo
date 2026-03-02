@@ -145,6 +145,7 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
     session.notes = ['[grade-mode:enabled]', ...(session.notes ?? [])];
     process.env.CLEO_SESSION_GRADE = 'true';
     process.env.CLEO_SESSION_ID = session.id;
+    process.env.CLEO_SESSION_GRADE_ID = session.id;
   }
 
   sessions.push(session);
@@ -191,11 +192,9 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string, 
   session.status = 'ended';
   session.endedAt = new Date().toISOString();
 
-  // Clear grade mode env vars when session ends
-  if (process.env.CLEO_SESSION_GRADE === 'true') {
-    delete process.env.CLEO_SESSION_GRADE;
-    delete process.env.CLEO_SESSION_ID;
-  }
+  // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
+  // to query audit entries after the session ends. The caller (admin.grade handler
+  // or sessionEnd engine) is responsible for cleanup after evaluation completes.
 
   if (options.note) {
     if (!session.notes) session.notes = [];
