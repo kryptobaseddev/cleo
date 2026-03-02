@@ -20,7 +20,7 @@ describe('Operation Registry', () => {
       expect(OPERATIONS.length).toBe(counts.total);
     });
 
-    it('should cover all 9 canonical domains', () => {
+    it('should cover all 10 canonical domains including nexus', () => {
       const domains = getActiveDomains();
       expect(domains).toContain('tasks');
       expect(domains).toContain('session');
@@ -30,7 +30,7 @@ describe('Operation Registry', () => {
       expect(domains).toContain('orchestrate');
       expect(domains).toContain('tools');
       expect(domains).toContain('admin');
-      // nexus is a placeholder with 0 ops — not required in active domains
+      expect(domains).toContain('nexus');
     });
   });
 
