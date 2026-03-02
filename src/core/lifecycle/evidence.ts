@@ -2,7 +2,7 @@
  * Evidence recording for RCASD lifecycle stages.
  *
  * Records provenance evidence (files, URLs, manifests) linked to
- * lifecycle stages in both SQLite and JSON manifests.
+ * lifecycle stages in SQLite.
  *
  * @task T5200
  * @epic T4798
@@ -12,10 +12,7 @@ import { eq, like } from 'drizzle-orm';
 import { relative, basename } from 'node:path';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/schema.js';
-import { readJson, saveJson } from '../../store/json.js';
-import { getBackupDir, getCleoDirAbsolute } from '../paths.js';
-import { findManifestPath, getManifestPath } from './rcasd-paths.js';
-import type { RcasdManifest } from './index.js';
+import { getCleoDirAbsolute } from '../paths.js';
 
 // =============================================================================
 // TYPES
@@ -40,8 +37,7 @@ export interface EvidenceRecord {
 /**
  * Record an evidence artifact linked to a lifecycle stage.
  *
- * Writes to both the SQLite `lifecycle_evidence` table (best-effort)
- * and the JSON manifest's `stages[stage].artifacts[]` array.
+ * Writes to the SQLite `lifecycle_evidence` table.
  *
  * @param epicId - Epic task ID (e.g. 'T4881')
  * @param stage - Canonical stage name (e.g. 'research')
@@ -88,28 +84,6 @@ export async function recordEvidence(
       .run();
   } catch (err) {
     console.warn(`[lifecycle-evidence] Failed to write evidence to SQLite:`, err);
-  }
-
-  // Manifest update (best-effort)
-  try {
-    const manifestPath = findManifestPath(epicId, options?.cwd)
-      ?? getManifestPath(epicId, options?.cwd);
-    const manifest = await readJson<RcasdManifest>(manifestPath);
-
-    if (manifest) {
-      if (!manifest.stages[stage]) {
-        manifest.stages[stage] = { status: 'not_started' };
-      }
-      if (!manifest.stages[stage].artifacts) {
-        manifest.stages[stage].artifacts = [];
-      }
-      if (!manifest.stages[stage].artifacts!.includes(uri)) {
-        manifest.stages[stage].artifacts!.push(uri);
-      }
-      await saveJson(manifestPath, manifest, { backupDir: getBackupDir(options?.cwd) });
-    }
-  } catch (err) {
-    console.warn(`[lifecycle-evidence] Failed to update manifest artifacts:`, err);
   }
 
   return record;

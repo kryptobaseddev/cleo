@@ -77,6 +77,8 @@ export {
   sessionComputeDebrief,
   sessionDebriefShow,
   sessionChainShow,
+  // T5119: Lightweight session discovery
+  sessionFind,
   type DecisionRecord,
 } from '../engines/session-engine.js';
 export type { Session as SessionRecord } from '../../types/session.js';
@@ -95,6 +97,8 @@ export {
   systemInjectGenerate,
   systemMetrics,
   systemHealth,
+  systemDoctor,
+  systemFix,
   systemDiagnostics,
   systemHelp,
   systemRoadmap,

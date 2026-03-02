@@ -614,7 +614,7 @@ export class ToolsHandler implements DomainHandler {
    * Wrap a native engine result (EngineResult pattern) into DispatchResponse.
    */
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
     gateway: string,
     operation: string,
     startTime: number,
@@ -632,6 +632,9 @@ export class ToolsHandler implements DomainHandler {
       error: {
         code: result.error?.code || 'E_UNKNOWN',
         message: result.error?.message || 'Unknown error',
+        details: result.error?.details as Record<string, unknown> | undefined,
+        fix: result.error?.fix,
+        alternatives: result.error?.alternatives,
       },
     };
   }

@@ -1,7 +1,7 @@
 /**
  * Lifecycle Engine — Thin EngineResult Wrapper
  *
- * Delegates all business logic to src/core/lifecycle/engine.ts.
+ * Delegates all business logic to src/core/lifecycle/index.ts.
  * This file only wraps core function calls in EngineResult format
  * for the MCP domain handlers.
  *
@@ -10,19 +10,18 @@
  */
 
 import {
-  listRcsdEpics as coreListRcsdEpics,
-  getStatusSync,
-  getHistorySync,
-  getGatesSync,
-  getPrerequisitesSync,
-  checkPrerequisitesSync,
-  recordProgressSync,
-  skipStageSync,
-  resetStageSync,
-  passGateSync,
-  failGateSync,
-  LifecycleEngineError,
-} from '../../core/lifecycle/engine.js';
+  listEpicsWithLifecycle,
+  getLifecycleStatus,
+  getLifecycleHistory,
+  getLifecycleGates,
+  getStagePrerequisites,
+  checkStagePrerequisites,
+  recordStageProgress,
+  skipStageWithReason,
+  resetStage,
+  passGate,
+  failGate,
+} from '../../core/lifecycle/index.js';
 import { engineError, engineSuccess, type EngineResult } from './_error.js';
 
 // ============================================================================
@@ -32,24 +31,27 @@ import { engineError, engineSuccess, type EngineResult } from './_error.js';
 /**
  * List all epic IDs that have RCASD pipeline data.
  */
-export function listRcsdEpics(projectRoot?: string): string[] {
-  return coreListRcsdEpics(projectRoot);
+export async function listRcsdEpics(projectRoot?: string): Promise<string[]> {
+  return listEpicsWithLifecycle(projectRoot);
 }
 
 /**
  * lifecycle.check / lifecycle.status - Get lifecycle status for epic.
  * @task T4785
  */
-export function lifecycleStatus(
+export async function lifecycleStatus(
   epicId: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!epicId) {
+    return engineError('E_INVALID_INPUT', 'epicId is required');
+  }
   try {
-    const data = getStatusSync(epicId, projectRoot);
+    const data = await getLifecycleStatus(epicId, projectRoot);
     return engineSuccess(data);
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_STATUS', err.message);
     }
     throw err;
   }
@@ -59,16 +61,16 @@ export function lifecycleStatus(
  * lifecycle.history - Stage transition history.
  * @task T4785
  */
-export function lifecycleHistory(
+export async function lifecycleHistory(
   taskId: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
   try {
-    const data = getHistorySync(taskId, projectRoot);
+    const data = await getLifecycleHistory(taskId, projectRoot);
     return engineSuccess(data);
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_HISTORY', err.message);
     }
     throw err;
   }
@@ -78,16 +80,16 @@ export function lifecycleHistory(
  * lifecycle.gates - Get all gate statuses for an epic.
  * @task T4785
  */
-export function lifecycleGates(
+export async function lifecycleGates(
   taskId: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
   try {
-    const data = getGatesSync(taskId, projectRoot);
+    const data = await getLifecycleGates(taskId, projectRoot);
     return engineSuccess(data);
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_GATES', err.message);
     }
     throw err;
   }
@@ -97,16 +99,19 @@ export function lifecycleGates(
  * lifecycle.prerequisites - Get required prior stages for a target stage.
  * @task T4785
  */
-export function lifecyclePrerequisites(
+export async function lifecyclePrerequisites(
   targetStage: string,
   _projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!targetStage) {
+    return engineError('E_INVALID_INPUT', 'targetStage is required');
+  }
   try {
-    const data = getPrerequisitesSync(targetStage);
-    return engineSuccess(data);
+    const data = await getStagePrerequisites(targetStage);
+    return engineSuccess({ targetStage, ...data });
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_PREREQUISITES', err.message);
     }
     throw err;
   }
@@ -116,17 +121,20 @@ export function lifecyclePrerequisites(
  * lifecycle.check - Check if a stage's prerequisites are met.
  * @task T4785
  */
-export function lifecycleCheck(
+export async function lifecycleCheck(
   epicId: string,
   targetStage: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!epicId || !targetStage) {
+    return engineError('E_INVALID_INPUT', 'epicId and targetStage are required');
+  }
   try {
-    const data = checkPrerequisitesSync(epicId, targetStage, projectRoot);
+    const data = await checkStagePrerequisites(epicId, targetStage, projectRoot);
     return engineSuccess(data);
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_CHECK', err.message);
     }
     throw err;
   }
@@ -136,19 +144,22 @@ export function lifecycleCheck(
  * lifecycle.progress / lifecycle.record - Record stage completion.
  * @task T4785
  */
-export function lifecycleProgress(
+export async function lifecycleProgress(
   taskId: string,
   stage: string,
   status: string,
   notes?: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!taskId || !stage || !status) {
+    return engineError('E_INVALID_INPUT', 'taskId, stage, and status are required');
+  }
   try {
-    const data = recordProgressSync(taskId, stage, status, notes, projectRoot);
-    return engineSuccess(data);
+    const data = await recordStageProgress(taskId, stage, status, notes, projectRoot);
+    return engineSuccess({ ...data, recorded: true });
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_PROGRESS', err.message);
     }
     throw err;
   }
@@ -158,18 +169,21 @@ export function lifecycleProgress(
  * lifecycle.skip - Skip a stage with reason.
  * @task T4785
  */
-export function lifecycleSkip(
+export async function lifecycleSkip(
   taskId: string,
   stage: string,
   reason: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!taskId || !stage || !reason) {
+    return engineError('E_INVALID_INPUT', 'taskId, stage, and reason are required');
+  }
   try {
-    const data = skipStageSync(taskId, stage, reason, projectRoot);
-    return engineSuccess(data);
+    const data = await skipStageWithReason(taskId, stage, reason, projectRoot);
+    return engineSuccess({ ...data, skipped: true });
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_SKIP', err.message);
     }
     throw err;
   }
@@ -179,18 +193,21 @@ export function lifecycleSkip(
  * lifecycle.reset - Reset a stage (emergency).
  * @task T4785
  */
-export function lifecycleReset(
+export async function lifecycleReset(
   taskId: string,
   stage: string,
   reason: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!taskId || !stage || !reason) {
+    return engineError('E_INVALID_INPUT', 'taskId, stage, and reason are required');
+  }
   try {
-    const data = resetStageSync(taskId, stage, reason, projectRoot);
-    return engineSuccess(data);
+    const data = await resetStage(taskId, stage, reason, projectRoot);
+    return engineSuccess({ ...data, reset: 'pending' });
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_RESET', err.message);
     }
     throw err;
   }
@@ -200,19 +217,22 @@ export function lifecycleReset(
  * lifecycle.gate.pass - Mark gate as passed.
  * @task T4785
  */
-export function lifecycleGatePass(
+export async function lifecycleGatePass(
   taskId: string,
   gateName: string,
   agent?: string,
   notes?: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!taskId || !gateName) {
+    return engineError('E_INVALID_INPUT', 'taskId and gateName are required');
+  }
   try {
-    const data = passGateSync(taskId, gateName, agent, notes, projectRoot);
-    return engineSuccess(data);
+    const data = await passGate(taskId, gateName, agent, notes, projectRoot);
+    return engineSuccess({ ...data, status: 'passed' });
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_GATE_PASS', err.message);
     }
     throw err;
   }
@@ -222,18 +242,21 @@ export function lifecycleGatePass(
  * lifecycle.gate.fail - Mark gate as failed.
  * @task T4785
  */
-export function lifecycleGateFail(
+export async function lifecycleGateFail(
   taskId: string,
   gateName: string,
   reason?: string,
   projectRoot?: string,
-): EngineResult {
+): Promise<EngineResult> {
+  if (!taskId || !gateName) {
+    return engineError('E_INVALID_INPUT', 'taskId and gateName are required');
+  }
   try {
-    const data = failGateSync(taskId, gateName, reason, projectRoot);
-    return engineSuccess(data);
+    const data = await failGate(taskId, gateName, reason, projectRoot);
+    return engineSuccess({ ...data, status: 'failed' });
   } catch (err) {
-    if (err instanceof LifecycleEngineError) {
-      return engineError(err.code, err.message);
+    if (err instanceof Error) {
+      return engineError('E_LIFECYCLE_GATE_FAIL', err.message);
     }
     throw err;
   }

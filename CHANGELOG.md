@@ -5,11 +5,55 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [2026.3.2] - 2026-03-01
+## [2026.3.4] - 2026-03-02
+
+### Fixed
+
+- **S4 audit race condition** — Await `writeToSqlite()` in grade mode to prevent race between audit persistence and grading query.
+- **Premature grade env var cleanup in endSession** — Removed early deletion of `CLEO_SESSION_GRADE` and `CLEO_SESSION_GRADE_ID` env vars; caller is now responsible for cleanup after evaluation completes.
+- **CLEO_SESSION_GRADE_ID dead code** — Env var is now set during grade session start in both `session-engine` and core `sessions/index`, fixing references that previously read an unset variable.
+
+### Added
+
+- **53 grade rubric tests** — 46 unit tests covering all 5 dimensions (S1-S5) with edge cases, plus 7 integration tests for full grading flow with CLEO_HOME isolation.
+- **CLEO-GRADE-SPEC.md** — Formal 5-dimension rubric specification for session behavioral grading.
+- **GRADE-SCENARIO-PLAYBOOK.md** — 5 grading scenarios with pass criteria and expected dimension scores.
+- **ct-grade skill** — Agent guidance skill for session behavioral grading.
+
+### Completed
+
+- **6 BRAIN database tasks** (T5127-T5130, T5155-T5156) confirmed done — brain.db Drizzle schema, data accessor, decision memory, JSONL migration, FTS5 search, memory links.
+
+---
+
+## [2026.3.3] - 2026-03-01
+
+### Quality
+
+- **Zero-failure perfection: 3387 tests, 0 skipped, 0 failed** — Validated and shipped Phase 1 refactoring. All skipped tests enabled, all failures fixed, full E2E validation passed.
+- **Suppress Node experimental warnings in tests** — Added default `NODE_NO_WARNINGS=1` initialization in `vitest.config.ts`.
+
+### Features
+
+- **RCASD lifecycle artifact wiring completed (T5216, T5217)** — `pipeline.stage.record` now scaffolds stage markdown under `.cleo/rcasd/{epicId}/{stage}/`, writes YAML frontmatter/backlinks, persists `outputFile` and provenance chain in SQLite, records lifecycle evidence on stage completion, and auto-triggers ADR sync/link on `architecture_decision` completion.
+- **Doctor dispatch: --comprehensive and --fix flags (T5219)** — Wired `coreDoctorReport` and `runDoctorFixes` through full CLI/MCP dispatch pipeline. 21 comprehensive checks available via `cleo doctor --comprehensive`, auto-repair via `cleo doctor --fix`.
+- **Init/upgrade refactored** — Extracted scaffold.ts, hooks.ts, injection.ts, schema-management.ts from monolithic init.ts.
 
 ### Bug Fixes
 
+- **Migration topological sort (T5218)** — Fixed storage_migration failure when child tasks appear before parents in source JSON. Added topological sort for both parentId and depends ordering. 482/482 tasks import successfully on real legacy projects.
+- **Migration null-safe descriptions** — Added fallback `Task: {title}` for tasks with null/undefined descriptions during JSON→SQLite migration.
+- **Lifecycle tests fixed for SQLite-native flow** — Updated tests that wrote JSON manifests to use `recordStageProgress()` (SQLite-native) after T4801 migration.
+- **Pre-commit hook: removed tasks.db from protected list** — Per ADR-013, tasks.db must not be git-tracked. Updated hook template and installed hook.
 - **Add missing drizzle migrations for task_relations (T5168)** — Generated migration to add `reason` column to `task_relations` table. Generated custom migration to update CHECK constraint on `relation_type` from 3 values (`related`, `blocks`, `duplicates`) to 7 values (`related`, `blocks`, `duplicates`, `absorbs`, `fixes`, `extends`, `supersedes`). Fixes 58 test failures in relations, core-parity, and MCP E2E tests.
+
+---
+
+## [2026.3.2-beta.1] - 2026-03-01
+
+### Release Prep
+
+- **Beta channel release cut from `develop`** — Prepared prerelease package version `2026.3.2-beta.1` and tag flow for npm `@beta` per ADR-016 channel policy.
 
 ---
 

@@ -3,9 +3,10 @@
  * @task T4783
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readComplianceJsonl } from '../compliance/store.js';
 
 export interface SystemMetricsResult {
   tokens: {
@@ -36,18 +37,7 @@ export async function getSystemMetrics(
   const cleoDir = join(projectRoot, '.cleo');
 
   // Compliance metrics
-  const compliancePath = join(cleoDir, 'metrics', 'COMPLIANCE.jsonl');
-  let complianceEntries: Record<string, unknown>[] = [];
-  if (existsSync(compliancePath)) {
-    try {
-      const content = readFileSync(compliancePath, 'utf-8').trim();
-      if (content) {
-        complianceEntries = content.split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
-      }
-    } catch {
-      // skip
-    }
-  }
+  let complianceEntries = readComplianceJsonl(projectRoot);
 
   if (opts?.since) {
     complianceEntries = complianceEntries.filter(e => (e.timestamp as string) >= opts.since!);

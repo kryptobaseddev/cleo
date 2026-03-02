@@ -233,7 +233,7 @@ describe('E2E: Error Handling Workflow', () => {
       // CLI enforces sibling limit
       expect(extraChildResult.error?.code).toMatch(/E_SIBLING_LIMIT|E_VALIDATION/);
     }
-  });
+  }, 60000); // 60s: creates 8 child tasks sequentially via CLI
 
   it('should detect circular dependencies', async () => {
     // Create task A

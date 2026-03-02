@@ -30,7 +30,7 @@ vi.mock('../../lib/engine.js', () => ({
   taskStop: vi.fn(() => ({ success: true, data: {} })),
   // Session engine
   sessionStatus: vi.fn(() => ({ success: true, data: {} })),
-  sessionList: vi.fn(() => ({ success: true, data: [] })),
+  sessionList: vi.fn(() => ({ success: true, data: { sessions: [], _meta: { truncated: false, total: 0 } } })),
   sessionShow: vi.fn(() => ({ success: true, data: {} })),
   sessionStart: vi.fn(() => ({ success: true, data: {} })),
   sessionEnd: vi.fn(() => ({ success: true, data: {} })),
