@@ -308,7 +308,7 @@ Both can coexist safely.
 - **Injection System**: `schemas/agent-registry.json`
 - **Setup Guide**: `docs/guides/AGENT-REGISTRATION.md`
 - **Subagent Architecture**: `docs/architecture/CLEO-SUBAGENT.md`
-- **Protocol Stack**: `protocols/`
+- **Protocol Stack**: `src/protocols/`
 
 ---
 

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://lafs.dev/schemas/v1/provider-skills-map.schema.json",
+  "version": "1.0.0",
+  "description": "Provider skill path discovery and precedence rules for CLEO skill deployment",
+  "providers": {
+    "claude-code": {
+      "globalSkills": "$HOME/.claude/skills",
+      "projectSkills": ".claude/skills",
+      "agentsGlobal": null,
+      "agentsProject": null,
+      "readsFromDotAgents": false,
+      "precedence": "vendor-only",
+      "symlinkSupported": true,
+      "notes": "Created Agent Skills standard but uses vendor path exclusively"
+    },
+    "codex-cli": {
+      "globalSkills": "$HOME/.agents/skills",
+      "projectSkills": ".agents/skills",
+      "agentsGlobal": "$HOME/.agents/skills",
+      "agentsProject": ".agents/skills",
+      "readsFromDotAgents": true,
+      "precedence": "agents-canonical",
+      "symlinkSupported": true,
+      "notes": "Uses .agents/skills as canonical location"
+    },
+    "gemini-cli": {
+      "globalSkills": "$HOME/.gemini/skills",
+      "projectSkills": ".gemini/skills",
+      "agentsGlobal": "$HOME/.agents/skills",
+      "agentsProject": ".agents/skills",
+      "readsFromDotAgents": true,
+      "precedence": "agents-first",
+      "symlinkSupported": true,
+      "notes": ".agents/skills takes precedence over .gemini/skills within same tier"
+    },
+    "cursor": {
+      "globalSkills": "$HOME/.cursor/skills",
+      "projectSkills": ".cursor/skills",
+      "agentsGlobal": null,
+      "agentsProject": ".agents/skills",
+      "readsFromDotAgents": "project-only",
+      "precedence": "vendor-global-agents-project",
+      "symlinkSupported": true,
+      "notes": "Global uses vendor path; project supports .agents/skills"
+    },
+    "github-copilot": {
+      "globalSkills": "$HOME/.copilot/skills",
+      "projectSkills": ".github/skills",
+      "agentsGlobal": "$HOME/.agents/skills",
+      "agentsProject": ".agents/skills",
+      "readsFromDotAgents": true,
+      "precedence": "agents-supported",
+      "symlinkSupported": true,
+      "notes": "Supports both vendor and .agents paths at all levels"
+    },
+    "windsurf": {
+      "globalSkills": "$HOME/.codeium/windsurf/skills",
+      "projectSkills": ".windsurf/skills",
+      "agentsGlobal": null,
+      "agentsProject": null,
+      "readsFromDotAgents": false,
+      "precedence": "vendor-only",
+      "symlinkSupported": false,
+      "notes": "Vendor-specific paths only, no .agents support"
+    },
+    "opencode": {
+      "globalSkills": "$HOME/.config/opencode/skills",
+      "projectSkills": ".opencode/skills",
+      "agentsGlobal": "$HOME/.agents/skills",
+      "agentsProject": ".agents/skills",
+      "readsFromDotAgents": true,
+      "precedence": "agents-supported",
+      "symlinkSupported": true,
+      "notes": "User confirms .agents/ support; verify via opencode docs"
+    },
+    "kimi-coding": {
+      "globalSkills": "$HOME/.kimi/skills",
+      "projectSkills": ".kimi/skills",
+      "agentsGlobal": null,
+      "agentsProject": null,
+      "readsFromDotAgents": false,
+      "precedence": "vendor-only",
+      "symlinkSupported": false,
+      "notes": "Model-based provider; skill path support uncertain"
+    },
+    "antigravity": {
+      "globalSkills": "$HOME/.antigravity/skills",
+      "projectSkills": ".agent/skills",
+      "agentsGlobal": null,
+      "agentsProject": ".agents/skills",
+      "readsFromDotAgents": "project-only",
+      "precedence": "vendor-global-agents-project",
+      "symlinkSupported": true,
+      "notes": "Project-level .agents/skills confirmed in Google codelabs"
+    }
+  }
+}

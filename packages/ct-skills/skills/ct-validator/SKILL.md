@@ -20,7 +20,7 @@ license: MIT
 
 # Validator Context Injection
 
-**Protocol**: @protocols/implementation.md
+**Protocol**: @src/protocols/implementation.md
 **Type**: Context Injection (cleo-subagent)
 **Version**: 2.0.0
 

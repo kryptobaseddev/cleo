@@ -71,15 +71,15 @@ CLEO supports 16 testing frameworks. Configure your project's testing setup in `
 
 ## Supported Frameworks
 
-| Framework | Extension | Ecosystem |
-|-----------|-----------|-----------|
-| bats | .bats | Bash |
-| jest, vitest, playwright, cypress, mocha, ava, uvu, tap | .test.js/.ts | Node.js |
-| node:test, deno, bun | .test.ts | Runtime built-ins |
-| pytest | _test.py | Python |
-| go | _test.go | Go |
-| cargo | .rs | Rust |
-| custom | varies | Any |
+| Framework | Extension | Ecosystem | Notes |
+|-----------|-----------|-----------|-------|
+| vitest | .test.ts | Node.js | **Default for CLEO projects** |
+| jest, playwright, cypress, mocha, ava, uvu, tap | .test.js/.ts | Node.js | |
+| node:test, deno, bun | .test.ts | Runtime built-ins | |
+| pytest | _test.py | Python | |
+| go | _test.go | Go | |
+| cargo | .rs | Rust | |
+| custom | varies | Any | |
 
 ## Validation Gates
 

@@ -20,7 +20,7 @@ license: MIT
 
 # Epic Architect Context Injection
 
-**Protocol**: @protocols/decomposition.md
+**Protocol**: @src/protocols/decomposition.md
 **Type**: Context Injection (cleo-subagent)
 **Version**: 3.0.0
 

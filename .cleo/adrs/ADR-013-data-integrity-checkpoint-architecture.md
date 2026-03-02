@@ -29,7 +29,7 @@ if (config.noVerify) {
 
 This issues a bare `git commit` with no `-- <paths>` restriction. While lines 280-283 stage only the changed state files via `git add <file.path>`, any files that were **already staged** by the user or by other processes are swept into the checkpoint commit. The commit captures everything in the index, not just `.cleo/` files.
 
-**Evidence**: Commit `56713c1b` -- a `chore(cleo): auto checkpoint` commit included unrelated files from `packages/` and `protocols/` directories that had been pre-staged by other operations.
+**Evidence**: Commit `56713c1b` -- a `chore(cleo): auto checkpoint` commit included unrelated files from `packages/` and `src/protocols/` directories that had been pre-staged by other operations.
 
 ### Bug 2: SQLite binary in STATE_FILES
 

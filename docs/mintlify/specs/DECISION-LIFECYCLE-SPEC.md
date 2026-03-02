@@ -33,9 +33,9 @@ This specification is **AUTHORITATIVE** for:
 
 This specification **DEFERS TO**:
 - `DOMAIN-CONSOLIDATION-SPEC.md` for domain naming and operation routing
-- `protocols/adr.md` for agent-facing protocol requirements and output format
-- `protocols/consensus.md` for consensus verdict structure
-- `protocols/specification.md` for specification document format
+- `src/protocols/adr.md` for agent-facing protocol requirements and output format
+- `src/protocols/consensus.md` for consensus verdict structure
+- `src/protocols/specification.md` for specification document format
 - ADR-006 for canonical SQLite storage architecture decisions
 
 ### 1.3 Non-Scope
@@ -43,7 +43,7 @@ This specification **DEFERS TO**:
 - Implementation code (this is a specification, not a PR)
 - BRAIN dimension operations (future phases)
 - MCP gateway/capability-matrix restructuring (see `DOMAIN-CONSOLIDATION-SPEC.md`)
-- ADR content authoring guidelines (see `protocols/adr.md`)
+- ADR content authoring guidelines (see `src/protocols/adr.md`)
 
 ---
 
@@ -719,9 +719,9 @@ A conforming implementation MUST:
 | Document | Relationship |
 |----------|--------------|
 | `DOMAIN-CONSOLIDATION-SPEC.md` | AUTHORITATIVE for domain naming and pipeline operation routing |
-| `protocols/adr.md` | AUTHORITATIVE for agent-facing ADR protocol requirements and output format |
-| `protocols/consensus.md` | AUTHORITATIVE for consensus verdict structure |
-| `protocols/specification.md` | AUTHORITATIVE for specification document format |
+| `src/protocols/adr.md` | AUTHORITATIVE for agent-facing ADR protocol requirements and output format |
+| `src/protocols/consensus.md` | AUTHORITATIVE for consensus verdict structure |
+| `src/protocols/specification.md` | AUTHORITATIVE for specification document format |
 | `CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md` | Related: compliance and token usage tables supersede JSONL equivalents |
 | `MCP-SERVER-SPECIFICATION.md` | Related: new pipeline.decision.* operations extend the MCP contract |
 | ADR-006 | AUTHORITATIVE for canonical SQLite storage architecture |

@@ -1,8 +1,0 @@
-[EXPORT] Format: csv, Status: pending,active,blocked,done, Found: 6 tasks
-"id","status","priority","phase","title","createdAt","completedAt","labels"
-"T001","done","high","setup","Setup project structure","TIMESTAMP","TIMESTAMP","setup,infrastructure"
-"T002","done","critical","core","Implement core feature A","TIMESTAMP","TIMESTAMP","feature,core"
-"T003","active","high","core","Add authentication","TIMESTAMP","","feature,security"
-"T004","pending","medium","polish","Write documentation","TIMESTAMP","","docs"
-"T005","blocked","high","core","Fix login bug","TIMESTAMP","","bug,security"
-"T006","pending","low","polish","Performance optimization","TIMESTAMP","","performance"

@@ -1,7 +1,7 @@
 {
   "name": "recommended",
-  "description": "Core + RCSD pipeline skills",
+  "description": "Full RCASD pipeline skills for epic-driven development",
   "extends": "core",
   "skills": ["ct-epic-architect", "ct-research-agent", "ct-spec-writer", "ct-validator"],
-  "includeProtocols": ["research", "specification", "decomposition", "consensus", "validation"]
+  "includeProtocols": ["research", "consensus", "specification", "decomposition", "validation", "adr"]
 }

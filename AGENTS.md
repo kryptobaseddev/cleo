@@ -154,6 +154,11 @@ npm test
 npx vitest run
 npx vitest run --coverage
 
+# Target project-scoped runs (Vitest v4 projects)
+# npx vitest run --project unit
+# npx vitest run --project integration
+# npx vitest run --project e2e
+
 # Watch mode
 npm run dev          # Watch mode type-checking
 npm run dev:watch    # Watch mode build
@@ -462,14 +467,27 @@ These codes are raised by the orchestration layer during multi-agent coordinatio
 ## Testing Guidelines
 
 ### Test Structure
-- **Unit tests**: `tests/unit/` - Test individual functions
-- **Integration tests**: `tests/integration/` - Test command workflows
+- **Unit tests (canonical)**: co-located under `src/**/__tests__/` - Test individual modules/functions close to source
+- **Integration tests (canonical)**: `tests/integration/` - Test cross-module workflows
+- **E2E tests (canonical)**: `tests/e2e/` - Test end-to-end user/system workflows
 - **Golden tests**: `tests/golden/` - Test output formatting
 - **Fixtures**: `tests/fixtures/` - Test data setup
+
+### Vitest v4+ Project Organization (Canonical Policy)
+- Vitest MUST be configured with `test.projects` for at least: `unit`, `integration`, `e2e`
+- `__tests__/` MUST be used for co-located unit tests only
+- Integration and E2E tests SHOULD live in top-level `tests/` folders (`tests/integration/`, `tests/e2e/`)
+- Avoid scattered ad-hoc E2E files under unrelated source directories
+- Prefer clear naming by scope: `*.test.ts` (unit), `*.integration.test.ts` (integration), workflow-specific names for E2E
+- Vitest test discovery is dynamic via include patterns; no manual test registration is required
 
 ### Test Naming
 - Vitest: `*.test.ts` or `*.integration.test.ts`
 - BATS (legacy): `feature-name.bats` with `@test "feature should expected_outcome"`
+
+### Vitest v4 Migration Notes
+- Current migration epic: `T5220` (Vitest 3.2.4 -> Vitest v4.0.18+)
+- Migration plan and fixes ledger: `docs/specs/VITEST-V4-MIGRATION-PLAN.md`
 
 ### Test Requirements
 - New features require tests

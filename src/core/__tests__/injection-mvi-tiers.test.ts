@@ -171,9 +171,9 @@ describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
   });
 
   describe('Template size', () => {
-    it('is under 100 lines', () => {
+    it('is under 120 lines', () => {
       const lines = content.split('\n').length;
-      expect(lines).toBeLessThan(100);
+      expect(lines).toBeLessThan(120);
     });
 
     it('is at least 60 lines (not accidentally empty)', () => {

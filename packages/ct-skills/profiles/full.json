@@ -1,11 +1,10 @@
 {
   "name": "full",
-  "description": "All CT-SKILLS",
+  "description": "All skills including execution, documentation, quality, and meta",
   "extends": "recommended",
   "skills": [
-    "ct-dev-workflow", "ct-test-writer-bats", "ct-library-implementer-bash",
-    "ct-documentor", "ct-docs-lookup", "ct-docs-write", "ct-docs-review",
-    "ct-skill-creator", "ct-skill-lookup", "ct-contribution", "ct-gitbook"
+    "ct-dev-workflow", "ct-documentor", "ct-docs-lookup", "ct-docs-write", "ct-docs-review",
+    "ct-contribution", "ct-grade", "ct-skill-creator"
   ],
-  "includeProtocols": ["contribution", "release", "testing", "artifact-publish", "provenance"]
+  "includeProtocols": ["implementation", "contribution", "release", "testing", "artifact-publish", "provenance"]
 }

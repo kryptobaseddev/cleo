@@ -20,7 +20,7 @@ license: MIT
 
 # Specification Writer Context Injection
 
-**Protocol**: @protocols/specification.md
+**Protocol**: @src/protocols/specification.md
 **Type**: Context Injection (cleo-subagent)
 **Version**: 2.0.0
 

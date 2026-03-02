@@ -6,7 +6,7 @@ const fs = require('fs');
 const LIBRARY_ROOT = __dirname;
 const SKILLS_ROOT = path.join(LIBRARY_ROOT, 'skills');
 const PROFILES_ROOT = path.join(LIBRARY_ROOT, 'profiles');
-const PROTOCOLS_ROOT = path.join(LIBRARY_ROOT, 'protocols');
+const PROTOCOLS_ROOT = path.join(LIBRARY_ROOT, '..', '..', 'src', 'protocols');
 const SHARED_ROOT = path.join(SKILLS_ROOT, '_shared');
 
 // --- Package metadata ---
