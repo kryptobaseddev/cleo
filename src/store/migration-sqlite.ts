@@ -24,6 +24,47 @@ import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
 
+/**
+ * Topological sort for tasks: ensures parents and dependency targets are inserted before
+ * the tasks that reference them. Tasks referencing IDs outside the batch are treated as
+ * roots (inserted as-is). Handles circular references defensively by breaking cycles.
+ */
+function topoSortTasks<T extends { id: string; parentId?: string | null | undefined; depends?: string[] | null | undefined }>(tasks: T[]): T[] {
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const sorted: T[] = [];
+  const visited = new Set<string>();
+  const inStack = new Set<string>(); // cycle detection
+
+  function visit(task: T): void {
+    if (visited.has(task.id)) return;
+    if (inStack.has(task.id)) {
+      // Circular reference detected — skip the recursive call to break the cycle
+      return;
+    }
+    inStack.add(task.id);
+    // Visit parent first if it exists in this batch
+    if (task.parentId && taskMap.has(task.parentId)) {
+      visit(taskMap.get(task.parentId)!);
+    }
+    // Visit dependency targets first if they exist in this batch
+    if (task.depends) {
+      for (const depId of task.depends) {
+        if (taskMap.has(depId)) {
+          visit(taskMap.get(depId)!);
+        }
+      }
+    }
+    inStack.delete(task.id);
+    visited.add(task.id);
+    sorted.push(task);
+  }
+
+  for (const task of tasks) {
+    visit(task);
+  }
+  return sorted;
+}
+
 /** Migration result. */
 export interface MigrationResult {
   success: boolean;
@@ -215,7 +256,7 @@ async function runMigrationDataImport(
       });
 
       const todoData = JSON.parse(readFileSync(todoPath, 'utf-8'));
-      const tasks: Task[] = todoData.tasks ?? [];
+      const tasks: Task[] = topoSortTasks(todoData.tasks ?? []);
       const totalTasks = tasks.length;
 
       logger?.info('import', 'tasks-start', `Starting import of ${totalTasks} tasks`, {
@@ -228,7 +269,7 @@ async function runMigrationDataImport(
           await db.insert(schema.tasks).values({
             id: task.id,
             title: task.title,
-            description: task.description,
+            description: task.description || `Task: ${task.title}`,
             status: task.status,
             priority: task.priority ?? 'medium',
             type: task.type,
@@ -305,7 +346,7 @@ async function runMigrationDataImport(
 
       const archiveData = JSON.parse(readFileSync(archivePath, 'utf-8'));
       const archivedTasks: (Task & { archivedAt?: string; archiveReason?: string; cycleTimeDays?: number })[] =
-        archiveData.tasks ?? archiveData.archivedTasks ?? [];
+        topoSortTasks(archiveData.tasks ?? archiveData.archivedTasks ?? []);
       const totalArchived = archivedTasks.length;
 
       logger?.info('import', 'archive-start', `Starting import of ${totalArchived} archived tasks`, {
@@ -318,7 +359,7 @@ async function runMigrationDataImport(
           await db.insert(schema.tasks).values({
             id: task.id,
             title: task.title,
-            description: task.description,
+            description: task.description || `Task: ${task.title}`,
             status: 'archived',
             priority: task.priority ?? 'medium',
             type: task.type,
@@ -563,7 +604,7 @@ export async function migrateJsonToSqlite(
   if (existsSync(todoPath)) {
     try {
       const todoData = JSON.parse(readFileSync(todoPath, 'utf-8'));
-      const tasks: Task[] = todoData.tasks ?? [];
+      const tasks: Task[] = topoSortTasks(todoData.tasks ?? []);
 
       for (const task of tasks) {
         try {
@@ -571,7 +612,7 @@ export async function migrateJsonToSqlite(
             .values({
               id: task.id,
               title: task.title,
-              description: task.description,
+              description: task.description || `Task: ${task.title}`,
               status: task.status,
               priority: task.priority ?? 'medium',
               type: task.type,
@@ -635,7 +676,7 @@ export async function migrateJsonToSqlite(
         archivedAt?: string;
         archiveReason?: string;
         cycleTimeDays?: number;
-      })[] = archiveData.tasks ?? archiveData.archivedTasks ?? [];
+      })[] = topoSortTasks(archiveData.tasks ?? archiveData.archivedTasks ?? []);
 
       for (const task of archivedTasks) {
         try {
@@ -643,7 +684,7 @@ export async function migrateJsonToSqlite(
             .values({
               id: task.id,
               title: task.title,
-              description: task.description,
+              description: task.description || `Task: ${task.title}`,
               status: 'archived',
               priority: task.priority ?? 'medium',
               type: task.type,

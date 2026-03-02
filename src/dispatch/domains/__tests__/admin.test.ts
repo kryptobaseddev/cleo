@@ -80,7 +80,7 @@ describe('AdminHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
-        'version', 'health', 'config.show', 'config.get', 'stats', 'context',
+        'version', 'health', 'doctor', 'config.show', 'config.get', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list',
       ]);
@@ -89,7 +89,7 @@ describe('AdminHandler', () => {
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'init', 'config.set', 'backup', 'restore', 'migrate',
+        'init', 'fix', 'config.set', 'backup', 'restore', 'migrate',
         'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
         'adr.sync', 'adr.validate',
       ]);

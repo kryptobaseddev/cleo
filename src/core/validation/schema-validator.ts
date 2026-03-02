@@ -11,9 +11,9 @@
 import AjvModule from 'ajv';
 import addFormatsModule from 'ajv-formats';
 import type { ValidateFunction, ErrorObject } from 'ajv';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync } from 'fs';
 import { insertTaskSchema } from '../../store/validation-schemas.js';
+import { resolveSchemaPath as resolveSchemaPathGlobal } from '../schema-management.js';
 
 // Handle ESM/CJS interop for Ajv and ajv-formats
 const Ajv = (AjvModule as any).default || AjvModule;
@@ -74,27 +74,11 @@ function getAjv(): InstanceType<typeof Ajv> {
 }
 
 /**
- * Resolve path to a schema file.
- * Looks in multiple locations: project schemas/, dist-relative schemas/
+ * Local wrapper that maps SchemaType to a schema filename and delegates
+ * to the centralized resolveSchemaPath in schema-management.ts.
  */
 function resolveSchemaPath(schemaType: SchemaType): string | null {
-  const filename = `${schemaType}.schema.json`;
-
-  // Check project root schemas/ and dist-relative locations
-  const projectRoot = process.env.CLEO_ROOT || process.cwd();
-  const paths = [
-    join(projectRoot, 'schemas', filename),
-    join(__dirname, '..', '..', '..', 'schemas', filename), // relative from dist/core/validation/
-    join(__dirname, '..', '..', 'schemas', filename),        // relative from dist/core/
-  ];
-
-  for (const p of paths) {
-    if (existsSync(p)) {
-      return p;
-    }
-  }
-
-  return null;
+  return resolveSchemaPathGlobal(`${schemaType}.schema.json`);
 }
 
 /**

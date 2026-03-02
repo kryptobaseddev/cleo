@@ -61,7 +61,7 @@ export class PipelineHandler implements DomainHandler {
     try {
       // Stage sub-domain
       if (operation.startsWith('stage.')) {
-        return this.queryStage(operation.slice('stage.'.length), params, startTime);
+        return await this.queryStage(operation.slice('stage.'.length), params, startTime);
       }
 
       return this.errorResponse('query', operation, 'E_INVALID_OPERATION',
@@ -80,7 +80,7 @@ export class PipelineHandler implements DomainHandler {
     try {
       // Stage sub-domain
       if (operation.startsWith('stage.')) {
-        return this.mutateStage(operation.slice('stage.'.length), params, startTime);
+        return await this.mutateStage(operation.slice('stage.'.length), params, startTime);
       }
 
       // Release sub-domain
@@ -115,11 +115,11 @@ export class PipelineHandler implements DomainHandler {
   // Stage queries
   // -----------------------------------------------------------------------
 
-  private queryStage(
+  private async queryStage(
     sub: string,
     params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
     switch (sub) {
       case 'validate': {
         const epicId = params?.epicId as string;
@@ -128,7 +128,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('query', 'stage.validate', 'E_INVALID_INPUT',
             'epicId and targetStage are required', startTime);
         }
-        const result = lifecycleCheck(epicId, targetStage, this.projectRoot);
+        const result = await lifecycleCheck(epicId, targetStage, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'stage.validate', startTime);
       }
 
@@ -138,7 +138,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('query', 'stage.status', 'E_INVALID_INPUT',
             'epicId is required', startTime);
         }
-        const result = lifecycleStatus(epicId, this.projectRoot);
+        const result = await lifecycleStatus(epicId, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'stage.status', startTime);
       }
 
@@ -148,7 +148,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('query', 'stage.history', 'E_INVALID_INPUT',
             'taskId is required', startTime);
         }
-        const result = lifecycleHistory(taskId, this.projectRoot);
+        const result = await lifecycleHistory(taskId, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'stage.history', startTime);
       }
 
@@ -158,7 +158,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('query', 'stage.gates', 'E_INVALID_INPUT',
             'taskId is required', startTime);
         }
-        const result = lifecycleGates(taskId, this.projectRoot);
+        const result = await lifecycleGates(taskId, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'stage.gates', startTime);
       }
 
@@ -168,7 +168,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('query', 'stage.prerequisites', 'E_INVALID_INPUT',
             'targetStage is required', startTime);
         }
-        const result = lifecyclePrerequisites(targetStage, this.projectRoot);
+        const result = await lifecyclePrerequisites(targetStage, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'stage.prerequisites', startTime);
       }
 
@@ -182,11 +182,11 @@ export class PipelineHandler implements DomainHandler {
   // Stage mutations
   // -----------------------------------------------------------------------
 
-  private mutateStage(
+  private async mutateStage(
     sub: string,
     params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
     switch (sub) {
       case 'record': {
         const taskId = params?.taskId as string;
@@ -197,7 +197,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'stage.record', 'E_INVALID_INPUT',
             'taskId, stage, and status are required', startTime);
         }
-        const result = lifecycleProgress(taskId, stage, status, notes, this.projectRoot);
+        const result = await lifecycleProgress(taskId, stage, status, notes, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'stage.record', startTime);
       }
 
@@ -209,7 +209,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'stage.skip', 'E_INVALID_INPUT',
             'taskId, stage, and reason are required', startTime);
         }
-        const result = lifecycleSkip(taskId, stage, reason, this.projectRoot);
+        const result = await lifecycleSkip(taskId, stage, reason, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'stage.skip', startTime);
       }
 
@@ -221,7 +221,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'stage.reset', 'E_INVALID_INPUT',
             'taskId, stage, and reason are required', startTime);
         }
-        const result = lifecycleReset(taskId, stage, reason, this.projectRoot);
+        const result = await lifecycleReset(taskId, stage, reason, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'stage.reset', startTime);
       }
 
@@ -234,7 +234,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'stage.gate.pass', 'E_INVALID_INPUT',
             'taskId and gateName are required', startTime);
         }
-        const result = lifecycleGatePass(taskId, gateName, agent, notes, this.projectRoot);
+        const result = await lifecycleGatePass(taskId, gateName, agent, notes, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'stage.gate.pass', startTime);
       }
 
@@ -246,7 +246,7 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'stage.gate.fail', 'E_INVALID_INPUT',
             'taskId and gateName are required', startTime);
         }
-        const result = lifecycleGateFail(taskId, gateName, reason, this.projectRoot);
+        const result = await lifecycleGateFail(taskId, gateName, reason, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'stage.gate.fail', startTime);
       }
 
@@ -352,7 +352,7 @@ export class PipelineHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
     gateway: string,
     operation: string,
     startTime: number,
@@ -370,6 +370,8 @@ export class PipelineHandler implements DomainHandler {
       error: {
         code: result.error?.code || 'E_UNKNOWN',
         message: result.error?.message || 'Unknown error',
+        fix: result.error?.fix,
+        alternatives: result.error?.alternatives,
       },
     };
   }

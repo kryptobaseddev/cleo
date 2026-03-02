@@ -14,7 +14,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
@@ -28,6 +28,11 @@ import {
   completeMigration,
   failMigration,
 } from './migration/state.js';
+import { ensureCleoStructure, ensureGitignore, ensureProjectContext, ensureProjectInfo, ensureCleoGitRepo, ensureSqliteDb, removeCleoFromRootGitignore } from './scaffold.js';
+import { initAgentDefinition, initMcpServer, initCoreSkills, initNexusRegistration } from './init.js';
+import { ensureGitHooks } from './hooks.js';
+import { ensureGlobalSchemas, cleanProjectSchemas } from './schema-management.js';
+import { ensureInjection } from './injection.js';
 
 /** A single upgrade action with status. */
 export interface UpgradeAction {
@@ -566,60 +571,22 @@ export async function runUpgrade(options: {
 
   // ── Step 4: Gitignore integrity repair ───────────────────────────
   try {
-    const gitignorePath = join(cleoDir, '.gitignore');
-    let templateContent: string | null = null;
-
-    // Try loading template
-    try {
-      const { getGitignoreTemplate } = await import('../cli/commands/init.js');
-      templateContent = getGitignoreTemplate();
-    } catch {
-      // Template loading not available
-    }
-
-    if (templateContent) {
-      const normalizeContent = (s: string) => s.trim().replace(/\r\n/g, '\n');
-
+    const projectRoot = getProjectRoot(options.cwd);
+    if (isDryRun) {
+      // Check current state for dry-run reporting
+      const gitignorePath = join(cleoDir, '.gitignore');
       if (!existsSync(gitignorePath)) {
-        if (isDryRun) {
-          actions.push({
-            action: 'gitignore_integrity',
-            status: 'preview',
-            details: 'Would create .cleo/.gitignore from template',
-          });
-        } else {
-          writeFileSync(gitignorePath, templateContent);
-          actions.push({
-            action: 'gitignore_integrity',
-            status: 'applied',
-            details: 'Created .cleo/.gitignore from template',
-          });
-        }
+        actions.push({ action: 'gitignore_integrity', status: 'preview', details: 'Would create .cleo/.gitignore from template' });
       } else {
-        const installedContent = readFileSync(gitignorePath, 'utf-8');
-        if (normalizeContent(installedContent) !== normalizeContent(templateContent)) {
-          if (isDryRun) {
-            actions.push({
-              action: 'gitignore_integrity',
-              status: 'preview',
-              details: 'Would update .cleo/.gitignore to match template',
-            });
-          } else {
-            writeFileSync(gitignorePath, templateContent);
-            actions.push({
-              action: 'gitignore_integrity',
-              status: 'applied',
-              details: 'Updated .cleo/.gitignore to match template',
-            });
-          }
-        } else {
-          actions.push({
-            action: 'gitignore_integrity',
-            status: 'skipped',
-            details: '.cleo/.gitignore matches template',
-          });
-        }
+        actions.push({ action: 'gitignore_integrity', status: 'preview', details: 'Would verify .cleo/.gitignore matches template' });
       }
+    } else {
+      const gitignoreResult = await ensureGitignore(projectRoot);
+      actions.push({
+        action: 'gitignore_integrity',
+        status: gitignoreResult.action === 'skipped' ? 'skipped' : 'applied',
+        details: gitignoreResult.details ?? gitignoreResult.action,
+      });
     }
   } catch {
     // Gitignore repair is best-effort
@@ -656,89 +623,33 @@ export async function runUpgrade(options: {
 
   // ── Step 6: Project context re-detection ────────────────────────
   try {
-    const projectRoot = getProjectRoot(options.cwd);
-    const contextPath = join(cleoDir, 'project-context.json');
-
-    if (!existsSync(contextPath)) {
-      if (isDryRun) {
-        actions.push({
-          action: 'project_context_detection',
-          status: 'preview',
-          details: 'Would detect and create project-context.json',
-        });
+    const projectRootForContext = getProjectRoot(options.cwd);
+    if (isDryRun) {
+      const contextPath = join(cleoDir, 'project-context.json');
+      if (!existsSync(contextPath)) {
+        actions.push({ action: 'project_context_detection', status: 'preview', details: 'Would detect and create project-context.json' });
       } else {
         try {
-          const { detectProjectType } = await import('../store/project-detect.js');
-          const info = detectProjectType(projectRoot);
-          const context = {
-            ...info,
-            detectedAt: new Date().toISOString(),
-          };
-          writeFileSync(contextPath, JSON.stringify(context, null, 2));
-          actions.push({
-            action: 'project_context_detection',
-            status: 'applied',
-            details: `Detected project type: ${info.type} (${info.testFramework})`,
-          });
-        } catch (err) {
-          actions.push({
-            action: 'project_context_detection',
-            status: 'error',
-            details: `Project detection failed: ${String(err)}`,
-          });
+          const context = JSON.parse(readFileSync(contextPath, 'utf-8'));
+          if (context.detectedAt) {
+            const daysSince = (Date.now() - new Date(context.detectedAt).getTime()) / (1000 * 60 * 60 * 24);
+            if (daysSince > 30) {
+              actions.push({ action: 'project_context_detection', status: 'preview', details: `Would refresh project-context.json (${Math.round(daysSince)} days old)` });
+            } else {
+              actions.push({ action: 'project_context_detection', status: 'skipped', details: 'project-context.json is up to date' });
+            }
+          }
+        } catch {
+          actions.push({ action: 'project_context_detection', status: 'preview', details: 'Would regenerate project-context.json (unreadable)' });
         }
       }
     } else {
-      // Check if stale (older than 30 days) — auto-refresh if so
-      try {
-        const context = JSON.parse(readFileSync(contextPath, 'utf-8'));
-        if (context.detectedAt) {
-          const detectedDate = new Date(context.detectedAt);
-          const daysSinceDetection = (Date.now() - detectedDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (daysSinceDetection > 30) {
-            if (isDryRun) {
-              actions.push({
-                action: 'project_context_detection',
-                status: 'preview',
-                details: `Would refresh project-context.json (${Math.round(daysSinceDetection)} days old)`,
-              });
-            } else {
-              try {
-                const { detectProjectType } = await import('../store/project-detect.js');
-                const info = detectProjectType(projectRoot);
-                const refreshed = {
-                  ...info,
-                  detectedAt: new Date().toISOString(),
-                };
-                writeFileSync(contextPath, JSON.stringify(refreshed, null, 2));
-                actions.push({
-                  action: 'project_context_detection',
-                  status: 'applied',
-                  details: `Refreshed project-context.json (was ${Math.round(daysSinceDetection)} days old): ${info.type} (${info.testFramework})`,
-                });
-              } catch (err) {
-                actions.push({
-                  action: 'project_context_detection',
-                  status: 'error',
-                  details: `Failed to refresh project-context.json: ${String(err)}`,
-                });
-              }
-            }
-          } else {
-            actions.push({
-              action: 'project_context_detection',
-              status: 'skipped',
-              details: 'project-context.json is up to date',
-            });
-          }
-        }
-      } catch {
-        actions.push({
-          action: 'project_context_detection',
-          status: 'skipped',
-          details: 'project-context.json exists',
-        });
-      }
+      const contextResult = await ensureProjectContext(projectRootForContext, { staleDays: 30 });
+      actions.push({
+        action: 'project_context_detection',
+        status: contextResult.action === 'skipped' ? 'skipped' : 'applied',
+        details: contextResult.details ?? contextResult.action,
+      });
     }
   } catch {
     // Project context detection is best-effort
@@ -748,12 +659,12 @@ export async function runUpgrade(options: {
   // Strip legacy CLEO blocks and update CAAMP blocks.
   if (!isDryRun) {
     try {
-      const { updateDocs } = await import('./init.js');
-      await updateDocs();
+      const projectRootForInjection = getProjectRoot(options.cwd);
+      const injectionResult = await ensureInjection(projectRootForInjection);
       actions.push({
         action: 'injection_refresh',
-        status: 'applied',
-        details: 'Project docs refreshed. Run: cleo install-global to refresh global provider configs.',
+        status: injectionResult.action === 'skipped' ? 'skipped' : 'applied',
+        details: injectionResult.details ?? 'Project docs refreshed',
       });
     } catch {
       // Injection refresh is best-effort
@@ -764,6 +675,116 @@ export async function runUpgrade(options: {
       status: 'preview',
       details: 'Would refresh project injection (strip legacy CLEO blocks, update CAAMP blocks)',
     });
+  }
+
+  // ── Step 8: Structural maintenance ──────────────────────────────
+  if (!isDryRun) {
+    const projectRootForMaint = getProjectRoot(options.cwd);
+
+    // Create missing .cleo subdirs
+    try {
+      const structResult = await ensureCleoStructure(projectRootForMaint);
+      if (structResult.action !== 'skipped') {
+        actions.push({ action: 'ensure_structure', status: 'applied', details: structResult.details ?? 'Created missing directories' });
+      }
+    } catch { /* best-effort */ }
+
+    // Install/update git hooks
+    try {
+      const hooksResult = await ensureGitHooks(projectRootForMaint);
+      if (hooksResult.action !== 'skipped') {
+        actions.push({ action: 'git_hooks', status: 'applied', details: hooksResult.details ?? 'Installed git hooks' });
+      }
+    } catch { /* best-effort */ }
+
+    // Create project-info.json if missing
+    try {
+      const infoResult = await ensureProjectInfo(projectRootForMaint);
+      if (infoResult.action !== 'skipped') {
+        actions.push({ action: 'project_info', status: 'applied', details: infoResult.details ?? 'Created project-info.json' });
+      }
+    } catch { /* best-effort */ }
+
+    // Install global schemas
+    try {
+      const schemasResult = ensureGlobalSchemas();
+      actions.push({ action: 'global_schemas', status: 'applied', details: `Installed ${schemasResult.installed} schemas (${schemasResult.updated} updated)` });
+    } catch { /* best-effort */ }
+
+    // Clean deprecated project schemas
+    try {
+      const cleanResult = await cleanProjectSchemas(projectRootForMaint);
+      if (cleanResult.cleaned) {
+        actions.push({ action: 'clean_project_schemas', status: 'applied', details: 'Backed up and removed deprecated .cleo/schemas/' });
+      }
+    } catch { /* best-effort */ }
+
+    // Initialize .cleo/.git checkpoint repo
+    try {
+      const gitRepoResult = await ensureCleoGitRepo(projectRootForMaint);
+      if (gitRepoResult.action !== 'skipped') {
+        actions.push({ action: 'cleo_git_repo', status: 'applied', details: gitRepoResult.details ?? 'Created .cleo/.git checkpoint repository' });
+      }
+    } catch { /* best-effort */ }
+
+    // Initialize SQLite database for fresh projects
+    try {
+      const dbResult = await ensureSqliteDb(projectRootForMaint);
+      if (dbResult.action !== 'skipped') {
+        actions.push({ action: 'ensure_sqlite_db', status: 'applied', details: dbResult.details ?? 'SQLite database initialized' });
+      }
+    } catch { /* best-effort */ }
+
+    // Remove .cleo/ from root .gitignore if present
+    try {
+      const rootGitignoreResult = await removeCleoFromRootGitignore(projectRootForMaint);
+      if (rootGitignoreResult.removed) {
+        actions.push({ action: 'root_gitignore_cleanup', status: 'applied', details: '.cleo/ removed from root .gitignore' });
+      }
+    } catch { /* best-effort */ }
+
+    // Install cleo-subagent agent definition
+    try {
+      const agentCreated: string[] = [];
+      const agentWarnings: string[] = [];
+      await initAgentDefinition(agentCreated, agentWarnings);
+      if (agentCreated.length > 0) {
+        actions.push({ action: 'agent_definition', status: 'applied', details: agentCreated.join(', ') });
+      }
+    } catch { /* best-effort */ }
+
+    // Install MCP server to detected providers
+    try {
+      const mcpCreated: string[] = [];
+      const mcpWarnings: string[] = [];
+      await initMcpServer(projectRootForMaint, mcpCreated, mcpWarnings);
+      if (mcpCreated.length > 0) {
+        actions.push({ action: 'mcp_server', status: 'applied', details: mcpCreated.join(', ') });
+      }
+    } catch { /* best-effort */ }
+
+    // Install core skills
+    try {
+      const skillsCreated: string[] = [];
+      const skillsWarnings: string[] = [];
+      await initCoreSkills(skillsCreated, skillsWarnings);
+      if (skillsCreated.length > 0) {
+        actions.push({ action: 'core_skills', status: 'applied', details: skillsCreated.join(', ') });
+      }
+    } catch { /* best-effort */ }
+
+    // Register with NEXUS
+    try {
+      const nexusCreated: string[] = [];
+      const nexusWarnings: string[] = [];
+      await initNexusRegistration(projectRootForMaint, basename(projectRootForMaint), nexusCreated, nexusWarnings);
+      if (nexusCreated.length > 0) {
+        actions.push({ action: 'nexus_registration', status: 'applied', details: nexusCreated.join(', ') });
+      }
+    } catch { /* best-effort */ }
+  } else {
+    // Dry-run reporting for new steps
+    actions.push({ action: 'structural_maintenance', status: 'preview', details: 'Would create missing directories, install hooks, schemas, project-info, agent definition, MCP server, skills, and NEXUS registration' });
   }
 
   const applied = actions.filter((a) => a.status === 'applied');

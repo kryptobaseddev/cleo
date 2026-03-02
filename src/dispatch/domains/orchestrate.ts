@@ -233,7 +233,7 @@ export class OrchestrateHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
     gateway: string,
     operation: string,
     startTime: number,
@@ -251,6 +251,8 @@ export class OrchestrateHandler implements DomainHandler {
       error: {
         code: result.error?.code || 'E_UNKNOWN',
         message: result.error?.message || 'Unknown error',
+        fix: result.error?.fix,
+        alternatives: result.error?.alternatives,
       },
     };
   }

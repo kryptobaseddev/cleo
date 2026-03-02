@@ -192,7 +192,7 @@ export class CheckHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
     gateway: string,
     domain: string,
     operation: string,
@@ -202,7 +202,15 @@ export class CheckHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
-      ...(result.error ? { error: { code: result.error.code, message: result.error.message, details: result.error.details as Record<string, unknown> | undefined } } : {}),
+      ...(result.error ? {
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          details: result.error.details as Record<string, unknown> | undefined,
+          fix: result.error.fix,
+          alternatives: result.error.alternatives,
+        }
+      } : {}),
     };
   }
 

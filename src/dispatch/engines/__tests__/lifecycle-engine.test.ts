@@ -7,7 +7,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   lifecycleStatus,
@@ -21,55 +22,54 @@ import {
   lifecycleGatePass,
   lifecycleGateFail,
 } from '../lifecycle-engine.js';
-import { readJsonFile } from '../../../store/file-utils.js';
+import { closeDb, resetDbState } from '../../../store/sqlite.js';
+import { initLogger, closeLogger } from '../../../core/logger.js';
 
-const TEST_ROOT = join(process.cwd(), '.test-lifecycle-engine');
-const RCSD_DIR = join(TEST_ROOT, '.cleo', 'rcasd');
-
-function writeRcsdManifest(epicId: string, manifest: any): void {
-  const dir = join(RCSD_DIR, epicId);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, '_manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8');
-}
+let TEST_ROOT = '';
+let RCSD_DIR = '';
 
 describe('Lifecycle Engine', () => {
   beforeEach(() => {
+    resetDbState();
+    TEST_ROOT = mkdtempSync(join(tmpdir(), 'cleo-lifecycle-engine-'));
+    RCSD_DIR = join(TEST_ROOT, '.cleo', 'rcasd');
     mkdirSync(RCSD_DIR, { recursive: true });
+    initLogger(join(TEST_ROOT, '.cleo'), {
+      level: 'fatal',
+      filePath: 'logs/test.log',
+      maxFileSize: 1024 * 1024,
+      maxFiles: 1,
+    });
   });
 
   afterEach(() => {
+    closeLogger();
+    closeDb();
+    resetDbState();
     if (existsSync(TEST_ROOT)) {
       rmSync(TEST_ROOT, { recursive: true, force: true });
     }
   });
 
   describe('lifecycleStatus', () => {
-    it('should return uninitialized status for new epic', () => {
-      const result = lifecycleStatus('T999', TEST_ROOT);
+    it('should return uninitialized status for new epic', async () => {
+      const result = await lifecycleStatus('T999', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).initialized).toBe(false);
       expect((result.data as any).nextStage).toBe('research');
     });
 
-    it('should return correct status for initialized epic', () => {
-      writeRcsdManifest('T100', {
-        epicId: 'T100',
-        title: 'Test Epic',
-        stages: {
-          research: { status: 'completed', completedAt: '2026-01-01T00:00:00Z' },
-          consensus: { status: 'skipped' },
-          specification: { status: 'pending' },
-        },
-      });
-
-      const result = lifecycleStatus('T100', TEST_ROOT);
+    it('should return correct status for initialized epic', async () => {
+      await lifecycleProgress('T100', 'research', 'completed', 'done', TEST_ROOT);
+      await lifecycleSkip('T100', 'consensus', 'skip', TEST_ROOT);
+      const result = await lifecycleStatus('T100', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).initialized).toBe(true);
       expect((result.data as any).currentStage).toBe('consensus');
     });
 
-    it('should return error for missing epicId', () => {
-      const result = lifecycleStatus('', TEST_ROOT);
+    it('should return error for missing epicId', async () => {
+      const result = await lifecycleStatus('', TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
@@ -77,8 +77,8 @@ describe('Lifecycle Engine', () => {
   });
 
   describe('lifecyclePrerequisites', () => {
-    it('should return prerequisites for implementation', () => {
-      const result = lifecyclePrerequisites('implementation', TEST_ROOT);
+    it('should return prerequisites for implementation', async () => {
+      const result = await lifecyclePrerequisites('implementation', TEST_ROOT);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.prerequisites).toContain('research');
@@ -86,45 +86,35 @@ describe('Lifecycle Engine', () => {
       expect(data.prerequisites).toContain('decomposition');
     });
 
-    it('should return empty prerequisites for research', () => {
-      const result = lifecyclePrerequisites('research', TEST_ROOT);
+    it('should return empty prerequisites for research', async () => {
+      const result = await lifecyclePrerequisites('research', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).prerequisites).toHaveLength(0);
     });
 
-    it('should return error for invalid stage', () => {
-      const result = lifecyclePrerequisites('invalid', TEST_ROOT);
+    it('should return error for invalid stage', async () => {
+      const result = await lifecyclePrerequisites('invalid', TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBeDefined();
     });
   });
 
   describe('lifecycleCheck', () => {
-    it('should pass when prerequisites are met', () => {
-      writeRcsdManifest('T100', {
-        epicId: 'T100',
-        stages: {
-          research: { status: 'completed' },
-          specification: { status: 'completed' },
-          decomposition: { status: 'completed' },
-        },
-      });
+    it('should pass when prerequisites are met', async () => {
+      await lifecycleProgress('T100', 'research', 'completed', 'done', TEST_ROOT);
+      await lifecycleProgress('T100', 'specification', 'completed', 'done', TEST_ROOT);
+      await lifecycleProgress('T100', 'decomposition', 'completed', 'done', TEST_ROOT);
 
-      const result = lifecycleCheck('T100', 'implementation', TEST_ROOT);
+      const result = await lifecycleCheck('T100', 'implementation', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).valid).toBe(true);
       expect((result.data as any).missingPrerequisites).toHaveLength(0);
     });
 
-    it('should fail when prerequisites are missing', () => {
-      writeRcsdManifest('T100', {
-        epicId: 'T100',
-        stages: {
-          research: { status: 'completed' },
-        },
-      });
+    it('should fail when prerequisites are missing', async () => {
+      await lifecycleProgress('T100', 'research', 'completed', 'done', TEST_ROOT);
 
-      const result = lifecycleCheck('T100', 'implementation', TEST_ROOT);
+      const result = await lifecycleCheck('T100', 'implementation', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).valid).toBe(false);
       expect((result.data as any).missingPrerequisites).toContain('specification');
@@ -132,93 +122,81 @@ describe('Lifecycle Engine', () => {
   });
 
   describe('lifecycleProgress', () => {
-    it('should record stage completion', () => {
-      const result = lifecycleProgress('T200', 'research', 'completed', 'Done', TEST_ROOT);
+    it('should record stage completion', async () => {
+      const result = await lifecycleProgress('T200', 'research', 'completed', 'Done', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).recorded).toBe(true);
 
-      // Verify written
-      const manifest = readJsonFile<any>(join(RCSD_DIR, 'T200', '_manifest.json'));
-      expect(manifest.stages.research.status).toBe('completed');
-      expect(manifest.stages.research.completedAt).toBeDefined();
+      const status = await lifecycleStatus('T200', TEST_ROOT);
+      expect((status.data as any).currentStage).toBe('research');
     });
 
-    it('should return error for invalid status', () => {
-      const result = lifecycleProgress('T200', 'research', 'invalid', undefined, TEST_ROOT);
+    it('should return error for invalid status', async () => {
+      const result = await lifecycleProgress('T200', 'research', 'invalid', undefined, TEST_ROOT);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBeDefined();
     });
   });
 
   describe('lifecycleSkip', () => {
-    it('should skip a stage with reason', () => {
-      const result = lifecycleSkip('T300', 'consensus', 'Not needed for this project', TEST_ROOT);
+    it('should skip a stage with reason', async () => {
+      const result = await lifecycleSkip('T300', 'consensus', 'Not needed for this project', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).skipped).toBe(true);
 
-      const manifest = readJsonFile<any>(join(RCSD_DIR, 'T300', '_manifest.json'));
-      expect(manifest.stages.consensus.status).toBe('skipped');
-      expect(manifest.stages.consensus.skippedReason).toBe('Not needed for this project');
+      const status = await lifecycleStatus('T300', TEST_ROOT);
+      const consensus = (status.data as any).stages.find((s: any) => s.stage === 'consensus');
+      expect(consensus.status).toBe('skipped');
     });
   });
 
   describe('lifecycleReset', () => {
-    it('should reset a stage', () => {
-      writeRcsdManifest('T400', {
-        epicId: 'T400',
-        stages: {
-          research: { status: 'completed', completedAt: '2026-01-01T00:00:00Z' },
-        },
-      });
+    it('should reset a stage', async () => {
+      await lifecycleProgress('T400', 'research', 'completed', 'done', TEST_ROOT);
 
-      const result = lifecycleReset('T400', 'research', 'Need to redo', TEST_ROOT);
+      const result = await lifecycleReset('T400', 'research', 'Need to redo', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).reset).toBe('pending');
 
-      const manifest = readJsonFile<any>(join(RCSD_DIR, 'T400', '_manifest.json'));
-      expect(manifest.stages.research.status).toBeDefined();
+      const status = await lifecycleStatus('T400', TEST_ROOT);
+      const research = (status.data as any).stages.find((s: any) => s.stage === 'research');
+      expect(research.status).toBe('not_started');
     });
 
-    it('should return error for missing manifest', () => {
-      const result = lifecycleReset('T999', 'research', 'reason', TEST_ROOT);
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_FOUND');
+    it('should initialize context on reset for unknown epic', async () => {
+      const result = await lifecycleReset('T999', 'research', 'reason', TEST_ROOT);
+      expect(result.success).toBe(true);
     });
   });
 
   describe('lifecycleGatePass', () => {
-    it('should mark gate as passed', () => {
-      const result = lifecycleGatePass('T500', 'research-review', 'agent-1', 'Looks good', TEST_ROOT);
+    it('should mark gate as passed', async () => {
+      const result = await lifecycleGatePass('T500', 'research-review', 'agent-1', 'Looks good', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).status).toBe('passed');
     });
   });
 
   describe('lifecycleGateFail', () => {
-    it('should mark gate as failed', () => {
-      const result = lifecycleGateFail('T500', 'research-review', 'Missing findings', TEST_ROOT);
+    it('should mark gate as failed', async () => {
+      const result = await lifecycleGateFail('T500', 'research-review', 'Missing findings', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).status).toBe('failed');
     });
   });
 
   describe('lifecycleHistory', () => {
-    it('should return history for epic', () => {
-      writeRcsdManifest('T600', {
-        epicId: 'T600',
-        stages: {
-          research: { status: 'completed', completedAt: '2026-01-01T00:00:00Z' },
-          consensus: { status: 'skipped', skippedAt: '2026-01-02T00:00:00Z', skippedReason: 'Not needed' },
-        },
-      });
+    it('should return history for epic', async () => {
+      await lifecycleProgress('T600', 'research', 'completed', 'done', TEST_ROOT);
+      await lifecycleSkip('T600', 'consensus', 'Not needed', TEST_ROOT);
 
-      const result = lifecycleHistory('T600', TEST_ROOT);
+      const result = await lifecycleHistory('T600', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).history).toHaveLength(2);
     });
 
-    it('should return empty history for new epic', () => {
-      const result = lifecycleHistory('T999', TEST_ROOT);
+    it('should return empty history for new epic', async () => {
+      const result = await lifecycleHistory('T999', TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).history).toHaveLength(0);
     });
