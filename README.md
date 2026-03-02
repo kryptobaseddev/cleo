@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.3.7-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.3.8-blue.svg" alt="Version"></a>
   <a href="docs/mintlify/developer/specifications/LLM-AGENT-FIRST.mdx"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -98,8 +98,8 @@ CLEO is composed of four interdependent systems:
 
 | State | What It Means |
 |------|----------------|
-| **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, vectorless RAG (5 discovery methods), LAFS envelopes |
-| **Gated** | Dedicated `brain.db` (FTS5, vector, PageIndex), `nexus.db` (cross-project graph), knowledge graph with version chains, agent profiles, federated queries |
+| **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db` + `brain.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, 3-layer BRAIN retrieval (`brain.search/timeline/fetch`), BRAIN observe writes, NEXUS dispatch domain wiring (12 operations), LAFS envelopes |
+| **In Progress / Planned** | Embedding generation + vector similarity pipeline (`T5158`/`T5159`), PageIndex traversal/query API (`T5161`), reasoning/session integration (`T5153`), `nexus.db` migration from JSON registry, full claude-mem automation retirement hooks (`T5145`) |
 
 ### MCP Server
 
@@ -153,7 +153,7 @@ Your AI agent gets two tools: `cleo_query` (read) and `cleo_mutate` (write). Eac
 ```bash
 # Read operations (never changes anything)
 cleo_query  domain=tasks   operation=find   params={"query": "auth"}
-cleo_query  domain=system  operation=dash
+cleo_query  domain=admin  operation=dash
 cleo_query  domain=tasks   operation=next
 
 # Write operations (creates or modifies data)
@@ -922,7 +922,7 @@ CLEO_FORMAT=json              # Force output format
 
 your-project/.cleo/          # Per-project instance
 ├── tasks.db                 # Project work: tasks, sessions, lifecycle, audit (SQLite)
-├── brain.db                 # Memory & cognition: observations, patterns, learnings (gated)
+├── brain.db                 # Memory & cognition: observations, patterns, learnings, decisions, links (shipped)
 ├── config.json              # Runtime settings: policies, validation, session behavior
 ├── project-info.json        # Project identity: projectHash, schema versions, health
 ├── project-context.json     # LLM agent metadata: language, framework, conventions

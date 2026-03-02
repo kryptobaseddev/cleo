@@ -438,8 +438,8 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `src/core/`:
 
-- **MCP (Primary)**: 2 tools (`cleo_query`, `cleo_mutate`), 185 operations across 10 domains — the agent interface
-- **CLI (Backup)**: 80+ commands via Commander.js — the human interface
+- **MCP (Primary)**: 2 tools (`cleo_query`, `cleo_mutate`), 198 operations across 10 domains — the agent interface
+- **CLI (Backup)**: 86 commands via Commander.js — the human interface
 - **src/core/ (Canonical)**: All business logic. Both MCP and CLI delegate here
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
 
