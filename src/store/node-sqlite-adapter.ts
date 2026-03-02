@@ -34,11 +34,13 @@ export function openNativeDatabase(path: string, options?: {
   readonly?: boolean;
   timeout?: number;
   enableWal?: boolean;
+  allowExtension?: boolean;
 }): DatabaseSync {
   const db = new DatabaseSync(path, {
     enableForeignKeyConstraints: true,
     readOnly: options?.readonly ?? false,
     timeout: options?.timeout ?? 5000,
+    allowExtension: options?.allowExtension ?? false,
   });
 
   // Set busy_timeout FIRST so WAL pragma can wait for locks

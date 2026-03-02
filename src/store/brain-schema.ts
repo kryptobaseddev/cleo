@@ -160,6 +160,38 @@ export const brainSchemaMeta = sqliteTable('brain_schema_meta', {
   value: text('value').notNull(),
 });
 
+// === PAGEINDEX GRAPH TABLES (T5160) ===
+
+/** Node types for PageIndex graph. */
+export const BRAIN_NODE_TYPES = ['task', 'doc', 'file', 'concept'] as const;
+
+/** Edge types for PageIndex graph. */
+export const BRAIN_EDGE_TYPES = ['depends_on', 'relates_to', 'implements', 'documents'] as const;
+
+/** Documents/concepts as graph nodes for cross-document linking. */
+export const brainPageNodes = sqliteTable('brain_page_nodes', {
+  id: text('id').primaryKey(),           // 'task:T5241', 'doc:BRAIN-SPEC', 'file:src/store/brain-schema.ts'
+  nodeType: text('node_type', { enum: BRAIN_NODE_TYPES }).notNull(),
+  label: text('label').notNull(),
+  metadataJson: text('metadata_json'),   // JSON blob for extensible metadata
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_brain_nodes_type').on(table.nodeType),
+]);
+
+/** Directed links between graph nodes. */
+export const brainPageEdges = sqliteTable('brain_page_edges', {
+  fromId: text('from_id').notNull(),
+  toId: text('to_id').notNull(),
+  edgeType: text('edge_type', { enum: BRAIN_EDGE_TYPES }).notNull(),
+  weight: real('weight').default(1.0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  primaryKey({ columns: [table.fromId, table.toId, table.edgeType] }),
+  index('idx_brain_edges_from').on(table.fromId),
+  index('idx_brain_edges_to').on(table.toId),
+]);
+
 // === TYPE EXPORTS ===
 
 export type BrainDecisionRow = typeof brainDecisions.$inferSelect;
@@ -172,3 +204,7 @@ export type BrainObservationRow = typeof brainObservations.$inferSelect;
 export type NewBrainObservationRow = typeof brainObservations.$inferInsert;
 export type BrainMemoryLinkRow = typeof brainMemoryLinks.$inferSelect;
 export type NewBrainMemoryLinkRow = typeof brainMemoryLinks.$inferInsert;
+export type BrainPageNodeRow = typeof brainPageNodes.$inferSelect;
+export type NewBrainPageNodeRow = typeof brainPageNodes.$inferInsert;
+export type BrainPageEdgeRow = typeof brainPageEdges.$inferSelect;
+export type NewBrainPageEdgeRow = typeof brainPageEdges.$inferInsert;
