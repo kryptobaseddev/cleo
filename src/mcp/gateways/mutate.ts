@@ -130,6 +130,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'manifest.archive', // Archive old entries
     'pattern.store',   // Store BRAIN pattern memory
     'learning.store',  // Store BRAIN learning memory
+    'brain.observe',    // Save observation to brain.db
   ],
 
   // ── Canonical: check (validate alias) ──────────────────────────────
