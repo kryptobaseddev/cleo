@@ -35,6 +35,15 @@ import {
   type SearchLearningParams,
 } from './learnings.js';
 
+// BRAIN retrieval imports (T5131-T5135)
+import {
+  searchBrainCompact,
+  timelineBrain,
+  fetchBrainEntries,
+  observeBrain,
+  type ObserveBrainParams,
+} from './brain-retrieval.js';
+
 // Re-export types for consumers
 export type ManifestEntry = ExtendedManifestEntry;
 export type { ResearchFilter, ContradictionDetail, SupersededDetail };
@@ -731,4 +740,81 @@ export function memoryValidate(
       warningCount: issues.filter(i => i.severity === 'warning').length,
     },
   };
+}
+
+// ============================================================================
+// BRAIN Retrieval Operations (T5131-T5135)
+// ============================================================================
+
+/** memory.brain.search - Token-efficient brain search */
+export async function memoryBrainSearch(
+  params: { query: string; limit?: number; tables?: string[]; dateStart?: string; dateEnd?: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = await searchBrainCompact(root, {
+      query: params.query,
+      limit: params.limit,
+      tables: params.tables as Array<'decisions' | 'patterns' | 'learnings' | 'observations'> | undefined,
+      dateStart: params.dateStart,
+      dateEnd: params.dateEnd,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_BRAIN_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.brain.timeline - Chronological context around anchor */
+export async function memoryBrainTimeline(
+  params: { anchor: string; depthBefore?: number; depthAfter?: number },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = await timelineBrain(root, {
+      anchor: params.anchor,
+      depthBefore: params.depthBefore,
+      depthAfter: params.depthAfter,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_BRAIN_TIMELINE', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.brain.fetch - Batch fetch brain entries by IDs */
+export async function memoryBrainFetch(
+  params: { ids: string[] },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = await fetchBrainEntries(root, { ids: params.ids });
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_BRAIN_FETCH', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.brain.observe - Save observation to brain */
+export async function memoryBrainObserve(
+  params: { text: string; title?: string; type?: string; project?: string; sourceSessionId?: string; sourceType?: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = await observeBrain(root, {
+      text: params.text,
+      title: params.title,
+      type: params.type as ObserveBrainParams['type'],
+      project: params.project,
+      sourceSessionId: params.sourceSessionId,
+      sourceType: params.sourceType as ObserveBrainParams['sourceType'],
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_BRAIN_OBSERVE', message: error instanceof Error ? error.message : String(error) } };
+  }
 }
