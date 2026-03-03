@@ -57,6 +57,14 @@ async function main(): Promise<void> {
   }
 
   try {
+    // MCP-first bootstrap: ensure global CLEO home baseline exists.
+    try {
+      const { ensureGlobalBootstrap } = await import('../core/global-bootstrap.js');
+      ensureGlobalBootstrap();
+    } catch (bootstrapErr) {
+      console.error('[CLEO MCP] Global bootstrap warning:', bootstrapErr instanceof Error ? bootstrapErr.message : String(bootstrapErr));
+    }
+
     // Load configuration
     console.error('[CLEO MCP] Loading configuration...');
     const config = loadConfig();

@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2026.3.8-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2025.3.9-blue.svg" alt="Version"></a>
   <a href="docs/mintlify/developer/specifications/LLM-AGENT-FIRST.mdx"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
