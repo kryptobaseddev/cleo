@@ -1,7 +1,7 @@
 {
   "name": "core",
-  "description": "Orchestration and pipeline awareness",
+  "description": "Orchestration and LOOM (RCASD-IVTR+C) pipeline awareness",
   "extends": "minimal",
-  "skills": ["ct-orchestrator"],
+  "skills": ["ct-orchestrator", "loom"],
   "includeProtocols": ["agent-protocol"]
 }
