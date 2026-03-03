@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.3.12",
+  "version": "2026.3.13-beta.1",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "mcpName": "io.github.kryptobaseddev/cleo-mcp-server",
   "type": "module",
@@ -65,7 +65,7 @@
     "bin"
   ],
   "dependencies": {
-    "@cleocode/caamp": "^1.5.2",
+    "@cleocode/caamp": "^1.6.0",
     "@cleocode/lafs-protocol": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ajv": "^8.18.0",

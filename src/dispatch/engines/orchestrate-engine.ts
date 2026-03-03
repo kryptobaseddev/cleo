@@ -15,6 +15,7 @@ import { getAccessor } from '../../store/data-accessor.js';
 import type { TaskRecord } from './task-engine.js';
 import type { Task } from '../../types/task.js';
 import type { BrainState } from '../../types/operations/orchestrate.js';
+import type { CLEOSpawnAdapter, CLEOSpawnContext } from '../../types/spawn.js';
 
 // Core module imports
 import {
@@ -375,6 +376,228 @@ export async function orchestrateValidate(
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_VALIDATION', (err as Error).message);
+  }
+}
+
+/**
+ * orchestrate.spawn.select - Select best provider for spawn based on required capabilities
+ * @task T5236
+ */
+export async function orchestrateSpawnSelectProvider(
+  capabilities: Array<'supportsSubagents' | 'supportsProgrammaticSpawn' | 'supportsInterAgentComms' | 'supportsParallelSpawn'>,
+  _projectRoot?: string,
+): Promise<EngineResult> {
+  if (!capabilities || capabilities.length === 0) {
+    return engineError('E_INVALID_INPUT', 'At least one capability is required');
+  }
+
+  try {
+    const { spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
+    const { getProvidersBySpawnCapability, providerSupportsById } = await import('@cleocode/caamp');
+
+    // Get providers matching all required capabilities
+    let matchingProviders: Array<{ id: string }> = [];
+
+    if (capabilities.length === 1) {
+      // Single capability - use direct filter
+      matchingProviders = getProvidersBySpawnCapability(capabilities[0]);
+    } else {
+      // Multiple capabilities - find intersection
+      const providerSets = capabilities.map(cap =>
+        new Set(getProvidersBySpawnCapability(cap).map((p: { id: string }) => p.id))
+      );
+
+      // Find intersection of all provider IDs
+      const allProviders = await spawnRegistry.listSpawnCapable();
+      const intersection = allProviders
+        .filter(adapter => providerSets.every(set => set.has(adapter.providerId)))
+        .map(adapter => {
+          const { getAllProviders } = require('@cleocode/caamp');
+          const providers = getAllProviders();
+          return providers.find((p: { id: string }) => p.id === adapter.providerId);
+        })
+        .filter(Boolean);
+
+      matchingProviders = intersection;
+    }
+
+    if (matchingProviders.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: 'E_SPAWN_NO_PROVIDER',
+          message: `No provider found with all required capabilities: ${capabilities.join(', ')}`,
+          exitCode: 60,
+        },
+      };
+    }
+
+    // Get first registered adapter for the matching providers
+    const adapter = matchingProviders
+      .map((p: { id: string }) => spawnRegistry.getForProvider(p.id))
+      .find((a: unknown): a is CLEOSpawnAdapter => a !== undefined);
+
+    if (!adapter) {
+      return {
+        success: false,
+        error: {
+          code: 'E_SPAWN_NO_ADAPTER',
+          message: 'No spawn adapter registered for matching providers',
+          exitCode: 60,
+        },
+      };
+    }
+
+    // Verify adapter can actually spawn
+    const canSpawn = await adapter.canSpawn();
+    if (!canSpawn) {
+      return {
+        success: false,
+        error: {
+          code: 'E_SPAWN_ADAPTER_UNAVAILABLE',
+          message: `Selected adapter '${adapter.id}' cannot spawn in current environment`,
+          exitCode: 63,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        providerId: adapter.providerId,
+        adapterId: adapter.id,
+        capabilities: capabilities.filter(cap =>
+          providerSupportsById(adapter.providerId, `spawn.${cap}`)
+        ),
+      },
+    };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message);
+  }
+}
+
+/**
+ * orchestrate.spawn.execute - Execute spawn for a task using adapter registry
+ * @task T5236
+ */
+export async function orchestrateSpawnExecute(
+  taskId: string,
+  adapterId?: string,
+  protocolType?: string,
+  projectRoot?: string,
+  _tier?: 0 | 1 | 2,
+): Promise<EngineResult> {
+  const cwd = projectRoot ?? process.cwd();
+
+  try {
+    // Get spawn registry
+    const { spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
+
+    // Find adapter
+    let adapter: CLEOSpawnAdapter | undefined;
+    if (adapterId) {
+      adapter = spawnRegistry.get(adapterId);
+    } else {
+      // Auto-select first capable adapter
+      const capable = await spawnRegistry.listSpawnCapable();
+      adapter = capable[0];
+    }
+
+    if (!adapter) {
+      return {
+        success: false,
+        error: {
+          code: 'E_SPAWN_NO_ADAPTER',
+          message: 'No spawn adapter available for this provider',
+          exitCode: 60,
+        },
+      };
+    }
+
+    // Verify provider supports subagents using providerSupportsById
+    const { providerSupportsById } = await import('@cleocode/caamp');
+    if (!providerSupportsById(adapter.providerId, 'spawn.supportsSubagents')) {
+      return {
+        success: false,
+        error: {
+          code: 'E_SPAWN_CAPABILITY_UNSUPPORTED',
+          message: `Provider ${adapter.providerId} does not support spawning subagents`,
+          exitCode: 60,
+        },
+      };
+    }
+
+    // Prepare spawn context (reuse existing prepareSpawn logic)
+    const { prepareSpawn } = await import('../../core/orchestration/index.js');
+    const accessor = await getAccessor(cwd);
+    const spawnContext = await prepareSpawn(taskId, cwd, accessor);
+
+    // Check for unresolved tokens
+    if (!spawnContext.tokenResolution.fullyResolved) {
+      return {
+        success: false,
+        error: {
+          code: 'E_SPAWN_VALIDATION_FAILED',
+          message: `Unresolved tokens in spawn context: ${spawnContext.tokenResolution.unresolvedTokens.join(', ')}`,
+          exitCode: 63,
+        },
+      };
+    }
+
+    // Build CLEO spawn context from core spawn context
+    const { getSpawnCapableProviders } = await import('@cleocode/caamp');
+    const providers = getSpawnCapableProviders();
+    const provider = providers.find((p: { id: string }) => p.id === adapter.providerId);
+
+    if (!provider) {
+      return {
+        success: false,
+        error: {
+          code: 'E_SPAWN_NO_PROVIDER',
+          message: `Provider ${adapter.providerId} not found`,
+          exitCode: 60,
+        },
+      };
+    }
+
+    const cleoSpawnContext: CLEOSpawnContext = {
+      taskId: spawnContext.taskId,
+      protocol: protocolType || spawnContext.protocol,
+      prompt: spawnContext.prompt,
+      provider,
+      options: {
+        prompt: spawnContext.prompt,
+      },
+      tokenResolution: {
+        resolved: [],
+        unresolved: spawnContext.tokenResolution.unresolvedTokens,
+        totalTokens: 0,
+      },
+    };
+
+    // Execute spawn
+    const result = await adapter.spawn(cleoSpawnContext);
+
+    return {
+      success: true,
+      data: {
+        instanceId: result.instanceId,
+        status: result.status,
+        providerId: adapter.providerId,
+        taskId,
+        timing: result.timing,
+      },
+    };
+
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'E_SPAWN_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown spawn error',
+        exitCode: 60,
+      },
+    };
   }
 }
 

@@ -257,6 +257,19 @@ export async function safeSaveTaskFile(
 }
 
 /**
+ * Preferred alias for task domain data writes.
+ * Maintained alongside safeSaveTaskFile for compatibility.
+ */
+export async function safeSaveTaskData(
+  accessor: DataAccessor,
+  data: TaskFile,
+  cwd?: string,
+  options?: Partial<SafetyOptions>,
+): Promise<void> {
+  await safeSaveTaskFile(accessor, data, cwd, options);
+}
+
+/**
  * Safe wrapper for DataAccessor.saveSessions()
  */
 export async function safeSaveSessions(

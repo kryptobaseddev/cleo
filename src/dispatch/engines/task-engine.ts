@@ -57,6 +57,18 @@ import {
   type ComplexityFactor,
 } from '../../core/tasks/task-ops.js';
 
+const TASK_COMPLETE_EXIT_TO_ENGINE_CODE: Record<number, string> = {
+  4: 'E_NOT_FOUND',
+  5: 'E_DEPENDENCY_ERROR',
+  6: 'E_VALIDATION_FAILED',
+  16: 'E_HAS_CHILDREN',
+  17: 'E_TASK_COMPLETED',
+  40: 'E_VERIFICATION_INIT_FAILED',
+  44: 'E_MAX_ROUNDS_EXCEEDED',
+  45: 'E_GATE_DEPENDENCY',
+  80: 'E_LIFECYCLE_GATE_FAILED',
+};
+
 /**
  * Convert a core Task to a TaskRecord for backward compatibility.
  * TaskRecord has string-typed status/priority; Task has union types.
@@ -396,7 +408,7 @@ export async function taskComplete(
 ): Promise<EngineResult<{ task: TaskRecord; autoCompleted?: string[]; unblockedTasks?: Array<{ id: string; title: string }> }>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await coreCompleteTask({ taskId, notes }, undefined, accessor);
+    const result = await coreCompleteTask({ taskId, notes }, projectRoot, accessor);
     return {
       success: true,
       data: {
@@ -406,18 +418,13 @@ export async function taskComplete(
       },
     };
   } catch (err: unknown) {
-    const message = (err as Error).message;
-    if (message.includes('already completed')) {
-      return engineError('E_TASK_COMPLETED', message);
-    }
-    if (message.includes('not found')) {
-      return engineError('E_NOT_FOUND', message);
-    }
-    if (message.includes('incomplete dependencies')) {
-      return engineError('E_DEPENDENCY_ERROR', message);
-    }
-    if (message.includes('incomplete children')) {
-      return engineError('E_HAS_CHILDREN', message);
+    const cleoErr = err as { code?: number; message?: string };
+    const message = cleoErr.message ?? 'Failed to complete task';
+    if (typeof cleoErr.code === 'number') {
+      const mappedCode = TASK_COMPLETE_EXIT_TO_ENGINE_CODE[cleoErr.code];
+      if (mappedCode) {
+        return engineError(mappedCode, message);
+      }
     }
     return engineError('E_INTERNAL', message);
   }

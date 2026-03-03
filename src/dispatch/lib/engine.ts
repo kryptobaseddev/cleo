@@ -191,6 +191,7 @@ export {
   orchestrateContext,
   orchestrateValidate,
   orchestrateSpawn,
+  orchestrateSpawnExecute,
   orchestrateStartup,
   orchestrateBootstrap,
   orchestrateCriticalPath,

@@ -139,7 +139,7 @@ tasks.db  brain.db  MANIFEST  sessions/  config.json
 4. **Validate**: Required params are checked. Returns `E_INVALID_INPUT` if missing.
 5. **Middleware**: Request passes through middleware pipeline (rate limit, session, LAFS).
 6. **Handle**: Domain handler dispatches to the appropriate engine function.
-7. **Execute**: Engine calls core business logic.
+7. **Execute**: Engine calls core business logic. For tasks, `tasks.update` with `status=done` routes to `tasks.complete` semantics.
 8. **Store**: Core writes to data store using atomic operations.
 9. **Respond**: `DispatchResponse` is constructed and returned through the chain.
 
@@ -423,6 +423,10 @@ Operation Fails
     |
     +-- E_NOT_FOUND -> Caller verifies entity exists
     |
+    +-- E_DEPENDENCY_ERROR / E_GATE_DEPENDENCY -> Caller resolves dependencies or verification gates before retry
+    |
+    +-- E_LIFECYCLE_GATE_FAILED -> Caller satisfies strict lifecycle/verification gate requirements
+    |
     +-- E_INTERNAL -> Check audit log, restore from backup if needed
     |
     +-- E_RATE_LIMITED -> Wait for resetMs, retry
@@ -487,6 +491,8 @@ These rules MUST always hold true in a correct CLEO installation:
 8. **Append-only audit**: The audit log in tasks.db is append-only. Entries are never modified or deleted.
 9. **Canonical verbs**: All operation names use verbs from `docs/specs/VERB-STANDARDS.md`. No `search`, `create`, `get` in new operations.
 10. **10 domains**: The domain list is fixed at 10. New functionality maps to existing domains.
+11. **Completion consistency**: `tasks.complete` is canonical for `done`; `tasks.update status=done` MUST route through the same completion enforcement path.
+12. **Verification default**: Task completion verification enforcement is default-on and only disabled by explicit project config (`verification.enabled=false`).
 
 ---
 

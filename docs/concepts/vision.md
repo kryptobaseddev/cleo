@@ -485,6 +485,7 @@ When you use CLEO with any AI coding tool, you establish a formal contract:
 - **Immutable Audit Trail** — All changes are logged in an append-only audit log with provenance tags
 - **Atomic Writes** — All writes are atomic with automatic backup and rollback — no partial corruption
 - **Lifecycle Governance** — Significant work follows the RCASD-IVTR+C pipeline with gate enforcement
+- **Canonical Completion Path** — Task completion is enforced through `tasks.complete` semantics (dependencies, acceptance policy, verification gates, lifecycle-aware failure codes). `tasks.update status=done` MUST route through the same completion checks
 
 This contract enables **reliable, repeatable AI-assisted development** regardless of which LLM provider powers the agent.
 
