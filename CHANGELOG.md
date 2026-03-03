@@ -5,6 +5,22 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.3.11] - 2026-03-03
+
+### Changed
+- **Architectural separation of global and project initialization (T5242)** — Complete refactor of installation flow:
+  - NPM `postinstall` hook now auto-bootstraps global CLEO system (`~/.cleo/`, MCP configs, templates, CAAMP setup)
+  - `cleo init` now only creates local project structure (`./.cleo/`, NEXUS registration) — no longer touches global configs
+  - `install.sh` is now dev-mode/legacy-only for contributors and offline/air-gapped systems
+  - MCP server installation defaults to global scope in `mcp-install` command
+
+### Documentation
+- Updated README with npm-first installation instructions
+- Updated troubleshooting guide with installation issues section
+- Updated install.sh documentation to clarify dev/legacy purpose
+
+---
+
 ## [2026.3.10] - 2026-03-03
 
 ### Fixed
