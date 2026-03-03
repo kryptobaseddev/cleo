@@ -34,7 +34,8 @@
     "cleo:update-status": "node dist/scripts/update-task-status.js",
     "adr:validate": "tsx dev/validate-adrs.ts",
     "adr:manifest": "tsx dev/generate-adr-manifest.ts",
-    "features:generate": "tsx dev/generate-features.ts"
+    "features:generate": "tsx dev/generate-features.ts",
+    "version:sync": "tsx dev/version-sync.ts"
   },
   "engines": {
     "node": ">=24.13.1"

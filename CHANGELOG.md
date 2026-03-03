@@ -13,6 +13,10 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 - **Dev install safety enforcement (T4884)** — Dev installs now require a valid CLEO contributor clone with `.git` present and `upstream` remote targeting `https://github.com/kryptobaseddev/cleo`.
 - **MCP first-run global bootstrap (T4884)** — MCP startup now ensures global CLEO baseline artifacts (global home directory, schemas, and injection template) exist for MCP-first workflows.
 - **Upgrade/init setup parity (T4884)** — `upgrade` now ensures missing `.cleo/config.json`, reducing drift between project `init` and `upgrade` outcomes.
+- **Self-update channel behavior hardened (T4884)** — `self-update` now performs npm global updates for stable/beta channels directly, with improved runtime channel detection to avoid stale `mode=dev-ts` metadata blocking normal updates.
+
+### Added
+- **TypeScript version sync tool (T4884)** — Added `dev/version-sync.ts` (config-driven from `.cleo/config.json` `release.versionBump.files`) and converted `dev/validate-version.sh` into a compatibility wrapper.
 
 ---
 
