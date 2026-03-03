@@ -156,8 +156,10 @@ export async function initMcpServer(
       return;
     }
 
+    // MCP server config is a system-level tool setup by default.
+    // Project-level CLEO data still lives in per-project .cleo/.
     const results = await installMcpServerToAll(
-      providers, serverName, serverEntry, 'project', projectRoot,
+      providers, serverName, serverEntry, 'global', projectRoot,
     );
 
     const successes = results.filter(r => r.success);
@@ -477,9 +479,6 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
 
   // T4685: Agent definition (cleo-subagent)
   await initAgentDefinition(created, warnings);
-
-  // T4706: MCP server installation
-  await initMcpServer(projRoot, created, warnings);
 
   // T4707 + T4689: Core skills installation
   await initCoreSkills(created, warnings);

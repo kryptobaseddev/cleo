@@ -3,9 +3,9 @@
 **Date**: 2026-02-25
 **Status**: accepted
 **Accepted**: 2026-02-25
-**Related Tasks**: T4881, T4882, T4883, T4884, T4885, T4886, T4887, T4888, T5063
+**Related Tasks**: T4881, T4882, T4883, T4884, T4885, T4886, T4887, T4888, T5063, T5242
 **Related ADRs**: ADR-008, ADR-011, ADR-012, ADR-015
-**Summary**: Defines three CLEO installation channels (npm global, npm local, dev symlink), establishes runtime isolation between dev and production instances, and specifies the CI/CD release pipeline with CalVer enforcement and OIDC trusted publishing.
+**Summary**: Defines three CLEO installation channels (npm global with auto-bootstrap, npm local, dev symlink), establishes runtime isolation between dev and production instances, separates global system setup from project initialization, and specifies the CI/CD release pipeline with CalVer enforcement and OIDC trusted publishing.
 **Keywords**: installation, channels, npm, global, local, dev, symlink, runtime-isolation, npm-link, calver, oidc, trusted-publishing, release, ci-cd
 **Topics**: admin, tools, security, release
 
@@ -15,11 +15,19 @@
 
 CLEO currently has channel ambiguity between source code, globally installed npm package binaries, and provider MCP configurations. This ambiguity causes dogfooding failures where contributors edit source but execute an older global binary.
 
-We need a canonical channel model that supports three modes without collisions:
+Additionally, the original architecture conflated global system setup with project-level initialization, requiring users to run manual bootstrap commands after npm install.
 
-1. Production stable installs for end users
-2. Beta prerelease installs for early adopters
-3. Contributor-local dev runtime in parallel with stable installs
+We need a canonical channel model that supports three modes without collisions, with clear separation of concerns:
+
+1. **Production stable installs** for end users — auto-bootstrap global system via npm postinstall
+2. **Beta prerelease installs** for early adopters — same auto-bootstrap, different dist-tag
+3. **Contributor-local dev runtime** in parallel with stable installs — symlink-based, isolated data
+
+**Key architectural decisions made in T5242 (v2026.3.11):**
+- Global CLEO system setup (`~/.cleo/`, MCP configs, templates) now happens automatically via npm `postinstall` hook
+- `cleo init` creates **only** local project structure (`./.cleo/`, NEXUS registration), no longer touches global configs
+- `install.sh` is now **dev-mode/legacy-only** for contributors and offline/air-gapped systems
+- Dev channel uses real symlinks in `~/.local/bin/`, not shell aliases
 
 Provider-specific MCP config management is delegated to CAAMP.
 
@@ -32,28 +40,32 @@ CLEO SHALL standardize on three runtime channels:
 ### 2.1 Stable Channel (`stable`)
 
 - Package source: `@cleocode/cleo@latest`
-- MCP runtime command: `npx -y @cleocode/cleo@latest mcp`
+- Installation: `npm i -g @cleocode/cleo`
+- **Auto-bootstrap**: npm `postinstall` hook automatically sets up global CLEO system
+- MCP runtime command: `cleo mcp` (or `npx -y @cleocode/cleo@latest mcp`)
 - Default MCP server name: `cleo`
-- Optional global CLI install: `npm i -g @cleocode/cleo`
 - Default data root: `~/.cleo`
+- Project init: `cleo init` (creates only local `./.cleo/`)
 
 ### 2.2 Beta Channel (`beta`)
 
 - Package source: `@cleocode/cleo@beta` (or exact `x.y.z-beta.n`)
-- MCP runtime command: `npx -y @cleocode/cleo@beta mcp`
+- Installation: `npm i -g @cleocode/cleo@beta`
+- **Auto-bootstrap**: Same postinstall hook as stable
+- MCP runtime command: `cleo-beta mcp` (or `npx -y @cleocode/cleo@beta mcp`)
 - Recommended MCP server name: `cleo-beta`
-- Optional global CLI install: `npm i -g @cleocode/cleo@beta`
 - Default data root: `~/.cleo` unless explicitly isolated
 
 ### 2.3 Contributor Dev Channel (`dev`)
 
 - Runtime source: local repository build output
-- CLI alias: `cleo-dev`
+- CLI command: `cleo-dev` (symlink in `~/.local/bin/`)
 - MCP server name: `cleo-dev`
 - Default dev data root: `~/.cleo-dev`
 - Dev runtime MUST NOT overwrite stable global `cleo` unless explicitly requested
-- Dev runtime MUST NOT create `ct` alias
+- Dev runtime MUST NOT create `ct` symlink
 - Dev runtime MUST NOT create `cleo` symlink by default
+- **Installation**: `./install.sh --dev` (NOT `npm link`)
 
 ---
 
@@ -62,11 +74,15 @@ CLEO SHALL standardize on three runtime channels:
 1. Binary identity, MCP server name, and data root SHALL be treated as separate concerns.
 2. `dev` runtime SHALL default to isolated data storage (`~/.cleo-dev`).
 3. `dev` runtime SHALL expose only `cleo-dev` command surface; legacy `ct` alias is excluded.
-4. Installer link creation SHALL be centralized in `installer/lib/link.sh` with channel-aware mapping.
-5. Duplicate ad-hoc symlink logic in other installer entry points SHOULD be removed.
-6. Provider MCP profiles SHALL be installed and managed by CAAMP (not by ad-hoc manual snippets in CLEO docs).
-7. CLEO docs SHALL publish channel contract semantics, while CAAMP docs/commands SHALL publish provider-specific configuration details.
-8. Archived/dev-only scripts MUST NOT be referenced by production install paths.
+4. **Global system setup SHALL be separated from project initialization**:
+   - `npm install -g @cleocode/cleo` bootstraps global system via `postinstall` hook
+   - `cleo init` creates ONLY local project structure (`./.cleo/`, NEXUS registration)
+   - `install.sh` is dev-mode/legacy-only and SHALL NOT be the primary user installation method
+5. Installer link creation SHALL be centralized in `installer/lib/link.sh` with channel-aware mapping.
+6. Duplicate ad-hoc symlink logic in other installer entry points SHOULD be removed.
+7. Provider MCP profiles SHALL be installed and managed by CAAMP (not by ad-hoc manual snippets in CLEO docs).
+8. CLEO docs SHALL publish channel contract semantics, while CAAMP docs/commands SHALL publish provider-specific configuration details.
+9. Archived/dev-only scripts MUST NOT be referenced by production install paths.
 
 ---
 
@@ -99,26 +115,86 @@ CLEO SHALL standardize on three runtime channels:
 - CLEO: channel contract docs, dev runtime guidance, channel-aware diagnostics
 - CAAMP: provider install/uninstall/update flows for `stable|beta|dev`, plus TUI and non-interactive CLI/API controls
 
-## 7. Installer Policy
+## 7. Installation Architecture
 
-### 7.1 Mode-aware command/link mapping
+### 7.1 Primary Installation Method (npm)
+
+**For all users (stable/beta channels):**
+
+```bash
+npm install -g @cleocode/cleo
+```
+
+The npm package includes a `postinstall` script (`bin/postinstall.js`) that automatically bootstraps the global CLEO system:
+
+1. Creates `~/.cleo/` directory structure
+2. Installs global templates (`CLEO-INJECTION.md`)
+3. Detects AI providers and installs MCP server configs via CAAMP
+4. Creates `~/.agents/AGENTS.md` hub
+
+**Benefits:**
+- Single-command installation
+- No manual bootstrap steps required
+- Automatic global setup on every npm install/upgrade
+
+### 7.2 Project Initialization
+
+After global installation, users run:
+
+```bash
+cd /path/to/project
+cleo init
+```
+
+This creates **only** local project structure:
+- `./.cleo/` directory with `config.json` and `tasks.db`
+- NEXUS project registration
+- Git hooks (commit-msg, pre-commit)
+- CAAMP injection into local `AGENTS.md`
+
+**Explicitly does NOT:**
+- Modify global MCP configs (done by postinstall)
+- Install global templates (done by postinstall)
+- Touch `~/.cleo/` beyond project registration
+
+### 7.3 Dev Mode Installation (Contributors)
+
+For CLEO contributors requiring isolated development:
+
+```bash
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo
+./install.sh --dev
+```
+
+This creates:
+- `cleo-dev` symlink in `~/.local/bin/`
+- Isolated data root at `~/.cleo-dev/`
+- No interference with stable `cleo` installation
+
+> **Important**: `install.sh` is now **dev-mode/legacy-only**. It SHALL NOT be the primary installation method for end users. The bash installer remains available for:
+> - Contributors setting up dev environment
+> - Offline/air-gapped systems without npm access
+> - Users who prefer bash over npm
+
+### 7.4 Mode-aware command/link mapping
 
 - `stable`: `cleo`, `ct` (compat), server `cleo` — MCP via `cleo mcp`
 - `beta`: `cleo-beta`, optional `ct-beta`, server `cleo-beta` — MCP via `cleo-beta mcp`
-- `dev`: `cleo-dev`, server `cleo-dev`, no `ct` — MCP via `cleo-dev mcp`
+- `dev`: `cleo-dev` (symlink), server `cleo-dev`, no `ct` — MCP via `cleo-dev mcp`
 
 > **Note**: As of v2026.2.9, standalone `cleo-mcp` binaries are removed. MCP servers are launched via the `cleo mcp` pseudo-subcommand (see commit `6c955628`).
 
-### 7.2 Production-path script policy
+### 7.5 Production-path script policy
 
 - Production installer MUST NOT reference scripts under `/dev` or `/dev/archived`.
 - Existing `setup-claude-aliases` behavior is removed from CLEO installer flow and delegated to CAAMP as optional utility tooling.
 
-### 7.3 npm bin caveat
+### 7.6 npm bin caveat
 
 `package.json` may expose compatibility bins (`ct`) for package installs. Channel-aware installer behavior still defines which links are created per mode, and `dev` mode excludes `ct`.
 
-### 7.4 Contributor `npm link` caveat
+### 7.7 Contributor `npm link` caveat
 
 - Raw `npm link` uses package `bin` mappings and can expose `cleo`/`ct` names.
 - Contributors requiring strict dev isolation MUST use the channel-aware installer dev flow (`./install.sh --dev`) so `cleo-dev` / `cleo-mcp-dev` are configured.

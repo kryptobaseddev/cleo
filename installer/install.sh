@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# CLEO Installer - Entry Point
-# Minimal orchestration script that sources modules and runs state machine
+# CLEO Installer - Dev Mode / Legacy Entry Point
+#
+# IMPORTANT: This installer is for contributors (dev mode) and legacy/fallback installs.
+# For production use, install via npm: npm install -g @cleocode/cleo
+#
+# This script bootstraps CLEO from a git clone using symlinks (--dev) or
+# copies files for offline/air-gapped systems (--release).
 #
 # Version: 1.0.0
 # Task: T1860
@@ -8,13 +13,19 @@
 #
 # Usage: ./install.sh [OPTIONS]
 #
+# Primary Install Methods:
+#   npm install -g @cleocode/cleo    # Recommended for users
+#   ./install.sh --dev               # For CLEO contributors
+#   ./install.sh --release           # For offline/air-gapped systems
+#
 # Options:
 #   --help, -h              Show help message
 #   --version, -v           Show installer version
 #   --cleo-version VER      Install specific CLEO version (e.g., v0.55.0)
 #   --list-versions         List available CLEO versions
 #   --force, -f             Force reinstall (skip version check)
-#   --dev                   Force development mode (symlinks to repo)
+#   --dev                   Development mode (symlinks to repo, isolated cleo-dev)
+#   --release               Release mode (copy files, standard cleo/ct)
 #   --no-symlinks           In dev mode, copy files instead of symlinking
 #   --check-deps            Check dependencies only
 #   --skip-profile          Skip shell profile modification
@@ -245,7 +256,15 @@ parse_args() {
 
 show_usage() {
     cat <<EOF
-CLEO Installer v${INSTALLER_SCRIPT_VERSION}
+CLEO Installer v${INSTALLER_SCRIPT_VERSION} (Dev/Legacy Mode)
+
+IMPORTANT: For production use, install via npm:
+  npm install -g @cleocode/cleo
+
+This installer is for:
+  - CLEO contributors (use --dev for isolated cleo-dev)
+  - Legacy/air-gapped systems (use --release)
+  - Offline installations
 
 Usage: $(basename "$0") [OPTIONS]
 
@@ -255,8 +274,8 @@ Options:
   --cleo-version VER      Install specific CLEO version (e.g., v0.55.0)
   --list-versions         List available CLEO versions from GitHub
   --force, -f             Force reinstall (skip version check)
-  --dev                   Force development mode (symlinks to repo)
-  --release               Force release mode (download and copy files)
+  --dev                   Development mode (symlinks to repo, cleo-dev command)
+  --release               Release mode (download and copy files, cleo command)
   --no-symlinks           In dev mode, copy files instead of symlinking
   --check-deps            Check dependencies only, don't install
   --skip-profile          Skip shell profile modification
@@ -286,22 +305,13 @@ Environment Variables:
   INSTALLER_DEV_MODE      Set to 1 to force dev mode (same as --dev)
 
 Examples:
-  ./install.sh                     # Standard installation (auto-detects mode)
-  ./install.sh --cleo-version v0.55.0  # Install specific version
-  ./install.sh --list-versions     # List available versions
-  ./install.sh --dev               # Force dev mode with symlinks
-  ./install.sh --release           # Force release mode (download from GitHub)
-  ./install.sh --dev --no-symlinks # Dev mode but copy files
+  ./install.sh --dev               # Dev mode: symlinks, cleo-dev command
+  ./install.sh --dev --no-symlinks # Dev mode but copy files (CI/CD)
+  ./install.sh --release           # Release mode: download from GitHub
   ./install.sh --check-deps        # Check dependencies only
-  ./install.sh --force             # Force reinstall
-  ./install.sh --recover           # Resume interrupted installation
-  ./install.sh --rollback          # Restore previous version
   ./install.sh --status            # Show installation status
   ./install.sh --refresh           # Refresh dev mode symlinks
   ./install.sh --upgrade           # Upgrade to latest version
-  ./install.sh --upgrade=v0.56.0   # Upgrade to specific version
-  ./install.sh --version-info      # Show detailed version information
-  ./install.sh --check-upgrade     # Check if upgrade available (for scripting)
 EOF
 }
 

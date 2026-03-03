@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.3.10",
+  "version": "2026.3.11",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "mcpName": "io.github.kryptobaseddev/cleo-mcp-server",
   "type": "module",
@@ -30,6 +30,7 @@
     "lint": "tsc --noEmit",
     "prepare": "npm run build",
     "prepack": "npm run build",
+    "postinstall": "node bin/postinstall.js",
     "migrate:todos": "node dist/scripts/migrate-todo-to-tasks.js",
     "cleo:update-status": "node dist/scripts/update-task-status.js",
     "adr:validate": "tsx dev/validate-adrs.ts",
@@ -60,7 +61,8 @@
     "templates",
     "packages/ct-skills/skills",
     "completions",
-    "server.json"
+    "server.json",
+    "bin"
   ],
   "dependencies": {
     "@cleocode/caamp": "^1.5.2",
