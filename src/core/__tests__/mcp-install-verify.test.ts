@@ -11,6 +11,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../mcp/index.js';
 import {
   providerList,
@@ -29,6 +32,46 @@ describe('MCP server auto-install verification (T4695)', () => {
       const env = detectEnvMode();
       expect(['dev-ts', 'prod-npm', 'unknown']).toContain(env.mode);
       expect(env).toHaveProperty('source');
+    });
+
+    it('prefers npm invocation channel over stale VERSION metadata (stable)', () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'cleo-mcp-env-'));
+      const scriptPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli', 'index.js');
+      const pkgPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'package.json');
+      mkdirSync(join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli'), { recursive: true });
+      writeFileSync(pkgPath, JSON.stringify({ name: '@cleocode/cleo', version: '2026.3.10' }), 'utf-8');
+
+      const original = process.argv[1];
+      process.argv[1] = scriptPath;
+      try {
+        const env = detectEnvMode();
+        expect(env.mode).toBe('prod-npm');
+        expect(env.channel).toBe('stable');
+        expect(env.source).toBe('npm');
+      } finally {
+        process.argv[1] = original;
+        rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    it('prefers npm invocation channel over stale VERSION metadata (beta)', () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'cleo-mcp-env-'));
+      const scriptPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli', 'index.js');
+      const pkgPath = join(tmp, 'node_modules', '@cleocode', 'cleo', 'package.json');
+      mkdirSync(join(tmp, 'node_modules', '@cleocode', 'cleo', 'dist', 'cli'), { recursive: true });
+      writeFileSync(pkgPath, JSON.stringify({ name: '@cleocode/cleo', version: '2026.3.10-beta.1' }), 'utf-8');
+
+      const original = process.argv[1];
+      process.argv[1] = scriptPath;
+      try {
+        const env = detectEnvMode();
+        expect(env.mode).toBe('prod-npm');
+        expect(env.channel).toBe('beta');
+        expect(env.source).toBe('npm');
+      } finally {
+        process.argv[1] = original;
+        rmSync(tmp, { recursive: true, force: true });
+      }
     });
 
     it('dev-ts mode generates node command with dist/mcp/index.js', () => {

@@ -31,10 +31,10 @@ import {
 export function registerMcpInstallCommand(program: Command): void {
   program
     .command('mcp-install')
-    .description('Configure CLEO MCP server integration (env-aware, via CAAMP)')
+    .description('Configure CLEO MCP server integration (env-aware, global by default, via CAAMP)')
     .option('--tool <name>', 'Configure a single tool/provider (claude-code, cursor, windsurf, etc.)')
-    .option('--global', 'Use global/user config scope')
-    .option('--project', 'Use project-level config scope')
+    .option('--global', 'Use global/user config scope (default)')
+    .option('--project', 'Use project-level config scope (opt-in)')
     .option('--all', 'Configure all detected providers')
     .option('--dry-run', 'Preview changes without writing files')
     .option('--force', 'Overwrite existing cleo config entries')
@@ -61,7 +61,9 @@ export function registerMcpInstallCommand(program: Command): void {
         const env = detectEnvMode();
         const serverEntry = generateMcpServerEntry(env) as McpServerConfig;
         const serverName = getMcpServerName(env);
-        const scope = opts['global'] ? 'global' as const : 'project' as const;
+        // Default to global scope for system-level MCP tool management.
+        // Use --project only when explicit project-local provider config is desired.
+        const scope = opts['project'] ? 'project' as const : 'global' as const;
         const projectDir = process.cwd();
 
         // If a specific tool is requested, install only to that provider
