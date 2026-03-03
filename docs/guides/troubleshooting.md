@@ -153,6 +153,96 @@ cleo validate --fix-orphans delete  # Delete orphaned tasks
 
 **Fix:** Remove the dependency manually or restore the missing task.
 
+## Installation Issues
+
+### NPM Global Install Problems
+
+**Symptom:** `cleo` command not found after `npm install -g @cleocode/cleo`
+
+**Causes & Fixes:**
+
+1. **npm global bin not in PATH**
+   ```bash
+   # Find npm global bin
+   npm bin -g
+   
+   # Add to PATH (add to ~/.bashrc or ~/.zshrc)
+   export PATH="$(npm bin -g):$PATH"
+   ```
+
+2. **Permission denied (Linux/macOS)**
+   ```bash
+   # Fix npm permissions
+   mkdir ~/.npm-global
+   npm config set prefix '~/.npm-global'
+   export PATH=~/.npm-global/bin:$PATH
+   ```
+
+3. **Windows: command not recognized**
+   ```powershell
+   # Run PowerShell as Administrator
+   npm install -g @cleocode/cleo
+   
+   # Or use npx (no global install needed)
+   npx @cleocode/cleo init
+   ```
+
+### Postinstall Hook Failed
+
+**Symptom:** `CLEO: Bootstrap error` during npm install
+
+**This is non-fatal** - CLEO will complete setup on first run:
+
+```bash
+# Complete setup manually
+cleo install-global
+
+# Or it will auto-complete on first cleo init
+cleo init
+```
+
+### MCP Server Not Detected
+
+**Symptom:** AI provider doesn't show CLEO tools
+
+**Fix:**
+```bash
+# Reinstall MCP configs
+cleo mcp-install
+
+# Or for specific provider
+cleo mcp-install --tool claude-code
+```
+
+### Dev Mode Isolation Issues
+
+**Symptom:** `cleo-dev` not found or using wrong home directory
+
+**Fix:**
+```bash
+# Ensure you're using install.sh --dev
+cd /path/to/cleo-repo
+./installer/install.sh --dev
+
+# Verify
+cleo-dev env info --json
+```
+
+### Legacy install.sh Issues
+
+**For systems using the bash installer:**
+
+```bash
+# Check installation status
+./installer/install.sh --status
+
+# Refresh symlinks (dev mode)
+./installer/install.sh --refresh
+
+# Force reinstall
+./installer/install.sh --force
+```
+
 ## Protocol Violations
 
 ### Common Symptoms

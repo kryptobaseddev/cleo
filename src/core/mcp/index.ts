@@ -39,6 +39,23 @@ export function getMcpServerName(env: McpEnvMode): string {
  * @task T4584
  */
 export function detectEnvMode(): McpEnvMode {
+  // Prefer runtime package invocation detection over persisted metadata.
+  // This prevents stale ~/.cleo/VERSION mode flags from overriding npm runtime channel.
+  const scriptPath = (process.argv[1] ?? '').replace(/\\/g, '/');
+  const marker = '/node_modules/@cleocode/cleo/';
+  const markerIdx = scriptPath.indexOf(marker);
+  if (markerIdx >= 0) {
+    const pkgRoot = scriptPath.slice(0, markerIdx + marker.length);
+    let channel: McpEnvMode['channel'] = 'stable';
+    try {
+      const pkg = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf-8')) as { version?: string };
+      channel = (pkg.version ?? '').includes('-beta') ? 'beta' : 'stable';
+    } catch {
+      channel = 'stable';
+    }
+    return { mode: 'prod-npm', source: 'npm', channel };
+  }
+
   const versionPath = join(
     process.env['CLEO_HOME'] ?? join(homedir(), '.cleo'),
     'VERSION',
