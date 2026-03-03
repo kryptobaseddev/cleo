@@ -12,6 +12,9 @@ import type { Session, SessionScope } from '../../types/session.js';
 import { getSessionsPath, getBackupDir } from '../paths.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
+// Auto-register hook handlers
+import '../hooks/handlers/index.js';
+
 /** Options for starting a session. */
 export interface StartSessionOptions {
   name: string;
@@ -151,6 +154,16 @@ export async function startSession(options: StartSessionOptions, cwd?: string, a
   sessions.push(session);
   await saveSessions(sessions, cwd, accessor);
 
+  // Dispatch onSessionStart hook (best-effort, don't await)
+  const { hooks } = await import('../hooks/registry.js');
+  hooks.dispatch('onSessionStart', cwd ?? process.cwd(), {
+    timestamp: new Date().toISOString(),
+    sessionId: session.id,
+    name: options.name,
+    scope,
+    agent: options.agent,
+  }).catch(() => { /* Hooks are best-effort */ });
+
   return session;
 }
 
@@ -191,6 +204,15 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string, 
 
   session.status = 'ended';
   session.endedAt = new Date().toISOString();
+
+  // Dispatch onSessionEnd hook (best-effort, don't await)
+  const { hooks } = await import('../hooks/registry.js');
+  hooks.dispatch('onSessionEnd', cwd ?? process.cwd(), {
+    timestamp: new Date().toISOString(),
+    sessionId: session.id,
+    duration: Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000),
+    tasksCompleted: session.tasksCompleted || [],
+  }).catch(() => { /* Hooks are best-effort */ });
 
   // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
   // to query audit entries after the session ends. The caller (admin.grade handler

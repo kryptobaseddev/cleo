@@ -7,24 +7,49 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ## [Unreleased]
 
+---
+
+## [2026.3.13-beta.1] - 2026-03-03
+
+### Added
+
+- **CAAMP spawn adapter and provider capability foundation (T5236/T5237/T5238)**:
+  - Added spawn adapter registry and Claude Code adapter scaffolding (`src/core/spawn/`)
+  - Added orchestrate spawn execution path and dispatch wiring (`orchestrate.spawn.execute`)
+  - Added tools operations for spawn/provider discovery and hook/provider capability checks
+  - Added skill precedence resolution integration and coverage tests
+  - Added universal hook infrastructure (`src/core/hooks/`) with session/task-work event dispatch
+
 ### Changed
 
-- **Memory domain refactor — clean break from legacy aliases (T5241)** — Complete domain consolidation with architectural cleanup:
-  - Removed `LEGACY_DOMAIN_ALIASES` — clean break from legacy domain naming
-  - Migrated patterns/learnings storage from JSONL to `brain.db` SQLite
-  - Removed alias resolution from MCP adapter layer
-  - Updated `VERB-STANDARDS.md` — removed legacy references and canonicalized verb documentation
-  - Updated `operation-constitution.schema.json` — full validation coverage for all 201 operations
-  - Reworked CLI help system to group commands by domain with cleaner organization
-  - Consolidated memory domain operations under canonical `memory.*` namespace
-  - Added pipeline manifest compatibility layer for seamless RCASD integration
-  - Improved session context injection with better type safety
+- **Task completion hardening (T5253)**:
+  - `tasks.complete` is enforced as canonical completion path; `tasks.update status=done` now routes through completion checks
+  - Mixed `status=done` + other update fields are blocked to prevent bypasses
+  - Completion dependency semantics now treat `cancelled` dependencies as satisfied
+  - Acceptance policy enforcement added for configured priorities
+  - Verification gate enforcement is now **default-on** and can be disabled per-project (`verification.enabled=false`)
+  - Lifecycle-aware completion failures now map to canonical gate/error semantics in strict mode
+
+- **Task data safety naming alignment**:
+  - Introduced `safeSaveTaskData` as preferred alias while retaining `safeSaveTaskFile` compatibility
+
+- **Dependency updates**:
+  - Upgraded `@cleocode/caamp` to `^1.6.0` (resolved `1.6.1` in lockfile)
 
 ### Documentation
 
-- Added `CLEO-OPERATION-CONSTITUTION.md` — canonical specification mapping all 201 MCP operations to CLI equivalents
-- Added `CLEO-SYSTEM-FLOW-ATLAS.md` — comprehensive system flow visualization documentation
-- Added ADR-021 documenting the memory domain refactor decisions and migration path
+- Updated canonical docs for completion hardening semantics:
+  - `docs/concepts/vision.md`
+  - `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
+  - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md`
+  - `docs/guides/task-fields.md`
+- Added ADR-022 for canonical completion semantics and enforcement policy:
+  - `.cleo/adrs/ADR-022-task-completion-hardening.md`
+- Added design/spec docs for spawn adapters, hooks, precedence, and CAAMP 1.6.1 integration:
+  - `docs/specs/T5236-CAAMP-SPAWN-ADAPTER-DESIGN.md`
+  - `docs/specs/T5237-UNIVERSAL-HOOKS-DESIGN.md`
+  - `docs/design/T5238-SKILLS-PRECEDENCE-REGISTRY-DESIGN.md`
+  - `docs/specs/CAAMP-1.6.1-API-INTEGRATION.md`
 
 ---
 

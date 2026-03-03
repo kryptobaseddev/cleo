@@ -18,12 +18,38 @@ import {
   validateTitle,
   logOperation,
 } from './add.js';
+import { completeTask } from './complete.js';
 import { reparentTask } from './reparent.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
-  safeSaveTaskFile,
+  safeSaveTaskData,
   safeAppendLog,
 } from '../../store/data-safety-central.js';
+
+const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
+  'title',
+  'priority',
+  'type',
+  'size',
+  'phase',
+  'description',
+  'labels',
+  'addLabels',
+  'removeLabels',
+  'depends',
+  'addDepends',
+  'removeDepends',
+  'notes',
+  'acceptance',
+  'files',
+  'blockedBy',
+  'parentId',
+  'noAutoComplete',
+];
+
+function hasNonStatusDoneFields(options: UpdateTaskOptions): boolean {
+  return NON_STATUS_DONE_FIELDS.some(field => options[field] !== undefined);
+}
 
 /** Options for updating a task. */
 export interface UpdateTaskOptions {
@@ -80,6 +106,26 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
   const task = data.tasks[taskIdx]!;
   const changes: string[] = [];
   const now = new Date().toISOString();
+
+  const isStatusOnlyDoneTransition =
+    options.status === 'done' &&
+    task.status !== 'done' &&
+    !hasNonStatusDoneFields(options);
+
+  if (isStatusOnlyDoneTransition) {
+    const result = await completeTask({ taskId: options.taskId }, cwd, accessor);
+    return { task: result.task, changes: ['status'] };
+  }
+
+  if (options.status === 'done' && task.status !== 'done') {
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'status=done must use complete flow; do not combine with other update fields',
+      {
+        fix: `Run 'cleo complete ${options.taskId}' first, then apply additional updates with 'cleo update ${options.taskId} ...'`,
+      },
+    );
+  }
 
   // Update fields
   if (options.title !== undefined) {
@@ -229,7 +275,7 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
     if (accessor.upsertSingleTask) {
       await accessor.upsertSingleTask(task);
     } else {
-      await safeSaveTaskFile(accessor, data, cwd);
+      await safeSaveTaskData(accessor, data, cwd);
     }
     await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
