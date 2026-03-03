@@ -6,7 +6,7 @@ This roadmap reflects current implementation reality from `docs/concepts/vision.
 
 ### Shipped
 
-- BRAIN foundation in `.cleo/brain.db` with retrieval (`memory brain.search`, `memory brain.timeline`, `memory brain.fetch`) and write (`memory brain.observe`).
+- BRAIN foundation in `.cleo/brain.db` with retrieval (`memory find`, `memory timeline`, `memory fetch`) and write (`memory observe`).
 - NEXUS dispatch domain handler wired with 12 operations in registry and test coverage.
 - SQLite-vec extension loading support and PageIndex graph table schema (`brain_page_nodes`, `brain_page_edges`).
 - Shared-core architecture with MCP-first contract and CLI parity.

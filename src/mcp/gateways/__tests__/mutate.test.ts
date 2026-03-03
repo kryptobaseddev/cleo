@@ -56,11 +56,11 @@ describe('MUTATE_OPERATIONS', () => {
   it('should have correct operation counts per domain', () => {
     // Canonical domains
     expect(MUTATE_OPERATIONS.tasks.length).toBe(13);
-    expect(MUTATE_OPERATIONS.session.length).toBe(7);
+    expect(MUTATE_OPERATIONS.session.length).toBe(8);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
-    expect(MUTATE_OPERATIONS.memory.length).toBe(7);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(5);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
-    expect(MUTATE_OPERATIONS.pipeline.length).toBe(12);
+    expect(MUTATE_OPERATIONS.pipeline.length).toBe(14);
     expect(MUTATE_OPERATIONS.admin.length).toBe(15);
     expect(MUTATE_OPERATIONS.tools.length).toBe(14);
     // Legacy aliases (derived from canonical — may include more ops than
@@ -311,8 +311,8 @@ describe('validateMutateParams', () => {
     });
   });
 
-  describe('research domain parameter validation', () => {
-    it('should reject inject without protocolType', () => {
+  describe('research domain parameter validation (legacy alias for memory)', () => {
+    it('should reject inject as invalid operation (moved to session.context.inject)', () => {
       const request: MutateRequest = {
         domain: 'research',
         operation: 'inject',
@@ -321,7 +321,7 @@ describe('validateMutateParams', () => {
 
       const result = validateMutateParams(request);
       expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('protocolType');
+      expect(result.error?.error?.code).toBe('E_INVALID_OPERATION');
     });
 
     it('should reject link without researchId and taskId', () => {
@@ -336,7 +336,7 @@ describe('validateMutateParams', () => {
       expect(result.error?.error?.message).toContain('researchId and taskId');
     });
 
-    it('should reject manifest.append without entry', () => {
+    it('should reject manifest.append as invalid operation (moved to pipeline)', () => {
       const request: MutateRequest = {
         domain: 'research',
         operation: 'manifest.append',
@@ -345,7 +345,44 @@ describe('validateMutateParams', () => {
 
       const result = validateMutateParams(request);
       expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('entry');
+      expect(result.error?.error?.code).toBe('E_INVALID_OPERATION');
+    });
+  });
+
+  describe('session domain context.inject validation', () => {
+    it('should accept context.inject as a valid session operation', () => {
+      const request: MutateRequest = {
+        domain: 'session',
+        operation: 'context.inject',
+        params: { protocolType: 'research' },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('pipeline domain manifest validation', () => {
+    it('should accept manifest.append as a valid pipeline operation', () => {
+      const request: MutateRequest = {
+        domain: 'pipeline',
+        operation: 'manifest.append',
+        params: { entry: { id: 'test', title: 'Test' } },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should accept manifest.archive as a valid pipeline operation', () => {
+      const request: MutateRequest = {
+        domain: 'pipeline',
+        operation: 'manifest.archive',
+        params: { beforeDate: '2026-01-01' },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(true);
     });
   });
 
@@ -512,11 +549,11 @@ describe('getMutateOperationCount', () => {
   it('should return domain-specific counts', () => {
     // Canonical domains
     expect(getMutateOperationCount('tasks')).toBe(13);
-    expect(getMutateOperationCount('session')).toBe(7);
+    expect(getMutateOperationCount('session')).toBe(8);
     expect(getMutateOperationCount('orchestrate')).toBe(5);
-    expect(getMutateOperationCount('memory')).toBe(7);
+    expect(getMutateOperationCount('memory')).toBe(5);
     expect(getMutateOperationCount('check')).toBe(2);
-    expect(getMutateOperationCount('pipeline')).toBe(12);
+    expect(getMutateOperationCount('pipeline')).toBe(14);
     expect(getMutateOperationCount('admin')).toBe(15);
     expect(getMutateOperationCount('tools')).toBe(14);
     // Legacy aliases (derived — no-prefix aliases equal canonical)

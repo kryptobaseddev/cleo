@@ -4,7 +4,180 @@
  * @task T4455
  */
 
-import { Command } from 'commander';
+import { Command, Help, Option } from 'commander';
+
+/**
+ * Custom Help class that groups commands by domain.
+ * Organizes commands into logical domains for better UX.
+ */
+class GroupedHelp extends Help {
+  // Domain to command names mapping - organized by functional domain
+  private domainGroups: Record<string, string[]> = {
+    'Tasks': [
+      'add', 'list', 'show', 'find', 'complete', 'update', 'delete',
+      'archive', 'start', 'stop', 'current', 'next', 'focus',
+      'archive-stats', 'restore', 'reorder', 'reparent', 'relates',
+      'tree', 'deps', 'labels', 'tags', 'blockers', 'exists', 'stats', 'history'
+    ],
+    'Session': [
+      'session', 'briefing', 'phase', 'checkpoint', 'safestop'
+    ],
+    'Memory': [
+      'memory', 'memory-brain', 'observe', 'context', 'inject', 'sync'
+    ],
+    'Check': [
+      'validate', 'verify', 'compliance', 'doctor', 'analyze'
+    ],
+    'Pipeline': [
+      'release', 'lifecycle', 'promote', 'upgrade', 'specification',
+      'detect-drift', 'roadmap', 'plan', 'log', 'issue', 'bug',
+      'generate-changelog', 'phases'
+    ],
+    'Orchestration': [
+      'orchestrate', 'ops', 'consensus', 'contribution', 'decomposition',
+      'implementation', 'sequence', 'dash'
+    ],
+    'Research': [
+      'research', 'extract', 'web', 'docs'
+    ],
+    'Nexus': [
+      'nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'sharing', 'export', 'import'
+    ],
+    'Admin': [
+      'config', 'backup', 'export-tasks', 'import-tasks',
+      'env', 'mcp-install', 'testing', 'skills', 'self-update',
+      'install-global', 'grade', 'migrate-claude-mem', 'migrate', 'otel', 'adr', 'commands'
+    ]
+  };
+
+  /** Override formatHelp to group commands by domain. */
+  formatHelp(cmd: Command, helper: Help): string {
+    const output: string[] = [];
+
+    // Header: name and version
+    const version = cmd.version();
+    if (version) {
+      output.push(`${cmd.name()}@${version}`);
+    } else {
+      output.push(cmd.name());
+    }
+
+    // Description
+    const description = this.commandDescription(cmd);
+    if (description) {
+      output.push(description);
+    }
+
+    // Usage
+    const usage = this.commandUsage(cmd);
+    if (usage) {
+      output.push(`Usage: ${usage}`);
+    }
+
+    // Global options
+    const globalOpts = this.visibleGlobalOptions(cmd);
+    if (globalOpts.length > 0) {
+      output.push(this.formatOptionsBlock('Global Options:', globalOpts, helper, cmd));
+    }
+
+    // Commands grouped by domain
+    const domainSection = this.formatCommandsByDomain(cmd, helper);
+    if (domainSection) {
+      output.push(domainSection);
+    }
+
+    // Options for current command
+    const opts = this.visibleOptions(cmd);
+    if (opts.length > 0) {
+      output.push(this.formatOptionsBlock('Options:', opts, helper, cmd));
+    }
+
+    // Arguments
+    const args = this.visibleArguments(cmd);
+    if (args.length > 0) {
+      output.push(this.formatArgumentsBlock(args, helper, cmd));
+    }
+
+    return output.filter(Boolean).join('\n\n');
+  }
+
+  /** Format options as a block. */
+  private formatOptionsBlock(title: string, options: Option[], helper: Help, cmd: Command): string {
+    const lines: string[] = [title];
+    const width = this.longestOptionTermLength(cmd, helper);
+
+    for (const option of options) {
+      const term = helper.optionTerm(option);
+      const desc = helper.optionDescription(option);
+      lines.push(`  ${term.padEnd(width)}  ${desc}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /** Format arguments as a block. */
+  private formatArgumentsBlock(args: import('commander').Argument[], helper: Help, cmd: Command): string {
+    const lines: string[] = ['Arguments:'];
+    const width = this.longestArgumentTermLength(cmd, helper);
+
+    for (const arg of args) {
+      const term = helper.argumentTerm(arg);
+      const desc = helper.argumentDescription(arg);
+      lines.push(`  ${term.padEnd(width)}  ${desc}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /** Format commands grouped by domain. */
+  private formatCommandsByDomain(cmd: Command, helper: Help): string {
+    const commands = this.visibleCommands(cmd);
+    if (commands.length === 0) return '';
+
+    // Group commands by domain
+    const grouped: Record<string, Command[]> = {};
+    const ungrouped: Command[] = [];
+
+    for (const command of commands) {
+      const name = command.name();
+      let found = false;
+      for (const [domain, names] of Object.entries(this.domainGroups)) {
+        if (names.includes(name)) {
+          if (!grouped[domain]) grouped[domain] = [];
+          grouped[domain].push(command);
+          found = true;
+          break;
+        }
+      }
+      if (!found) ungrouped.push(command);
+    }
+
+    const lines: string[] = [];
+    lines.push('Commands:');
+
+    // Print grouped commands
+    for (const [domain, cmds] of Object.entries(grouped)) {
+      lines.push(`\n  ${domain}:`);
+      for (const c of cmds.sort((a, b) => a.name().localeCompare(b.name()))) {
+        const term = helper.subcommandTerm(c);
+        const desc = helper.subcommandDescription(c);
+        lines.push(`    ${term.padEnd(22)} ${desc}`);
+      }
+    }
+
+    // Print ungrouped commands
+    if (ungrouped.length > 0) {
+      lines.push('\n  Other:');
+      for (const c of ungrouped.sort((a, b) => a.name().localeCompare(b.name()))) {
+        const term = helper.subcommandTerm(c);
+        const desc = helper.subcommandDescription(c);
+        lines.push(`    ${term.padEnd(22)} ${desc}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+}
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { registerAddCommand } from './commands/add.js';
@@ -159,7 +332,15 @@ function getPackageVersion(): string {
 }
 
 const CLI_VERSION = getPackageVersion();
-const program = new Command();
+
+// Custom Command class that uses GroupedHelp
+class CleoCommand extends Command {
+  createHelp() {
+    return new GroupedHelp();
+  }
+}
+
+const program = new CleoCommand();
 
 program
   .name('cleo')

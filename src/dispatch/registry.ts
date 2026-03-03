@@ -1,11 +1,11 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 198 operations mapped to 10 canonical domains.
- * Canonical domains only -- no legacy alias support.
+ * Single source of truth for all 201 operations (112 query + 89 mutate) mapped
+ * to 10 canonical domains. Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
- * @task T4814
+ * @task T4814, T5241
  */
 
 import { Gateway, Tier, CanonicalDomain, type ParamDef } from './types.js';
@@ -35,12 +35,6 @@ export interface OperationDef {
    * @see T4897 for progressive migration
    */
   params?: ParamDef[];
-  /**
-   * Backward-compatible operation aliases (e.g., 'config.get' for 'config.show').
-   * These are included in derived gateway matrices so validation passes for both names.
-   * Runtime translation happens in resolveOperationAlias() in the MCP adapter.
-   */
-  aliases?: string[];
 }
 
 /**
@@ -414,62 +408,55 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // ---------------------------------------------------------------------------
+  // memory — brain.db cognitive memory (T5241 cutover)
+  // ---------------------------------------------------------------------------
   {
     gateway: 'query',
     domain: 'memory',
     operation: 'show',
-    description: 'memory.show (query)',
-    tier: 0,
+    description: 'memory.show (query) — brain.db entry lookup by ID',
+    tier: 1,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'memory',
-    operation: 'list',
-    description: 'memory.list (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['entryId'],
   },
   {
     gateway: 'query',
     domain: 'memory',
     operation: 'find',
-    description: 'memory.find (query)',
-    tier: 0,
+    description: 'memory.find (query) — cross-table brain.db FTS5 search',
+    tier: 1,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['query'],
   },
   {
     gateway: 'query',
     domain: 'memory',
-    operation: 'pending',
-    description: 'memory.pending (query)',
-    tier: 0,
+    operation: 'timeline',
+    description: 'memory.timeline (query) — chronological context around anchor',
+    tier: 1,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['anchor'],
+  },
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'fetch',
+    description: 'memory.fetch (query) — batch fetch brain entries by IDs',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['ids'],
   },
   {
     gateway: 'query',
     domain: 'memory',
     operation: 'stats',
-    description: 'memory.stats (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'memory',
-    operation: 'manifest.read',
-    description: 'memory.manifest.read (query)',
-    tier: 0,
+    description: 'memory.stats (query) — brain.db aggregate statistics',
+    tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
@@ -478,8 +465,8 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'memory',
     operation: 'contradictions',
-    description: 'memory.contradictions (query)',
-    tier: 0,
+    description: 'memory.contradictions (query) — find contradictory entries in brain.db',
+    tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
@@ -488,25 +475,34 @@ export const OPERATIONS: OperationDef[] = [
     gateway: 'query',
     domain: 'memory',
     operation: 'superseded',
-    description: 'memory.superseded (query)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  // BRAIN memory query operations (T4770)
-  {
-    gateway: 'query' as const,
-    domain: 'memory',
-    operation: 'pattern.search',
-    description: 'memory.pattern.search (query) — search BRAIN pattern memory by type, impact, or keyword',
+    description: 'memory.superseded (query) — find superseded entries in brain.db',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
   },
   {
-    gateway: 'query' as const,
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'decision.find',
+    description: 'memory.decision.find (query) — search decisions in brain.db',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'pattern.find',
+    description: 'memory.pattern.find (query) — search BRAIN pattern memory by type, impact, or keyword',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
     domain: 'memory',
     operation: 'pattern.stats',
     description: 'memory.pattern.stats (query) — pattern memory statistics (counts by type and impact)',
@@ -516,51 +512,20 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
   },
   {
-    gateway: 'query' as const,
+    gateway: 'query',
     domain: 'memory',
-    operation: 'learning.search',
-    description: 'memory.learning.search (query) — search BRAIN learning memory by confidence, actionability, or keyword',
+    operation: 'learning.find',
+    description: 'memory.learning.find (query) — search BRAIN learning memory by confidence, actionability, or keyword',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
   },
   {
-    gateway: 'query' as const,
+    gateway: 'query',
     domain: 'memory',
     operation: 'learning.stats',
     description: 'memory.learning.stats (query) — learning memory statistics (counts by confidence band)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  // BRAIN 3-layer retrieval query operations (T5149)
-  {
-    gateway: 'query' as const,
-    domain: 'memory',
-    operation: 'brain.search',
-    description: 'memory.brain.search (query) — 3-layer retrieval step 1: search index',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query' as const,
-    domain: 'memory',
-    operation: 'brain.timeline',
-    description: 'memory.brain.timeline (query) — 3-layer retrieval step 2: context around anchor',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query' as const,
-    domain: 'memory',
-    operation: 'brain.fetch',
-    description: 'memory.brain.fetch (query) — 3-layer retrieval step 3: full details for filtered IDs',
     tier: 1,
     idempotent: true,
     sessionRequired: false,
@@ -612,6 +577,57 @@ export const OPERATIONS: OperationDef[] = [
     operation: 'stage.prerequisites',
     description: 'pipeline.stage.prerequisites (query)',
     tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  // pipeline manifest query operations (T5241 — moved from memory)
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'manifest.show',
+    description: 'pipeline.manifest.show (query) — get manifest entry by ID',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['entryId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'manifest.list',
+    description: 'pipeline.manifest.list (query) — list manifest entries with filters',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'manifest.find',
+    description: 'pipeline.manifest.find (query) — search manifest entries by text',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['query'],
+  },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'manifest.pending',
+    description: 'pipeline.manifest.pending (query) — get pending manifest items',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'manifest.stats',
+    description: 'pipeline.manifest.stats (query) — manifest statistics',
+    tier: 1,
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
@@ -1215,6 +1231,17 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // session context injection (T5241 — moved from memory)
+  {
+    gateway: 'mutate',
+    domain: 'session',
+    operation: 'context.inject',
+    description: 'session.context.inject (mutate) — inject protocol content into session context',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['protocolType'],
+  },
   {
     gateway: 'mutate',
     domain: 'orchestrate',
@@ -1265,49 +1292,29 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // memory mutate — brain.db cognitive memory (T5241 cutover)
   {
     gateway: 'mutate',
     domain: 'memory',
-    operation: 'inject',
-    description: 'memory.inject (mutate)',
-    tier: 0,
+    operation: 'observe',
+    description: 'memory.observe (mutate) — save observation to brain.db',
+    tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['text'],
   },
   {
     gateway: 'mutate',
     domain: 'memory',
-    operation: 'link',
-    description: 'memory.link (mutate)',
-    tier: 0,
+    operation: 'decision.store',
+    description: 'memory.decision.store (mutate) — store decision to brain.db',
+    tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: [],
+    requiredParams: ['decision', 'rationale'],
   },
   {
     gateway: 'mutate',
-    domain: 'memory',
-    operation: 'manifest.append',
-    description: 'memory.manifest.append (mutate)',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'memory',
-    operation: 'manifest.archive',
-    description: 'memory.manifest.archive (mutate)',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  // BRAIN memory mutate operations (T4770)
-  {
-    gateway: 'mutate' as const,
     domain: 'memory',
     operation: 'pattern.store',
     description: 'memory.pattern.store (mutate) — store a reusable workflow or anti-pattern in BRAIN pattern memory',
@@ -1317,7 +1324,7 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: ['pattern', 'context'],
   },
   {
-    gateway: 'mutate' as const,
+    gateway: 'mutate',
     domain: 'memory',
     operation: 'learning.store',
     description: 'memory.learning.store (mutate) — store an insight or lesson learned in BRAIN learning memory',
@@ -1327,14 +1334,14 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: ['insight', 'source'],
   },
   {
-    gateway: 'mutate' as const,
+    gateway: 'mutate',
     domain: 'memory',
-    operation: 'brain.observe',
-    description: 'memory.brain.observe (mutate) — save observation to brain.db',
+    operation: 'link',
+    description: 'memory.link (mutate) — link brain entry to task',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
-    requiredParams: ['text'],
+    requiredParams: ['taskId', 'entryId'],
   },
   {
     gateway: 'mutate',
@@ -1385,6 +1392,27 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+  },
+  // pipeline manifest mutate operations (T5241 — moved from memory)
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'manifest.append',
+    description: 'pipeline.manifest.append (mutate) — append entry to MANIFEST.jsonl',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['entry'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'manifest.archive',
+    description: 'pipeline.manifest.archive (mutate) — archive old manifest entries',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['beforeDate'],
   },
   {
     gateway: 'mutate',
@@ -2082,32 +2110,6 @@ export const OPERATIONS: OperationDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Legacy Domain Aliases
-// ---------------------------------------------------------------------------
-
-/**
- * Legacy domain alias mapping.
- *
- * Maps legacy MCP domain names to their canonical domain + operation prefix.
- * Used to generate backward-compatible gateway operation matrices and to
- * resolve domain aliases at runtime in the MCP adapter.
- *
- * When a legacy domain has a prefix, the canonical operation name is expected
- * to start with that prefix (e.g., `skill.list` in canonical `tools` domain
- * maps to `list` in legacy `skills` domain).
- */
-export const LEGACY_DOMAIN_ALIASES: Record<string, { canonical: CanonicalDomain; prefix: string }> = {
-  research:  { canonical: 'memory',   prefix: '' },
-  validate:  { canonical: 'check',    prefix: '' },
-  lifecycle: { canonical: 'pipeline', prefix: 'stage.' },
-  release:   { canonical: 'pipeline', prefix: 'release.' },
-  system:    { canonical: 'admin',    prefix: '' },
-  skills:    { canonical: 'tools',    prefix: 'skill.' },
-  providers: { canonical: 'tools',    prefix: 'provider.' },
-  issues:    { canonical: 'tools',    prefix: 'issue.' },
-};
-
-// ---------------------------------------------------------------------------
 // Gateway Matrix Derivation
 // ---------------------------------------------------------------------------
 
@@ -2115,8 +2117,7 @@ export const LEGACY_DOMAIN_ALIASES: Record<string, { canonical: CanonicalDomain;
  * Derive a gateway operation matrix from the registry.
  *
  * Returns `Record<string, string[]>` containing:
- * - All 10 canonical domains with their operations (including aliases)
- * - All legacy alias domains with reverse-mapped operation names
+ * - All canonical domains with their operations
  *
  * This is the SINGLE derivation point — gateways use this instead of
  * maintaining independent operation lists.
@@ -2124,46 +2125,17 @@ export const LEGACY_DOMAIN_ALIASES: Record<string, { canonical: CanonicalDomain;
 export function deriveGatewayMatrix(gateway: Gateway): Record<string, string[]> {
   const matrix: Record<string, string[]> = {};
 
-  // Step 1: Populate canonical domains from the OPERATIONS array
   for (const op of OPERATIONS) {
     if (op.gateway !== gateway) continue;
     if (!matrix[op.domain]) matrix[op.domain] = [];
     matrix[op.domain].push(op.operation);
-    // Include aliases in the canonical domain entry
-    if (op.aliases) {
-      for (const alias of op.aliases) {
-        matrix[op.domain].push(alias);
-      }
-    }
-  }
-
-  // Step 2: Populate legacy alias domains by reverse-mapping
-  for (const [alias, { canonical, prefix }] of Object.entries(LEGACY_DOMAIN_ALIASES)) {
-    const canonicalOps = matrix[canonical];
-    if (!canonicalOps) continue;
-
-    const legacyOps: string[] = [];
-    for (const op of canonicalOps) {
-      if (prefix) {
-        // Only include operations that start with the prefix
-        if (op.startsWith(prefix)) {
-          legacyOps.push(op.slice(prefix.length));
-        }
-      } else {
-        // No prefix — all operations map directly
-        legacyOps.push(op);
-      }
-    }
-    if (legacyOps.length > 0) {
-      matrix[alias] = legacyOps;
-    }
   }
 
   return matrix;
 }
 
 /**
- * Get all accepted domain names for a gateway (canonical + legacy aliases).
+ * Get all accepted domain names for a gateway (canonical only).
  */
 export function getGatewayDomains(gateway: Gateway): string[] {
   return Object.keys(deriveGatewayMatrix(gateway));

@@ -50,7 +50,7 @@ export function registerMemoryBrainCommand(program: Command): void {
 
       try {
         if (memType === 'pattern') {
-          const result = storePattern(root, {
+          const result = await storePattern(root, {
             type: (opts['patternType'] as PatternType) || 'workflow',
             pattern: opts['content'] as string,
             context: (opts['context'] as string) || 'Unspecified context',
@@ -66,7 +66,7 @@ export function registerMemoryBrainCommand(program: Command): void {
             console.log(`  Frequency: ${result.frequency}`);
           }
         } else if (memType === 'learning') {
-          const result = storeLearning(root, {
+          const result = await storeLearning(root, {
             insight: opts['content'] as string,
             source: (opts['source'] as string) || 'manual',
             confidence: (opts['confidence'] as number) ?? 0.5,
@@ -113,7 +113,7 @@ export function registerMemoryBrainCommand(program: Command): void {
       };
 
       if (!memType || memType === 'pattern') {
-        results.patterns = searchPatterns(root, {
+        results.patterns = await searchPatterns(root, {
           query,
           type: opts['patternType'] as PatternType | undefined,
           limit,
@@ -121,7 +121,7 @@ export function registerMemoryBrainCommand(program: Command): void {
       }
 
       if (!memType || memType === 'learning') {
-        results.learnings = searchLearnings(root, {
+        results.learnings = await searchLearnings(root, {
           query,
           minConfidence: opts['minConfidence'] as number | undefined,
           actionableOnly: !!opts['actionable'],
@@ -164,8 +164,8 @@ export function registerMemoryBrainCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       const root = getProjectRoot();
 
-      const pStats = patternStats(root);
-      const lStats = learningStats(root);
+      const pStats = await patternStats(root);
+      const lStats = await learningStats(root);
 
       if (opts['json']) {
         console.log(JSON.stringify({

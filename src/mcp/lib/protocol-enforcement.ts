@@ -320,8 +320,8 @@ export class ProtocolEnforcer {
   private requiresProtocolValidation(request: DomainRequest): boolean {
     // Operations that create outputs requiring validation
     const validatedOperations = [
-      'research.inject',
-      'research.manifest.append',
+      'session.context.inject',
+      'pipeline.manifest.append',
       'orchestrate.spawn',
       'tasks.complete',
       'release.prepare',

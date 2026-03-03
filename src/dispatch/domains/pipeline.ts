@@ -6,8 +6,9 @@
  * native engine functions.
  *
  * Sub-domains:
- *   stage.*   - RCASD-IVTR+C lifecycle stage management
- *   release.* - Release lifecycle (prepare, changelog, commit, tag, push)
+ *   stage.*    - RCASD-IVTR+C lifecycle stage management
+ *   release.*  - Release lifecycle (prepare, changelog, commit, tag, push)
+ *   manifest.* - Research manifest (JSONL) operations
  *
  * @epic T4820
  */
@@ -37,6 +38,16 @@ import {
   releaseRollback,
 } from '../lib/engine.js';
 
+import {
+  pipelineManifestShow,
+  pipelineManifestList,
+  pipelineManifestFind,
+  pipelineManifestPending,
+  pipelineManifestStats,
+  pipelineManifestAppend,
+  pipelineManifestArchive,
+} from '../../core/memory/pipeline-manifest-compat.js';
+
 // ---------------------------------------------------------------------------
 // PipelineHandler
 // ---------------------------------------------------------------------------
@@ -64,6 +75,11 @@ export class PipelineHandler implements DomainHandler {
         return await this.queryStage(operation.slice('stage.'.length), params, startTime);
       }
 
+      // Manifest sub-domain
+      if (operation.startsWith('manifest.')) {
+        return this.queryManifest(operation.slice('manifest.'.length), params, startTime);
+      }
+
       return this.errorResponse('query', operation, 'E_INVALID_OPERATION',
         `Unknown pipeline query: ${operation}`, startTime);
     } catch (error) {
@@ -88,6 +104,11 @@ export class PipelineHandler implements DomainHandler {
         return this.mutateRelease(operation.slice('release.'.length), params, startTime);
       }
 
+      // Manifest sub-domain
+      if (operation.startsWith('manifest.')) {
+        return this.mutateManifest(operation.slice('manifest.'.length), params, startTime);
+      }
+
       return this.errorResponse('mutate', operation, 'E_INVALID_OPERATION',
         `Unknown pipeline mutation: ${operation}`, startTime);
     } catch (error) {
@@ -100,6 +121,8 @@ export class PipelineHandler implements DomainHandler {
       query: [
         'stage.validate', 'stage.status', 'stage.history',
         'stage.gates', 'stage.prerequisites',
+        'manifest.show', 'manifest.list', 'manifest.find',
+        'manifest.pending', 'manifest.stats',
       ],
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
@@ -107,6 +130,7 @@ export class PipelineHandler implements DomainHandler {
         'release.prepare', 'release.changelog', 'release.commit',
         'release.tag', 'release.push', 'release.gates.run',
         'release.rollback',
+        'manifest.append', 'manifest.archive',
       ],
     };
   }
@@ -344,6 +368,89 @@ export class PipelineHandler implements DomainHandler {
       default:
         return this.errorResponse('mutate', `release.${sub}`, 'E_INVALID_OPERATION',
           `Unknown release mutation: ${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Manifest queries
+  // -----------------------------------------------------------------------
+
+  private queryManifest(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): DispatchResponse {
+    switch (sub) {
+      case 'show': {
+        const entryId = params?.entryId as string;
+        if (!entryId) {
+          return this.errorResponse('query', 'manifest.show', 'E_INVALID_INPUT', 'entryId is required', startTime);
+        }
+        const result = pipelineManifestShow(entryId, this.projectRoot);
+        return this.wrapEngineResult(result, 'query', 'manifest.show', startTime);
+      }
+      case 'list': {
+        const result = pipelineManifestList(
+          (params ?? {}) as Parameters<typeof pipelineManifestList>[0],
+          this.projectRoot,
+        );
+        return this.wrapEngineResult(result, 'query', 'manifest.list', startTime);
+      }
+      case 'find': {
+        const query = params?.query as string;
+        if (!query) {
+          return this.errorResponse('query', 'manifest.find', 'E_INVALID_INPUT', 'query is required', startTime);
+        }
+        const result = pipelineManifestFind(
+          query,
+          { confidence: params?.confidence as number | undefined, limit: params?.limit as number | undefined },
+          this.projectRoot,
+        );
+        return this.wrapEngineResult(result, 'query', 'manifest.find', startTime);
+      }
+      case 'pending': {
+        const result = pipelineManifestPending(params?.epicId as string | undefined, this.projectRoot);
+        return this.wrapEngineResult(result, 'query', 'manifest.pending', startTime);
+      }
+      case 'stats': {
+        const result = pipelineManifestStats(params?.epicId as string | undefined, this.projectRoot);
+        return this.wrapEngineResult(result, 'query', 'manifest.stats', startTime);
+      }
+      default:
+        return this.errorResponse('query', `manifest.${sub}`, 'E_INVALID_OPERATION',
+          `Unknown manifest query: ${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Manifest mutations
+  // -----------------------------------------------------------------------
+
+  private mutateManifest(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): DispatchResponse {
+    switch (sub) {
+      case 'append': {
+        const entry = params?.entry as Parameters<typeof pipelineManifestAppend>[0];
+        if (!entry) {
+          return this.errorResponse('mutate', 'manifest.append', 'E_INVALID_INPUT', 'entry is required', startTime);
+        }
+        const result = pipelineManifestAppend(entry, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'manifest.append', startTime);
+      }
+      case 'archive': {
+        const beforeDate = params?.beforeDate as string;
+        if (!beforeDate) {
+          return this.errorResponse('mutate', 'manifest.archive', 'E_INVALID_INPUT', 'beforeDate is required (ISO-8601: YYYY-MM-DD)', startTime);
+        }
+        const result = pipelineManifestArchive(beforeDate, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'manifest.archive', startTime);
+      }
+      default:
+        return this.errorResponse('mutate', `manifest.${sub}`, 'E_INVALID_OPERATION',
+          `Unknown manifest mutation: ${sub}`, startTime);
     }
   }
 

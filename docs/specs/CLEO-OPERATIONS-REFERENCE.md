@@ -1,7 +1,11 @@
+> **SUPERSEDED**: This document has been replaced by
+> [CLEO-OPERATION-CONSTITUTION.md](CLEO-OPERATION-CONSTITUTION.md) as of 2026-03-03.
+> Retained for historical reference.
+
 # CLEO Operations Reference
 
 **Version**: 1.2.0
-**Status**: CANONICAL
+**Status**: SUPERSEDED
 **Date**: 2026-03-02
 **Task**: T4732
 **Supersedes**: docs/commands/COMMANDS-INDEX.json

@@ -169,20 +169,46 @@ vi.mock('../../dispatch/engines/release-engine.js', () => ({
   releasePush: vi.fn(),
 }));
 
-// --- memory engine mock ---
+// --- memory engine mock (brain.db backed after T5241 cutover) ---
 vi.mock('../../core/memory/engine-compat.js', () => ({
   memoryShow: vi.fn(),
-  memoryList: vi.fn(),
-  memoryQuery: vi.fn(),
-  memoryPending: vi.fn(),
-  memoryStats: vi.fn(),
-  memoryManifestRead: vi.fn(),
-  memoryLink: vi.fn(),
-  memoryManifestAppend: vi.fn(),
-  memoryManifestArchive: vi.fn(),
-  memoryContradictions: vi.fn(),
-  memorySuperseded: vi.fn(),
-  memoryInject: vi.fn(),
+  memoryFind: vi.fn(),
+  memoryTimeline: vi.fn(),
+  memoryFetch: vi.fn(),
+  memoryObserve: vi.fn(),
+  memoryBrainStats: vi.fn(),
+  memoryDecisionFind: vi.fn(),
+  memoryDecisionStore: vi.fn(),
+  memoryPatternFind: vi.fn(),
+  memoryPatternStats: vi.fn(),
+  memoryPatternStore: vi.fn(),
+  memoryLearningFind: vi.fn(),
+  memoryLearningStats: vi.fn(),
+  memoryLearningStore: vi.fn(),
+}));
+
+// --- pipeline manifest mock (moved from memory domain in T5241) ---
+vi.mock('../../core/memory/pipeline-manifest-compat.js', () => ({
+  pipelineManifestShow: vi.fn(),
+  pipelineManifestList: vi.fn(),
+  pipelineManifestFind: vi.fn(),
+  pipelineManifestPending: vi.fn(),
+  pipelineManifestStats: vi.fn(),
+  pipelineManifestRead: vi.fn(),
+  pipelineManifestAppend: vi.fn(),
+  pipelineManifestArchive: vi.fn(),
+  pipelineManifestLink: vi.fn(),
+  pipelineManifestContradictions: vi.fn(),
+  pipelineManifestSuperseded: vi.fn(),
+  pipelineManifestCompact: vi.fn(),
+  pipelineManifestValidate: vi.fn(),
+  readManifestEntries: vi.fn(),
+  filterEntries: vi.fn(),
+}));
+
+// --- session context inject mock (moved from memory domain in T5241) ---
+vi.mock('../../core/sessions/context-inject.js', () => ({
+  sessionContextInject: vi.fn(),
 }));
 
 // --- dispatch/lib/engine (config + init) ---

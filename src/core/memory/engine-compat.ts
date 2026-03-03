@@ -1,23 +1,17 @@
 /**
- * Memory Engine Compatibility Layer
+ * Memory Engine Compatibility Layer — Brain.db Cognitive Memory
  *
- * Async wrappers around core/memory functions that return EngineResult<T>
- * format for consumption by the dispatch layer. Replaces the sync
- * mcp/engine/research-engine.ts middleman.
+ * Async wrappers around brain.db cognitive memory functions that return
+ * EngineResult<T> format for consumption by the dispatch layer.
  *
- * @epic T4820
+ * After the memory domain cutover (T5241), this file contains ONLY
+ * brain.db-backed operations. Manifest operations moved to
+ * pipeline-manifest-compat.ts, and context injection moved to
+ * sessions/context-inject.ts.
+ *
+ * @task T5241
+ * @epic T5149
  */
-
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { getManifestPath as getCentralManifestPath, getManifestArchivePath, getProjectRoot } from '../paths.js';
-import {
-  filterManifestEntries,
-  type ExtendedManifestEntry,
-  type ResearchFilter,
-  type ContradictionDetail,
-  type SupersededDetail,
-} from './index.js';
 
 // BRAIN memory imports (T4770)
 import {
@@ -44,710 +38,242 @@ import {
   type ObserveBrainParams,
 } from './brain-retrieval.js';
 
-// Re-export types for consumers
-export type ManifestEntry = ExtendedManifestEntry;
-export type { ResearchFilter, ContradictionDetail, SupersededDetail };
-export { filterManifestEntries };
+// BRAIN accessor for direct table queries (T5241)
+import { getBrainAccessor } from '../../store/brain-accessor.js';
+import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
+import { getProjectRoot } from '../paths.js';
 
 import type { EngineResult } from '../../dispatch/engines/_error.js';
 
 // ============================================================================
-// Internal I/O helpers
+// Internal helpers
 // ============================================================================
-
-function getManifestPath(projectRoot?: string): string {
-  return getCentralManifestPath(projectRoot);
-}
 
 function resolveRoot(projectRoot?: string): string {
   return projectRoot || getProjectRoot();
 }
 
 /**
- * Read all manifest entries from MANIFEST.jsonl.
+ * Parse brain.db entry ID prefix to determine the table type.
+ *
+ * Conventions:
+ * - D... -> decision (D001, D-xxx)
+ * - P... -> pattern  (P001, P-xxx)
+ * - L... -> learning (L001, L-xxx)
+ * - O... or CM-... -> observation (O-xxx, CM-xxx)
  */
-export function readManifestEntries(projectRoot?: string): ExtendedManifestEntry[] {
-  const manifestPath = getManifestPath(projectRoot);
+function parseIdPrefix(id: string): 'decision' | 'pattern' | 'learning' | 'observation' | null {
+  if (id.startsWith('D-') || /^D\d/.test(id)) return 'decision';
+  if (id.startsWith('P-') || /^P\d/.test(id)) return 'pattern';
+  if (id.startsWith('L-') || /^L\d/.test(id)) return 'learning';
+  if (id.startsWith('O-') || id.startsWith('O') || id.startsWith('CM-')) return 'observation';
+  return null;
+}
+
+// ============================================================================
+// Brain.db Entry Lookup
+// ============================================================================
+
+/** memory.show - Look up a brain.db entry by ID */
+export async function memoryShow(
+  entryId: string,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!entryId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'entryId is required' } };
+  }
 
   try {
-    const content = readFileSync(manifestPath, 'utf-8');
-    const entries: ExtendedManifestEntry[] = [];
-    const lines = content.split('\n');
+    const root = resolveRoot(projectRoot);
+    const entryType = parseIdPrefix(entryId);
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    if (!entryType) {
+      return {
+        success: false,
+        error: { code: 'E_INVALID_INPUT', message: `Unknown entry ID format: '${entryId}'. Expected prefix D-, P-, L-, or O-` },
+      };
+    }
 
-      try {
-        entries.push(JSON.parse(trimmed) as ExtendedManifestEntry);
-      } catch {
-        continue;
+    const accessor = await getBrainAccessor(root);
+
+    switch (entryType) {
+      case 'decision': {
+        const row = await accessor.getDecision(entryId);
+        if (!row) {
+          return { success: false, error: { code: 'E_NOT_FOUND', message: `Decision '${entryId}' not found in brain.db` } };
+        }
+        return { success: true, data: { type: 'decision', entry: row } };
+      }
+      case 'pattern': {
+        const row = await accessor.getPattern(entryId);
+        if (!row) {
+          return { success: false, error: { code: 'E_NOT_FOUND', message: `Pattern '${entryId}' not found in brain.db` } };
+        }
+        return { success: true, data: { type: 'pattern', entry: row } };
+      }
+      case 'learning': {
+        const row = await accessor.getLearning(entryId);
+        if (!row) {
+          return { success: false, error: { code: 'E_NOT_FOUND', message: `Learning '${entryId}' not found in brain.db` } };
+        }
+        return { success: true, data: { type: 'learning', entry: row } };
+      }
+      case 'observation': {
+        const row = await accessor.getObservation(entryId);
+        if (!row) {
+          return { success: false, error: { code: 'E_NOT_FOUND', message: `Observation '${entryId}' not found in brain.db` } };
+        }
+        return { success: true, data: { type: 'observation', entry: row } };
       }
     }
-
-    return entries;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return [];
-    }
-    throw error;
+    return { success: false, error: { code: 'E_BRAIN_SHOW', message: error instanceof Error ? error.message : String(error) } };
   }
 }
 
-/**
- * Filter manifest entries by criteria.
- * Delegates to core filterManifestEntries.
- */
-export function filterEntries(entries: ExtendedManifestEntry[], filter: ResearchFilter): ExtendedManifestEntry[] {
-  return filterManifestEntries(entries, filter);
-}
-
 // ============================================================================
-// EngineResult-wrapped functions
+// Brain.db Aggregate Stats
 // ============================================================================
 
-/** memory.show - Get research entry details by ID */
-export function memoryShow(
-  researchId: string,
+/** memory.stats - Aggregate stats from brain.db across all tables */
+export async function memoryBrainStats(
   projectRoot?: string,
-): EngineResult {
-  if (!researchId) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'researchId is required' } };
-  }
-
-  const entries = readManifestEntries(projectRoot);
-  const entry = entries.find(e => e.id === researchId);
-
-  if (!entry) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` },
-    };
-  }
-
-  const root = resolveRoot(projectRoot);
-  let fileContent: string | null = null;
+): Promise<EngineResult> {
   try {
-    const filePath = resolve(root, entry.file);
-    if (existsSync(filePath)) {
-      fileContent = readFileSync(filePath, 'utf-8');
+    const root = resolveRoot(projectRoot);
+    await getBrainDb(root);
+    const nativeDb = getBrainNativeDb();
+
+    if (!nativeDb) {
+      return {
+        success: true,
+        data: {
+          observations: 0,
+          decisions: 0,
+          patterns: 0,
+          learnings: 0,
+          total: 0,
+          message: 'brain.db not initialized',
+        },
+      };
     }
-  } catch {
-    // File may not exist or be unreadable
-  }
 
-  return {
-    success: true,
-    data: { ...entry, fileContent, fileExists: fileContent !== null },
-  };
-}
+    const obsCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_observations').get() as { cnt: number }).cnt;
+    const decCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_decisions').get() as { cnt: number }).cnt;
+    const patCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_patterns').get() as { cnt: number }).cnt;
+    const learnCount = (nativeDb.prepare('SELECT COUNT(*) AS cnt FROM brain_learnings').get() as { cnt: number }).cnt;
 
-/** memory.list - List research entries with filters */
-export function memoryList(
-  params: ResearchFilter & { type?: string },
-  projectRoot?: string,
-): EngineResult {
-  const entries = readManifestEntries(projectRoot);
-
-  const filter: ResearchFilter = { ...params };
-  if (params.type) {
-    filter.agent_type = params.type;
-  }
-
-  const filtered = filterManifestEntries(entries, filter);
-
-  return {
-    success: true,
-    data: { entries: filtered, total: filtered.length },
-  };
-}
-
-/** memory.query / memory.find - Find research entries by text */
-export function memoryQuery(
-  query: string,
-  options?: { confidence?: number; limit?: number },
-  projectRoot?: string,
-): EngineResult {
-  if (!query) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'query is required' } };
-  }
-
-  const entries = readManifestEntries(projectRoot);
-  const queryLower = query.toLowerCase();
-
-  const scored = entries.map(entry => {
-    let score = 0;
-    if (entry.title.toLowerCase().includes(queryLower)) score += 0.5;
-    if (entry.topics.some(t => t.toLowerCase().includes(queryLower))) score += 0.3;
-    if (entry.key_findings?.some(f => f.toLowerCase().includes(queryLower))) score += 0.2;
-    if (entry.id.toLowerCase().includes(queryLower)) score += 0.1;
-    return { entry, score };
-  });
-
-  const minConfidence = options?.confidence ?? 0.1;
-  let results = scored
-    .filter(s => s.score >= minConfidence)
-    .sort((a, b) => b.score - a.score);
-
-  if (options?.limit && options.limit > 0) {
-    results = results.slice(0, options.limit);
-  }
-
-  return {
-    success: true,
-    data: {
-      query,
-      results: results.map(r => ({ ...r.entry, relevanceScore: Math.round(r.score * 100) / 100 })),
-      total: results.length,
-    },
-  };
-}
-
-/** memory.pending - Get pending research items */
-export function memoryPending(
-  epicId?: string,
-  projectRoot?: string,
-): EngineResult {
-  const entries = readManifestEntries(projectRoot);
-
-  let pending = entries.filter(
-    e => e.status === 'partial' || e.status === 'blocked' || (e.needs_followup && e.needs_followup.length > 0),
-  );
-
-  if (epicId) {
-    pending = pending.filter(e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
-  }
-
-  return {
-    success: true,
-    data: {
-      entries: pending,
-      total: pending.length,
-      byStatus: {
-        partial: pending.filter(e => e.status === 'partial').length,
-        blocked: pending.filter(e => e.status === 'blocked').length,
-        needsFollowup: pending.filter(e => e.needs_followup && e.needs_followup.length > 0).length,
+    return {
+      success: true,
+      data: {
+        observations: obsCount,
+        decisions: decCount,
+        patterns: patCount,
+        learnings: learnCount,
+        total: obsCount + decCount + patCount + learnCount,
       },
-    },
-  };
-}
-
-/** memory.stats - Research statistics */
-export function memoryStats(
-  epicId?: string,
-  projectRoot?: string,
-): EngineResult {
-  const entries = readManifestEntries(projectRoot);
-
-  let filtered = entries;
-  if (epicId) {
-    filtered = entries.filter(e => e.id.startsWith(epicId) || e.linked_tasks?.includes(epicId));
-  }
-
-  const byStatus: Record<string, number> = {};
-  const byType: Record<string, number> = {};
-  let actionable = 0;
-  let needsFollowup = 0;
-  let totalFindings = 0;
-
-  for (const entry of filtered) {
-    byStatus[entry.status] = (byStatus[entry.status] || 0) + 1;
-    byType[entry.agent_type] = (byType[entry.agent_type] || 0) + 1;
-    if (entry.actionable) actionable++;
-    if (entry.needs_followup && entry.needs_followup.length > 0) needsFollowup++;
-    if (entry.key_findings) totalFindings += entry.key_findings.length;
-  }
-
-  return {
-    success: true,
-    data: {
-      total: filtered.length,
-      byStatus,
-      byType,
-      actionable,
-      needsFollowup,
-      averageFindings: filtered.length > 0 ? Math.round((totalFindings / filtered.length) * 10) / 10 : 0,
-    },
-  };
-}
-
-/** memory.manifest.read - Read manifest entries with optional filter */
-export function memoryManifestRead(
-  filter?: ResearchFilter,
-  projectRoot?: string,
-): EngineResult {
-  const entries = readManifestEntries(projectRoot);
-  const filtered = filter ? filterManifestEntries(entries, filter) : entries;
-
-  return {
-    success: true,
-    data: { entries: filtered, total: filtered.length, filter: filter || {} },
-  };
-}
-
-/** memory.link - Link research entry to a task */
-export function memoryLink(
-  taskId: string,
-  researchId: string,
-  notes?: string,
-  projectRoot?: string,
-): EngineResult {
-  if (!taskId || !researchId) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and researchId are required' } };
-  }
-
-  const root = resolveRoot(projectRoot);
-  const manifestPath = getManifestPath(root);
-  const entries = readManifestEntries(root);
-
-  const entryIndex = entries.findIndex(e => e.id === researchId);
-  if (entryIndex === -1) {
-    return { success: false, error: { code: 'E_NOT_FOUND', message: `Research entry '${researchId}' not found` } };
-  }
-
-  const entry = entries[entryIndex];
-
-  if (entry.linked_tasks?.includes(taskId)) {
-    return { success: true, data: { taskId, researchId, linked: true, alreadyLinked: true } };
-  }
-
-  if (!entry.linked_tasks) {
-    entry.linked_tasks = [];
-  }
-  entry.linked_tasks.push(taskId);
-
-  const content = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
-  writeFileSync(manifestPath, content, 'utf-8');
-
-  return { success: true, data: { taskId, researchId, linked: true, notes: notes || null } };
-}
-
-/** memory.manifest.append - Append entry to MANIFEST.jsonl */
-export function memoryManifestAppend(
-  entry: ExtendedManifestEntry,
-  projectRoot?: string,
-): EngineResult {
-  if (!entry) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'entry is required' } };
-  }
-
-  const errors: string[] = [];
-  if (!entry.id) errors.push('id is required');
-  if (!entry.file) errors.push('file is required');
-  if (!entry.title) errors.push('title is required');
-  if (!entry.date) errors.push('date is required');
-  if (!entry.status) errors.push('status is required');
-  if (!entry.agent_type) errors.push('agent_type is required');
-  if (!entry.topics) errors.push('topics is required');
-  if (entry.actionable === undefined) errors.push('actionable is required');
-
-  if (errors.length > 0) {
-    return { success: false, error: { code: 'E_VALIDATION_FAILED', message: `Invalid manifest entry: ${errors.join(', ')}` } };
-  }
-
-  const manifestPath = getManifestPath(projectRoot);
-  const dir = dirname(manifestPath);
-
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  const serialized = JSON.stringify(entry);
-  appendFileSync(manifestPath, serialized + '\n', 'utf-8');
-
-  return { success: true, data: { appended: true, entryId: entry.id, file: getCentralManifestPath() } };
-}
-
-/** memory.manifest.archive - Archive old manifest entries */
-export function memoryManifestArchive(
-  beforeDate: string,
-  projectRoot?: string,
-): EngineResult {
-  if (!beforeDate) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'beforeDate is required (ISO-8601 format: YYYY-MM-DD)' } };
-  }
-
-  const root = resolveRoot(projectRoot);
-  const manifestPath = getManifestPath(root);
-  const archivePath = getManifestArchivePath(root);
-  const entries = readManifestEntries(root);
-
-  const toArchive = entries.filter(e => e.date < beforeDate);
-  const toKeep = entries.filter(e => e.date >= beforeDate);
-
-  if (toArchive.length === 0) {
-    return { success: true, data: { archived: 0, remaining: entries.length, message: 'No entries found before the specified date' } };
-  }
-
-  const archiveDir = dirname(archivePath);
-  if (!existsSync(archiveDir)) {
-    mkdirSync(archiveDir, { recursive: true });
-  }
-  const archiveContent = toArchive.map(e => JSON.stringify(e)).join('\n') + '\n';
-  appendFileSync(archivePath, archiveContent, 'utf-8');
-
-  const remainingContent = toKeep.length > 0 ? toKeep.map(e => JSON.stringify(e)).join('\n') + '\n' : '';
-  writeFileSync(manifestPath, remainingContent, 'utf-8');
-
-  return { success: true, data: { archived: toArchive.length, remaining: toKeep.length, archiveFile: getManifestArchivePath() } };
-}
-
-/** memory.contradictions - Find entries with overlapping topics but conflicting key_findings */
-export function memoryContradictions(
-  projectRoot?: string,
-  params?: { topic?: string },
-): EngineResult<{ contradictions: ContradictionDetail[] }> {
-  const entries = readManifestEntries(projectRoot);
-
-  const byTopic = new Map<string, ExtendedManifestEntry[]>();
-  for (const entry of entries) {
-    if (!entry.key_findings || entry.key_findings.length === 0) continue;
-    for (const topic of entry.topics) {
-      if (params?.topic && topic !== params.topic) continue;
-      if (!byTopic.has(topic)) byTopic.set(topic, []);
-      byTopic.get(topic)!.push(entry);
-    }
-  }
-
-  const contradictions: ContradictionDetail[] = [];
-
-  const negationPairs: Array<[RegExp, RegExp]> = [
-    [/\bdoes NOT\b/i, /\bdoes\b(?!.*\bnot\b)/i],
-    [/\bcannot\b/i, /\bcan\b(?!.*\bnot\b)/i],
-    [/\bno\s+\w+\s+required\b/i, /\brequired\b(?!.*\bno\b)/i],
-    [/\bnot\s+(?:available|supported|possible|recommended)\b/i, /\b(?:available|supported|possible|recommended)\b(?!.*\bnot\b)/i],
-    [/\bwithout\b/i, /\brequires?\b/i],
-    [/\bavoid\b/i, /\buse\b/i],
-    [/\bdeprecated\b/i, /\brecommended\b/i],
-    [/\banti-pattern\b/i, /\bbest practice\b/i],
-  ];
-
-  for (const [topic, topicEntries] of byTopic) {
-    if (topicEntries.length < 2) continue;
-
-    for (let i = 0; i < topicEntries.length; i++) {
-      for (let j = i + 1; j < topicEntries.length; j++) {
-        const a = topicEntries[i];
-        const b = topicEntries[j];
-        const conflicts: string[] = [];
-
-        for (const findingA of a.key_findings!) {
-          for (const findingB of b.key_findings!) {
-            for (const [patternNeg, patternPos] of negationPairs) {
-              if (
-                (patternNeg.test(findingA) && patternPos.test(findingB)) ||
-                (patternPos.test(findingA) && patternNeg.test(findingB))
-              ) {
-                conflicts.push(`"${findingA}" vs "${findingB}"`);
-                break;
-              }
-            }
-          }
-        }
-
-        if (conflicts.length > 0) {
-          contradictions.push({ entryA: a, entryB: b, topic, conflictDetails: conflicts.join('; ') });
-        }
-      }
-    }
-  }
-
-  return { success: true, data: { contradictions } };
-}
-
-/** memory.superseded - Identify research entries replaced by newer work on same topic */
-export function memorySuperseded(
-  projectRoot?: string,
-  params?: { topic?: string },
-): EngineResult<{ superseded: SupersededDetail[] }> {
-  const entries = readManifestEntries(projectRoot);
-
-  const byTopicAndType = new Map<string, ExtendedManifestEntry[]>();
-  for (const entry of entries) {
-    for (const topic of entry.topics) {
-      if (params?.topic && topic !== params.topic) continue;
-      const key = `${topic}::${entry.agent_type}`;
-      if (!byTopicAndType.has(key)) byTopicAndType.set(key, []);
-      byTopicAndType.get(key)!.push(entry);
-    }
-  }
-
-  const superseded: SupersededDetail[] = [];
-  const seenPairs = new Set<string>();
-
-  for (const [key, groupEntries] of byTopicAndType) {
-    if (groupEntries.length < 2) continue;
-
-    const topic = key.split('::')[0];
-    const sorted = [...groupEntries].sort((a, b) => a.date.localeCompare(b.date));
-
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const pairKey = `${sorted[i].id}::${sorted[sorted.length - 1].id}::${topic}`;
-      if (seenPairs.has(pairKey)) continue;
-      seenPairs.add(pairKey);
-
-      superseded.push({ old: sorted[i], replacement: sorted[sorted.length - 1], topic });
-    }
-  }
-
-  return { success: true, data: { superseded } };
-}
-
-/** memory.inject - Read protocol injection content for a given protocol type */
-export function memoryInject(
-  protocolType: string,
-  params?: { taskId?: string; variant?: string },
-  projectRoot?: string,
-): EngineResult {
-  if (!protocolType) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'protocolType is required' } };
-  }
-
-  const root = resolveRoot(projectRoot);
-
-  const protocolLocations = [
-    resolve(root, 'protocols', `${protocolType}.md`),
-    resolve(root, 'skills', '_shared', `${protocolType}.md`),
-    resolve(root, 'agents', 'cleo-subagent', 'protocols', `${protocolType}.md`),
-  ];
-
-  let protocolContent: string | null = null;
-  let protocolPath: string | null = null;
-
-  for (const loc of protocolLocations) {
-    if (existsSync(loc)) {
-      try {
-        protocolContent = readFileSync(loc, 'utf-8');
-        protocolPath = loc.replace(root + '/', '');
-        break;
-      } catch {
-        continue;
-      }
-    }
-  }
-
-  if (!protocolContent) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Protocol '${protocolType}' not found in src/protocols/, skills/_shared/, or agents/cleo-subagent/protocols/` },
     };
+  } catch (error) {
+    return { success: false, error: { code: 'E_BRAIN_STATS', message: error instanceof Error ? error.message : String(error) } };
   }
-
-  return {
-    success: true,
-    data: {
-      protocolType,
-      content: protocolContent,
-      path: protocolPath,
-      contentLength: protocolContent.length,
-      estimatedTokens: Math.ceil(protocolContent.length / 4),
-      taskId: params?.taskId || null,
-      variant: params?.variant || null,
-    },
-  };
 }
 
-/** memory.compact - Compact MANIFEST.jsonl by removing duplicate/stale entries */
-export function memoryCompact(
-  projectRoot?: string,
-): EngineResult {
-  const manifestPath = getManifestPath(projectRoot);
+// ============================================================================
+// Brain.db Decision Operations
+// ============================================================================
 
-  if (!existsSync(manifestPath)) {
-    return { success: true, data: { compacted: false, message: 'No manifest file found' } };
+/** memory.decision.find - Search decisions in brain.db */
+export async function memoryDecisionFind(
+  params: { query?: string; taskId?: string; limit?: number },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const accessor = await getBrainAccessor(root);
+
+    if (params.query) {
+      await getBrainDb(root);
+      const nativeDb = getBrainNativeDb();
+
+      if (!nativeDb) {
+        return { success: true, data: { decisions: [], total: 0 } };
+      }
+
+      const likePattern = `%${params.query}%`;
+      const limit = params.limit ?? 20;
+      const rows = nativeDb.prepare(`
+        SELECT * FROM brain_decisions
+        WHERE decision LIKE ? OR rationale LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(likePattern, likePattern, limit) as unknown as Array<Record<string, unknown>>;
+
+      return { success: true, data: { decisions: rows, total: rows.length } };
+    }
+
+    const decisions = await accessor.findDecisions({
+      contextTaskId: params.taskId,
+      limit: params.limit ?? 20,
+    });
+
+    return { success: true, data: { decisions, total: decisions.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_DECISION_FIND', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.decision.store - Store a decision to brain.db */
+export async function memoryDecisionStore(
+  params: { decision: string; rationale: string; alternatives?: string[]; taskId?: string; sessionId?: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.decision) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'decision text is required' } };
+  }
+  if (!params.rationale) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'rationale is required' } };
   }
 
   try {
-    const content = readFileSync(manifestPath, 'utf-8');
-    const lines = content.split('\n');
+    const root = resolveRoot(projectRoot);
+    const accessor = await getBrainAccessor(root);
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const id = `D-${Date.now().toString(36)}`;
 
-    const entries: ExtendedManifestEntry[] = [];
-    let malformedCount = 0;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        entries.push(JSON.parse(trimmed) as ExtendedManifestEntry);
-      } catch {
-        malformedCount++;
-      }
-    }
-
-    const originalCount = entries.length + malformedCount;
-
-    const idMap = new Map<string, ExtendedManifestEntry>();
-    for (const entry of entries) {
-      idMap.set(entry.id, entry);
-    }
-
-    const compacted = Array.from(idMap.values());
-    const duplicatesRemoved = entries.length - compacted.length;
-
-    const compactedContent = compacted.length > 0 ? compacted.map(e => JSON.stringify(e)).join('\n') + '\n' : '';
-    writeFileSync(manifestPath, compactedContent, 'utf-8');
+    const row = await accessor.addDecision({
+      id,
+      type: 'technical',
+      decision: params.decision,
+      rationale: params.rationale,
+      confidence: 'medium',
+      outcome: 'pending',
+      alternativesJson: params.alternatives ? JSON.stringify(params.alternatives) : null,
+      contextTaskId: params.taskId ?? null,
+      contextEpicId: null,
+      contextPhase: null,
+      createdAt: now,
+    });
 
     return {
       success: true,
-      data: { compacted: true, originalLines: originalCount, malformedRemoved: malformedCount, duplicatesRemoved, remainingEntries: compacted.length },
+      data: {
+        id: row.id,
+        type: row.type,
+        decision: row.decision,
+        createdAt: row.createdAt,
+      },
     };
   } catch (error) {
-    return { success: false, error: { code: 'E_COMPACT_FAILED', message: error instanceof Error ? error.message : String(error) } };
+    return { success: false, error: { code: 'E_DECISION_STORE', message: error instanceof Error ? error.message : String(error) } };
   }
 }
 
 // ============================================================================
-// BRAIN Memory Operations (T4770)
+// BRAIN Retrieval Operations (T5131-T5135) — Renamed from brain.* to flat ops
 // ============================================================================
 
-/** memory.pattern.store - Store a pattern to BRAIN memory */
-export function memoryPatternStore(
-  params: StorePatternParams,
-  projectRoot?: string,
-): EngineResult {
-  try {
-    const root = resolveRoot(projectRoot);
-    const result = storePattern(root, params);
-    return { success: true, data: result };
-  } catch (error) {
-    return { success: false, error: { code: 'E_PATTERN_STORE', message: error instanceof Error ? error.message : String(error) } };
-  }
-}
-
-/** memory.pattern.search - Search patterns in BRAIN memory */
-export function memoryPatternSearch(
-  params: SearchPatternParams,
-  projectRoot?: string,
-): EngineResult {
-  try {
-    const root = resolveRoot(projectRoot);
-    const results = searchPatterns(root, params);
-    return { success: true, data: { patterns: results, total: results.length } };
-  } catch (error) {
-    return { success: false, error: { code: 'E_PATTERN_SEARCH', message: error instanceof Error ? error.message : String(error) } };
-  }
-}
-
-/** memory.pattern.stats - Get pattern memory statistics */
-export function memoryPatternStats(
-  projectRoot?: string,
-): EngineResult {
-  try {
-    const root = resolveRoot(projectRoot);
-    const stats = patternStats(root);
-    return { success: true, data: stats };
-  } catch (error) {
-    return { success: false, error: { code: 'E_PATTERN_STATS', message: error instanceof Error ? error.message : String(error) } };
-  }
-}
-
-/** memory.learning.store - Store a learning to BRAIN memory */
-export function memoryLearningStore(
-  params: StoreLearningParams,
-  projectRoot?: string,
-): EngineResult {
-  try {
-    const root = resolveRoot(projectRoot);
-    const result = storeLearning(root, params);
-    return { success: true, data: result };
-  } catch (error) {
-    return { success: false, error: { code: 'E_LEARNING_STORE', message: error instanceof Error ? error.message : String(error) } };
-  }
-}
-
-/** memory.learning.search - Search learnings in BRAIN memory */
-export function memoryLearningSearch(
-  params: SearchLearningParams,
-  projectRoot?: string,
-): EngineResult {
-  try {
-    const root = resolveRoot(projectRoot);
-    const results = searchLearnings(root, params);
-    return { success: true, data: { learnings: results, total: results.length } };
-  } catch (error) {
-    return { success: false, error: { code: 'E_LEARNING_SEARCH', message: error instanceof Error ? error.message : String(error) } };
-  }
-}
-
-/** memory.learning.stats - Get learning memory statistics */
-export function memoryLearningStats(
-  projectRoot?: string,
-): EngineResult {
-  try {
-    const root = resolveRoot(projectRoot);
-    const stats = learningStats(root);
-    return { success: true, data: stats };
-  } catch (error) {
-    return { success: false, error: { code: 'E_LEARNING_STATS', message: error instanceof Error ? error.message : String(error) } };
-  }
-}
-
-/** memory.validate - Validate research entries for a task */
-export function memoryValidate(
-  taskId: string,
-  projectRoot?: string,
-): EngineResult {
-  if (!taskId) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
-  }
-
-  const root = resolveRoot(projectRoot);
-  const entries = readManifestEntries(root);
-
-  const linked = entries.filter(e => e.id.startsWith(taskId) || e.linked_tasks?.includes(taskId));
-
-  if (linked.length === 0) {
-    return {
-      success: true,
-      data: { taskId, valid: true, entriesFound: 0, message: `No research entries found for task ${taskId}`, issues: [] },
-    };
-  }
-
-  const issues: Array<{ entryId: string; issue: string; severity: 'error' | 'warning' }> = [];
-
-  for (const entry of linked) {
-    if (!entry.id) issues.push({ entryId: entry.id || '(unknown)', issue: 'Missing id', severity: 'error' });
-    if (!entry.file) issues.push({ entryId: entry.id, issue: 'Missing file path', severity: 'error' });
-    if (!entry.title) issues.push({ entryId: entry.id, issue: 'Missing title', severity: 'error' });
-    if (!entry.date) issues.push({ entryId: entry.id, issue: 'Missing date', severity: 'error' });
-    if (!entry.status) issues.push({ entryId: entry.id, issue: 'Missing status', severity: 'error' });
-    if (!entry.agent_type) issues.push({ entryId: entry.id, issue: 'Missing agent_type', severity: 'error' });
-
-    if (entry.status && !['completed', 'partial', 'blocked'].includes(entry.status)) {
-      issues.push({ entryId: entry.id, issue: `Invalid status: ${entry.status}`, severity: 'error' });
-    }
-
-    if (entry.file) {
-      const filePath = resolve(root, entry.file);
-      if (!existsSync(filePath)) {
-        issues.push({ entryId: entry.id, issue: `Output file not found: ${entry.file}`, severity: 'warning' });
-      }
-    }
-
-    if (entry.agent_type === 'research' && (!entry.key_findings || entry.key_findings.length === 0)) {
-      issues.push({ entryId: entry.id, issue: 'Research entry missing key_findings', severity: 'warning' });
-    }
-  }
-
-  return {
-    success: true,
-    data: {
-      taskId,
-      valid: issues.filter(i => i.severity === 'error').length === 0,
-      entriesFound: linked.length,
-      issues,
-      errorCount: issues.filter(i => i.severity === 'error').length,
-      warningCount: issues.filter(i => i.severity === 'warning').length,
-    },
-  };
-}
-
-// ============================================================================
-// BRAIN Retrieval Operations (T5131-T5135)
-// ============================================================================
-
-/** memory.brain.search - Token-efficient brain search */
-export async function memoryBrainSearch(
+/** memory.find - Token-efficient brain search */
+export async function memoryFind(
   params: { query: string; limit?: number; tables?: string[]; dateStart?: string; dateEnd?: string },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -766,8 +292,8 @@ export async function memoryBrainSearch(
   }
 }
 
-/** memory.brain.timeline - Chronological context around anchor */
-export async function memoryBrainTimeline(
+/** memory.timeline - Chronological context around anchor */
+export async function memoryTimeline(
   params: { anchor: string; depthBefore?: number; depthAfter?: number },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -784,8 +310,8 @@ export async function memoryBrainTimeline(
   }
 }
 
-/** memory.brain.fetch - Batch fetch brain entries by IDs */
-export async function memoryBrainFetch(
+/** memory.fetch - Batch fetch brain entries by IDs */
+export async function memoryFetch(
   params: { ids: string[] },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -798,8 +324,8 @@ export async function memoryBrainFetch(
   }
 }
 
-/** memory.brain.observe - Save observation to brain */
-export async function memoryBrainObserve(
+/** memory.observe - Save observation to brain */
+export async function memoryObserve(
   params: { text: string; title?: string; type?: string; project?: string; sourceSessionId?: string; sourceType?: string },
   projectRoot?: string,
 ): Promise<EngineResult> {
@@ -816,5 +342,481 @@ export async function memoryBrainObserve(
     return { success: true, data: result };
   } catch (error) {
     return { success: false, error: { code: 'E_BRAIN_OBSERVE', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+// ============================================================================
+// BRAIN Pattern Operations (T4770)
+// ============================================================================
+
+/** memory.pattern.store - Store a pattern to BRAIN memory */
+export async function memoryPatternStore(
+  params: StorePatternParams,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = await storePattern(root, params);
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_PATTERN_STORE', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.pattern.find - Search patterns in BRAIN memory */
+export async function memoryPatternFind(
+  params: SearchPatternParams,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const results = await searchPatterns(root, params);
+    return { success: true, data: { patterns: results, total: results.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_PATTERN_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.pattern.stats - Get pattern memory statistics */
+export async function memoryPatternStats(
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const stats = await patternStats(root);
+    return { success: true, data: stats };
+  } catch (error) {
+    return { success: false, error: { code: 'E_PATTERN_STATS', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+// ============================================================================
+// BRAIN Learning Operations (T4770)
+// ============================================================================
+
+/** memory.learning.store - Store a learning to BRAIN memory */
+export async function memoryLearningStore(
+  params: StoreLearningParams,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const result = await storeLearning(root, params);
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_LEARNING_STORE', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.learning.find - Search learnings in BRAIN memory */
+export async function memoryLearningFind(
+  params: SearchLearningParams,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const results = await searchLearnings(root, params);
+    return { success: true, data: { learnings: results, total: results.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_LEARNING_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.learning.stats - Get learning memory statistics */
+export async function memoryLearningStats(
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const stats = await learningStats(root);
+    return { success: true, data: stats };
+  } catch (error) {
+    return { success: false, error: { code: 'E_LEARNING_STATS', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+// ============================================================================
+// BRAIN Advanced Queries & Links (T5241)
+// ============================================================================
+
+/** memory.contradictions - Find contradictory entries in brain.db */
+export async function memoryContradictions(
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    await getBrainDb(root);
+    const nativeDb = getBrainNativeDb();
+
+    if (!nativeDb) {
+      return { success: true, data: { contradictions: [] } };
+    }
+
+    // Negation patterns for detecting contradictions (adapted from manifest logic)
+    const negationPairs: Array<[RegExp, RegExp]> = [
+      [/\bdoes NOT\b/i, /\bdoes\b(?!.*\bnot\b)/i],
+      [/\bcannot\b/i, /\bcan\b(?!.*\bnot\b)/i],
+      [/\bno\s+\w+\s+required\b/i, /\brequired\b(?!.*\bno\b)/i],
+      [/\bnot\s+(?:available|supported|possible|recommended)\b/i, /\b(?:available|supported|possible|recommended)\b(?!.*\bnot\b)/i],
+      [/\bwithout\b/i, /\brequires?\b/i],
+      [/\bavoid\b/i, /\buse\b/i],
+      [/\bdeprecated\b/i, /\brecommended\b/i],
+      [/\banti-pattern\b/i, /\bbest practice\b/i],
+    ];
+
+    // Fetch all decisions with context for comparison
+    const decisions = nativeDb.prepare(`
+      SELECT id, type, decision, rationale, context_task_id, created_at
+      FROM brain_decisions
+      ORDER BY created_at DESC
+    `).all() as Array<{
+      id: string;
+      type: string;
+      decision: string;
+      rationale: string;
+      context_task_id: string | null;
+      created_at: string;
+    }>;
+
+    // Fetch all patterns
+    const patterns = nativeDb.prepare(`
+      SELECT id, type, pattern, context, anti_pattern, created_at
+      FROM brain_patterns
+      ORDER BY created_at DESC
+    `).all() as Array<{
+      id: string;
+      type: string;
+      pattern: string;
+      context: string;
+      anti_pattern: string | null;
+      created_at: string;
+    }>;
+
+    // Fetch all learnings
+    const learnings = nativeDb.prepare(`
+      SELECT id, insight, source, created_at
+      FROM brain_learnings
+      ORDER BY created_at DESC
+    `).all() as Array<{
+      id: string;
+      insight: string;
+      source: string;
+      created_at: string;
+    }>;
+
+    interface ContradictionDetail {
+      entryA: { id: string; type: string; content: string; createdAt: string };
+      entryB: { id: string; type: string; content: string; createdAt: string };
+      context?: string;
+      conflictDetails: string;
+    }
+
+    const contradictions: ContradictionDetail[] = [];
+    const seenPairs = new Set<string>();
+
+    // Helper to create sorted pair key
+    const pairKey = (idA: string, idB: string) => idA < idB ? `${idA}::${idB}` : `${idB}::${idA}`;
+
+    // Check decisions against each other (grouped by task context)
+    const decisionsByTask = new Map<string | null, typeof decisions>();
+    for (const d of decisions) {
+      const key = d.context_task_id;
+      if (!decisionsByTask.has(key)) decisionsByTask.set(key, []);
+      decisionsByTask.get(key)!.push(d);
+    }
+
+    for (const [taskId, taskDecisions] of decisionsByTask) {
+      if (taskDecisions.length < 2) continue;
+
+      for (let i = 0; i < taskDecisions.length; i++) {
+        for (let j = i + 1; j < taskDecisions.length; j++) {
+          const a = taskDecisions[i]!;
+          const b = taskDecisions[j]!;
+          const key = pairKey(a.id, b.id);
+          if (seenPairs.has(key)) continue;
+
+          const contentA = `${a.decision} ${a.rationale}`;
+          const contentB = `${b.decision} ${b.rationale}`;
+
+          for (const [patternNeg, patternPos] of negationPairs) {
+            if (
+              (patternNeg.test(contentA) && patternPos.test(contentB)) ||
+              (patternPos.test(contentA) && patternNeg.test(contentB))
+            ) {
+              seenPairs.add(key);
+              contradictions.push({
+                entryA: { id: a.id, type: 'decision', content: a.decision, createdAt: a.created_at },
+                entryB: { id: b.id, type: 'decision', content: b.decision, createdAt: b.created_at },
+                context: taskId || undefined,
+                conflictDetails: `Negation pattern: "${contentA.slice(0, 80)}..." vs "${contentB.slice(0, 80)}..."`,
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Check patterns with anti-patterns
+    for (const p of patterns) {
+      if (p.anti_pattern) {
+        contradictions.push({
+          entryA: { id: p.id, type: 'pattern', content: p.pattern, createdAt: p.created_at },
+          entryB: { id: p.id, type: 'anti-pattern', content: p.anti_pattern, createdAt: p.created_at },
+          conflictDetails: `Pattern defines its own anti-pattern`,
+        });
+      }
+    }
+
+    // Check learnings against each other
+    for (let i = 0; i < learnings.length; i++) {
+      for (let j = i + 1; j < learnings.length; j++) {
+        const a = learnings[i]!;
+        const b = learnings[j]!;
+        const key = pairKey(a.id, b.id);
+        if (seenPairs.has(key)) continue;
+
+        for (const [patternNeg, patternPos] of negationPairs) {
+          if (
+            (patternNeg.test(a.insight) && patternPos.test(b.insight)) ||
+            (patternPos.test(a.insight) && patternNeg.test(b.insight))
+          ) {
+            seenPairs.add(key);
+            contradictions.push({
+              entryA: { id: a.id, type: 'learning', content: a.insight, createdAt: a.created_at },
+              entryB: { id: b.id, type: 'learning', content: b.insight, createdAt: b.created_at },
+              conflictDetails: `Learning contradiction detected`,
+            });
+            break;
+          }
+        }
+      }
+    }
+
+    return { success: true, data: { contradictions } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_CONTRADICTIONS', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.superseded - Find superseded entries in brain.db
+ *
+ * Identifies entries that have been superseded by newer entries on the same topic.
+ * For brain.db, we group by:
+ * - Decisions: type + contextTaskId/contextEpicId
+ * - Patterns: type + context (first 100 chars for similarity)
+ * - Learnings: source + applicableTypes
+ * - Observations: type + project
+ */
+export async function memorySuperseded(
+  params?: { type?: string; project?: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    await getBrainDb(root);
+    const nativeDb = getBrainNativeDb();
+
+    if (!nativeDb) {
+      return { success: true, data: { superseded: [] } };
+    }
+
+    const superseded: Array<{
+      oldEntry: { id: string; type: string; createdAt: string; summary: string };
+      replacement: { id: string; type: string; createdAt: string; summary: string };
+      grouping: string;
+    }> = [];
+
+    // Helper to normalize and group by key
+    const addSuperseded = (
+      entries: Array<{ id: string; type: string; createdAt: string; summary: string }>,
+      groupKey: string,
+    ) => {
+      if (entries.length < 2) return;
+
+      // Sort by creation date (oldest first)
+      const sorted = [...entries].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+      // All but the newest are superseded by the newest
+      const newest = sorted[sorted.length - 1];
+      for (let i = 0; i < sorted.length - 1; i++) {
+        superseded.push({
+          oldEntry: sorted[i],
+          replacement: newest,
+          grouping: groupKey,
+        });
+      }
+    };
+
+    // === DECISIONS: Group by type + contextTaskId/contextEpicId ===
+    const decisionGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const decisionQuery = params?.type
+      ? `SELECT id, type, decision, context_task_id, context_epic_id, created_at
+          FROM brain_decisions WHERE type = ? ORDER BY created_at DESC`
+      : `SELECT id, type, decision, context_task_id, context_epic_id, created_at
+          FROM brain_decisions ORDER BY created_at DESC`;
+    const decisionParams = params?.type ? [params.type] : [];
+    const decisions = nativeDb.prepare(decisionQuery).all(...decisionParams) as Array<{
+      id: string;
+      type: string;
+      decision: string;
+      context_task_id: string | null;
+      context_epic_id: string | null;
+      created_at: string;
+    }>;
+
+    for (const d of decisions) {
+      const contextKey = d.context_task_id || d.context_epic_id || 'general';
+      const groupKey = `decision:${d.type}:${contextKey}`;
+      if (!decisionGroups.has(groupKey)) decisionGroups.set(groupKey, []);
+      decisionGroups.get(groupKey)!.push({
+        id: d.id,
+        type: d.type,
+        createdAt: d.created_at,
+        summary: d.decision.slice(0, 100),
+      });
+    }
+
+    for (const [key, entries] of decisionGroups) {
+      addSuperseded(entries, key);
+    }
+
+    // === PATTERNS: Group by type + context (first 100 chars for similarity) ===
+    const patternGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const patternQuery = params?.type
+      ? `SELECT id, type, pattern, context, extracted_at
+          FROM brain_patterns WHERE type = ? ORDER BY extracted_at DESC`
+      : `SELECT id, type, pattern, context, extracted_at
+          FROM brain_patterns ORDER BY extracted_at DESC`;
+    const patternParams = params?.type ? [params.type] : [];
+    const patterns = nativeDb.prepare(patternQuery).all(...patternParams) as Array<{
+      id: string;
+      type: string;
+      pattern: string;
+      context: string;
+      extracted_at: string;
+    }>;
+
+    for (const p of patterns) {
+      // Use first 80 chars of context as grouping key for similarity
+      const contextKey = p.context?.slice(0, 80) || 'unknown';
+      const groupKey = `pattern:${p.type}:${contextKey}`;
+      if (!patternGroups.has(groupKey)) patternGroups.set(groupKey, []);
+      patternGroups.get(groupKey)!.push({
+        id: p.id,
+        type: p.type,
+        createdAt: p.extracted_at,
+        summary: p.pattern.slice(0, 100),
+      });
+    }
+
+    for (const [key, entries] of patternGroups) {
+      addSuperseded(entries, key);
+    }
+
+    // === LEARNINGS: Group by source + applicableTypes ===
+    const learningGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const learningQuery = `SELECT id, source, insight, applicable_types_json, created_at
+        FROM brain_learnings ORDER BY created_at DESC`;
+    const learnings = nativeDb.prepare(learningQuery).all() as Array<{
+      id: string;
+      source: string;
+      insight: string;
+      applicable_types_json: string | null;
+      created_at: string;
+    }>;
+
+    for (const l of learnings) {
+      const applicableTypes = l.applicable_types_json
+        ? JSON.parse(l.applicable_types_json).slice(0, 2).join(',')
+        : 'general';
+      const groupKey = `learning:${l.source}:${applicableTypes}`;
+      if (!learningGroups.has(groupKey)) learningGroups.set(groupKey, []);
+      learningGroups.get(groupKey)!.push({
+        id: l.id,
+        type: 'learning',
+        createdAt: l.created_at,
+        summary: l.insight.slice(0, 100),
+      });
+    }
+
+    for (const [key, entries] of learningGroups) {
+      addSuperseded(entries, key);
+    }
+
+    // === OBSERVATIONS: Group by type + project ===
+    const observationGroups = new Map<string, Array<{ id: string; type: string; createdAt: string; summary: string }>>();
+    const observationQuery = params?.type
+      ? `SELECT id, type, title, project, created_at
+          FROM brain_observations WHERE type = ? ORDER BY created_at DESC`
+      : `SELECT id, type, title, project, created_at
+          FROM brain_observations ORDER BY created_at DESC`;
+    const observationParams = params?.type ? [params.type] : [];
+    const observations = nativeDb.prepare(observationQuery).all(...observationParams) as Array<{
+      id: string;
+      type: string;
+      title: string;
+      project: string | null;
+      created_at: string;
+    }>;
+
+    for (const o of observations) {
+      const projectKey = params?.project ? params.project : (o.project || 'general');
+      const groupKey = `observation:${o.type}:${projectKey}`;
+      if (!observationGroups.has(groupKey)) observationGroups.set(groupKey, []);
+      observationGroups.get(groupKey)!.push({
+        id: o.id,
+        type: o.type,
+        createdAt: o.created_at,
+        summary: o.title.slice(0, 100),
+      });
+    }
+
+    for (const [key, entries] of observationGroups) {
+      addSuperseded(entries, key);
+    }
+
+    return { success: true, data: { superseded, total: superseded.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_MEMORY_SUPERSEDED', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.link - Link a brain entry to a task */
+export async function memoryLink(
+  params: { taskId: string; entryId: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.taskId || !params.entryId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const accessor = await getBrainAccessor(root);
+    const entryType = parseIdPrefix(params.entryId);
+
+    if (!entryType) {
+      return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
+    }
+
+    const typeMap: Record<string, 'decision' | 'pattern' | 'learning' | 'observation'> = {
+      decision: 'decision',
+      pattern: 'pattern',
+      learning: 'learning',
+      observation: 'observation',
+    };
+
+    await accessor.addLink({
+      memoryType: typeMap[entryType],
+      memoryId: params.entryId,
+      taskId: params.taskId,
+      linkType: 'applies_to',
+      createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    });
+
+    return { success: true, data: { linked: true, taskId: params.taskId, entryId: params.entryId } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_MEMORY_LINK', message: error instanceof Error ? error.message : String(error) } };
   }
 }

@@ -83,16 +83,16 @@ CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route 
 
 ```
 MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► src/core/ ◄── src/cli/commands/
-     cleo_query (110 ops)                                                                  (86 commands)
-     cleo_mutate (88 ops)
+     cleo_query (112 ops)                                                                  (86 commands)
+     cleo_mutate (89 ops)
 ```
 
-- **MCP is PRIMARY**: 2 tools, 198 operations across 10 canonical domains (~1,800 tokens)
+- **MCP is PRIMARY**: 2 tools, 201 operations across 10 canonical domains (~1,800 tokens)
 - **CLI is BACKUP**: 86 commands for human use and fallback
 - **src/core/ is CANONICAL**: All business logic lives here. Both MCP and CLI delegate to it.
 - **src/dispatch/engines/ is the engine layer**: All engine adapters live here (task, session, system, etc.)
 - **src/mcp/engine/ is a barrel**: Re-exports from `src/dispatch/engines/` for backward compatibility
-- **Canonical operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
+- **Canonical operations reference**: `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
 - **Verb standards**: `docs/specs/VERB-STANDARDS.md` (add, show, find, list, etc.)
 
 ## Project Structure & Module Organization
@@ -319,8 +319,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/gateways/query.ts` - 110 query operations (CANONICAL operation registry)
-- `src/mcp/gateways/mutate.ts` - 88 mutate operations (CANONICAL operation registry)
+- `src/mcp/gateways/query.ts` - 112 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 89 mutate operations (CANONICAL operation registry)
 - `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sharing)
 - `src/dispatch/engines/` - Engine adapters (params → core calls) — canonical location
 - `src/mcp/engine/` - Barrel re-exports from dispatch + utilities (capability-matrix, id-generator, CAAMP)
@@ -355,7 +355,7 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/store/lock.ts` - File locking
 
 ### Canonical Specifications
-- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` - All 198 MCP operations mapped to CLI equivalents (supersedes COMMANDS-INDEX.json)
+- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` - All 201 MCP operations mapped to CLI equivalents (supersedes CLEO-OPERATIONS-REFERENCE.md)
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
 - `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns

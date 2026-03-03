@@ -174,10 +174,13 @@ class CLIExecutor {
     }
 
     // Research domain: 'cleo research <operation>'
+    // Note: manifest ops moved to pipeline domain in MCP (T5241),
+    // but CLI 'research' command still maps to the same underlying functions.
     const researchOps: Record<string, string> = {
       stats: 'research manifest',
       'manifest.append': 'research add',
-      'manifest.read': 'research list',
+      'manifest.show': 'research list',
+      'manifest.list': 'research list',
       'manifest.archive': 'research archive',
     };
     if (domain === 'research' && researchOps[operation]) {
