@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { detectEnvMode, generateMcpServerEntry } from '../mcp/index.js';
+import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../mcp/index.js';
 import {
   providerList,
   providerCount,
@@ -32,20 +32,33 @@ describe('MCP server auto-install verification (T4695)', () => {
     });
 
     it('dev-ts mode generates node command with dist/mcp/index.js', () => {
-      const entry = generateMcpServerEntry({ mode: 'dev-ts', source: '/test/project' });
+      const entry = generateMcpServerEntry({ mode: 'dev-ts', source: '/test/project', channel: 'dev' });
       expect(entry.command).toBe('node');
       expect((entry.args as string[])![0]).toContain('dist/mcp/index.js');
     });
 
-    it('prod-npm mode generates npx cleo mcp command', () => {
-      const entry = generateMcpServerEntry({ mode: 'prod-npm', source: null });
+    it('prod-npm stable mode generates npx latest channel command', () => {
+      const entry = generateMcpServerEntry({ mode: 'prod-npm', source: null, channel: 'stable' });
       expect(entry.command).toBe('npx');
       expect(entry.args).toEqual(['-y', '@cleocode/cleo@latest', 'mcp']);
     });
 
-    it('unknown mode falls back to npx cleo mcp', () => {
-      const entry = generateMcpServerEntry({ mode: 'unknown', source: null });
+    it('prod-npm beta mode generates npx beta channel command', () => {
+      const entry = generateMcpServerEntry({ mode: 'prod-npm', source: null, channel: 'beta' });
       expect(entry.command).toBe('npx');
+      expect(entry.args).toEqual(['-y', '@cleocode/cleo@beta', 'mcp']);
+    });
+
+    it('unknown mode falls back to npx latest channel command', () => {
+      const entry = generateMcpServerEntry({ mode: 'unknown', source: null, channel: 'unknown' });
+      expect(entry.command).toBe('npx');
+      expect(entry.args).toEqual(['-y', '@cleocode/cleo@latest', 'mcp']);
+    });
+
+    it('uses channel-specific server names to avoid collisions', () => {
+      expect(getMcpServerName({ mode: 'dev-ts', source: '/repo', channel: 'dev' })).toBe('cleo-dev');
+      expect(getMcpServerName({ mode: 'prod-npm', source: null, channel: 'beta' })).toBe('cleo-beta');
+      expect(getMcpServerName({ mode: 'prod-npm', source: null, channel: 'stable' })).toBe('cleo');
     });
   });
 

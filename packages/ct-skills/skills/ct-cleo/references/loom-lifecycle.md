@@ -1,16 +1,23 @@
-# RCSD-IVTR Lifecycle (Detailed)
+# LOOM Lifecycle (Detailed)
 
-Projects follow a structured lifecycle with gate enforcement.
+**LOOM** (Logical Order of Operations Methodology) is the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. This document details the lifecycle stages and gate enforcement.
+
+See `docs/concepts/vision.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
 
 ## Pipeline Stages
 
 ```
-RCSD PIPELINE (setup phase):
-  Research -> Consensus -> Specification -> Decomposition
-                              |
-                              v
-EXECUTION (core/polish):
-  Implementation -> Contribution -> Release
+LOOM (RCASD-IVTR+C) PIPELINE:
+
+RCASD (Planning Phase):
+  Research -> Consensus -> Architecture Decision -> Specification -> Decomposition
+                                                              |
+                                                              v
+IVTR (Execution Phase):
+  Implementation -> Validation -> Testing -> Release
+
++C (Cross-Cutting):
+  Contribution (applies across all stages)
 ```
 
 Each stage has a **lifecycle gate**. Entering a later stage requires prior stages to be `completed` or `skipped`. Gate enforcement mode is configured in `.cleo/config.json` (`strict` | `advisory` | `off`).
@@ -31,14 +38,16 @@ Each stage has a **lifecycle gate**. Entering a later stage requires prior stage
 
 ## Lifecycle Gate Enforcement
 
-CLEO enforces RCSD-IVTR lifecycle progression through automatic gate checks at spawn time.
+CLEO enforces LOOM (RCASD-IVTR+C) lifecycle progression through automatic gate checks at spawn time.
 
 ```
-research --+---> consensus --+---> specification --+---> decomposition
-           |                 |                     |
-           | GATE            | GATE                | GATE
-           |                 |                     |
-           +-----------------+---------------------+---> implementation ---> release
+research --+---> consensus --+---> architecture_decision --+---> specification --+---> decomposition
+           |                 |                              |                    |
+           | GATE            | GATE                         | GATE               | GATE
+           |                 |                              |                    |
+           +-----------------+------------------------------+--------------------+---> implementation --+---> release
+                                                                                                         |
+                                                                                                    validation/testing
 ```
 
 | Enforcement Mode | On Gate Failure | Default |

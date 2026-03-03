@@ -11,7 +11,7 @@
 
 // CLI-only: mcp-install requires CAAMP provider detection and config file writes
 import { Command } from 'commander';
-import { detectEnvMode, generateMcpServerEntry } from '../../core/mcp/index.js';
+import { detectEnvMode, generateMcpServerEntry, getMcpServerName } from '../../core/mcp/index.js';
 import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
@@ -60,6 +60,7 @@ export function registerMcpInstallCommand(program: Command): void {
 
         const env = detectEnvMode();
         const serverEntry = generateMcpServerEntry(env) as McpServerConfig;
+        const serverName = getMcpServerName(env);
         const scope = opts['global'] ? 'global' as const : 'project' as const;
         const projectDir = process.cwd();
 
@@ -86,7 +87,7 @@ export function registerMcpInstallCommand(program: Command): void {
           }
 
           const result = await installMcpServer(
-            provider, 'cleo', serverEntry, scope, projectDir,
+            provider, serverName, serverEntry, scope, projectDir,
           );
           cliOutput({
             env: { mode: env.mode, source: env.source },
@@ -124,7 +125,7 @@ export function registerMcpInstallCommand(program: Command): void {
         }
 
         const results = await installMcpServerToAll(
-          providers, 'cleo', serverEntry, scope, projectDir,
+          providers, serverName, serverEntry, scope, projectDir,
         );
 
         cliOutput({

@@ -25,7 +25,7 @@ NON_NEGOTIABLES:
 - Treat planned/gated as not shipped
 - Preserve canonical pillars and terminology
 - LAFS is the agent communication contract
-- RCASD-IVTR+C is the lifecycle pipeline
+- LOOM (Logical Order of Operations Methodology) is the lifecycle pipeline — encompassing RCASD-IVTR+C
 - BRAIN is the memory system
 - NEXUS is the cross-project connective layer
 
@@ -68,26 +68,28 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 +=====================================================================+
 |                                                                     |
 |  +------------------------------+  +----------------------------+   |
-|  |          B R A I N            |  |     R C A S D - I V T R    |   |
-|  |     Memory & Cognition       |  |     + C  Lifecycle          |   |
-|  |                              |  |                            |   |
-|  |  Observations  Patterns      |  |  Research -> Consensus     |   |
-|  |  Learnings     Decisions     |  |  -> Architecture Decision  |   |
-|  |  Sessions      Profiles      |  |  -> Specification          |   |
-|  |  FTS5 [OK] + Vec/Graph [TGT] |  |  -> Decomposition          |   |
-|  |                              |  |  -> Implementation         |   |
+|  |          B R A I N            |  |     L  O  O  M              |   |
+|  |     Memory & Cognition       |  |   Logical Order of         |   |
+|  |                              |  |   Operations Methodology   |   |
+|  |  Observations  Patterns      |  |                            |   |
+|  |  Learnings     Decisions     |  |  RCASD-IVTR+C Pipeline:    |   |
+|  |  Sessions      Profiles      |  |  Research -> Consensus     |   |
+|  |  FTS5 [OK] + Vec/Graph [TGT] |  |  -> Architecture Decision  |   |
+|  |                              |  |  -> Specification          |   |
+|  +------------------------------+  |  -> Decomposition          |   |
+|                                    |  -> Implementation         |   |
 |  +------------------------------+  |  -> Validation -> Testing  |   |
-|                                    |  -> Release                |   |
-|  +------------------------------+  |  + Contribution (X-cut)    |   |
-|  |         N E X U S             |  +----------------------------+   |
-|  |   Cross-Project Network      |                                   |
+|  |         N E X U S             |  |  -> Release                |   |
+|  |   Cross-Project Network      |  |  + Contribution (X-cut)    |   |
 |  |                              |  +----------------------------+   |
-|  |  Project Registry            |  |          L A F S            |   |
-|  |  Global Graph                |  |   Agent Communication      |   |
-|  |  Permission Model            |  |                            |   |
-|  |  Federated Queries           |  |  JSON Envelopes   MVI      |   |
-|  |  PageIndex + Similarity      |  |  Field Filtering  Flags    |   |
-|  +------------------------------+  |  Exit Codes       Schema   |   |
+|  |  Project Registry            |                                   |
+|  |  Global Graph                |  +----------------------------+   |
+|  |  Permission Model            |  |          L A F S            |   |
+|  |  Federated Queries           |  |   Agent Communication      |   |
+|  |  PageIndex + Similarity      |  |                            |   |
+|  +------------------------------+  |  JSON Envelopes   MVI      |   |
+|                                    |  Field Filtering  Flags    |   |
+|                                    |  Exit Codes       Schema   |   |
 |                                    +----------------------------+   |
 |                                                                     |
 |  +-----------------------------------------------------------------+
@@ -105,7 +107,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 
 - **BRAIN — Memory & Cognition**: The persistent memory backend. Stores observations, patterns, learnings, and decisions in a dedicated `brain.db` (SQLite via Drizzle ORM). Shipped: brain.db schema with 6 tables, 3-layer retrieval (search/timeline/fetch), observe operation, and 5,122 migrated observations. Target: FTS5 search, vector similarity via SQLite-vec, and graph-based retrieval. The lifeblood of anti-hallucination.
 
-- **RCASD-IVTR+C — Structured Lifecycle**: The project lifecycle pipeline. Ten stages from Research through Release, plus the cross-cutting Contribution protocol. Provides deterministic gates, protocol validation, and manifest-based provenance.
+- **LOOM — Logical Order of Operations Methodology**: The systematic framework for how CLEO processes project threads from concept to completion. LOOM encompasses the RCASD-IVTR+C pipeline (Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release) with the Contribution protocol (+C) running across all stages. It is the "order of operations" that moves work through its lifecycle.
 
 - **NEXUS — Cross-Project Network**: The connective layer between registered CLEO projects. Uses the project's exposed tools to bridge global graphs, shared patterns, and federated queries while preserving per-project isolation.
 
@@ -119,7 +121,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 
 2. **Agent Communication Contract (LAFS)** — All agent-CLEO communication follows the LAFS protocol: JSON envelopes with metadata, MVI-tiered progressive disclosure (minimal/standard/full/custom), field filtering via `_fields`, and deterministic exit codes. This contract is provider-neutral — any LLM agent that speaks LAFS can use CLEO.
 
-3. **Structured Lifecycle (RCASD-IVTR+C)** — Every significant piece of work follows a structured pipeline: Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release — plus the cross-cutting Contribution protocol for provenance. Lifecycle gates enforce progression.
+3. **Structured Lifecycle (LOOM / RCASD-IVTR+C)** — Every significant piece of work follows LOOM's structured pipeline: Research, Consensus, Architecture Decision, Specification, Decomposition, Implementation, Validation, Testing, Release — plus the cross-cutting Contribution protocol for provenance. Lifecycle gates enforce progression.
 
 4. **Deterministic Safety** — Four-layer validation (schema, semantic, referential, state machine), atomic write operations, immutable audit logs, and lifecycle gate enforcement. No partial writes. No hallucinated references. No skipped validation.
 
@@ -130,6 +132,25 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 ## BRAIN: The Memory System
 
 BRAIN is the persistent memory backend that makes CLEO a non-hallucination tool system. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) (observation compression, progressive disclosure, and the three-layer retrieval workflow) and [supermemory](https://github.com/supermemoryai/supermemory) (knowledge graphs, temporal decay, memory extraction, and semantic retrieval), BRAIN uses a dedicated memory database (`brain.db`) alongside the project work database (`tasks.db`). The brain.db migration is complete: 6 tables shipped, 3-layer retrieval operational, and 5,122 observations migrated from claude-mem.
+
+### Brain Metaphor: Domains as Cognitive Functions
+
+CLEO's 10 canonical domains map directly to cognitive functions — each domain operates like a specialized brain system:
+
+| Domain | Brain Metaphor | What It Means |
+|--------|---------------|---------------|
+| **tasks** | Neurons | Atomic knowledge units — the leaf thoughts. Tasks are the fundamental building blocks of work, just as neurons are the fundamental building blocks of cognition. |
+| **session** | Working Memory | Short-term context, what you're thinking about now. Sessions maintain the immediate context of active work, holding the "mental workspace" for the current agent interaction. |
+| **memory** | Long-term Memory | Stored knowledge, patterns, learnings, decisions. The BRAIN database (`brain.db`) persists observations, patterns, and decisions across sessions. |
+| **check** | Immune System | Validation, quality — catches problems before they spread. The check domain identifies issues, validates compliance, and ensures work quality before problems propagate. |
+| **pipeline** | Executive Pipeline | RCASD-IVTR+C — the structured process of deciding and doing. The pipeline domain governs the LOOM lifecycle stages with gate enforcement and stage management. |
+| **orchestrate** | Executive Function | Multi-agent coordination — how the brain delegates work. Orchestrate handles wave planning, agent spawning, and coordination of parallel workstreams. |
+| **tools** | Capabilities | Skills, providers — learned abilities. The tools domain manages the capabilities CLEO can invoke: skills, provider integrations, and issue tracking. |
+| **admin** | Autonomic System | Background infrastructure — breathing, heartbeat, backups. Admin handles the unconscious operations: configuration, backups, migrations, and system health. |
+| **nexus** | Hive Network | Cross-project intelligence — connecting brains. Nexus enables knowledge sharing and federated queries across registered CLEO projects. |
+| **sharing** | Social Memory | What gets shared with others. The sharing domain manages allowlists and sync status for cross-project collaboration. |
+
+This metaphor isn't decorative — it reflects the architectural design where tasks form neural networks via dependencies and hierarchy, orchestration mirrors executive function, and the pipeline serves as the executive pathway for moving work from conception to completion.
 
 ### Database Architecture
 
@@ -236,9 +257,44 @@ CLEO is built for LLM agents first, with human accessibility second:
 
 ---
 
+## LOOM: Logical Order of Operations Methodology
+
+LOOM is the systematic framework for how CLEO processes project threads through the complete RCASD-IVTR+C pipeline. It gives a name to the "order of operations" for how work flows from concept to completion — the loom upon which ideas are woven into shipped software.
+
+### The LOOM Framework
+
+LOOM encompasses the full lifecycle methodology that transforms raw ideas into delivered artifacts. While RCASD-IVTR+C defines the stages, LOOM defines the system that moves threads through them:
+
+```
+LOOM — Logical Order of Operations Methodology
+├── Thread Ingestion       Ideas enter via Research
+├── Consensus Weaving      Multi-agent validation and ADR capture
+├── Specification Design   Formal requirements in RFC 2119
+├── Task Decomposition     Breaking work into atomic units
+├── Execution Orchestration Implementation with validation loops
+├── Quality Assurance      Testing and gate enforcement
+└── Release Completion     Shipping with full provenance
+```
+
+LOOM treats the pipeline as a continuous thread: Research feeds Consensus, which produces ADRs, which inform Specifications, which drive Decomposition, which generates Implementation tasks that cycle through Validation and Testing until they emerge as Releases. The +C (Contribution) protocol runs through every stage, ensuring attribution and provenance.
+
+### The Neural Hierarchy of Work
+
+Within LOOM, work units form a neural hierarchy:
+
+| Element | Brain Analog | Meaning |
+|---------|--------------|---------|
+| **Tasks** | Neurons | Atomic knowledge units — the leaf thoughts |
+| **Dependencies** | Synapses | Directional connections between tasks |
+| **Hierarchy** | Weights | Proximity strengthens relevance (parent-child relationships) |
+
+This neural model enables CLEO's vectorless RAG: structural discovery through dependency graphs and hierarchy traversal, without requiring vector embeddings.
+
+---
+
 ## RCASD-IVTR+C: The Lifecycle Pipeline
 
-Every significant piece of work in CLEO follows a structured lifecycle pipeline. This ensures quality, traceability, and reproducibility across autonomous agent workflows.
+Every significant piece of work in CLEO follows the RCASD-IVTR+C pipeline — the structured lifecycle stages that LOOM moves work through. This ensures quality, traceability, and reproducibility across autonomous agent workflows.
 
 ### Pipeline Stages
 
@@ -516,7 +572,7 @@ cleo session end --note "Completed auth flow, tests passing"
 - Any change that alters canonical identity requires explicit vision amendment.
 - Changes MUST be synchronized to `README.md` and `docs/specs/PORTABLE-BRAIN-SPEC.md`.
 - Strategic documents MUST align to this vision; they cannot redefine it.
-- The four systems (BRAIN, RCASD-IVTR+C, NEXUS, LAFS) are canonical and immutable.
+- The four systems (BRAIN, LOOM, NEXUS, LAFS) are canonical and immutable.
 - Individual system specifications may evolve, but the roles described here are fixed.
 
 ### Document Authority Hierarchy

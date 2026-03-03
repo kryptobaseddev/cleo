@@ -55,11 +55,13 @@ You are the **Orchestrator** - a conductor, not a musician. Coordinate complex w
 | ORC-008 | Zero architectural decisions | "Architecture MUST be pre-decided by HITL" |
 | ORC-009 | MUST NEVER write code | "Every line of code is written by a subagent" |
 
-## RCASD Pipeline Management
+## RCASD Pipeline Management (LOOM)
 
-The orchestrator manages epic-level pipeline progression through the RCASD-IVTR+C lifecycle.
+The orchestrator manages epic-level pipeline progression through the **LOOM** (Logical Order of Operations Methodology) framework — the systematic approach for processing project threads through the RCASD-IVTR+C lifecycle.
 
-**RCASD Pipeline Flow**: Research -> Consensus -> Architecture Decision -> Specification -> Decomposition -> Implementation -> Validation -> Testing -> Release -> Contribution
+**LOOM Pipeline Flow**: Research -> Consensus -> Architecture Decision -> Specification -> Decomposition -> Implementation -> Validation -> Testing -> Release -> Contribution
+
+See `docs/concepts/vision.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
 
 ### Pipeline Decision Matrix
 

@@ -23,7 +23,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_LIB_DIR="$SCRIPT_DIR/lib"
 
 # Source dev library (required for LLM-Agent-First compliance)
-source "$DEV_LIB_DIR/dev-common.sh"
+if [[ -f "$DEV_LIB_DIR/dev-common.sh" ]]; then
+    source "$DEV_LIB_DIR/dev-common.sh"
+elif [[ -f "$SCRIPT_DIR/archived/lib/dev-common.sh" ]]; then
+    source "$SCRIPT_DIR/archived/lib/dev-common.sh"
+else
+    echo "ERROR: dev-common.sh not found (checked dev/lib and dev/archived/lib)" >&2
+    exit 5
+fi
 
 # Defensive check: verify log_error is available after sourcing
 if ! declare -f log_error >/dev/null 2>&1; then
@@ -143,6 +150,12 @@ extract_version() {
         'version-\K[0-9]+\.[0-9]+\.[0-9]+')
             grep -o 'version-[0-9]\+\.[0-9]\+\.[0-9]\+' "$file" 2>/dev/null | head -1 | sed 's/version-//' || echo ""
             ;;
+        '"version"\s*:\s*"\K[0-9]+\.[0-9]+\.[0-9]+')
+            grep -o '"version"[[:space:]]*:[[:space:]]*"[0-9]\+\.[0-9]\+\.[0-9]\+"' "$file" 2>/dev/null | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/' || echo ""
+            ;;
+        '## \[\K[0-9]+\.[0-9]+\.[0-9]+')
+            grep -o '## \[[0-9]\+\.[0-9]\+\.[0-9]\+\]' "$file" 2>/dev/null | head -1 | sed -E 's/## \[([0-9]+\.[0-9]+\.[0-9]+)\]/\1/' || echo ""
+            ;;
         'CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+')
             grep -o 'CLEO:START v[0-9]\+\.[0-9]\+\.[0-9]\+' "$file" 2>/dev/null | head -1 | sed 's/CLEO:START v//' || echo ""
             ;;
@@ -177,6 +190,8 @@ fi
 # Files to check
 declare -A FILES_TO_CHECK
 FILES_TO_CHECK["README.md"]='version-\K[0-9]+\.[0-9]+\.[0-9]+'
+FILES_TO_CHECK["package.json"]='"version"\s*:\s*"\K[0-9]+\.[0-9]+\.[0-9]+'
+FILES_TO_CHECK["CHANGELOG.md"]='## \[\K[0-9]+\.[0-9]+\.[0-9]+'
 FILES_TO_CHECK["templates/CLAUDE-INJECTION.md"]='CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+'
 FILES_TO_CHECK["CLAUDE.md"]='CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+'
 
@@ -220,6 +235,14 @@ for file in "${!FILES_TO_CHECK[@]}"; do
             case "$file" in
                 "README.md")
                     sed_inplace "s/version-[0-9]\+\.[0-9]\+\.[0-9]\+-/version-${SOURCE_VERSION}-/g" "$filepath"
+                    [[ "$FORMAT" == "text" ]] && log_info "  → Fixed: synced to $SOURCE_VERSION"
+                    ;;
+                "package.json")
+                    sed_inplace "0,/\"version\"[[:space:]]*:[[:space:]]*\"[0-9]\+\.[0-9]\+\.[0-9]\+\"/s//\"version\": \"${SOURCE_VERSION}\"/" "$filepath"
+                    [[ "$FORMAT" == "text" ]] && log_info "  → Fixed: synced to $SOURCE_VERSION"
+                    ;;
+                "CHANGELOG.md")
+                    sed_inplace "0,/## \[[0-9]\+\.[0-9]\+\.[0-9]\+\]/s//## [${SOURCE_VERSION}]/" "$filepath"
                     [[ "$FORMAT" == "text" ]] && log_info "  → Fixed: synced to $SOURCE_VERSION"
                     ;;
                 "templates/CLAUDE-INJECTION.md"|"CLAUDE.md")

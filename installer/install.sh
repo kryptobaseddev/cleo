@@ -73,6 +73,18 @@ INSTALLER_LIB_DIR="$INSTALLER_DIR/lib"
 export INSTALLER_DIR
 export INSTALLER_LIB_DIR
 
+# Early channel hinting before module load (core.sh resolves INSTALL_DIR at source time).
+# Dev installs default to isolated ~/.cleo-dev unless caller explicitly set CLEO_HOME.
+for arg in "$@"; do
+    if [[ "$arg" == "--dev" ]]; then
+        export INSTALLER_DEV_MODE=1
+        if [[ -z "${CLEO_HOME:-}" ]]; then
+            export CLEO_HOME="$HOME/.cleo-dev"
+        fi
+        break
+    fi
+done
+
 # ============================================
 # SOURCE MODULES
 # ============================================
@@ -370,6 +382,9 @@ do_state_install() {
         local repo_dir
         repo_dir="$(dirname "$INSTALLER_DIR")"
 
+        # Enforce contributor clone policy for dev runtime installs.
+        installer_source_validate_dev_clone "$repo_dir" || return $EXIT_VALIDATION_FAILED
+
         # Ensure install directory exists
         mkdir -p "$INSTALL_DIR"
 
@@ -389,11 +404,10 @@ do_state_install() {
             return $EXIT_STAGING_FAILED
         fi
 
-        # Create bin directory and symlinks to built output
+        # Create bin directory and symlink CLI to built output
         mkdir -p "$INSTALL_DIR/bin"
         ln -sf "$repo_dir/dist/cli/index.js" "$INSTALL_DIR/bin/cleo"
-        ln -sf "$repo_dir/dist/mcp/index.js" "$INSTALL_DIR/bin/cleo-mcp"
-        chmod +x "$INSTALL_DIR/bin/cleo" "$INSTALL_DIR/bin/cleo-mcp"
+        chmod +x "$INSTALL_DIR/bin/cleo"
 
         # Symlink supporting directories
         for dir in schemas templates skills; do
@@ -590,13 +604,13 @@ do_state_complete() {
     installer_log_info ""
     case "$channel" in
         dev)
-            installer_log_info "Available commands: cleo-dev, cleo-mcp-dev"
+            installer_log_info "Available commands: cleo-dev"
             ;;
         beta)
-            installer_log_info "Available commands: cleo-beta, cleo-mcp-beta, ct-beta (optional alias)"
+            installer_log_info "Available commands: cleo-beta, ct-beta (optional alias)"
             ;;
         *)
-            installer_log_info "Available commands: cleo, cleo-mcp, ct (alias)"
+            installer_log_info "Available commands: cleo, ct (alias)"
             ;;
     esac
     installer_log_info ""
