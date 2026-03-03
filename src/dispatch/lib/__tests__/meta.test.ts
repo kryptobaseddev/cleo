@@ -55,7 +55,7 @@ describe('createDispatchMeta', () => {
   });
 
   it('should produce valid ISO timestamp', () => {
-    const meta = createDispatchMeta('query', 'memory', 'list', Date.now());
+    const meta = createDispatchMeta('query', 'memory', 'find', Date.now());
     const parsed = new Date(meta.timestamp);
     expect(parsed.toISOString()).toBe(meta.timestamp);
   });

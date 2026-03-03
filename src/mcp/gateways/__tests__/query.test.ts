@@ -30,11 +30,10 @@ describe('Query Gateway', () => {
       expect(total).toBeGreaterThan(0);
     });
 
-    it('should have 17 query domains (10 canonical + 7 legacy)', () => {
+    it('should have 10 canonical query domains', () => {
       const domains = getQueryDomains();
-      expect(domains).toHaveLength(17);
+      expect(domains).toHaveLength(10);
       // Derived from registry — order follows OPERATIONS definition order
-      // for canonical domains, then LEGACY_DOMAIN_ALIASES iteration order
       expect(domains).toEqual([
         // Canonical domains (order from OPERATIONS array)
         'tasks',
@@ -47,14 +46,6 @@ describe('Query Gateway', () => {
         'tools',
         'sharing',
         'nexus',
-        // Legacy aliases (order from LEGACY_DOMAIN_ALIASES)
-        'research',
-        'validate',
-        'lifecycle',
-        'system',
-        'skills',
-        'providers',
-        'issues',
       ]);
     });
 
@@ -69,7 +60,7 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('tasks')).toBe(15);
     });
 
-    it('session domain should have 11 operations', () => {
+    it('session domain should have 11 query operations', () => {
       expect(getQueryOperationCount('session')).toBe(11);
     });
 
@@ -77,20 +68,20 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('orchestrate')).toBe(9);
     });
 
-    it('research domain should have all memory operations (derived, no prefix filter)', () => {
-      expect(getQueryOperationCount('research')).toBe(getQueryOperationCount('memory'));
+    it('memory domain should have 12 operations', () => {
+      expect(getQueryOperationCount('memory')).toBe(12);
     });
 
-    it('lifecycle domain should have 5 operations', () => {
-      expect(getQueryOperationCount('lifecycle')).toBe(5);
+    it('pipeline domain should have 10 operations', () => {
+      expect(getQueryOperationCount('pipeline')).toBe(10);
     });
 
-    it('validate domain should have all check operations (derived, no prefix filter)', () => {
-      expect(getQueryOperationCount('validate')).toBe(getQueryOperationCount('check'));
+    it('check domain should have 10 operations', () => {
+      expect(getQueryOperationCount('check')).toBe(10);
     });
 
-    it('system domain should have all admin operations (derived, no prefix filter)', () => {
-      expect(getQueryOperationCount('system')).toBe(getQueryOperationCount('admin'));
+    it('admin domain should have 20 operations', () => {
+      expect(getQueryOperationCount('admin')).toBe(20);
     });
   });
 
@@ -300,123 +291,191 @@ describe('Query Gateway', () => {
 
   });
 
-  describe('Research Domain Operations', () => {
-    const researchOps = QUERY_OPERATIONS.research;
+  describe('Memory Domain Operations', () => {
+    const memoryOps = QUERY_OPERATIONS.memory;
 
     it('should support show operation', () => {
-      expect(researchOps).toContain('show');
+      expect(memoryOps).toContain('show');
     });
 
-    it('should support list operation', () => {
-      expect(researchOps).toContain('list');
+    it('should support find operation (brain.db search)', () => {
+      expect(memoryOps).toContain('find');
     });
 
-    it('should support find operation', () => {
-      expect(researchOps).toContain('find');
+    it('should support timeline operation (brain.db context)', () => {
+      expect(memoryOps).toContain('timeline');
     });
 
-    it('should support pending operation', () => {
-      expect(researchOps).toContain('pending');
+    it('should support fetch operation (brain.db batch fetch)', () => {
+      expect(memoryOps).toContain('fetch');
     });
 
     it('should support stats operation', () => {
-      expect(researchOps).toContain('stats');
+      expect(memoryOps).toContain('stats');
     });
 
-    it('should support manifest.read operation', () => {
-      expect(researchOps).toContain('manifest.read');
-    });
-  });
-
-  describe('Lifecycle Domain Operations', () => {
-    const lifecycleOps = QUERY_OPERATIONS.lifecycle;
-
-    it('should support validate operation', () => {
-      expect(lifecycleOps).toContain('validate');
+    it('should support decision.find operation', () => {
+      expect(memoryOps).toContain('decision.find');
     });
 
-    it('should support status operation', () => {
-      expect(lifecycleOps).toContain('status');
-    });
-
-    it('should support history operation', () => {
-      expect(lifecycleOps).toContain('history');
-    });
-
-    it('should support gates operation', () => {
-      expect(lifecycleOps).toContain('gates');
-    });
-
-    it('should support prerequisites operation', () => {
-      expect(lifecycleOps).toContain('prerequisites');
+    it('should not contain manifest.read (moved to pipeline)', () => {
+      expect(memoryOps).not.toContain('manifest.read');
     });
   });
 
-  describe('Validate Domain Operations', () => {
-    const validateOps = QUERY_OPERATIONS.validate;
+  describe('Pipeline Domain Operations', () => {
+    const pipelineOps = QUERY_OPERATIONS.pipeline;
+
+    it('should support stage.validate operation', () => {
+      expect(pipelineOps).toContain('stage.validate');
+    });
+
+    it('should support stage.status operation', () => {
+      expect(pipelineOps).toContain('stage.status');
+    });
+
+    it('should support stage.history operation', () => {
+      expect(pipelineOps).toContain('stage.history');
+    });
+
+    it('should support stage.gates operation', () => {
+      expect(pipelineOps).toContain('stage.gates');
+    });
+
+    it('should support stage.prerequisites operation', () => {
+      expect(pipelineOps).toContain('stage.prerequisites');
+    });
+
+    it('should support manifest.show operation', () => {
+      expect(pipelineOps).toContain('manifest.show');
+    });
+
+    it('should support manifest.list operation', () => {
+      expect(pipelineOps).toContain('manifest.list');
+    });
+
+    it('should support manifest.find operation', () => {
+      expect(pipelineOps).toContain('manifest.find');
+    });
+
+    it('should support manifest.pending operation', () => {
+      expect(pipelineOps).toContain('manifest.pending');
+    });
+
+    it('should support manifest.stats operation', () => {
+      expect(pipelineOps).toContain('manifest.stats');
+    });
+  });
+
+  describe('Check Domain Operations', () => {
+    const checkOps = QUERY_OPERATIONS.check;
 
     it('should support schema operation', () => {
-      expect(validateOps).toContain('schema');
+      expect(checkOps).toContain('schema');
     });
 
     it('should support protocol operation', () => {
-      expect(validateOps).toContain('protocol');
+      expect(checkOps).toContain('protocol');
     });
 
     it('should support task operation', () => {
-      expect(validateOps).toContain('task');
+      expect(checkOps).toContain('task');
     });
 
     it('should support manifest operation', () => {
-      expect(validateOps).toContain('manifest');
+      expect(checkOps).toContain('manifest');
     });
 
     it('should support output operation', () => {
-      expect(validateOps).toContain('output');
+      expect(checkOps).toContain('output');
     });
 
     it('should support compliance.summary operation', () => {
-      expect(validateOps).toContain('compliance.summary');
+      expect(checkOps).toContain('compliance.summary');
     });
 
     it('should support compliance.violations operation', () => {
-      expect(validateOps).toContain('compliance.violations');
+      expect(checkOps).toContain('compliance.violations');
     });
 
     it('should support test.status operation', () => {
-      expect(validateOps).toContain('test.status');
+      expect(checkOps).toContain('test.status');
     });
 
     it('should support test.coverage operation', () => {
-      expect(validateOps).toContain('test.coverage');
+      expect(checkOps).toContain('test.coverage');
+    });
+
+    it('should support coherence.check operation', () => {
+      expect(checkOps).toContain('coherence.check');
     });
   });
 
-  describe('System Domain Operations', () => {
-    const systemOps = QUERY_OPERATIONS.system;
+  describe('Admin Domain Operations', () => {
+    const adminOps = QUERY_OPERATIONS.admin;
 
     it('should support version operation', () => {
-      expect(systemOps).toContain('version');
+      expect(adminOps).toContain('version');
     });
 
     it('should support health operation', () => {
-      expect(systemOps).toContain('health');
+      expect(adminOps).toContain('health');
     });
 
     it('should support config.show operation', () => {
-      expect(systemOps).toContain('config.show');
+      expect(adminOps).toContain('config.show');
     });
 
     it('should support config.get alias', () => {
-      expect(systemOps).toContain('config.get');
+      expect(adminOps).toContain('config.get');
     });
 
     it('should support stats operation', () => {
-      expect(systemOps).toContain('stats');
+      expect(adminOps).toContain('stats');
     });
 
     it('should support context operation', () => {
-      expect(systemOps).toContain('context');
+      expect(adminOps).toContain('context');
+    });
+
+    it('should support runtime operation', () => {
+      expect(adminOps).toContain('runtime');
+    });
+
+    it('should support job.status operation', () => {
+      expect(adminOps).toContain('job.status');
+    });
+
+    it('should support job.list operation', () => {
+      expect(adminOps).toContain('job.list');
+    });
+
+    it('should support dash operation', () => {
+      expect(adminOps).toContain('dash');
+    });
+
+    it('should support log operation', () => {
+      expect(adminOps).toContain('log');
+    });
+
+    it('should support sequence operation', () => {
+      expect(adminOps).toContain('sequence');
+    });
+
+    it('should support help operation', () => {
+      expect(adminOps).toContain('help');
+    });
+
+    it('should support grade operation', () => {
+      expect(adminOps).toContain('grade');
+    });
+
+    it('should support grade.list operation', () => {
+      expect(adminOps).toContain('grade.list');
+    });
+
+    it('should support archive.stats operation', () => {
+      expect(adminOps).toContain('archive.stats');
     });
   });
 

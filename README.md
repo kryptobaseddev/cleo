@@ -98,7 +98,7 @@ CLEO is composed of four interdependent systems:
 
 | State | What It Means |
 |------|----------------|
-| **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db` + `brain.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, 3-layer BRAIN retrieval (`brain.search/timeline/fetch`), BRAIN observe writes, NEXUS dispatch domain wiring (12 operations), LAFS envelopes |
+| **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db` + `brain.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, 3-layer BRAIN retrieval (`memory find/timeline/fetch`), BRAIN observe writes, NEXUS dispatch domain wiring (12 operations), LAFS envelopes |
 | **In Progress / Planned** | Embedding generation + vector similarity pipeline (`T5158`/`T5159`), PageIndex traversal/query API (`T5161`), reasoning/session integration (`T5153`), `nexus.db` migration from JSON registry, full claude-mem automation retirement hooks (`T5145`) |
 
 ### MCP Server
@@ -162,7 +162,7 @@ cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes"
 cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
 ```
 
-10 canonical domains, 198 operations (110 query + 88 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+10 canonical domains, 201 operations (112 query + 89 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
 
 ### Source of Truth Hierarchy
 

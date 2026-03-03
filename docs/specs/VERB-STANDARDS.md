@@ -18,10 +18,10 @@ This document establishes the canonical verb standard for CLEO to ensure consist
 
 | Concept | Standard Verb | Replaces | Status |
 |---------|---------------|----------|--------|
-| Create new entity | `add` | `create`, `install`, `prepare`, `start` (when creating) | Enforced |
-| Read single | `show` | `get` | Enforced |
+| Create new entity | `add` | `install`, `prepare`, `start` (when creating) | Enforced |
+| Read single | `show` | — | Enforced |
 | Read list | `list` | - | Enforced |
-| Search | `find` | `search`, `query` | Enforced |
+| Search | `find` | `search` | Enforced |
 | Modify | `update` | `configure`, `modify`, `edit` | Enforced |
 | Remove | `delete` | `remove`, `uninstall` | Enforced |
 | Soft-delete | `archive` | - | Enforced |
@@ -43,7 +43,7 @@ This document establishes the canonical verb standard for CLEO to ensure consist
 | Verify artifact | `verify` | `check`, `audit` (when verifying gates/frontmatter) | Enforced |
 | Inject content | `inject` | `insert`, `load` (when injecting protocols) | Enforced |
 | Execute action | `run` | `exec`, `execute` (compound verb: `test.run`, `gates.run`) | Enforced |
-| End session | `end` | - (MCP operation; CLI alias for `stop`) | Enforced |
+| End session | `end` | - (MCP operation) | Enforced |
 | Link entities | `link` | `connect`, `associate`, `attach` | Enforced |
 | Configure settings | `configure` | `setup`, `config` (when configuring skills) | Enforced |
 | Health check | `check` | `ping`, `probe`, `test` (when checking liveness) | Enforced |
@@ -64,7 +64,7 @@ This document establishes the canonical verb standard for CLEO to ensure consist
 ### 1. Add (Create)
 
 **Standard**: `add`
-**Replaces**: `create`, `install`, `prepare`, `new`
+**Replaces**: `install`, `prepare`, `new`
 
 ```bash
 # CORRECT
@@ -73,9 +73,7 @@ cleo backup add
 cleo release add v1.0.0
 
 # INCORRECT
-cleo create "Task title"
-cleo backup create
-cleo release create v1.0.0
+cleo new "Task title"
 ```
 
 **MCP Usage**: `tasks.add`
@@ -85,7 +83,7 @@ cleo release create v1.0.0
 ### 2. Show (Read Single)
 
 **Standard**: `show`
-**Replaces**: `get`, `display`, `view`
+**Replaces**: `display`, `view`
 
 ```bash
 # CORRECT
@@ -93,8 +91,7 @@ cleo show T123
 cleo config show key
 
 # INCORRECT
-cleo get T123
-cleo config get key
+cleo display T123
 ```
 
 **MCP Usage**: `tasks.show`, `config.show`
@@ -104,7 +101,6 @@ cleo config get key
 ### 3. List (Read Multiple)
 
 **Standard**: `list`
-**Acceptable aliases**: `ls`
 
 ```bash
 # CORRECT
@@ -120,15 +116,13 @@ cleo session list
 ### 4. Find (Search)
 
 **Standard**: `find`
-**Replaces**: `search`, `query`
-**Acceptable aliases**: `search` (for backward compatibility)
+**Replaces**: `search`
 
 ```bash
 # CORRECT
 cleo find "keyword"
 
 # INCORRECT
-cleo query "keyword"
 cleo search "keyword"
 ```
 
@@ -158,7 +152,6 @@ cleo edit T123 --status done
 
 **Standard**: `delete`
 **Replaces**: `remove`, `rm`, `uninstall`
-**Acceptable aliases**: `rm` (for shell familiarity)
 
 ```bash
 # CORRECT
@@ -214,7 +207,6 @@ cleo uncancel T123
 
 **Standard**: `complete`
 **Replaces**: `end`, `done`, `finish`
-**Acceptable aliases**: `done` (for user familiarity)
 
 ```bash
 # CORRECT
@@ -250,19 +242,15 @@ cleo start T123
 
 **Standard**: `stop`
 **Replaces**: `focus-clear`, `tasks.stop`, `end`
-**Acceptable aliases**: `end` (for backward compatibility)
 
 ```bash
 # CORRECT
-cleo stop
-
-# INCORRECT
 cleo stop
 ```
 
 **MCP Usage**: `tasks.stop`, `session.end`
 
-**Note**: In MCP, the canonical session termination operation is `session.end`. In CLI, the canonical command is `stop` with `end` as a backward-compatible alias.
+**Note**: In MCP, the canonical session termination operation is `session.end`. In CLI, the canonical command is `stop`.
 
 ---
 
@@ -484,13 +472,13 @@ cleo audit T123
 
 ```bash
 # CORRECT
-cleo research inject --protocol research
+cleo memory inject --protocol memory
 
 # INCORRECT
 cleo insert protocol
 ```
 
-**MCP Usage**: `research.inject`, `providers.inject`, `system.inject.generate`
+**MCP Usage**: `memory.inject`, `providers.inject`, `system.inject.generate`
 
 ---
 
@@ -517,7 +505,7 @@ cleo exec tests
 ### 25. End (Terminate Session — MCP)
 
 **Standard**: `end` (MCP operation name)
-**CLI equivalent**: `stop` (with `end` as alias)
+**CLI equivalent**: `stop`
 
 **MCP Usage**: `session.end`
 
@@ -527,17 +515,17 @@ cleo exec tests
 
 **Standard**: `link`
 **Replaces**: `connect`, `associate`, `attach`
-**Scope**: Linking research entries to tasks
+**Scope**: Linking memory entries to tasks
 
 ```bash
 # CORRECT
-cleo research link R001 T123
+cleo memory link M001 T123
 
 # INCORRECT
-cleo research connect R001 T123
+cleo memory connect M001 T123
 ```
 
-**MCP Usage**: `research.link`
+**MCP Usage**: `memory.link`
 
 ---
 
@@ -630,14 +618,14 @@ cleo fix conflict T123
 
 ```bash
 # CORRECT
-cleo research unlink R001 T123
+cleo memory unlink M001 T123
 
 # INCORRECT
-cleo research disconnect R001 T123
-cleo research detach R001 T123
+cleo memory disconnect M001 T123
+cleo memory detach M001 T123
 ```
 
-**MCP Usage**: `research.unlink`
+**MCP Usage**: `memory.unlink`
 
 **Note**: `unlink` is the canonical inverse of `link`. Do not use `remove` or `delete` for dissociation.
 
@@ -793,8 +781,8 @@ cleo memory create ...
 
 ### 39. Recall (Semantic Memory Retrieval)
 
-**Canonical verb**: `recall` (CLI alias for `search` in memory context)
-**Replaces**: `find` for natural-language memory queries, `search` for semantic retrieval
+**Canonical verb**: `recall`
+**Replaces**: `search` for semantic retrieval
 **Scope**: Memory domain (BRAIN memory operations)
 
 ```bash
@@ -803,30 +791,12 @@ cleo memory recall "atomic operations pattern"
 cleo memory recall "blocker" --type pattern --limit 5
 
 # INCORRECT
-cleo memory find ...  # Use 'recall' for memory, 'find' for tasks
-cleo memory get ...
+cleo memory search ...
 ```
 
-**MCP Usage**: `memory.pattern.search`, `memory.learning.search` (MCP uses `search` internally; `recall` is CLI surface only)
+**MCP Usage**: `memory.find`, `memory.pattern.find`, `memory.learning.find` (MCP uses `find` consistently; `recall` is CLI surface only)
 
-**Rationale**: `recall` is the human-facing synonym for memory retrieval, distinct from `find` which operates on structured task data. In MCP, `search` is used for consistency with the existing query verb pattern.
-
----
-
-## Known Verb Violations
-
-All previously known violations have been resolved (T4792). The standard verbs are now canonical,
-with old verbs retained as backward-compatible aliases:
-
-| Location | Standard (canonical) | Alias (backward compat) | Status |
-|----------|---------------------|------------------------|--------|
-| `system.config.show` (query) | `config.show` | `config.get` | Fixed |
-| `tasks.restore` (mutate) | `restore` | `reopen`, `uncancel` | Fixed |
-| `system.restore` (mutate) | `restore` | `uncancel` | Fixed |
-| `issues.add.*` (mutate) | `add.bug`, `add.feature`, `add.help` | `create.bug`, `create.feature`, `create.help` | Fixed |
-| `skills.find` (query) | `find` | `search` | Fixed |
-
-New code MUST use the standard verb. Aliases are maintained for backward compatibility only.
+**Rationale**: `recall` is the human-facing synonym for memory retrieval. In MCP, the memory domain now uses `find` consistently with all other domains, eliminating the previous `search` carve-out.
 
 ---
 
@@ -896,7 +866,7 @@ schedule    Defer task to future execution
 
 ```
 start       Begin new session
-stop        End current session (alias: end)
+stop        End current session
 status      Show session status
 resume      Resume existing session
 suspend     Pause session without ending
@@ -916,28 +886,26 @@ repair      Fix data inconsistencies
 sync        Synchronize data stores
 inspect     Examine internal state
 config.set  Set config value
-config.show Get config value (config.get accepted as alias)
+config.show Get config value
 ```
 
-#### Research Operations
+#### Memory Operations
 
 ```
-show        Research entry details
-list        List research entries
-find        Find research
+show        Memory entry details
+list        List memory entries
+find        Find memory
 inject      Get protocol injection
-link        Link research to task
-unlink      Remove research-task link
-resolve     Resolve research conflicts
+link        Link memory to task
+unlink      Remove memory-task link
+resolve     Resolve memory conflicts
 compute     Compute derived values
-```
-
-#### BRAIN Memory Operations
-
-```
 store       Append-only memory write (patterns, learnings)
-recall      Semantic memory retrieval (CLI alias for search)
+recall      Semantic memory retrieval
 stats       Aggregate memory statistics
+timeline    3-layer retrieval step: chronological context around anchor
+fetch       3-layer retrieval step: full details for filtered IDs
+observe     Save observation to brain.db (mutate gateway)
 ```
 
 #### Validation Operations
@@ -952,38 +920,13 @@ test.run    Execute test suite
 
 ---
 
-## Backward Compatibility
-
-### Alias Policy
-
-- **Primary**: Standard verb (MUST be documented)
-- **Alias**: Deprecated verbs (MAY exist for compatibility)
-- **Timeline**: Aliases maintained for minimum 2 major versions
-- **Deprecation**: Aliases emit warning in verbose mode
-
-### Current Aliases
-
-| Standard | Alias | Status |
-|----------|-------|--------|
-| `backup add` | `backup create` | Supported |
-| `release add` | `release create` | Supported |
-| `session stop` | `session end` | Supported |
-| `restore task` | `restore unarchive` | Supported |
-| `restore task` | `restore reopen` | Supported |
-| `restore task` | `restore uncancel` | Supported |
-| `find` | `search` | Supported |
-| `complete` | `done` | Supported |
-| `delete` | `rm` | Supported |
-
----
-
 ## Enforcement
 
 ### Code Review Checklist
 
 - [ ] New commands use standard verbs
 - [ ] Subcommands follow naming conventions
-- [ ] Aliases documented for backward compatibility
+
 - [ ] Documentation updated with examples
 - [ ] Tests use standard verbs only
 
@@ -1000,7 +943,7 @@ test.run    Execute test suite
 ### 2026.2.27 - BRAIN Memory Verb Addition (T4763, T4780)
 
 - **Added**: `store` as 38th canonical verb for append-only BRAIN memory writes
-- **Added**: `recall` as 39th canonical verb (CLI alias for memory search)
+- **Added**: `recall` as 39th canonical verb
 - **Added**: BRAIN Memory Operations category to Verb Quick Reference
 - **Rulings**: `store` vs `add` — use `store` for memory accumulation, `add` for task creation. `recall` vs `find` — use `recall` for semantic memory retrieval, `find` for structured task search.
 - **Deferred**: `consolidate`, `predict`, `suggest`, `spawn`, `kill`, `learn`, `score` — pending Reasoning R&C outcome
@@ -1021,19 +964,18 @@ test.run    Execute test suite
 ### 2026.2.20 - Missing Verb Documentation
 
 - **Added**: 17 verbs documented: `validate`, `record`, `resume`, `suspend`, `reset`, `init`, `enable`, `disable`, `backup`, `migrate`, `verify`, `inject`, `run`, `end`, `link`, `configure`
-- **Added**: Known Verb Violations section tracking `config.get`, `reopen`, `uncancel` deviations
+- **Added**: Verb compliance tracking section for standardization monitoring
 
 ### 2026.2.5 - Verb Standardization Release
 
-- **Breaking**: None (all changes backward compatible via aliases)
 - **Changed**:
-  - `unarchive` → `restore task` (with `unarchive` alias)
-  - `reopen` → `restore task` (with `reopen` alias)
-  - `uncancel` → `restore task` (with `uncancel` alias)
-  - `backup create` → `backup add` (with `create` alias)
-  - `release create` → `release add` (with `create` alias)
-  - `session end` → `session stop` (with `end` alias)
-  - `nexus query` → `nexus show` (with `query` alias)
+  - `unarchive` → `restore task`
+  - `reopen` → `restore task`
+  - `uncancel` → `restore task`
+  - `backup create` → `backup add`
+  - `release create` → `release add`
+  - `session end` → `session stop`
+  - `nexus query` → `nexus show`
 
 ---
 

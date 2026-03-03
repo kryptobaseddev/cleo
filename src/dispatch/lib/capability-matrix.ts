@@ -185,21 +185,38 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'orchestrate', operation: 'unblock.opportunities', gateway: 'query', mode: 'native' },
   { domain: 'orchestrate', operation: 'critical.path', gateway: 'query', mode: 'native' },
 
-  // === Research Domain ===
+  // === Research Domain (legacy alias for memory) ===
+  // Memory query operations (brain.db cognitive memory — T5241)
   { domain: 'research', operation: 'show', gateway: 'query', mode: 'native' },
-  { domain: 'research', operation: 'list', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'find', gateway: 'query', mode: 'native' },
-  { domain: 'research', operation: 'pending', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'timeline', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'fetch', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'stats', gateway: 'query', mode: 'native' },
-  { domain: 'research', operation: 'manifest.read', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'contradictions', gateway: 'query', mode: 'native' },
   { domain: 'research', operation: 'superseded', gateway: 'query', mode: 'native' },
-  { domain: 'research', operation: 'inject', gateway: 'mutate', mode: 'native' },
+  { domain: 'research', operation: 'decision.find', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'pattern.find', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'pattern.stats', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'learning.find', gateway: 'query', mode: 'native' },
+  { domain: 'research', operation: 'learning.stats', gateway: 'query', mode: 'native' },
+  // Memory mutate operations (brain.db cognitive memory — T5241)
+  { domain: 'research', operation: 'observe', gateway: 'mutate', mode: 'native' },
+  { domain: 'research', operation: 'decision.store', gateway: 'mutate', mode: 'native' },
+  { domain: 'research', operation: 'pattern.store', gateway: 'mutate', mode: 'native' },
+  { domain: 'research', operation: 'learning.store', gateway: 'mutate', mode: 'native' },
   { domain: 'research', operation: 'link', gateway: 'mutate', mode: 'native' },
-  { domain: 'research', operation: 'manifest.append', gateway: 'mutate', mode: 'native' },
-  { domain: 'research', operation: 'manifest.archive', gateway: 'mutate', mode: 'native' },
-  { domain: 'research', operation: 'compact', gateway: 'mutate', mode: 'native' },
-  { domain: 'research', operation: 'validate', gateway: 'mutate', mode: 'native' },
+
+  // === Pipeline Manifest Operations (T5241 — moved from research/memory) ===
+  { domain: 'pipeline', operation: 'manifest.show', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'manifest.list', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'manifest.find', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'manifest.pending', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'manifest.stats', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'manifest.append', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'manifest.archive', gateway: 'mutate', mode: 'native' },
+
+  // === Session Context Injection (T5241 — moved from research/memory) ===
+  { domain: 'session', operation: 'context.inject', gateway: 'mutate', mode: 'native' },
 
   // === Lifecycle Domain ===
   { domain: 'lifecycle', operation: 'validate', gateway: 'query', mode: 'native' },

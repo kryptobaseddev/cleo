@@ -24,7 +24,7 @@
 | Feature | Status | Task IDs | Details |
 |---|---|---|---|
 | Shared-Core Architecture | `shipped` | - | CLI and MCP route through shared business logic in src/core |
-| MCP Primary Interface | `shipped` | - | 2 MCP tools across 10 domains and 198 canonical operations |
+| MCP Primary Interface | `shipped` | - | 2 MCP tools across 10 domains and 201 canonical operations |
 | CLI Backup Interface | `shipped` | - | 86 commands for human and fallback workflows |
 
 ## BRAIN Memory System
@@ -34,7 +34,7 @@
 | Feature | Status | Task IDs | Details |
 |---|---|---|---|
 | brain.db Foundation | `shipped` | - | Decisions, patterns, learnings, observations, memory links, schema metadata |
-| 3-Layer Retrieval | `shipped` | - | memory brain.search, memory brain.timeline, memory brain.fetch, plus brain.observe |
+| 3-Layer Retrieval | `shipped` | - | memory find, memory timeline, memory fetch, plus memory observe |
 | SQLite-vec Loader | `shipped` | - | Extension loading and vec0 table initialization with graceful fallback |
 | Cognitive Infrastructure Closure | `in-progress` | T5241 | End-to-end parity and closure work across BRAIN and NEXUS epics |
 | Embedding Generation Pipeline | `planned` | T5158, T5159 | Vector generation and semantic KNN retrieval |

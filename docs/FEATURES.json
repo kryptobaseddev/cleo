@@ -22,7 +22,7 @@
           "id": "mcp-primary-interface",
           "name": "MCP Primary Interface",
           "status": "shipped",
-          "details": "2 MCP tools across 10 domains and 198 canonical operations"
+          "details": "2 MCP tools across 10 domains and 201 canonical operations"
         },
         {
           "id": "cli-backup-interface",
@@ -47,7 +47,7 @@
           "id": "brain-3-layer-retrieval",
           "name": "3-Layer Retrieval",
           "status": "shipped",
-          "details": "memory brain.search, memory brain.timeline, memory brain.fetch, plus brain.observe"
+          "details": "memory find, memory timeline, memory fetch, plus memory observe"
         },
         {
           "id": "sqlite-vec-loader",

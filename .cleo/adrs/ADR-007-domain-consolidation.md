@@ -89,7 +89,7 @@ The following domain models were evaluated during T4797 research:
 
 ## 3. Decision
 
-**CLEO SHALL consolidate 11 MCP domains into 10 intent-based domains** (9 project-local + 1 global) aligned with CLEO's Brain/Memory identity, progressive disclosure tiers, RCSD-IVTR pipeline, and BRAIN specification forward compatibility. (Originally 9 domains; the sharing domain was added by ADR-015.)
+**CLEO SHALL consolidate 11 MCP domains into 10 intent-based domains** (9 project-local + 1 global) aligned with CLEO's Brain/Memory identity, progressive disclosure tiers, RCASD-IVTR pipeline, and BRAIN specification forward compatibility. (Originally 9 domains; the sharing domain was added by ADR-015.)
 
 **ADDITIONALLY, CLEO SHALL mandate that ALL operations (CLI and MCP) MUST route through the unified CQRS dispatch layer** at `src/dispatch/`, eliminating the parallel DomainRouter architecture.
 
@@ -99,9 +99,9 @@ The following domain models were evaluated during T4797 research:
 |---|--------|---------|---------------|-------------|------|-----|
 | 1 | **tasks** | Task CRUD, hierarchy, start/stop/current, analysis, labels | Neurons | Portable Memory | 0 | ~29 |
 | 2 | **session** | Session lifecycle, decisions, assumptions, context | Working Memory | Portable Memory | 0 | 13 |
-| 3 | **memory** | Research manifests, knowledge store, retrieval | Long-term Memory | Cognitive Retrieval | 1 | 12 |
+| 3 | **memory** | BRAIN cognitive memory — brain.db abstractions (observations, decisions, patterns, learnings) | Long-term Memory | Cognitive Retrieval | 1 | 17 |
 | 4 | **check** | CLEO validation + project quality assurance | Immune System | Deterministic Safety | 1 | 12 |
-| 5 | **pipeline** | RCSD-IVTR state machine + release execution | Executive Pipeline | Provenance | 2 | ~17 |
+| 5 | **pipeline** | RCASD-IVTR state machine + release execution + LOOM artifact ledger (manifest.*) | Executive Pipeline | Provenance | 2 | ~24 |
 | 6 | **orchestrate** | Multi-agent coordination, spawning, waves | Executive Function | Agent Coordination | 2 | ~15 |
 | 7 | **tools** | Skills, providers, issue management | Capabilities | Interoperable Interfaces | 2 | ~20 |
 | 8 | **admin** | System config, backup, migration, observability | Autonomic System | Infrastructure | 2 | ~20 |
@@ -483,7 +483,7 @@ Pass│          │Fail
 - Implementation: `tasks` (work tracking) + `orchestrate` (agent coordination)
 - Validation: `check` domain (quality gates)
 - Testing: `check` domain (test execution)
-- Release: `pipeline` domain (RCSD-IVTR state + release execution)
+- Release: `pipeline` domain (RCASD-IVTR state + release execution)
 
 ### 3.8 Domain Consolidation Mapping
 
@@ -581,12 +581,16 @@ The 5 BRAIN dimensions map to the 9 canonical domains as follows. This table cov
 | Operation | Domain | Phase | Status |
 |-----------|--------|-------|--------|
 | Task/session persistence | `tasks.*`, `session.*` | Current | Shipped |
-| Research artifacts | `memory.manifest.*` | Current | Shipped |
+| Research artifacts | `pipeline.manifest.*` | Current | **Shipped (moved from memory, ADR-021)** |
 | Contradiction detection | `memory.contradictions` | Current | Shipped |
+| 3-layer retrieval: find | `memory.find` | Current | **Shipped (T5149/T5241)** |
+| 3-layer retrieval: timeline | `memory.timeline` | Current | **Shipped (T5149/T5241)** |
+| 3-layer retrieval: fetch | `memory.fetch` | Current | **Shipped (T5149/T5241)** |
+| Observation write | `memory.observe` | Current | **Shipped (T5149/T5241)** |
 | Context persistence | `session.context.*` | 1 | Planned |
-| Decision memory (store/recall/search) | `memory.decision.*` | 2 | Planned |
-| Pattern memory (store/extract/search) | `memory.pattern.*` | 2 | Planned |
-| Learning memory (store/search) | `memory.learning.*` | 3 | Planned |
+| Decision memory (store/find) | `memory.decision.*` | 2 | **Shipped (T5149)** |
+| Pattern memory (store/find/stats) | `memory.pattern.*` | 2 | **Shipped (T4768/T5241)** |
+| Learning memory (store/find/stats) | `memory.learning.*` | 3 | **Shipped (T4769/T5241)** |
 | Memory consolidation | `memory.consolidate` | 3 | Planned |
 | Memory export/import (JSONL portability) | `memory.export`, `memory.import` | 2 | Planned |
 
@@ -937,5 +941,7 @@ This ADR formalizes the consensus reached in T4797 (Domain Model Research). The 
 ---
 
 **[T4894, 2026-02-25]** Schema-first `ParamDef[]` interface added to `OperationDef` in `src/dispatch/registry.ts`, making the registry the single source of truth for both CLI Commander registration and MCP `input_schema` generation. Utility functions in `src/dispatch/lib/param-utils.ts` derive Commander arguments and JSON Schema from `ParamDef[]` automatically. Dynamic CLI registration implemented via `registerDynamicCommands()` in `src/cli/commands/dynamic.ts`, adding domain-namespaced commands (`ct tasks show`, `ct session status`, etc.) alongside legacy flat commands during the transition period. MCP gateway fully integrated with dispatch adapter — `src/mcp/index.ts` routes all `cleo_query`/`cleo_mutate` calls through `handleMcpToolCall()` in `src/dispatch/adapters/mcp.ts`. CLI migration completed for 36 command files through T4903 (Tier-0) and T4904 (Tier-1/2); 28 CLI commands have `// TODO T4894` markers pending registry operation creation.
+
+**Amended By**: ADR-021 (Memory Domain Refactor — Cognitive-Only Cutover, 2026-03-03)
 
 **END OF ADR-007**

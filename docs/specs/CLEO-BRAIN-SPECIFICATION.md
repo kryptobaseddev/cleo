@@ -89,12 +89,12 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 **BRAIN Database (SHIPPED)**:
 - **brain.db**: Dedicated SQLite database at `.cleo/brain.db` with Drizzle ORM schema (`src/store/brain-schema.ts`)
 - **Decision memory**: `brain_decisions` table — SHIPPED in brain.db
-- **Pattern memory**: `brain_patterns` table — SHIPPED in brain.db (legacy JSONL still present)
-- **Learning memory**: `brain_learnings` table — SHIPPED in brain.db (legacy JSONL still present)
+- **Pattern memory**: `brain_patterns` table — SHIPPED in brain.db
+- **Learning memory**: `brain_learnings` table — SHIPPED in brain.db
 - **Observations**: `brain_observations` table — SHIPPED in brain.db (5,122 entries migrated from claude-mem)
 - **Memory links**: `brain_memory_links` table — SHIPPED in brain.db (cross-references to tasks.db)
-- **3-layer retrieval**: search/timeline/fetch pattern — SHIPPED via MCP (`memory brain.search`, `memory brain.timeline`, `memory brain.fetch`)
-- **Observe**: `memory brain.observe` — SHIPPED via MCP mutate gateway
+- **3-layer retrieval**: find/timeline/fetch pattern — SHIPPED via MCP (`memory find`, `memory timeline`, `memory fetch`)
+- **Observe**: `memory observe` — SHIPPED via MCP mutate gateway
 - **Session continuity**: Shipped via session chains and handoff/briefing system (ADR-020)
 
 **Remaining gaps**:
@@ -1597,6 +1597,7 @@ All 5 dimensions MUST meet certification criteria:
 - **docs/specs/MCP-SERVER-SPECIFICATION.md**: MCP architecture (prepares for Agent enhancements)
 - **docs/specs/CLEO-NEXUS-SPEC.md**: Network dimension architecture
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCASD-IVTR lifecycle
+- **docs/specs/CLEO-SYSTEM-FLOW-ATLAS.md**: Canonical Information Flow diagram
 
 ### 7.3 Architecture
 

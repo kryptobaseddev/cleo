@@ -132,7 +132,7 @@ describe('E2E: Research Workflow', () => {
 
   it('should handle research archiving', async () => {
     // Archive old research entries - requires beforeDate parameter in the MCP layer
-    // The CLI archive command maps to manifest.archive which requires beforeDate
+    // The CLI archive command maps to pipeline.manifest.archive which requires beforeDate
     const archiveResult = await context.executor.execute({
       domain: 'research',
       operation: 'archive',

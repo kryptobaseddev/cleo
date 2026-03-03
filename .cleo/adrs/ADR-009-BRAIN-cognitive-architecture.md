@@ -79,9 +79,11 @@ N — Network (Cross-Project Coordination Layer)
     The global scope that connects project-local brains.
 ```
 
+**Clarification (ADR-021)**: B-R-A-I-N is an **informative conceptual lens**, not a runtime model. The 10 canonical domains (ADR-007) are the runtime contract. BRAIN dimensions help reason about capability groupings, but all operations are addressed by domain and operation name at runtime (e.g., `memory.find`, not `brain.search`).
+
 ### 2.4 BRAIN Dimension to Domain Mapping
 
-Each BRAIN dimension maps to one or more of the 9 canonical domains (ADR-007):
+Each BRAIN dimension maps to one or more of the 10 canonical domains (ADR-007; sharing added by ADR-015):
 
 | BRAIN Dimension | Primary Domain | Secondary Domains | Scope |
 |-----------------|---------------|-------------------|-------|
@@ -286,7 +288,7 @@ This section provides the comprehensive mapping of all BRAIN capabilities to the
 |------------|-----------------|-------|--------|
 | Task persistence | `tasks.*` | Current | Shipped |
 | Session state | `session.*` | Current | Shipped |
-| Research artifacts | `memory.manifest.*` | Current | Shipped |
+| Research artifacts | `pipeline.manifest.*` | Current | **Shipped (moved from memory, ADR-021)** |
 | **ADR memory store** | `admin.adr.sync` | Current | **Shipped (T4792)** |
 | **ADR memory search** | `admin.adr.find` | Current | **Shipped (T4942)** |
 | **ADR task linking** | `adr_task_links` DB table | Current | **Shipped (T4942)** |
@@ -294,19 +296,21 @@ This section provides the comprehensive mapping of all BRAIN capabilities to the
 | **Session briefing** | `session.briefing.show` | Current | **Shipped (T4916)** |
 | **Composite planning view** | `tasks.plan` | Current | **Shipped (T4914)** |
 | **Pipeline validation (SQLite)** | `pipeline.*` (init, advance, complete, cancel, list, stats) | Current | **Shipped (T4912)** |
+| **3-layer retrieval: find** | `memory.find` | Current | **Shipped (T5149/T5241)** |
+| **3-layer retrieval: timeline** | `memory.timeline` | Current | **Shipped (T5149/T5241)** |
+| **3-layer retrieval: fetch** | `memory.fetch` | Current | **Shipped (T5149/T5241)** |
+| **Observation write** | `memory.observe` | Current | **Shipped (T5149/T5241)** |
 | Context persistence | `session.context.*` | 1 | Planned |
-| Decision memory store | `memory.decision.store` | 2 | Planned |
-| Decision memory recall | `memory.decision.recall` | 2 | Planned |
-| Decision memory search | `memory.decision.search` | 2 | Planned |
+| Decision memory store | `memory.decision.store` | 2 | **Shipped (T5149)** |
+| Decision memory find | `memory.decision.find` | 2 | **Shipped (T5149/T5241)** |
 | Pattern memory store | `memory.pattern.store` | 2 | **Shipped (T4768)** |
-| Pattern memory extract | `memory.pattern.extract` | 2 | Planned |
-| Pattern memory search | `memory.pattern.search` | 2 | **Shipped (T4768)** |
+| Pattern memory find | `memory.pattern.find` | 2 | **Shipped (T4768/T5241)** |
 | Pattern memory stats | `memory.pattern.stats` | 2 | **Shipped (T4768)** |
 | Learning memory store | `memory.learning.store` | 3 | **Shipped (T4769)** |
-| Learning memory search | `memory.learning.search` | 3 | **Shipped (T4769)** |
+| Learning memory find | `memory.learning.find` | 3 | **Shipped (T4769/T5241)** |
 | Learning memory stats | `memory.learning.stats` | 3 | **Shipped (T4769)** |
 | Memory consolidation | `memory.consolidate` | 3 | Planned |
-| Temporal queries | `memory.search` (with date filters) | 2 | Planned |
+| Temporal queries | `memory.find` (with date filters) | 2 | Planned |
 | Memory export (JSONL) | `memory.export` | 2 | Planned |
 | Memory import (JSONL) | `memory.import` | 2 | Planned |
 | Contradiction detection | `memory.contradictions` | Current | Shipped |
@@ -535,10 +539,10 @@ The second BRAIN implementation phase delivers the **pattern memory** and **lear
 | Graph systems audit | T4767 | `.cleo/rcsd/T4767_graph-systems-audit.md` |
 | Bootstrap/decision refactor verification | T4764, T4765 | Already completed by T4784, T4782 |
 
-**Storage Model** (interim):
-- Runtime store: JSONL files at `.cleo/memory/patterns.jsonl` and `.cleo/memory/learnings.jsonl`
-- Export format: Same JSONL, validated against `schemas/brain-*.schema.json`
-- Future: SQLite `brain_patterns` and `brain_learnings` tables per ADR-009 Section 3.2
+**Storage Model** (current):
+- Runtime store: SQLite `brain.db` — `brain_patterns` and `brain_learnings` tables (migrated from JSONL in T5149)
+- Export format: JSONL, validated against `schemas/brain-*.schema.json`
+- Legacy: JSONL files at `.cleo/memory/patterns.jsonl` and `.cleo/memory/learnings.jsonl` (retired)
 
 **MCP Operations Added**:
 - `memory.pattern.store` (mutate) — Store or increment a pattern entry
@@ -559,7 +563,7 @@ The second BRAIN implementation phase delivers the **pattern memory** and **lear
 | **Pattern Memory system** | `memory.pattern.store/search/stats` via JSONL + MCP + CLI | P1 | **Done (T4768)** |
 | **Learning Memory system** | `memory.learning.store/search/stats` via JSONL + MCP + CLI | P1 | **Done (T4769)** |
 | **Memory CLI commands** | `cleo memory store/recall/stats` CLI + MCP dispatch wiring | P1 | **Done (T4770)** |
-| **BRAIN SQLite tables** | Migrate brain_decisions/patterns/learnings from JSONL to SQLite | P2 | Pending |
+| **BRAIN SQLite tables** | Migrate brain_decisions/patterns/learnings from JSONL to SQLite | P2 | **Done (T5149)** |
 | **Reasoning R&C** | Research how LLM agents would use reasoning operations; consensus on domain placement | P2 | Pending |
 | **Pipeline stage fix** | Verify ADR-006 lifecycle_stages CHECK constraint matches 9-stage RCASD model | P1 | **Done (T4863)** |
 | **BRAIN Spec update** | Align CLEO-BRAIN-SPECIFICATION.md storage references with ADR-006/ADR-009 hybrid model | P2 | Pending |
@@ -603,5 +607,9 @@ Most agents never need BRAIN features. They are opt-in capabilities for complex 
 Before CLEO can claim "BRAIN" capability status, all 5 dimensions MUST pass certification criteria defined in CLEO-STRATEGIC-ROADMAP-SPEC.md Section 3.6 (Phase 3.5). This requires HITL sign-off.
 
 ---
+
+**Amended By**: ADR-021 (Memory Domain Refactor — Cognitive-Only Cutover, 2026-03-03)
+
+**See Also**: CLEO-SYSTEM-FLOW-ATLAS.md for the Information Flow diagram showing how data moves between domains at runtime.
 
 **END OF ADR-009**

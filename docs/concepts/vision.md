@@ -187,11 +187,11 @@ BRAIN distinguishes between **raw artifacts** (session transcripts, code diffs, 
 
 BRAIN implements a progressive retrieval workflow (inspired by claude-mem) that achieves ~10x token savings over traditional RAG:
 
-1. **Search** (`memory brain.search`) — Returns a compact index with IDs and titles (~50-100 tokens per result)
-2. **Timeline** (`memory brain.timeline`) — Shows chronological context around interesting results
-3. **Fetch** (`memory brain.fetch`) — Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
+1. **Find** (`memory find`) — Returns a compact index with IDs and titles (~50-100 tokens per result)
+2. **Timeline** (`memory timeline`) — Shows chronological context around interesting results
+3. **Fetch** (`memory fetch`) — Retrieves full details ONLY for pre-filtered IDs (~500-1000 tokens each)
 
-The agent manages its own token budget by deciding what to fetch based on relevance. Saving new observations uses `memory brain.observe` via the mutate gateway.
+The agent manages its own token budget by deciding what to fetch based on relevance. Saving new observations uses `memory observe` via the mutate gateway.
 
 ### Knowledge Graph [GATED]
 
@@ -217,7 +217,7 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 ### Current State vs Target
 
-**Shipped**: `brain.db` (5 tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory.brain.search / timeline / fetch), memory.brain.observe, 22 MCP operations, 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG, 3713+ tests
+**Shipped**: `brain.db` (5 tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 201 MCP operations (112 query + 89 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG
 
 **In Progress**: SQLite-vec integration (T5157), NEXUS MCP wiring (nexus-wirer), PageIndex graph tables (T5160)
 
@@ -494,7 +494,7 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `src/core/`:
 
-- **MCP (Primary)**: 2 tools (`cleo_query`, `cleo_mutate`), 198 operations across 10 domains — the agent interface
+- **MCP (Primary)**: 2 tools (`cleo_query`, `cleo_mutate`), 201 operations across 10 domains — the agent interface
 - **CLI (Backup)**: 86 commands via Commander.js — the human interface
 - **src/core/ (Canonical)**: All business logic. Both MCP and CLI delegate here
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics

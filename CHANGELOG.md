@@ -5,6 +5,29 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Memory domain refactor — clean break from legacy aliases (T5241)** — Complete domain consolidation with architectural cleanup:
+  - Removed `LEGACY_DOMAIN_ALIASES` — clean break from legacy domain naming
+  - Migrated patterns/learnings storage from JSONL to `brain.db` SQLite
+  - Removed alias resolution from MCP adapter layer
+  - Updated `VERB-STANDARDS.md` — removed legacy references and canonicalized verb documentation
+  - Updated `operation-constitution.schema.json` — full validation coverage for all 201 operations
+  - Reworked CLI help system to group commands by domain with cleaner organization
+  - Consolidated memory domain operations under canonical `memory.*` namespace
+  - Added pipeline manifest compatibility layer for seamless RCASD integration
+  - Improved session context injection with better type safety
+
+### Documentation
+
+- Added `CLEO-OPERATION-CONSTITUTION.md` — canonical specification mapping all 201 MCP operations to CLI equivalents
+- Added `CLEO-SYSTEM-FLOW-ATLAS.md` — comprehensive system flow visualization documentation
+- Added ADR-021 documenting the memory domain refactor decisions and migration path
+
+---
+
 ## [2026.3.12] - 2026-03-03
 
 ### Added

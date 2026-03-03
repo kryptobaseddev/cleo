@@ -1,13 +1,14 @@
 /**
- * Memory Domain Handler (Dispatch Layer)
+ * Memory Domain Handler (Dispatch Layer) — Brain.db Cognitive Memory
  *
- * Consolidates MCP research domain operations into the canonical "memory"
- * domain. Handles research manifest CRUD, research queries, contradiction
- * detection, supersession tracking, and protocol injection.
+ * Handles brain.db-backed cognitive memory operations: observations, decisions,
+ * patterns, learnings, and the 3-layer retrieval protocol (find/timeline/fetch).
  *
- * All operations delegate to native engine functions from research-engine.
+ * Manifest/pipeline operations have been moved to the pipeline domain.
+ * Context injection has been moved to sessions/context-inject.ts.
  *
- * @epic T4820
+ * @task T5241
+ * @epic T5149
  */
 
 import type { DomainHandler, DispatchResponse } from '../types.js';
@@ -16,32 +17,31 @@ import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 
 import {
+  // Brain.db cognitive memory operations
   memoryShow,
-  memoryList,
-  memoryQuery,
-  memoryPending,
-  memoryStats,
-  memoryManifestRead,
+  memoryFind,
+  memoryTimeline,
+  memoryFetch,
+  memoryObserve,
+  memoryBrainStats,
+  memoryDecisionFind,
+  memoryDecisionStore,
+  // Pattern operations (renamed)
+  memoryPatternFind,
+  memoryPatternStore,
+  memoryPatternStats,
+  // Learning operations (renamed)
+  memoryLearningFind,
+  memoryLearningStore,
+  memoryLearningStats,
+  // Brain memory linking and analysis
   memoryContradictions,
   memorySuperseded,
-  memoryInject,
   memoryLink,
-  memoryManifestAppend,
-  memoryManifestArchive,
-  // BRAIN memory operations (T4770)
-  memoryPatternStore,
-  memoryPatternSearch,
-  memoryPatternStats,
-  memoryLearningStore,
-  memoryLearningSearch,
-  memoryLearningStats,
-  // BRAIN retrieval operations (T5131-T5135)
-  memoryBrainSearch,
-  memoryBrainTimeline,
-  memoryBrainFetch,
-  memoryBrainObserve,
 } from '../../core/memory/engine-compat.js';
 
+// ---------------------------------------------------------------------------
+// Memory Handler Class
 // ---------------------------------------------------------------------------
 // MemoryHandler
 // ---------------------------------------------------------------------------
@@ -70,15 +70,7 @@ export class MemoryHandler implements DomainHandler {
           if (!entryId) {
             return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'entryId is required', startTime);
           }
-          const result = memoryShow(entryId, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        case 'list': {
-          const result = memoryList(
-            (params ?? {}) as Parameters<typeof memoryList>[0],
-            this.projectRoot,
-          );
+          const result = await memoryShow(entryId, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -87,48 +79,82 @@ export class MemoryHandler implements DomainHandler {
           if (!query) {
             return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
           }
-          const result = memoryQuery(
-            query,
-            { confidence: params?.confidence as number | undefined, limit: params?.limit as number | undefined },
+          const result = await memoryFind(
+            {
+              query,
+              limit: params?.limit as number | undefined,
+              tables: params?.tables as string[] | undefined,
+              dateStart: params?.dateStart as string | undefined,
+              dateEnd: params?.dateEnd as string | undefined,
+            },
             this.projectRoot,
           );
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
-        case 'pending': {
-          const result = memoryPending(params?.epicId as string | undefined, this.projectRoot);
+        case 'timeline': {
+          const anchor = params?.anchor as string;
+          if (!anchor) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'anchor is required', startTime);
+          }
+          const result = await memoryTimeline(
+            {
+              anchor,
+              depthBefore: params?.depthBefore as number | undefined,
+              depthAfter: params?.depthAfter as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'fetch': {
+          const ids = params?.ids as string[] | undefined;
+          if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'ids is required (non-empty array)', startTime);
+          }
+          const result = await memoryFetch({ ids }, this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
         case 'stats': {
-          const result = memoryStats(params?.epicId as string | undefined, this.projectRoot);
+          const result = await memoryBrainStats(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
-        case 'manifest.read': {
-          const result = memoryManifestRead(
-            params as Parameters<typeof memoryManifestRead>[0],
+        case 'contradictions': {
+          const result = await memoryContradictions(this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'superseded': {
+          const result = await memorySuperseded(
+            {
+              type: params?.type as string | undefined,
+              project: params?.project as string | undefined,
+            },
             this.projectRoot,
           );
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
-        case 'contradictions': {
-          const result = memoryContradictions(this.projectRoot, params as { topic?: string } | undefined);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        case 'superseded': {
-          const result = memorySuperseded(this.projectRoot, params as { topic?: string } | undefined);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        // BRAIN memory query operations (T4770)
-        case 'pattern.search': {
-          const result = memoryPatternSearch(
+        case 'decision.find': {
+          const result = await memoryDecisionFind(
             {
-              type: params?.type as Parameters<typeof memoryPatternSearch>[0]['type'],
-              impact: params?.impact as Parameters<typeof memoryPatternSearch>[0]['impact'],
+              query: params?.query as string | undefined,
+              taskId: params?.taskId as string | undefined,
+              limit: params?.limit as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'pattern.find': {
+          const result = await memoryPatternFind(
+            {
+              type: params?.type as Parameters<typeof memoryPatternFind>[0]['type'],
+              impact: params?.impact as Parameters<typeof memoryPatternFind>[0]['impact'],
               query: params?.query as string | undefined,
               minFrequency: params?.minFrequency as number | undefined,
               limit: params?.limit as number | undefined,
@@ -139,12 +165,12 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'pattern.stats': {
-          const result = memoryPatternStats(this.projectRoot);
+          const result = await memoryPatternStats(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
-        case 'learning.search': {
-          const result = memoryLearningSearch(
+        case 'learning.find': {
+          const result = await memoryLearningFind(
             {
               query: params?.query as string | undefined,
               minConfidence: params?.minConfidence as number | undefined,
@@ -158,51 +184,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'learning.stats': {
-          const result = memoryLearningStats(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        // BRAIN retrieval query operations (T5131-T5135)
-        case 'brain.search': {
-          const query = params?.query as string;
-          if (!query) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
-          }
-          const result = await memoryBrainSearch(
-            {
-              query,
-              limit: params?.limit as number | undefined,
-              tables: params?.tables as string[] | undefined,
-              dateStart: params?.dateStart as string | undefined,
-              dateEnd: params?.dateEnd as string | undefined,
-            },
-            this.projectRoot,
-          );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        case 'brain.timeline': {
-          const anchor = params?.anchor as string;
-          if (!anchor) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'anchor is required', startTime);
-          }
-          const result = await memoryBrainTimeline(
-            {
-              anchor,
-              depthBefore: params?.depthBefore as number | undefined,
-              depthAfter: params?.depthAfter as number | undefined,
-            },
-            this.projectRoot,
-          );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        case 'brain.fetch': {
-          const ids = params?.ids as string[] | undefined;
-          if (!ids || !Array.isArray(ids) || ids.length === 0) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'ids is required (non-empty array)', startTime);
-          }
-          const result = await memoryBrainFetch({ ids }, this.projectRoot);
+          const result = await memoryLearningStats(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -226,55 +208,51 @@ export class MemoryHandler implements DomainHandler {
 
     try {
       switch (operation) {
-        case 'inject': {
-          const protocolType = params?.protocolType as string;
-          if (!protocolType) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'protocolType is required', startTime);
+        case 'observe': {
+          const text = params?.text as string;
+          if (!text) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'text is required', startTime);
           }
-          const result = memoryInject(
-            protocolType,
-            { taskId: params?.taskId as string | undefined, variant: params?.variant as string | undefined },
+          const result = await memoryObserve(
+            {
+              text,
+              title: params?.title as string | undefined,
+              type: params?.type as string | undefined,
+              project: params?.project as string | undefined,
+              sourceSessionId: params?.sourceSessionId as string | undefined,
+              sourceType: params?.sourceType as string | undefined,
+            },
             this.projectRoot,
           );
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
-        case 'link': {
-          const taskId = params?.taskId as string;
-          const entryId = params?.entryId as string;
-          if (!taskId || !entryId) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'taskId and entryId are required', startTime);
+        case 'decision.store': {
+          const decision = params?.decision as string;
+          const rationale = params?.rationale as string;
+          if (!decision || !rationale) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'decision and rationale are required', startTime);
           }
-          const result = memoryLink(taskId, entryId, params?.notes as string | undefined, this.projectRoot);
+          const result = await memoryDecisionStore(
+            {
+              decision,
+              rationale,
+              alternatives: params?.alternatives as string[] | undefined,
+              taskId: params?.taskId as string | undefined,
+              sessionId: params?.sessionId as string | undefined,
+            },
+            this.projectRoot,
+          );
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
-        case 'manifest.append': {
-          const entry = params?.entry as Parameters<typeof memoryManifestAppend>[0];
-          if (!entry) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'entry is required', startTime);
-          }
-          const result = memoryManifestAppend(entry, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
-        }
-
-        case 'manifest.archive': {
-          const beforeDate = params?.beforeDate as string;
-          if (!beforeDate) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'beforeDate is required (ISO-8601: YYYY-MM-DD)', startTime);
-          }
-          const result = memoryManifestArchive(beforeDate, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
-        }
-
-        // BRAIN memory mutate operations (T4770)
         case 'pattern.store': {
           const patternText = params?.pattern as string;
           const context = params?.context as string;
           if (!patternText || !context) {
             return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'pattern and context are required', startTime);
           }
-          const result = memoryPatternStore(
+          const result = await memoryPatternStore(
             {
               type: (params?.type as Parameters<typeof memoryPatternStore>[0]['type']) || 'workflow',
               pattern: patternText,
@@ -296,7 +274,7 @@ export class MemoryHandler implements DomainHandler {
           if (!insight || !source) {
             return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'insight and source are required', startTime);
           }
-          const result = memoryLearningStore(
+          const result = await memoryLearningStore(
             {
               insight,
               source,
@@ -310,21 +288,14 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
-        // BRAIN retrieval mutate operations (T5131-T5135)
-        case 'brain.observe': {
-          const text = params?.text as string;
-          if (!text) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'text is required', startTime);
+        case 'link': {
+          const taskId = params?.taskId as string;
+          const entryId = params?.entryId as string;
+          if (!taskId || !entryId) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'taskId and entryId are required', startTime);
           }
-          const result = await memoryBrainObserve(
-            {
-              text,
-              title: params?.title as string | undefined,
-              type: params?.type as string | undefined,
-              project: params?.project as string | undefined,
-              sourceSessionId: params?.sourceSessionId as string | undefined,
-              sourceType: params?.sourceType as string | undefined,
-            },
+          const result = await memoryLink(
+            { taskId, entryId },
             this.projectRoot,
           );
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
@@ -344,8 +315,8 @@ export class MemoryHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['show', 'list', 'find', 'pending', 'stats', 'manifest.read', 'contradictions', 'superseded', 'pattern.search', 'pattern.stats', 'learning.search', 'learning.stats', 'brain.search', 'brain.timeline', 'brain.fetch'],
-      mutate: ['inject', 'link', 'manifest.append', 'manifest.archive', 'pattern.store', 'learning.store', 'brain.observe'],
+      query: ['show', 'find', 'timeline', 'fetch', 'stats', 'contradictions', 'superseded', 'decision.find', 'pattern.find', 'pattern.stats', 'learning.find', 'learning.stats'],
+      mutate: ['observe', 'decision.store', 'pattern.store', 'learning.store', 'link'],
     };
   }
 

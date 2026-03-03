@@ -1,0 +1,438 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CLEO Operation Constitution",
+  "description": "Validates the complete CLEO Operation Constitution document including the full registry, gateway matrices, and domain tables",
+  "type": "object",
+  "required": ["schemaVersion", "metadata", "registry", "gateways", "domains"],
+  "additionalProperties": false,
+  "definitions": {
+    "Gateway": {
+      "type": "string",
+      "enum": ["query", "mutate"],
+      "description": "CQRS gateway: read-only queries or state-changing mutations"
+    },
+    "CanonicalDomain": {
+      "type": "string",
+      "enum": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sharing"],
+      "description": "One of 10 canonical CLEO domains"
+    },
+    "Tier": {
+      "type": "integer",
+      "enum": [0, 1, 2],
+      "description": "Progressive disclosure tier: 0=basic, 1=extended, 2=full"
+    },
+    "ParamDef": {
+      "type": "object",
+      "required": ["name", "type", "required", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9]*$",
+          "description": "Canonical camelCase parameter name"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "array"],
+          "description": "Runtime value type"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether parameter is required"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description"
+        },
+        "cli": {
+          "type": "object",
+          "properties": {
+            "positional": { "type": "boolean" },
+            "short": { "type": "string", "pattern": "^-[a-zA-Z]$" },
+            "flag": { "type": "string" },
+            "variadic": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "mcp": {
+          "type": "object",
+          "properties": {
+            "hidden": { "type": "boolean" },
+            "enum": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "OperationDef": {
+      "type": "object",
+      "required": ["gateway", "domain", "operation", "description", "tier", "idempotent", "sessionRequired", "requiredParams"],
+      "properties": {
+        "gateway": { "$ref": "#/definitions/Gateway" },
+        "domain": { "$ref": "#/definitions/CanonicalDomain" },
+        "operation": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$",
+          "description": "Dot-notation operation name (e.g. 'show', 'stage.validate')"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Brief human-readable description of the operation"
+        },
+        "tier": { "$ref": "#/definitions/Tier" },
+        "idempotent": {
+          "type": "boolean",
+          "description": "Whether the operation is safe to retry without side effects"
+        },
+        "sessionRequired": {
+          "type": "boolean",
+          "description": "Whether the operation requires an active session"
+        },
+        "requiredParams": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+          },
+          "description": "Parameter keys that MUST be present in the request"
+        },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ParamDef" },
+          "description": "Full parameter descriptors (optional, replaces requiredParams when populated)"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+          },
+          "description": "Backward-compatible operation name aliases"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d{4}\\.\\d+\\.\\d+$",
+      "description": "Constitution schema version (e.g. '2026.3.3')"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["version", "status", "date", "totalOperations", "gateways", "domains"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Constitution document version"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "APPROVED", "DEPRECATED"],
+          "description": "Constitution approval status"
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Constitution approval date (ISO 8601)"
+        },
+        "task": {
+          "type": "string",
+          "pattern": "^T\\d+$",
+          "description": "Associated task ID (e.g. 'T5241')"
+        },
+        "supersedes": {
+          "type": "string",
+          "description": "Document this constitution supersedes"
+        },
+        "totalOperations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total number of operations in registry"
+        },
+        "gateways": {
+          "type": "object",
+          "required": ["query", "mutate"],
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of query operations"
+            },
+            "mutate": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of mutate operations"
+            }
+          }
+        },
+        "domains": {
+          "type": "object",
+          "required": ["count", "names"],
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Number of canonical domains"
+            },
+            "names": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/CanonicalDomain" },
+              "minItems": 10,
+              "maxItems": 10,
+              "description": "List of all canonical domain names"
+            }
+          }
+        }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "required": ["operations"],
+      "additionalProperties": false,
+      "properties": {
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/OperationDef" },
+          "minItems": 1,
+          "description": "All 201 operations in the registry"
+        }
+      }
+    },
+    "gateways": {
+      "type": "object",
+      "required": ["query", "mutate"],
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "object",
+          "required": ["matrix", "operations"],
+          "additionalProperties": false,
+          "properties": {
+            "matrix": {
+              "type": "object",
+              "description": "Query gateway matrix: domain -> operations[]",
+              "patternProperties": {
+                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sharing)$": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" },
+              "description": "All query operations"
+            }
+          }
+        },
+        "mutate": {
+          "type": "object",
+          "required": ["matrix", "operations"],
+          "additionalProperties": false,
+          "properties": {
+            "matrix": {
+              "type": "object",
+              "description": "Mutate gateway matrix: domain -> operations[]",
+              "patternProperties": {
+                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sharing)$": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" },
+              "description": "All mutate operations"
+            }
+          }
+        }
+      }
+    },
+    "domains": {
+      "type": "object",
+      "description": "Domain tables: operations grouped by domain",
+      "required": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sharing"],
+      "additionalProperties": false,
+      "properties": {
+        "tasks": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "tasks" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "session": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "session" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "memory" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "check": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "check" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "pipeline": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "pipeline" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "orchestrate": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "orchestrate" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "tools": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "tools" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "admin": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "admin" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "nexus": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "nexus" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        },
+        "sharing": {
+          "type": "object",
+          "required": ["name", "purpose", "operations"],
+          "properties": {
+            "name": { "const": "sharing" },
+            "purpose": { "type": "string" },
+            "primaryStore": { "type": "string" },
+            "operations": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/OperationDef" }
+            }
+          }
+        }
+      }
+    },
+    "progressiveDisclosure": {
+      "type": "object",
+      "description": "Progressive disclosure contract by tier",
+      "properties": {
+        "tiers": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["tier", "name", "description", "operationCount", "domains"],
+            "properties": {
+              "tier": { "$ref": "#/definitions/Tier" },
+              "name": {
+                "type": "string",
+                "enum": ["Core", "Extended", "Full System"]
+              },
+              "description": { "type": "string" },
+              "operationCount": { "type": "integer", "minimum": 0 },
+              "domains": {
+                "type": "array",
+                "items": { "$ref": "#/definitions/CanonicalDomain" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
