@@ -1,4 +1,4 @@
-<p alis|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.3.10-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2025.3.10-|gn="center">
+<p alis|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.3.11-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2026.3.10-|g|version-[0-9]\+\.[0-9]\+\.[0-9]\+-|version-2025.3.10-|gn="center">
   <img src="docs/images/banner.png" alt="CLEO banner" width="900">
 </p>
 
@@ -269,36 +269,36 @@ cleo-dev env info --json
 
 ### TL;DR - Just Install It
 
-**Option 1: One-liner (Easiest)**
+**Option 1: NPM (Recommended)**
 
+```bash
+npm install -g @cleocode/cleo
+```
+
+This automatically bootstraps the global CLEO system:
+- Sets up `~/.cleo/` with templates and configuration
+- Installs MCP server to detected AI providers (Claude Code, Cursor, etc.)
+- Creates `~/.agents/AGENTS.md` hub for agent instructions
+
+Then initialize in any project:
+```bash
+cd /path/to/your/project && cleo init
+```
+
+**Option 2: One-liner Bash (Legacy/Offline)**
+
+For systems without npm or offline installs:
 ```bash
 curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
-
-# Reinstalling over existing installation? Use --force:
-curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash -s -- --force
 ```
 
-**Option 2: Download and Run**
-
-<p align="center">
-  <a href="https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh">
-    <img src="https://img.shields.io/badge/Download-install.sh-brightgreen?style=for-the-badge&logo=github" alt="Download install.sh">
-  </a>
-</p>
-
-After downloading, open Terminal and run:
-```bash
-# macOS/Linux: Run with bash (no chmod needed)
-bash ~/Downloads/install.sh
-```
-
-**Option 3: From source (for contributors)**
+**Option 3: From source (Contributors)**
 
 ```bash
 git clone https://github.com/kryptobaseddev/cleo.git && cd cleo && ./installer/install.sh --dev
 ```
 
-Then initialize in your project:
+Then use `cleo-dev` for isolated development:
 ```bash
 cd /path/to/your/project && cleo-dev init
 ```
@@ -327,24 +327,42 @@ cd /path/to/your/project && cleo-dev init
 <details>
 <summary><strong>Detailed Installation Options</strong></summary>
 
-#### Download from Releases (Recommended for Users)
+#### NPM Install (Recommended for Users)
 
-1. Go to [Releases](https://github.com/kryptobaseddev/cleo/releases/latest)
-2. Download `cleo-X.Y.Z.tar.gz`
-3. Extract and install:
-   ```bash
-   tar xzf cleo-*.tar.gz
-   cd cleo-*
-   ./installer/install.sh
-   ```
-
-#### One-liner Install (for Developers)
+The NPM package auto-bootstraps the global CLEO system on install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/install.sh | bash
+# Install from npm registry
+npm install -g @cleocode/cleo
+
+# Or install specific version
+npm install -g @cleocode/cleo@2026.3.10
 ```
 
+What happens during install:
+1. Creates `~/.cleo/` directory structure
+2. Installs global templates (`CLEO-INJECTION.md`)
+3. Detects AI providers and installs MCP server configs
+4. Creates `~/.agents/AGENTS.md` hub
+
+#### Initialize in Your Project
+
+After global install, initialize each project:
+
+```bash
+cd /path/to/your/project
+cleo init
+```
+
+This creates only the local project structure:
+- `./.cleo/` directory with `config.json` and `tasks.db`
+- Registers project with NEXUS
+- Sets up git hooks
+- Injects CLEO references into local `AGENTS.md`
+
 #### From Source (for Contributors)
+
+For CLEO development or testing unreleased changes:
 
 ```bash
 # Clone repository
@@ -356,37 +374,36 @@ cd cleo
 
 # Verify isolated runtime
 cleo-dev env info --json
-
-# Or install as release (copies files)
-./installer/install.sh --release
 ```
 
+The dev channel uses:
+- Isolated commands: `cleo-dev` (no `ct` alias)
+- Isolated home: `~/.cleo-dev/`
+- Symlinks to repo for rapid iteration
+
 `npm link` caveat: raw `npm link` follows package bin mappings and can expose `cleo`/`ct`. Use `./installer/install.sh --dev` when you need strict `cleo-dev` isolation.
+
+#### Legacy Bash Installer (Offline/Restricted Systems)
+
+For systems without npm access:
+
+```bash
+# One-liner install
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+
+# Or download and run manually
+bash install.sh
+```
+
+This copies files (not symlinks) and provides the same functionality as npm install.
 
 #### Verify Installation
 
 ```bash
 cleo version
 cleo env info --json
+cleo doctor
 ```
-
-Provider alias/config utilities are managed by CAAMP.
-
-#### Initialize in Your Project
-
-```bash
-cd /path/to/your/project
-cleo init
-```
-
-For contributor dev channel:
-
-```bash
-cd /path/to/your/project
-cleo-dev init
-```
-
-> **Note**: The installer creates symlinks in `~/.local/bin/`, which works immediately with Claude Code and most modern shells.
 
 </details>
 
