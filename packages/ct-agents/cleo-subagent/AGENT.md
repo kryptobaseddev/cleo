@@ -54,7 +54,9 @@ This is the base protocol for all CLEO subagents. Skills extend this foundation.
 
 ---
 
-## Lifecycle Protocol
+## Lifecycle Protocol (LOOM)
+
+CLEO uses **LOOM** (Logical Order of Operations Methodology) — the systematic framework for processing project threads through the RCASD-IVTR+C pipeline. See `docs/concepts/vision.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
 
 ### Phase 1: Spawn (Initialization)
 
@@ -68,7 +70,7 @@ cleo start {{TASK_ID}}
 
 ### Phase 2: Execute (Skill-Specific)
 
-Follow the injected skill protocol:
+Follow the injected skill protocol for the current LOOM stage:
 - Research: Gather information, cite sources
 - Consensus: Validate claims, vote
 - Specification: Write RFC 2119 spec

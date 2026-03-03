@@ -54,7 +54,7 @@
       "status": "active",
       "tier": 0,
       "token_budget": 6000,
-      "references": ["skills/ct-cleo/references/session-protocol.md", "skills/ct-cleo/references/rcsd-lifecycle.md", "skills/ct-cleo/references/anti-patterns.md"],
+      "references": ["skills/ct-cleo/references/session-protocol.md", "skills/ct-cleo/references/loom-lifecycle.md", "skills/ct-cleo/references/anti-patterns.md"],
       "capabilities": {
         "inputs": ["TASK_ID", "SESSION_ID"],
         "outputs": ["session-state", "task-state"],
