@@ -248,3 +248,26 @@ describe('runUpgrade locking (T4723)', () => {
     expect(result2.success).toBe(true);
   });
 });
+
+describe('runUpgrade structural parity', () => {
+  let tmpDir: string;
+  let cleoDir: string;
+
+  beforeEach(() => {
+    tmpDir = join(tmpdir(), `cleo-upgrade-structure-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    cleoDir = join(tmpDir, '.cleo');
+    mkdirSync(cleoDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('creates missing config.json during upgrade', async () => {
+    // Simulate partially initialized project: structure exists but config missing.
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false });
+
+    expect(existsSync(join(cleoDir, 'config.json'))).toBe(true);
+    expect(result.actions.some((a) => a.action === 'config_file' && a.status === 'applied')).toBe(true);
+  });
+});

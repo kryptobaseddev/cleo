@@ -28,7 +28,7 @@ import {
   completeMigration,
   failMigration,
 } from './migration/state.js';
-import { ensureCleoStructure, ensureGitignore, ensureProjectContext, ensureProjectInfo, ensureCleoGitRepo, ensureSqliteDb, removeCleoFromRootGitignore } from './scaffold.js';
+import { ensureCleoStructure, ensureConfig, ensureGitignore, ensureProjectContext, ensureProjectInfo, ensureCleoGitRepo, ensureSqliteDb, removeCleoFromRootGitignore } from './scaffold.js';
 import { initAgentDefinition, initMcpServer, initCoreSkills, initNexusRegistration } from './init.js';
 import { ensureGitHooks } from './hooks.js';
 import { ensureGlobalSchemas, cleanProjectSchemas } from './schema-management.js';
@@ -689,6 +689,14 @@ export async function runUpgrade(options: {
       }
     } catch { /* best-effort */ }
 
+    // Ensure .cleo/config.json exists and matches current template semantics
+    try {
+      const configResult = await ensureConfig(projectRootForMaint);
+      if (configResult.action !== 'skipped') {
+        actions.push({ action: 'config_file', status: 'applied', details: configResult.details ?? 'Created or updated config.json' });
+      }
+    } catch { /* best-effort */ }
+
     // Install/update git hooks
     try {
       const hooksResult = await ensureGitHooks(projectRootForMaint);
@@ -784,7 +792,7 @@ export async function runUpgrade(options: {
     } catch { /* best-effort */ }
   } else {
     // Dry-run reporting for new steps
-    actions.push({ action: 'structural_maintenance', status: 'preview', details: 'Would create missing directories, install hooks, schemas, project-info, agent definition, MCP server, skills, and NEXUS registration' });
+    actions.push({ action: 'structural_maintenance', status: 'preview', details: 'Would create missing directories, ensure config, install hooks, schemas, project-info, agent definition, MCP server, skills, and NEXUS registration' });
   }
 
   const applied = actions.filter((a) => a.status === 'applied');

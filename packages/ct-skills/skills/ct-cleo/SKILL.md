@@ -180,9 +180,11 @@ After EVERY command:
 | 11 | `E_DEPTH_EXCEEDED` | Max depth 3 (epic->task->subtask) |
 | 12 | `E_SIBLING_LIMIT` | Max 7 siblings per parent |
 
-## RCSD-IVTR Lifecycle
+## RCSD-IVTR Lifecycle (LOOM)
 
-**Lifecycle**: See CLEO-INJECTION.md standard tier for full RCASD-IVTR+C pipeline details, or `references/rcsd-lifecycle.md` for gate enforcement and subagent architecture.
+**LOOM** (Logical Order of Operations Methodology) is the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. See `docs/concepts/vision.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
+
+**Lifecycle**: See CLEO-INJECTION.md standard tier for full RCASD-IVTR+C pipeline details, or `references/loom-lifecycle.md` for gate enforcement and subagent architecture.
 
 ## Pipeline Awareness
 
@@ -212,5 +214,5 @@ Epics follow the RCASD-IVTR+C lifecycle managed through pipeline stages. Use `pi
 For detailed guidance on specific topics, see:
 
 - **Session Protocol**: `references/session-protocol.md`
-- **RCSD Lifecycle**: `references/rcsd-lifecycle.md`
+- **LOOM Lifecycle**: `references/loom-lifecycle.md`
 - **Anti-Patterns**: `references/anti-patterns.md`

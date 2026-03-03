@@ -7,7 +7,7 @@
       "description": "CLEO task management protocol - core guidance for session, task, and workflow operations. Provides MCP-first workflow, CLI fallback, session protocol, task discovery patterns, RCSD lifecycle overview, and error handling. Load this skill for detailed CLEO protocol guidance.",
       "version": "2.0.0",
       "path": "skills/ct-cleo/SKILL.md",
-      "references": ["skills/ct-cleo/references/session-protocol.md", "skills/ct-cleo/references/rcsd-lifecycle.md", "skills/ct-cleo/references/anti-patterns.md"],
+      "references": ["skills/ct-cleo/references/session-protocol.md", "skills/ct-cleo/references/loom-lifecycle.md", "skills/ct-cleo/references/anti-patterns.md"],
       "core": true,
       "category": "core",
       "tier": 0,
@@ -241,6 +241,25 @@
       "compatibility": ["claude-code", "cursor", "windsurf", "gemini-cli"],
       "license": "MIT",
       "metadata": {}
+    },
+    {
+      "name": "loom",
+      "description": "LOOM (Logical Order of Operations Methodology) - the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. LOOM encompasses the full lifecycle methodology that transforms raw ideas into delivered artifacts, from Research through Release with the Contribution protocol (+C) running across all stages. References docs/concepts/vision.md for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.",
+      "version": "1.0.0",
+      "path": "docs/concepts/vision.md",
+      "references": [".cleo/adrs/ADR-007-domain-consolidation.md", ".cleo/adrs/ADR-009-BRAIN-cognitive-architecture.md"],
+      "core": false,
+      "category": "core",
+      "tier": 0,
+      "protocol": null,
+      "dependencies": [],
+      "sharedResources": [],
+      "compatibility": ["claude-code", "cursor", "windsurf", "gemini-cli"],
+      "license": "MIT",
+      "metadata": {
+        "concepts": ["LOOM", "RCASD-IVTR+C", "lifecycle pipeline", "neural hierarchy", "brain metaphor"],
+        "domains": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sharing"]
+      }
     }
   ]
 }

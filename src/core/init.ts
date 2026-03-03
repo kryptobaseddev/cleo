@@ -140,7 +140,7 @@ export async function initMcpServer(
   warnings: string[],
 ): Promise<void> {
   try {
-    const { detectEnvMode, generateMcpServerEntry } = await import('./mcp/index.js');
+    const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import('./mcp/index.js');
     const {
       getInstalledProviders,
       installMcpServerToAll,
@@ -149,6 +149,7 @@ export async function initMcpServer(
 
     const env = detectEnvMode();
     const serverEntry = generateMcpServerEntry(env) as McpServerConfig;
+    const serverName = getMcpServerName(env);
     const providers = getInstalledProviders();
 
     if (providers.length === 0) {
@@ -156,7 +157,7 @@ export async function initMcpServer(
     }
 
     const results = await installMcpServerToAll(
-      providers, 'cleo', serverEntry, 'project', projectRoot,
+      providers, serverName, serverEntry, 'project', projectRoot,
     );
 
     const successes = results.filter(r => r.success);

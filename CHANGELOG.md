@@ -5,6 +5,17 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2025.3.9] - 2026-03-02
+
+### Fixed
+- **Channel-isolated MCP install behavior (T4884)** — MCP server names are now channel-specific (`cleo`, `cleo-beta`, `cleo-dev`) across `init`, `mcp-install`, and `install-global`, preventing dev/beta config collisions with stable.
+- **Installer dev-channel isolation (T4884)** — `install.sh --dev` now defaults to `~/.cleo-dev` (unless `CLEO_HOME` is explicitly set), and no longer creates standalone `cleo-mcp*` CLI symlinks.
+- **Dev install safety enforcement (T4884)** — Dev installs now require a valid CLEO contributor clone with `.git` present and `upstream` remote targeting `https://github.com/kryptobaseddev/cleo`.
+- **MCP first-run global bootstrap (T4884)** — MCP startup now ensures global CLEO baseline artifacts (global home directory, schemas, and injection template) exist for MCP-first workflows.
+- **Upgrade/init setup parity (T4884)** — `upgrade` now ensures missing `.cleo/config.json`, reducing drift between project `init` and `upgrade` outcomes.
+
+---
+
 ## [2026.3.8] - 2026-03-02
 
 ### Added
