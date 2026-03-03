@@ -20,8 +20,8 @@ import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../../core/paths.js';
 import { checkStorageMigration } from '../../core/migration/preflight.js';
 import { runUpgrade } from '../../core/upgrade.js';
-import { readFile, access } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { getRuntimeDiagnostics } from '../../core/system/runtime.js';
+import { readFile } from 'node:fs/promises';
 import * as readline from 'node:readline';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -35,34 +35,57 @@ async function getCurrentVersion(): Promise<string> {
   const cleoHome = getCleoHome();
   try {
     const content = await readFile(join(cleoHome, 'VERSION'), 'utf-8');
-    return content.trim();
+    return (content.split('\n')[0] ?? 'unknown').trim();
   } catch {
     return 'unknown';
   }
 }
 
-async function isDevInstall(): Promise<boolean> {
-  const cleoHome = getCleoHome();
+async function getNpmInstalledVersion(): Promise<string | null> {
   try {
-    await access(join(cleoHome, '.git'), fsConstants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function getLatestVersion(): Promise<string | null> {
-  try {
-    const { stdout } = await execAsync('curl', [
-      '-sL',
-      '--max-time', '10',
-      `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
-    ]);
-    const data = JSON.parse(stdout);
-    return (data.tag_name as string)?.replace(/^v/, '') ?? null;
+    const { stdout } = await execAsync('npm', ['ls', '-g', '@cleocode/cleo', '--depth=0', '--json']);
+    const data = JSON.parse(stdout) as { dependencies?: Record<string, { version?: string }> };
+    return data.dependencies?.['@cleocode/cleo']?.version ?? null;
   } catch {
     return null;
   }
+}
+
+async function getDistTagVersion(tag: 'latest' | 'beta'): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync('npm', ['view', `@cleocode/cleo@${tag}`, 'version']);
+    const v = stdout.trim();
+    return v || null;
+  } catch {
+    // Fallback to GitHub latest for stable only
+    if (tag === 'latest') {
+      try {
+        const { stdout } = await execAsync('curl', [
+          '-sL',
+          '--max-time', '10',
+          `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+        ]);
+        const data = JSON.parse(stdout);
+        return (data.tag_name as string)?.replace(/^v/, '') ?? null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+async function writeRuntimeVersionMetadata(mode: 'prod-npm' | 'dev-ts', source: string, version: string): Promise<void> {
+  const cleoHome = getCleoHome();
+  const lines = [
+    version,
+    `mode=${mode}`,
+    `source=${source}`,
+    `installed=${new Date().toISOString()}`,
+  ];
+  await import('node:fs/promises').then(({ writeFile, mkdir }) =>
+    mkdir(cleoHome, { recursive: true }).then(() => writeFile(join(cleoHome, 'VERSION'), `${lines.join('\n')}\n`, 'utf-8')),
+  );
 }
 
 export function registerSelfUpdateCommand(program: Command): void {
@@ -72,6 +95,8 @@ export function registerSelfUpdateCommand(program: Command): void {
     .option('--check', 'Only check if update is available')
     .option('--status', 'Show current vs latest version')
     .option('--version <ver>', 'Update to specific version')
+    .option('--channel <channel>', 'Update channel: stable|beta')
+    .option('--beta', 'Shortcut for --channel beta')
     .option('--force', 'Force update even if same version')
     .option('--post-update', 'Run post-update diagnostics and migration only')
     .option('--no-auto-upgrade', 'Skip automatic upgrade after update')
@@ -86,14 +111,31 @@ export function registerSelfUpdateCommand(program: Command): void {
           return;
         }
 
-        const currentVersion = await getCurrentVersion();
-        const isDev = await isDevInstall();
+        const runtime = await getRuntimeDiagnostics();
+        const script = runtime.invocation.script;
+        const fromNodeModules = script.includes('/node_modules/@cleocode/cleo/')
+          || script.includes('\\node_modules\\@cleocode\\cleo\\');
+        const isDev = runtime.channel === 'dev' && !fromNodeModules;
+        const currentVersion = isDev
+          ? await getCurrentVersion()
+          : (await getNpmInstalledVersion()) ?? await getCurrentVersion();
+
+        const rawChannel = (opts['channel'] as string | undefined)?.toLowerCase();
+        if (rawChannel && rawChannel !== 'stable' && rawChannel !== 'beta') {
+          throw new CleoError(ExitCode.VALIDATION_ERROR, `Invalid --channel '${rawChannel}'. Expected stable|beta`);
+        }
+
+        const requestedChannel: 'stable' | 'beta' = opts['beta']
+          ? 'beta'
+          : (rawChannel as 'stable' | 'beta' | undefined)
+            ?? (runtime.channel === 'beta' ? 'beta' : 'stable');
 
         if (isDev && !opts['force']) {
           // For dev installs, still run post-update diagnostics
           const preflight = checkStorageMigration();
           cliOutput({
             devMode: true,
+            channel: runtime.channel,
             currentVersion,
             message: 'Dev install detected. Use git pull to update.',
             storagePreflight: {
@@ -114,7 +156,7 @@ export function registerSelfUpdateCommand(program: Command): void {
         }
 
         if (opts['status'] || opts['check']) {
-          const latest = await getLatestVersion();
+          const latest = await getDistTagVersion(requestedChannel === 'beta' ? 'beta' : 'latest');
           if (!latest) {
             throw new CleoError(ExitCode.DEPENDENCY_ERROR, 'Failed to check latest version from GitHub');
           }
@@ -125,6 +167,7 @@ export function registerSelfUpdateCommand(program: Command): void {
           cliOutput({
             currentVersion,
             latestVersion: latest,
+            channel: requestedChannel,
             updateAvailable,
             storagePreflight: {
               migrationNeeded: preflight.migrationNeeded,
@@ -140,7 +183,7 @@ export function registerSelfUpdateCommand(program: Command): void {
         }
 
         // Actual update - delegated to shell for file system operations
-        const latest = opts['version'] as string ?? await getLatestVersion();
+        const latest = opts['version'] as string ?? await getDistTagVersion(requestedChannel === 'beta' ? 'beta' : 'latest');
         if (!latest) {
           throw new CleoError(ExitCode.DEPENDENCY_ERROR, 'Failed to check latest version from GitHub');
         }
@@ -155,14 +198,24 @@ export function registerSelfUpdateCommand(program: Command): void {
           return;
         }
 
-        // For the TS port, self-update delegates the heavy lifting
-        // to the install script since we need to replace files on disk
+        const spec = opts['version']
+          ? `@cleocode/cleo@${latest}`
+          : requestedChannel === 'beta'
+            ? '@cleocode/cleo@beta'
+            : '@cleocode/cleo@latest';
+
+        await execAsync('npm', ['install', '-g', spec], { maxBuffer: 10 * 1024 * 1024 });
+        await writeRuntimeVersionMetadata('prod-npm', 'npm', latest);
+
         cliOutput({
           currentVersion,
           targetVersion: latest,
-          message: 'Run the install script to update: curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/install.sh | bash',
-          postUpdate: 'After updating, run: cleo self-update --post-update',
-        }, { command: 'self-update' });
+          channel: requestedChannel,
+          updated: true,
+          command: `npm install -g ${spec}`,
+        }, { command: 'self-update', message: `Updated to ${latest}` });
+
+        await runPostUpdateDiagnostics({ skipUpgrade: noAutoUpgrade, autoMigrate: !!opts['autoMigrate'] || !!opts['force'] });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
