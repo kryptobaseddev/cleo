@@ -117,17 +117,18 @@ export function registerInstallGlobalCommand(program: Command): void {
 
         // Step 4: Update MCP server configs
         try {
-          const { detectEnvMode, generateMcpServerEntry } = await import('../../core/mcp/index.js');
+          const { detectEnvMode, generateMcpServerEntry, getMcpServerName } = await import('../../core/mcp/index.js');
           const { getInstalledProviders, installMcpServerToAll } = await import('@cleocode/caamp');
           type McpServerConfig = import('@cleocode/caamp').McpServerConfig;
 
           const env = detectEnvMode();
           const serverEntry = generateMcpServerEntry(env) as McpServerConfig;
+          const serverName = getMcpServerName(env);
           const providers = getInstalledProviders();
 
           if (providers.length > 0) {
             if (!isDryRun) {
-              const results = await installMcpServerToAll(providers, 'cleo', serverEntry, 'global', homedir());
+              const results = await installMcpServerToAll(providers, serverName, serverEntry, 'global', homedir());
               const successes = results.filter(r => r.success);
               if (successes.length > 0) {
                 created.push(`MCP configs: ${successes.map(r => r.provider.id).join(', ')}`);
