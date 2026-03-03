@@ -61,6 +61,7 @@ function normalizeChannel(value: string | undefined): RuntimeChannel | null {
 function detectFromInvocation(invocationName: string): RuntimeChannel | null {
   if (invocationName.includes('-dev')) return 'dev';
   if (invocationName.includes('-beta')) return 'beta';
+  if (invocationName === 'cleo' || invocationName === 'ct') return 'stable';
   return null;
 }
 
