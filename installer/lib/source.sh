@@ -192,12 +192,11 @@ installer_source_restore_data_files() {
 # MODE DETECTION
 # ============================================
 
-# Detect if we're running from a development checkout or release
+# Detect installer runtime channel mode.
 # Checks (in order):
 #   1. INSTALLER_MODE env var (explicit override)
 #   2. --dev flag (sets INSTALLER_DEV_MODE=1)
-#   3. Development markers (.git, tests/unit, etc.)
-# Returns: "dev" for development checkout, "release" for standalone installer
+# Returns: "dev" only when explicitly requested, otherwise "release"
 installer_source_detect_mode() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -216,16 +215,8 @@ installer_source_detect_mode() {
         return 0
     fi
 
-    # Check for development markers in repo structure
-    for marker in "${SOURCE_DEV_MARKERS[@]}"; do
-        if [[ -e "$script_dir/$marker" ]]; then
-            installer_log_debug "Detected dev mode (found: $marker)"
-            echo "dev"
-            return 0
-        fi
-    done
-
-    installer_log_debug "Detected release mode"
+    # Default to release mode unless explicitly requested.
+    installer_log_debug "Detected release mode (use --dev to enable contributor dev channel)"
     echo "release"
 }
 
@@ -285,6 +276,45 @@ installer_source_validate_repo() {
     done
 
     installer_log_debug "Repository validation passed"
+    return 0
+}
+
+# Validate contributor dev clone policy for --dev installs.
+# Requires canonical CLEO repository and upstream remote set to main source.
+# Args: repo_dir
+# Returns: 0 if valid, EXIT_VALIDATION_FAILED otherwise
+installer_source_validate_dev_clone() {
+    local repo_dir="$1"
+    local canonical_https="https://github.com/kryptobaseddev/cleo"
+    local canonical_https_git="https://github.com/kryptobaseddev/cleo.git"
+    local canonical_ssh="git@github.com:kryptobaseddev/cleo"
+    local canonical_ssh_git="git@github.com:kryptobaseddev/cleo.git"
+
+    installer_source_validate_repo "$repo_dir" || return $?
+
+    if [[ ! -d "$repo_dir/.git" ]]; then
+        installer_log_error "Dev mode requires a git clone with .git at repository root: $repo_dir"
+        return $EXIT_VALIDATION_FAILED
+    fi
+
+    local upstream_url=""
+    upstream_url=$(git -C "$repo_dir" remote get-url upstream 2>/dev/null || true)
+    if [[ -z "$upstream_url" ]]; then
+        installer_log_error "Dev mode requires upstream remote pointing to kryptobaseddev/cleo"
+        installer_log_error "Fix: git -C '$repo_dir' remote add upstream https://github.com/kryptobaseddev/cleo.git"
+        return $EXIT_VALIDATION_FAILED
+    fi
+
+    case "$upstream_url" in
+        "$canonical_https"|"$canonical_https_git"|"$canonical_ssh"|"$canonical_ssh_git")
+            ;;
+        *)
+            installer_log_error "Invalid upstream remote for dev mode: $upstream_url"
+            installer_log_error "Expected upstream to target https://github.com/kryptobaseddev/cleo(.git)"
+            return $EXIT_VALIDATION_FAILED
+            ;;
+    esac
+
     return 0
 }
 

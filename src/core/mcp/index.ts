@@ -18,6 +18,15 @@ export interface McpEnvMode {
   mode: 'dev-ts' | 'prod-npm' | 'unknown';
   /** Absolute path to the source directory (dev-ts mode only). */
   source: string | null;
+  /** Resolved install channel for npm package invocation. */
+  channel: 'stable' | 'beta' | 'dev' | 'unknown';
+}
+
+/** Resolve MCP server name by channel. */
+export function getMcpServerName(env: McpEnvMode): string {
+  if (env.channel === 'dev') return 'cleo-dev';
+  if (env.channel === 'beta') return 'cleo-beta';
+  return 'cleo';
 }
 
 /**
@@ -39,11 +48,12 @@ export function detectEnvMode(): McpEnvMode {
   try {
     content = readFileSync(versionPath, 'utf-8');
   } catch {
-    return { mode: 'unknown', source: null };
+    return { mode: 'unknown', source: null, channel: 'unknown' };
   }
 
   const kvPairs: Record<string, string> = {};
   const lines = content.trim().split('\n');
+  const installedVersion = lines[0]?.trim() ?? '';
   for (let i = 1; i < lines.length; i++) {
     const eqIdx = lines[i].indexOf('=');
     if (eqIdx > 0) {
@@ -56,9 +66,18 @@ export function detectEnvMode(): McpEnvMode {
     : rawMode === 'prod-npm' ? 'prod-npm'
     : 'unknown';
 
+  const channel = mode === 'dev-ts'
+    ? 'dev'
+    : installedVersion.includes('-beta')
+      ? 'beta'
+      : mode === 'prod-npm'
+        ? 'stable'
+        : 'unknown';
+
   return {
     mode,
     source: mode === 'dev-ts' ? (kvPairs['source'] ?? null) : null,
+    channel,
   };
 }
 
@@ -67,7 +86,8 @@ export function detectEnvMode(): McpEnvMode {
  *
  * Returns a config object compatible with CAAMP's McpServerConfig:
  * - dev-ts: { command: 'node', args: ['<source>/dist/mcp/index.js'] }
- * - prod-npm: { command: 'npx', args: ['-y', '@cleocode/cleo@latest', 'mcp'] }
+ * - prod-npm stable: { command: 'npx', args: ['-y', '@cleocode/cleo@latest', 'mcp'] }
+ * - prod-npm beta: { command: 'npx', args: ['-y', '@cleocode/cleo@beta', 'mcp'] }
  *
  * @task T4584
  */
@@ -80,7 +100,15 @@ export function generateMcpServerEntry(env: McpEnvMode): Record<string, unknown>
     };
   }
 
-  // prod-npm or unknown: canonical npx invocation
+  if (env.channel === 'beta') {
+    return {
+      command: 'npx',
+      args: ['-y', '@cleocode/cleo@beta', 'mcp'],
+      env: {},
+    };
+  }
+
+  // prod-npm stable (or unknown fallback): canonical npx invocation
   return {
     command: 'npx',
     args: ['-y', '@cleocode/cleo@latest', 'mcp'],
