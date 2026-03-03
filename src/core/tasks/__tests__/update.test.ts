@@ -9,13 +9,13 @@ import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { updateTask } from '../update.js';
-import type { TodoFile } from '../../../types/task.js';
+import type { TaskFile } from '../../../types/task.js';
 
 describe('updateTask', () => {
   let tempDir: string;
   let cleoDir: string;
 
-  const makeTodoFile = (tasks: TodoFile['tasks']): TodoFile => ({
+  const makeTodoFile = (tasks: TaskFile['tasks']): TaskFile => ({
     version: '2.10.0',
     project: { name: 'test', phases: {} },
     lastUpdated: new Date().toISOString(),
@@ -32,6 +32,7 @@ describe('updateTask', () => {
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
     await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
+    await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ verification: { enabled: false } }));
   });
 
   afterEach(async () => {
@@ -119,6 +120,29 @@ describe('updateTask', () => {
 
     const result = await updateTask({ taskId: 'T001', status: 'done' }, tempDir);
     expect(result.task.completedAt).toBeDefined();
+  });
+
+  it('status=done path enforces dependency checks via complete flow', async () => {
+    const data = makeTodoFile([
+      { id: 'T001', title: 'Dependency', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
+      { id: 'T002', title: 'Blocked', status: 'active', priority: 'medium', depends: ['T001'], createdAt: new Date().toISOString() },
+    ]);
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+
+    await expect(
+      updateTask({ taskId: 'T002', status: 'done' }, tempDir),
+    ).rejects.toThrow('incomplete dependencies');
+  });
+
+  it('rejects mixed status=done updates with other fields', async () => {
+    const data = makeTodoFile([
+      { id: 'T001', title: 'Task', status: 'active', priority: 'medium', createdAt: new Date().toISOString() },
+    ]);
+    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+
+    await expect(
+      updateTask({ taskId: 'T001', status: 'done', priority: 'high' }, tempDir),
+    ).rejects.toThrow('status=done must use complete flow');
   });
 
   describe('parentId (reparent via update)', () => {

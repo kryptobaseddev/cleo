@@ -153,8 +153,8 @@ interface OperationDef {
 | query | `label.list` | List all labels with task counts | 1 | -- | Yes |
 | query | `label.show` | Show tasks with a specific label | 1 | `label` | Yes |
 | mutate | `add` | Create new task | 0 | -- | No |
-| mutate | `update` | Modify task properties | 0 | -- | No |
-| mutate | `complete` | Mark task as done | 0 | -- | No |
+| mutate | `update` | Modify task properties (`status=done` MUST route to completion semantics) | 0 | -- | No |
+| mutate | `complete` | Canonical completion path (deps, acceptance policy, verification gates) | 0 | -- | No |
 | mutate | `delete` | Permanently remove task | 0 | -- | No |
 | mutate | `archive` | Soft-delete task to archive | 0 | -- | No |
 | mutate | `restore` | Restore task from terminal state | 0 | -- | No |
@@ -499,6 +499,11 @@ Task operations enforce:
 - IDs MUST be unique across active and archived tasks.
 - Timestamps MUST NOT be in the future.
 - No duplicate task descriptions.
+- `tasks.complete` is the canonical state transition to `done`; `tasks.update status=done` MUST be treated as the same completion flow, not a bypass.
+- Completion dependency semantics treat dependency states `done` and `cancelled` as satisfied.
+- Acceptance policy is config-driven (`enforcement.acceptance.mode`, `enforcement.acceptance.requiredForPriorities`) and MAY block completion.
+- Verification enforcement is default-on (`verification.enabled` defaults true, explicit false disables) and required gates are config-driven (`verification.requiredGates`).
+- In strict lifecycle mode, verification gate failures on completion MUST return lifecycle gate failure semantics.
 
 ---
 

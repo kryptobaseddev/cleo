@@ -14,6 +14,9 @@ import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
+// Auto-register hook handlers
+import '../hooks/handlers/index.js';
+
 /** Result of getting current task. */
 export interface TaskCurrentResult {
   currentTask: string | null;
@@ -128,6 +131,14 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
     title: task.title,
   }, accessor);
 
+  // Dispatch onToolStart hook (best-effort, don't await)
+  const { hooks } = await import('../hooks/registry.js');
+  hooks.dispatch('onToolStart', cwd ?? process.cwd(), {
+    timestamp: new Date().toISOString(),
+    taskId,
+    taskTitle: task.title,
+  }).catch(() => { /* Hooks are best-effort */ });
+
   return {
     taskId,
     taskTitle: task.title,
@@ -155,12 +166,27 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
     return { previousTask: null };
   }
 
+  // Get task info before clearing focus for hook dispatch
+  const taskId = data.focus.currentTask;
+  const task = taskId ? data.tasks.find(t => t.id === taskId) : undefined;
+
   data.focus.currentTask = null;
   data.focus.nextAction = null;
 
   const now = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
+
+  // Dispatch onToolComplete hook (best-effort, don't await)
+  if (taskId && task) {
+    const { hooks } = await import('../hooks/registry.js');
+    hooks.dispatch('onToolComplete', cwd ?? process.cwd(), {
+      timestamp: now,
+      taskId,
+      taskTitle: task.title,
+      status: 'done',
+    }).catch(() => { /* Hooks are best-effort */ });
+  }
 
   if (accessor) {
     await accessor.saveTaskFile(data);

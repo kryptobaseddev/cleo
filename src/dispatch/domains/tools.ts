@@ -125,12 +125,12 @@ export class ToolsHandler implements DomainHandler {
         'issue.validate.labels',
         // skill
         'skill.list', 'skill.show', 'skill.find',
-        'skill.dispatch', 'skill.verify', 'skill.dependencies',
+        'skill.dispatch', 'skill.verify', 'skill.dependencies', 'skill.spawn.providers',
         // skill.catalog
         'skill.catalog.protocols', 'skill.catalog.profiles',
         'skill.catalog.resources', 'skill.catalog.info',
         // provider
-        'provider.list', 'provider.detect', 'provider.inject.status',
+        'provider.list', 'provider.detect', 'provider.inject.status', 'provider.supports', 'provider.hooks',
       ],
       mutate: [
         // issue
@@ -350,6 +350,52 @@ export class ToolsHandler implements DomainHandler {
         };
       }
 
+      case 'spawn.providers': {
+        const capability = params?.capability as 'supportsSubagents' | 'supportsProgrammaticSpawn' | 'supportsInterAgentComms' | 'supportsParallelSpawn' | undefined;
+        const { getProvidersBySpawnCapability } = await import('@cleocode/caamp');
+
+        if (capability) {
+          const providers = getProvidersBySpawnCapability(capability);
+          return {
+            _meta: dispatchMeta('query', 'tools', 'skill.spawn.providers', startTime),
+            success: true,
+            data: { providers, capability, count: providers.length },
+          };
+        }
+
+        // Return all spawn-capable providers if no specific capability provided
+        const providers = getProvidersBySpawnCapability('supportsSubagents');
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.spawn.providers', startTime),
+          success: true,
+          data: { providers, capability: 'supportsSubagents', count: providers.length },
+        };
+      }
+
+      case 'precedence.show': {
+        const { getSkillsMapWithPrecedence } = await import('../../core/skills/precedence-integration.js');
+        const map = getSkillsMapWithPrecedence();
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.precedence.show', startTime),
+          success: true,
+          data: { precedenceMap: map },
+        };
+      }
+
+      case 'precedence.resolve': {
+        const providerId = params?.providerId as string;
+        const scope = (params?.scope as 'global' | 'project') || 'global';
+
+        const { resolveSkillPathsForProvider } = await import('../../core/skills/precedence-integration.js');
+        const paths = await resolveSkillPathsForProvider(providerId, scope, this.projectRoot);
+
+        return {
+          _meta: dispatchMeta('query', 'tools', 'skill.precedence.resolve', startTime),
+          success: true,
+          data: { providerId, scope, paths },
+        };
+      }
+
       default:
         return this.errorResponse('query', 'tools', `skill.${sub}`,
           'E_INVALID_OPERATION', `Unknown skill query: ${sub}`, startTime);
@@ -460,12 +506,35 @@ export class ToolsHandler implements DomainHandler {
             'Missing required parameter: name', startTime);
         }
         const source = (params?.source as string | undefined) ?? `library:${name}`;
-        const result = await installSkill(source, name, providers, isGlobal, this.projectRoot);
+        const providerIds = providers.map((p) => p.id);
+
+        const { determineInstallationTargets } = await import('../../core/skills/precedence-integration.js');
+        const targets = await determineInstallationTargets({
+          skillName: name,
+          source,
+          targetProviders: providerIds,
+          projectRoot: isGlobal ? undefined : this.projectRoot,
+        });
+
+        const results = [];
+        const errors = [];
+
+        for (const target of targets) {
+          const provider = providers.find((p) => p.id === target.providerId);
+          if (!provider) continue;
+          const result = await installSkill(source, name, [provider], isGlobal, this.projectRoot);
+          results.push({ providerId: target.providerId, ...result });
+          if (!result.success) {
+            errors.push(`${target.providerId}: ${result.errors.join('; ')}`);
+          }
+        }
+
+        const allSuccess = results.length > 0 && results.every((r) => r.success);
         return {
           _meta: dispatchMeta('mutate', 'tools', `skill.${sub}`, startTime),
-          success: result.success,
-          data: { result },
-          error: result.success ? undefined : { code: 'E_INSTALL_FAILED', message: result.errors.join('; ') || 'Skill install failed' },
+          success: allSuccess,
+          data: { results, targets: targets.map((t) => t.providerId) },
+          error: allSuccess ? undefined : { code: 'E_INSTALL_FAILED', message: errors.join('; ') || 'Skill install failed' },
         };
       }
       case 'uninstall':
@@ -564,6 +633,32 @@ export class ToolsHandler implements DomainHandler {
           success: true,
           data: { checks, count: checks.length },
         };
+      }
+      case 'supports': {
+        const providerId = params?.providerId as string | undefined;
+        const capability = params?.capability as string | undefined;
+        if (!providerId || !capability) {
+          return this.errorResponse('query', 'tools', 'provider.supports',
+            'E_INVALID_INPUT', 'Missing required parameters: providerId and capability', startTime);
+        }
+        const { providerSupportsById } = await import('@cleocode/caamp');
+        const supported = providerSupportsById(providerId, capability);
+        return {
+          _meta: dispatchMeta('query', 'tools', 'provider.supports', startTime),
+          success: true,
+          data: { providerId, capability, supported },
+        };
+      }
+
+      case 'hooks': {
+        const event = params?.event as string | undefined;
+        if (!event) {
+          return this.errorResponse('query', 'tools', 'provider.hooks', 'E_INVALID_INPUT',
+            'Missing required parameter: event (HookEvent)', startTime);
+        }
+        const { queryHookProviders } = await import('../engines/hooks-engine.js');
+        const result = await queryHookProviders(event as import('@cleocode/caamp').HookEvent);
+        return this.wrapEngineResult(result, 'query', 'provider.hooks', startTime);
       }
 
       default:
