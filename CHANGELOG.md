@@ -5,6 +5,17 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2025.3.10] - 2026-03-03
+
+### Fixed
+- **Self-update channel behavior hardened (T4884)** — `self-update` now performs npm global updates for stable/beta channels directly, with improved runtime channel detection to avoid stale `mode=dev-ts` metadata blocking normal updates.
+- **Runtime channel inference correction (T4884)** — Invocation-based detection now treats `cleo`/`ct` as stable by default to prevent stale metadata from forcing false dev-mode behavior.
+
+### Added
+- **TypeScript version sync tool (T4884)** — Added `dev/version-sync.ts` (config-driven from `.cleo/config.json` `release.versionBump.files`) and converted `dev/validate-version.sh` into a compatibility wrapper.
+
+---
+
 ## [2025.3.9] - 2026-03-02
 
 ### Fixed
