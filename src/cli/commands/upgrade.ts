@@ -8,6 +8,7 @@
  *   - Global ~/.cleo data checks
  *
  * @task T4699
+ * @task T5243
  * @epic T4454
  */
 
@@ -16,6 +17,7 @@ import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { runUpgrade } from '../../core/upgrade.js';
+import { createUpgradeProgress } from '../progress.js';
 
 export function registerUpgradeCommand(program: Command): void {
   program
@@ -25,17 +27,35 @@ export function registerUpgradeCommand(program: Command): void {
     .option('--dry-run', 'Preview changes without applying')
     .option('--include-global', 'Also check global ~/.cleo data')
     .option('--no-auto-migrate', 'Skip automatic JSON→SQLite migration')
-    .action(async (opts: Record<string, unknown>) => {
+    .action(async (_opts: Record<string, unknown>, command: Command) => {
+      const opts = command.optsWithGlobals ? command.optsWithGlobals() : command.opts();
+      const isHuman = opts['human'] === true || (!!process.stdout.isTTY && opts['json'] !== true);
+      const progress = createUpgradeProgress(isHuman);
+      
       try {
         const isDryRun = !!opts['dryRun'] || !!opts['status'];
         const includeGlobal = !!opts['includeGlobal'];
         const autoMigrate = opts['autoMigrate'] !== false;
+
+        progress.start();
+        progress.step(0, 'Analyzing current state');
+        
+        if (includeGlobal) {
+          progress.step(1, 'Checking global ~/.cleo data');
+        } else {
+          progress.step(1, 'Checking storage migration needs');
+        }
+
+        progress.step(2, 'Validating schemas');
+        progress.step(3, isDryRun ? 'Previewing changes' : 'Applying fixes');
 
         const result = await runUpgrade({
           dryRun: isDryRun,
           includeGlobal,
           autoMigrate,
         });
+
+        progress.step(4, 'Verifying results');
 
         cliOutput({
           upToDate: result.upToDate,
@@ -47,13 +67,18 @@ export function registerUpgradeCommand(program: Command): void {
         }, { command: 'upgrade' });
 
         if (!result.success) {
+          progress.error('Upgrade failed with errors');
           process.exit(1);
         }
+        
+        progress.complete(isDryRun ? 'Preview complete' : 'Upgrade complete');
       } catch (err) {
         if (err instanceof CleoError) {
+          progress.error(err.message);
           console.error(formatError(err));
           process.exit(err.code);
         }
+        progress.error('Unexpected error during upgrade');
         throw err;
       }
     });
