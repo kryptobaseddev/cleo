@@ -5,7 +5,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [2025.3.10] - 2026-03-03
+## [2026.3.10] - 2026-03-03
 
 ### Fixed
 - **Self-update channel behavior hardened (T4884)** — `self-update` now performs npm global updates for stable/beta channels directly, with improved runtime channel detection to avoid stale `mode=dev-ts` metadata blocking normal updates.
