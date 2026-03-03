@@ -5,6 +5,21 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
+## [2026.3.12] - 2026-03-03
+
+### Added
+- **Progress indicators for slow CLI commands (T5243)** — Commands now show real-time progress:
+  - `cleo doctor --human` shows 5-step progress (checking CLEO directory, verifying tasks.db, etc.)
+  - `cleo upgrade --human` shows 5-step progress (analyzing state, checking migrations, etc.)
+  - `cleo self-update --human` shows 6-step progress (detecting install type, querying npm, etc.)
+  - Progress writes to stderr so JSON output remains valid
+  - Shows ✓ checkmarks on completion, ✗ on errors
+
+### Documentation
+- Updated ADR-016 with progress indicator architecture and installation channel updates
+
+---
+
 ## [2026.3.11] - 2026-03-03
 
 ### Changed
