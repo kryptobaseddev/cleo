@@ -6,8 +6,8 @@
  * background job management, and cache invalidation on mutate.
  *
  * Gateway tools (CQRS pattern):
- * - cleo_query: read operations (never modifies state)
- * - cleo_mutate: write operations (validated, logged, atomic)
+ * - query: read operations (never modifies state)
+ * - mutate: write operations (validated, logged, atomic)
  *
  * @task T2926
  * @see MCP-SERVER-SPECIFICATION.md for complete API documentation
@@ -116,7 +116,9 @@ async function main(): Promise<void> {
 
     // Handle tool calls (CallTool handler)
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
+      const rawName = request.params.name;
+      const name = rawName === 'query' ? 'query' : rawName === 'mutate' ? 'mutate' : rawName;
+      const { arguments: args } = request.params;
 
       console.error(`[CLEO MCP] Tool call: ${name}`);
       if (config.logLevel === 'debug') {
@@ -125,7 +127,7 @@ async function main(): Promise<void> {
 
       try {
         // Validate gateway name
-        if (name !== 'cleo_query' && name !== 'cleo_mutate') {
+        if (name !== 'query' && name !== 'mutate' && name !== 'query' && name !== 'mutate') {
           return {
             content: [
               {
@@ -140,7 +142,7 @@ async function main(): Promise<void> {
                   error: {
                     code: 'E_INVALID_GATEWAY',
                     exitCode: 2,
-                    message: `Unknown gateway: ${name}. Use 'cleo_query' or 'cleo_mutate'.`,
+                    message: `Unknown gateway: ${name}. Use 'query' or 'mutate'.`,
                   },
                 }),
               },
@@ -180,7 +182,7 @@ async function main(): Promise<void> {
         const bypassCache = !!params?.bypassCache;
 
         // For query operations, check cache first
-        if (name === 'cleo_query' && !bypassCache) {
+        if (name === 'query' && !bypassCache) {
           const cached = cache.get(domain, operation, params);
           if (cached !== undefined) {
             if (config.logLevel === 'debug') {
@@ -218,12 +220,12 @@ async function main(): Promise<void> {
         }
 
         // Cache successful query results
-        if (name === 'cleo_query' && result.success && !bypassCache) {
+        if (name === 'query' && result.success && !bypassCache) {
           cache.set(domain, operation, params, result);
         }
 
         // Invalidate domain cache on mutate operations
-        if (name === 'cleo_mutate') {
+        if (name === 'mutate') {
           const invalidated = cache.invalidateDomain(domain);
           if (invalidated > 0 && config.logLevel === 'debug') {
             console.error(`[CLEO MCP] Cache invalidated ${invalidated} entries for domain: ${domain}`);

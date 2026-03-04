@@ -25,6 +25,8 @@ import type {
   NewBrainObservationRow,
   BrainMemoryLinkRow,
   NewBrainMemoryLinkRow,
+  BrainStickyNoteRow,
+  NewBrainStickyNoteRow,
 } from './brain-schema.js';
 
 export class BrainDataAccessor {
@@ -330,6 +332,74 @@ export class BrainDataAccessor {
           eq(brainSchema.brainMemoryLinks.linkType, linkType),
         ),
       );
+  }
+
+  // =========================================================================
+  // Sticky Notes CRUD
+  // =========================================================================
+
+  async addStickyNote(row: NewBrainStickyNoteRow): Promise<BrainStickyNoteRow> {
+    await this.db.insert(brainSchema.brainStickyNotes).values(row);
+    const result = await this.db
+      .select()
+      .from(brainSchema.brainStickyNotes)
+      .where(eq(brainSchema.brainStickyNotes.id, row.id));
+    return result[0]!;
+  }
+
+  async getStickyNote(id: string): Promise<BrainStickyNoteRow | null> {
+    const result = await this.db
+      .select()
+      .from(brainSchema.brainStickyNotes)
+      .where(eq(brainSchema.brainStickyNotes.id, id));
+    return result[0] ?? null;
+  }
+
+  async findStickyNotes(params: {
+    status?: typeof brainSchema.BRAIN_STICKY_STATUSES[number];
+    color?: typeof brainSchema.BRAIN_STICKY_COLORS[number];
+    priority?: typeof brainSchema.BRAIN_STICKY_PRIORITIES[number];
+    limit?: number;
+  } = {}): Promise<BrainStickyNoteRow[]> {
+    const conditions: SQL[] = [];
+
+    if (params.status) {
+      conditions.push(eq(brainSchema.brainStickyNotes.status, params.status));
+    }
+    if (params.color) {
+      conditions.push(eq(brainSchema.brainStickyNotes.color, params.color));
+    }
+    if (params.priority) {
+      conditions.push(eq(brainSchema.brainStickyNotes.priority, params.priority));
+    }
+
+    let query = this.db
+      .select()
+      .from(brainSchema.brainStickyNotes)
+      .orderBy(desc(brainSchema.brainStickyNotes.createdAt));
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+
+    if (params.limit) {
+      query = query.limit(params.limit) as typeof query;
+    }
+
+    return query;
+  }
+
+  async updateStickyNote(id: string, updates: Partial<NewBrainStickyNoteRow>): Promise<void> {
+    await this.db
+      .update(brainSchema.brainStickyNotes)
+      .set({ ...updates, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) })
+      .where(eq(brainSchema.brainStickyNotes.id, id));
+  }
+
+  async deleteStickyNote(id: string): Promise<void> {
+    await this.db
+      .delete(brainSchema.brainStickyNotes)
+      .where(eq(brainSchema.brainStickyNotes.id, id));
   }
 }
 

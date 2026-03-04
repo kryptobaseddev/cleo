@@ -38,13 +38,13 @@ describe('MUTATE_OPERATIONS', () => {
       'check',
       'admin',
       'tools',
-      'sharing',
       'nexus',
+      'sticky',
     ]);
   });
 
   it('should have correct operation counts per domain', () => {
-    // Canonical domains
+    // Canonical domains (updated for T5282)
     expect(MUTATE_OPERATIONS.tasks.length).toBe(13);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(6);
@@ -53,8 +53,8 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(14);
     expect(MUTATE_OPERATIONS.admin.length).toBe(15);
     expect(MUTATE_OPERATIONS.tools.length).toBe(14);
-    expect(MUTATE_OPERATIONS.sharing.length).toBe(7);
-    expect(MUTATE_OPERATIONS.nexus.length).toBe(6);
+    expect(MUTATE_OPERATIONS.nexus.length).toBe(13);  // Includes share.* operations
+    expect(getMutateOperationCount("nexus")).toBe(13);  // add, convert, archive
   });
 });
 
@@ -82,8 +82,8 @@ describe('validateMutateParams', () => {
         'check',
         'admin',
         'tools',
-        'sharing',
         'nexus',
+        'sticky',
       ];
 
       for (const domain of domains) {
@@ -439,7 +439,7 @@ describe('registerMutateTool', () => {
   it('should return valid MCP tool definition', () => {
     const tool = registerMutateTool();
 
-    expect(tool.name).toBe('cleo_mutate');
+    expect(tool.name).toBe('mutate');
     expect(tool.description).toContain('write operations');
     expect(tool.inputSchema.type).toBe('object');
     expect(tool.inputSchema.required).toEqual(['domain', 'operation']);

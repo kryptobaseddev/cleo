@@ -1,5 +1,5 @@
 /**
- * Tests for cleo_query gateway
+ * Tests for query gateway
  *
  * Validates:
  * - Query operations across all domains (canonical + legacy)
@@ -44,8 +44,8 @@ describe('Query Gateway', () => {
         'check',
         'admin',
         'tools',
-        'sharing',
         'nexus',
+        'sticky',
       ]);
     });
 
@@ -145,7 +145,7 @@ describe('Query Gateway', () => {
   describe('Tool Registration', () => {
     it('should return valid MCP tool definition', () => {
       const tool = registerQueryTool();
-      expect(tool.name).toBe('cleo_query');
+      expect(tool.name).toBe('query');
       expect(tool.description).toContain('read operations');
       expect(tool.inputSchema).toBeDefined();
       expect(tool.inputSchema.type).toBe('object');
@@ -487,7 +487,7 @@ describe('Query Gateway', () => {
       };
       const result = validateQueryParams(request);
       expect(result.error?._meta).toBeDefined();
-      expect(result.error?._meta.gateway).toBe('cleo_query');
+      expect(result.error?._meta.gateway).toBe('query');
       expect(result.error?._meta.domain).toBe('invalid');
       expect(result.error?._meta.operation).toBe('list');
       expect(result.error?._meta.version).toBeDefined();

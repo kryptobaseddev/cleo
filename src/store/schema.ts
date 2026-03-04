@@ -404,6 +404,32 @@ export const architectureDecisions = sqliteTable('architecture_decisions', {
   index('idx_arch_decisions_status').on(table.status),
 ]);
 
+// === STICKY NOTES (T5267) ===
+
+export const stickyNotes = sqliteTable('sticky_notes', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  tagsJson: text('tags_json').default('[]'),
+  status: text('status', { enum: ['active', 'converted', 'archived'] })
+    .notNull()
+    .default('active'),
+  convertedToJson: text('converted_to_json'),
+  color: text('color', { enum: ['yellow', 'blue', 'green', 'red', 'purple'] })
+    .notNull()
+    .default('yellow'),
+  priority: text('priority', { enum: ['low', 'medium', 'high'] })
+    .notNull()
+    .default('medium'),
+  sourceType: text('source_type').notNull().default('sticky-note'),
+}, (table) => [
+  index('idx_sticky_notes_status').on(table.status),
+  index('idx_sticky_notes_created').on(table.createdAt),
+]);
+
+export type StickyNoteRow = typeof stickyNotes.$inferSelect;
+export type NewStickyNoteRow = typeof stickyNotes.$inferInsert;
+
 // === ADR JUNCTION TABLES (ADR-017 §5.3) ===
 
 /** ADR-to-Task links (soft FK — tasks can be purged) */

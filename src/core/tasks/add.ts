@@ -5,13 +5,12 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { readJsonRequired } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TaskFile } from '../../types/task.js';
+import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
-import { getTaskPath, getLogPath, getArchivePath, getBackupDir } from '../paths.js';
-import { saveJson, appendJsonl, computeChecksum } from '../../store/json.js';
+import { getArchivePath } from '../paths.js';
+import { appendJsonl, computeChecksum } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { loadConfig } from '../config.js';
 import { createTaskSafe, updateTask } from '../../store/task-store.js';
@@ -404,18 +403,16 @@ export function findRecentDuplicate(
  * @task T4460
  */
 export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<AddTaskResult> {
-  const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const archivePath = getArchivePath(cwd);
-  const backupDir = getBackupDir(cwd);
 
   // Validate title
   validateTitle(options.title);
 
+  // Always use accessor (SQLite canonical storage per ADR-006)
+  const dataAccessor = accessor ?? await (await import('../../store/data-accessor.js')).getAccessor(cwd);
+
   // Read current data
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const data = await dataAccessor.loadTaskFile();
 
   // Read archive for ID generation (only needed for non-SQLite paths)
   let archivedTasks: Array<{ id: string }> = [];
@@ -592,11 +589,8 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     return { task, dryRun: true };
   }
 
-  // Save atomically with safety
-  if (accessor && accessor.engine === 'sqlite') {
-    // SQLite incremental path: insert only the new task + targeted position updates.
-    // This avoids re-saving all ~832 tasks and the FK failures from orphaned deps.
-
+  // Save via DataAccessor (SQLite canonical storage per ADR-006)
+  if (dataAccessor.engine === 'sqlite') {
     // Position shuffling via targeted SQL updates
     if (options.position !== undefined) {
       for (const t of data.tasks) {
@@ -620,38 +614,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       await setMetaValue(cwd, 'project_meta', data.project);
     }
 
-    await accessor.appendLog({
-      id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
-      timestamp: new Date().toISOString(),
-      action: 'task_created',
-      taskId,
-      actor: 'system',
-      details: { title: options.title, status, priority },
-      before: null,
-      after: { title: options.title, status, priority },
-    });
-  } else if (accessor) {
-    // JSON accessor path: save through the accessor's load/save mechanism
-    // Position shuffling if explicit position was given
-    if (options.position !== undefined) {
-      for (const t of data.tasks) {
-        const isInScope = parentId
-          ? t.parentId === parentId
-          : (!t.parentId || t.parentId === null);
-        if (isInScope && t.position !== undefined && t.position !== null && t.position >= options.position) {
-          t.position = t.position + 1;
-          t.positionVersion = (t.positionVersion ?? 0) + 1;
-        }
-      }
-    }
-
-    data.tasks.push(task);
-    const checksum = computeChecksum(data.tasks);
-    data._meta.checksum = checksum;
-    data.lastUpdated = now;
-
-    await accessor.saveTaskFile(data);
-    await accessor.appendLog({
+    await dataAccessor.appendLog({
       id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
       timestamp: new Date().toISOString(),
       action: 'task_created',
@@ -662,8 +625,7 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
       after: { title: options.title, status, priority },
     });
   } else {
-    // Legacy JSON path
-
+    // Non-SQLite accessor path: save through the accessor's load/save mechanism
     // Position shuffling if explicit position was given
     if (options.position !== undefined) {
       for (const t of data.tasks) {
@@ -682,11 +644,16 @@ export async function addTask(options: AddTaskOptions, cwd?: string, accessor?: 
     data._meta.checksum = checksum;
     data.lastUpdated = now;
 
-    await saveJson(taskPath, data, { backupDir });
-    await logOperation(logPath, 'task_created', taskId, {
-      title: options.title,
-      status,
-      priority,
+    await dataAccessor.saveTaskFile(data);
+    await dataAccessor.appendLog({
+      id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      action: 'task_created',
+      taskId,
+      actor: 'system',
+      details: { title: options.title, status, priority },
+      before: null,
+      after: { title: options.title, status, priority },
     });
   }
 

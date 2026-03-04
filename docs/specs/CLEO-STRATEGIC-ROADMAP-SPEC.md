@@ -52,7 +52,7 @@ This specification defines CLEO's evolution from a Bash-based task manager (Tier
 
 This roadmap is an execution and sequencing specification. Product identity is defined by higher-authority documents:
 
-1. `docs/concepts/vision.md` (immutable vision identity)
+1. `docs/concepts/CLEO-VISION.md` (immutable vision identity)
 2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (canonical product contract)
 
 This document MUST NOT redefine CLEO identity. It defines how implementation progresses from current state to target capabilities under evidence-gated phase control.
@@ -198,8 +198,8 @@ The MCP server implements the following two-tool CQRS gateway:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ MCP Tools (2)                                            │
-│   - cleo_query (93 read operations)                     │
-│   - cleo_mutate (71 write operations)                   │
+│   - query (93 read operations)                     │
+│   - mutate (71 write operations)                   │
 └────────────────┬────────────────────────────────────────┘
                  │
                  ▼
@@ -226,7 +226,7 @@ The MCP server implements the following two-tool CQRS gateway:
 The MCP server **MUST**:
 
 1. Use TypeScript with @modelcontextprotocol/sdk SDK
-2. Expose exactly 2 tools: `cleo_query` and `cleo_mutate`
+2. Expose exactly 2 tools: `query` and `mutate`
 3. Route operations to 8 domains (tasks, session, orchestrate, research, lifecycle, validate, release, system)
 4. Call Bash CLI via `child_process.spawn()` (single source of truth for business logic)
 5. Return structured JSON responses with error.fix suggestions
@@ -263,7 +263,7 @@ The MCP server **MAY**:
 
 **Timeline**: 2-3 months (3 epics)
 
-1. **Epic 1: MCP Server Core** (3-4 weeks) - cleo_query/mutate, CLI adapter, error handling
+1. **Epic 1: MCP Server Core** (3-4 weeks) - query/mutate, CLI adapter, error handling
 2. **Epic 2: MCP Server Features** (2-3 weeks) - Background jobs, status tracking, agent registry
 3. **Epic 3: Integration** (1-2 weeks) - Claude Desktop, Cursor, docs, benchmarks
 
@@ -378,7 +378,7 @@ The semantic search system **MUST**:
 2. Index task descriptions, titles, and labels
 3. Support similarity search with threshold filtering
 4. Maintain embedding cache (invalidate on task update)
-5. Integrate with MCP `cleo_query` as new operation: `search.semantic`
+5. Integrate with MCP `query` as new operation: `search.semantic`
 
 The semantic search system **SHOULD**:
 
@@ -453,7 +453,7 @@ The research index **MUST**:
 2. Support full-text search (FTS5)
 3. Track cross-references (task links, epic links, file paths)
 4. Invalidate cache on manifest append
-5. Expose via MCP `cleo_query` operation: `research.find`
+5. Expose via MCP `query` operation: `research.find`
 
 The research index **SHOULD**:
 
@@ -838,7 +838,7 @@ All of the following **MUST** be validated:
 - [ ] Query response <3s for 10,000 task corpus
 - [ ] > 80% relevance (user satisfaction survey)
 - [ ] > 30% context discovery time reduction vs keyword search
-- [ ] Integration with MCP `cleo_query` complete
+- [ ] Integration with MCP `query` complete
 - [ ] Zero data loss during embedding updates
 
 **TypeScript Hotspot Migration**
@@ -1226,7 +1226,7 @@ BRAIN Certification
 
 - **CLAUDE.md**: Core repository guidelines
 - **.cleo/templates/CLEO-INJECTION.md**: Subagent architecture (v1.0.0)
-- **docs/concepts/vision.md**: CLEO vision statement
+- **docs/concepts/CLEO-VISION.md**: CLEO vision statement
 - **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical portable brain product contract
 - **docs/guides/protocol-enforcement.md**: Protocol validation guide
 

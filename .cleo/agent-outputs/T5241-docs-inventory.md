@@ -234,7 +234,7 @@ The agent manages its own token budget by deciding what to fetch based on releva
 
 ---
 
-## File 6: `docs/concepts/vision.md`
+## File 6: `docs/concepts/CLEO-VISION.md`
 
 ### Lines ~190-194 — Three-Layer Retrieval References
 
@@ -413,7 +413,7 @@ There are two conflicting counts that appear across multiple files:
 | `AGENTS.md` | HIGH | Read by agents on every project entry — stale counts |
 | `README.md` | HIGH | Public-facing — stale counts |
 | `docs/specs/CLEO-BRAIN-SPECIFICATION.md` | MEDIUM | Stale storage model ref in lines 92-94 |
-| `docs/concepts/vision.md` | MEDIUM | If op names change, update retrieval references |
+| `docs/concepts/CLEO-VISION.md` | MEDIUM | If op names change, update retrieval references |
 | `.cleo/adrs/ADR-009-BRAIN-cognitive-architecture.md` | MEDIUM | Missing BRAIN 3-layer ops in Section 5.1; stale JSONL storage model in Section 9.2 |
 | `.cleo/adrs/ADR-007-domain-consolidation.md` | LOW | Missing BRAIN ops in Section 4.2; RCSD→RCASD fix |
 | `docs/specs/VERB-STANDARDS.md` | LOW | Minor addition to BRAIN Memory Operations quick ref |

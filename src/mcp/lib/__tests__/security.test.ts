@@ -219,8 +219,8 @@ describe('Security Module', () => {
     });
 
     it('should define valid gateways', () => {
-      expect(VALID_GATEWAYS).toContain('cleo_query');
-      expect(VALID_GATEWAYS).toContain('cleo_mutate');
+      expect(VALID_GATEWAYS).toContain('query');
+      expect(VALID_GATEWAYS).toContain('mutate');
       expect(VALID_GATEWAYS).toHaveLength(2);
     });
 

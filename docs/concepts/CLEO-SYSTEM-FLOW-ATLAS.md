@@ -27,8 +27,23 @@ CLEO's architecture is organized around four conceptual systems. These systems a
 |--------|-------------------|-------------------|---------|
 | **BRAIN** | memory | tasks, session | Cognitive memory -- observations, decisions, patterns, learnings |
 | **LOOM** | pipeline | check, orchestrate | Lifecycle management (RCSD stages), artifact ledger, release orchestration |
-| **NEXUS** | nexus, sharing | admin | Cross-project coordination, registry, dependency graph |
+| **NEXUS** | nexus | admin | Cross-project coordination, registry, dependency graph, sharing |
 | **LAFS** | (cross-cutting) | all domains | Progressive disclosure protocol, field selection, envelope verbosity |
+
+### Workshop Vocabulary Mapping
+
+The realm also uses a secondary workshop language for how work is shaped. This language is conceptual and maps onto the existing domains rather than creating new runtime boundaries:
+
+| Term | Primary Domain(s) | Meaning |
+|------|-------------------|---------|
+| **Sticky Notes** | sticky | Quick project-wide capture before formal classification. Supports conversion to tasks or memory. Stored in .cleo/sticky.jsonl with optional tags and priority. |
+| **Thread** | tasks | A task-level strand of work |
+| **Loom** | pipeline, tasks | An epic-scale working frame for related Threads |
+| **Tapestry** | pipeline, orchestrate | A composed body of work made from multiple Looms |
+| **Tessera** | pipeline, orchestrate, tools | A reusable composition pattern for generating Tapestries |
+| **Cogs** | tools | Discrete callable capabilities and integrations |
+| **Cascade** | pipeline, orchestrate, check | A Tapestry moving through live gates and thresholds |
+| **Tome** | memory, nexus | Living readable canon rendered from durable system knowledge |
 
 ### System-to-Domain Mapping Detail
 
@@ -51,21 +66,21 @@ CLEO's architecture is organized around four conceptual systems. These systems a
                 |tasks.db  | +--------+ +----------+   |
                 +----------+                           |
                                                        |
-+------+----+   +----------+ +--------+ +----------+   |
-|  tasks    |   | session  | | admin  | | sharing  |   |
-|  domain   |   | domain   | | domain | | domain   |   |
-|           |   |          | |        | |          |<--+
-| tasks.db  |   |sessions/ | |config  | |.cleo/    |
-+-----------+   +----------+ |tasks.db| |sharing/  |
-                              +--------+ +----------+
+ +------+----+   +----------+ +--------+ +----------+
+ |  tasks    |   | session  | | admin  | |  sticky  |
+ |  domain   |   | domain   | | domain | |  domain  |
+ |           |   |          | |        | |          |
+ | tasks.db  |   |sessions/ | |config  | |.cleo/    |
+ +-----------+   +----------+ |tasks.db| |sticky/   |
+                               +--------+ +----------+
 
-+------+----+
-|  tools    |   +----------+
-|  domain   |   |orchestrate|
-|           |   |  domain   |
-|.cleo/     |   | tasks.db  |
-|skills/    |   +----------+
-+-----------+
+ +------+----+   +----------+   +----------+
+ |  tools    |   |orchestrate|  |  nexus   |
+ |  domain   |   |  domain   |  |  domain  |
+ |           |   |           |  |          |
+ |.cleo/     |   | tasks.db  |  |nexus.db  |
+ |skills/    |   +-----------+  +----------+
+ +-----------+
 ```
 
 ---
@@ -85,7 +100,7 @@ User Input
     v              v
 +---+--------------+----+
 |   Gateway Router      |    <-- Routes to query or mutate gateway
-| (cleo_query/mutate)   |
+| (query/mutate)   |
 +-----------+-----------+
             |
             v
@@ -183,9 +198,9 @@ Domains interact with each other through core business logic, not directly. The 
     +---------+
 
     +----------+    +----------+
-    |  nexus   |    | sharing  |
-    | (cross-  |    | (multi-  |
-    |  project)|    |  contrib)|
+    |  nexus   |    |  sticky  |
+    | (cross-  |    | (quick   |
+    |  project)|    |  capture)|
     +----------+    +----------+
 
     +----------+    +----------+
@@ -217,9 +232,9 @@ Domains interact with each other through core business logic, not directly. The 
 | `MANIFEST.jsonl` | pipeline | JSONL | `.cleo/MANIFEST.jsonl` | Research artifact ledger (append-only) |
 | `sessions/` | session | JSON files | `.cleo/sessions/` | Session lifecycle state, handoff data |
 | `config.json` | admin | JSON | `.cleo/config.json` | Project configuration |
-| `nexus.db` | nexus | SQLite | `~/.cleo/nexus.db` | Cross-project registry (global) |
+| `nexus.db` | nexus | SQLite | `~/.cleo/nexus.db` | Cross-project registry (global), sharing state |
 | `.cleo/skills/` | tools | YAML/JSON | `.cleo/skills/` | Skill definitions and configuration |
-| `.cleo/sharing/` | sharing | JSON | `.cleo/sharing/` | Sharing remotes and sync state |
+| `.cleo/sticky.jsonl` | sticky | JSONL | `.cleo/sticky.jsonl` | Quick capture sticky notes (append-only) |
 | `.cleo/metrics/` | check | JSONL | `.cleo/metrics/` | Compliance data, grades, telemetry |
 
 ### Ownership Rules
@@ -289,7 +304,7 @@ Search for cognitive memory entries matching a keyword.
 
 ```
 Agent calls:
-  cleo_query { domain: "memory", operation: "find", params: { query: "atomic" } }
+  query { domain: "memory", operation: "find", params: { query: "atomic" } }
 
 Flow:
   MCP Adapter
@@ -310,7 +325,7 @@ Append a research artifact to the manifest ledger.
 
 ```
 Agent calls:
-  cleo_mutate { domain: "pipeline", operation: "manifest.append",
+  mutate { domain: "pipeline", operation: "manifest.append",
                 params: { entry: { type: "research", content: "..." } } }
 
 Flow:
@@ -332,7 +347,7 @@ Inject a protocol's context into the current session.
 
 ```
 Agent calls:
-  cleo_mutate { domain: "session", operation: "context.inject",
+  mutate { domain: "session", operation: "context.inject",
                 params: { protocolType: "research", taskId: "T5241" } }
 
 Flow:
@@ -356,19 +371,19 @@ Progressive disclosure minimizes the cognitive load on agents by starting with a
 
 ```
 Step 1: Agent starts session (tier 0)
-  cleo_mutate { domain: "session", operation: "start", params: { scope: "T5241" } }
+  mutate { domain: "session", operation: "start", params: { scope: "T5241" } }
   -> Agent sees: tasks, session, check, pipeline, orchestrate, tools, admin ops
 
 Step 2: Agent needs to recall past decisions
-  cleo_query { domain: "admin", operation: "help", params: { tier: 1 } }
+  query { domain: "admin", operation: "help", params: { tier: 1 } }
   -> Agent now sees: + memory domain (17 ops), + manifest ops, + session advanced
 
 Step 3: Agent searches brain.db
-  cleo_query { domain: "memory", operation: "find", params: { query: "authentication" } }
+  query { domain: "memory", operation: "find", params: { query: "authentication" } }
   -> Returns matching observations, decisions, patterns, learnings
 
 Step 4: Agent stores a new learning
-  cleo_mutate { domain: "memory", operation: "learning.store",
+  mutate { domain: "memory", operation: "learning.store",
                 params: { insight: "JWT tokens require refresh", source: "T5241" } }
 ```
 
@@ -376,9 +391,9 @@ Step 4: Agent stores a new learning
 
 | Tier | Operations | % of Total | Typical User |
 |------|-----------|------------|--------------|
-| 0 | 132 | 64% | All agents |
-| 1 | 36 | 17% | Agents needing memory/manifest |
-| 2 | 39 | 19% | Orchestrators, admins |
+| 0 | 133 | 67% | All agents |
+| 1 | 36 | 18% | Agents needing memory/manifest |
+| 2 | 25 | 13% | Orchestrators, admins |
 
 ---
 
@@ -506,7 +521,7 @@ These rules MUST always hold true in a correct CLEO installation:
 | **Domain** | One of 10 canonical runtime boundaries (tasks, session, memory, etc.). |
 | **Engine** | Adapter layer between domain handlers and core business logic. |
 | **FTS5** | SQLite Full-Text Search extension, version 5. Used by brain.db for text search. |
-| **Gateway** | One of two MCP tools: `cleo_query` (read) or `cleo_mutate` (write). |
+| **Gateway** | One of two MCP tools: `query` (read) or `mutate` (write). |
 | **LAFS** | Progressive disclosure protocol. Controls which operations and fields are visible. |
 | **LOOM** | Lifecycle management system. Pipeline domain + manifest + release orchestration. |
 | **MANIFEST.jsonl** | Append-only artifact ledger owned by the pipeline domain. |

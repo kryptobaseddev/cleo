@@ -108,5 +108,5 @@ Interpretation:
 This matrix is a canonical parity artifact. Working notes are not authoritative.
 
 - Canonical contract: `docs/specs/MCP-SERVER-SPECIFICATION.md`
-- Canonical product identity: `docs/concepts/vision.mdx`
+- Canonical product identity: `docs/concepts/CLEO-VISION.mdx`
 - Canonical product contract: `docs/specs/PORTABLE-BRAIN-SPEC.md`

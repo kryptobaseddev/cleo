@@ -4,12 +4,17 @@
  * Cross-project coordination via the BRAIN Network.
  * Delegates to src/core/nexus/ for all business logic.
  *
+ * Also handles multi-contributor sharing operations (snapshot export/import,
+ * .gitignore sync, remote management, and push/pull for .cleo/.git).
+ *
  * @epic T4820
+ * @task T5277
  */
 
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getLogger } from '../../core/logger.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 import {
   nexusInit,
@@ -37,12 +42,38 @@ import {
   setPermission,
 } from '../../core/nexus/permissions.js';
 
+// Sharing core imports (merged from sharing domain)
+import {
+  getSharingStatus,
+  syncGitignore,
+} from '../../core/nexus/sharing/index.js';
+import {
+  exportSnapshot,
+  importSnapshot,
+  readSnapshot,
+  writeSnapshot,
+  getDefaultSnapshotPath,
+} from '../../core/snapshot/index.js';
+import {
+  listRemotes,
+  getSyncStatus,
+  addRemote,
+  removeRemote,
+  push as remotePush,
+  pull as remotePull,
+} from '../../core/remote/index.js';
+
 
 // ---------------------------------------------------------------------------
 // NexusHandler
 // ---------------------------------------------------------------------------
 
 export class NexusHandler implements DomainHandler {
+  private projectRoot: string;
+
+  constructor() {
+    this.projectRoot = getProjectRoot();
+  }
 
   // -----------------------------------------------------------------------
   // Query
@@ -112,6 +143,35 @@ export class NexusHandler implements DomainHandler {
         case 'graph': {
           const graph = await buildGlobalGraph();
           return this.successResponse('query', operation, startTime, graph);
+        }
+
+        // Sharing sub-operations (T5277)
+        case 'share.status': {
+          const result = await getSharingStatus(this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'share.remotes': {
+          const remotes = await listRemotes(this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: { remotes },
+          };
+        }
+
+        case 'share.sync.status': {
+          const remote = (params?.remote as string) ?? 'origin';
+          const syncStatus = await getSyncStatus(remote, this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: syncStatus,
+          };
         }
 
         default:
@@ -202,6 +262,103 @@ export class NexusHandler implements DomainHandler {
           });
         }
 
+        // Sharing sub-operations (T5277)
+        case 'share.snapshot.export':
+        case 'share.snapshot-export': {
+          const snapshot = await exportSnapshot(this.projectRoot);
+          const outputPath = (params?.outputPath as string) ?? getDefaultSnapshotPath(this.projectRoot);
+          await writeSnapshot(snapshot, outputPath);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: {
+              path: outputPath,
+              taskCount: snapshot._meta.taskCount,
+              checksum: snapshot._meta.checksum,
+            },
+          };
+        }
+
+        case 'share.snapshot.import':
+        case 'share.snapshot-import': {
+          const inputPath = params?.inputPath as string;
+          if (!inputPath) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'inputPath is required', startTime);
+          }
+          const snapshot = await readSnapshot(inputPath);
+          const result = await importSnapshot(snapshot, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'share.sync.gitignore':
+        case 'share.sync-gitignore': {
+          const result = await syncGitignore(this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'share.remote.add':
+        case 'share.remote-add': {
+          const url = params?.url as string;
+          if (!url) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'url is required', startTime);
+          }
+          const remoteName = (params?.name as string) ?? 'origin';
+          await addRemote(url, remoteName, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: { name: remoteName, url },
+          };
+        }
+
+        case 'share.remote.remove':
+        case 'share.remote-remove': {
+          const remoteName = (params?.name as string) ?? 'origin';
+          await removeRemote(remoteName, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: { name: remoteName },
+          };
+        }
+
+        case 'share.push': {
+          const remote = (params?.remote as string) ?? 'origin';
+          const result = await remotePush(remote, {
+            force: params?.force as boolean | undefined,
+            setUpstream: params?.setUpstream as boolean | undefined,
+          }, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: result.success,
+            data: result,
+            ...(result.success ? {} : {
+              error: { code: 'E_PUSH_FAILED', message: result.message },
+            }),
+          };
+        }
+
+        case 'share.pull': {
+          const remote = (params?.remote as string) ?? 'origin';
+          const result = await remotePull(remote, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: result.success,
+            data: result,
+            ...(result.success ? {} : {
+              error: { code: 'E_PULL_FAILED', message: result.message },
+            }),
+          };
+        }
+
         default:
           return this.unsupported('mutate', operation, startTime);
       }
@@ -216,8 +373,17 @@ export class NexusHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'query', 'deps', 'graph'],
-      mutate: ['init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set'],
+      query: [
+        'status', 'list', 'show', 'query', 'deps', 'graph',
+        // Sharing sub-operations (T5277)
+        'share.status', 'share.remotes', 'share.sync.status',
+      ],
+      mutate: [
+        'init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set',
+        // Sharing sub-operations (T5277)
+        'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore',
+        'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull',
+      ],
     };
   }
 

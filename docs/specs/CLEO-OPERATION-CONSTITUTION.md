@@ -22,14 +22,14 @@ CLEO exposes exactly **2 MCP tools** following the CQRS (Command Query Responsib
 
 | Tool | Gateway | Purpose |
 |------|---------|---------|
-| `cleo_query` | `query` | Read-only operations. MUST NOT modify state. Safe to retry. |
-| `cleo_mutate` | `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. |
+| `query` | `query` | Read-only operations. MUST NOT modify state. Safe to retry. |
+| `mutate` | `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. |
 
 All operations are addressed as `{domain}.{operation}` within their gateway:
 
 ```
-cleo_query  { domain: "tasks", operation: "show", params: { id: "T123" } }
-cleo_mutate { domain: "memory", operation: "observe", params: { text: "..." } }
+query  { domain: "tasks", operation: "show", params: { id: "T123" } }
+mutate { domain: "memory", operation: "observe", params: { text: "..." } }
 ```
 
 ---
@@ -48,15 +48,15 @@ CLEO defines exactly **10 canonical domains**. These are the runtime contract. C
 | `orchestrate` | Multi-agent coordination, wave planning, parallel execution | tasks.db |
 | `tools` | Skills, providers, issues, CAAMP catalog | .cleo/skills/ |
 | `admin` | Configuration, backup, migration, diagnostics, ADRs | config.json, tasks.db |
-| `nexus` | Cross-project coordination, registry, dependency graph | nexus.db |
-| `sharing` | Multi-contributor sync, remotes, snapshots | .cleo/sharing/ |
+| `nexus` | Cross-project coordination, registry, dependency graph, sharing operations | nexus.db |
+| `sticky` | Ephemeral project-wide capture, quick notes before formal task creation | brain.db |
 
 The canonical domain list is defined in `src/dispatch/types.ts` as:
 
 ```typescript
 export const CANONICAL_DOMAINS = [
   'tasks', 'session', 'memory', 'check', 'pipeline',
-  'orchestrate', 'tools', 'admin', 'nexus', 'sharing',
+  'orchestrate', 'tools', 'admin', 'nexus', 'sticky',
 ] as const;
 ```
 
@@ -358,9 +358,9 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `adr.validate` | Validate ADR frontmatter against schema | 2 | -- | Yes |
 | mutate | `fix` | Auto-fix failed doctor checks | 0 | -- | No |
 
-### 6.9 nexus (12 operations)
+### 6.9 nexus (22 operations)
 
-All nexus operations are tier 2 (cross-project coordination).
+All nexus operations are tier 2 (cross-project coordination). Includes 10 sharing operations in the `share.*` sub-namespace.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -370,29 +370,34 @@ All nexus operations are tier 2 (cross-project coordination).
 | query | `query` | Resolve cross-project `project:taskId` query | 2 | `query` | Yes |
 | query | `deps` | Cross-project dependency analysis | 2 | `query` | Yes |
 | query | `graph` | Global dependency graph across all projects | 2 | -- | Yes |
+| query | `share.status` | Sharing status | 2 | -- | Yes |
+| query | `share.remotes` | List configured remotes | 2 | -- | Yes |
+| query | `share.sync.status` | Sync status | 2 | -- | Yes |
 | mutate | `init` | Initialize NEXUS (creates registry and directories) | 2 | -- | Yes |
 | mutate | `register` | Register a project in NEXUS | 2 | `path` | No |
 | mutate | `unregister` | Remove a project from NEXUS | 2 | `name` | No |
 | mutate | `sync` | Sync project metadata (task count, labels) | 2 | `name` | Yes |
 | mutate | `sync.all` | Sync all registered projects | 2 | -- | Yes |
 | mutate | `permission.set` | Update project permissions | 2 | `name`, `level` | Yes |
+| mutate | `share.snapshot.export` | Export project snapshot | 2 | -- | No |
+| mutate | `share.snapshot.import` | Import project snapshot | 2 | -- | No |
+| mutate | `share.sync.gitignore` | Sync gitignore with CLEO paths | 2 | -- | No |
+| mutate | `share.remote.add` | Add sharing remote | 2 | -- | No |
+| mutate | `share.remote.remove` | Remove sharing remote | 2 | -- | No |
+| mutate | `share.push` | Push to sharing remote | 2 | -- | No |
+| mutate | `share.pull` | Pull from sharing remote | 2 | -- | No |
 
-### 6.10 sharing (10 operations)
+### 6.10 sticky (5 operations)
 
-All sharing operations are tier 2 (multi-contributor workflows).
+All sticky operations are tier 0 (quick capture). Sticky notes are lightweight capture entries that can be converted to tasks or memory.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
-| query | `status` | Sharing status | 2 | -- | Yes |
-| query | `remotes` | List configured remotes | 2 | -- | Yes |
-| query | `sync.status` | Sync status | 2 | -- | Yes |
-| mutate | `snapshot.export` | Export project snapshot | 2 | -- | No |
-| mutate | `snapshot.import` | Import project snapshot | 2 | -- | No |
-| mutate | `sync.gitignore` | Sync gitignore with CLEO paths | 2 | -- | No |
-| mutate | `remote.add` | Add sharing remote | 2 | -- | No |
-| mutate | `remote.remove` | Remove sharing remote | 2 | -- | No |
-| mutate | `push` | Push to sharing remote | 2 | -- | No |
-| mutate | `pull` | Pull from sharing remote | 2 | -- | No |
+| query | `list` | List sticky notes | 0 | -- | Yes |
+| query | `show` | Show sticky note details | 0 | `stickyId` | Yes |
+| mutate | `add` | Create new sticky note | 0 | `content` | No |
+| mutate | `convert` | Convert sticky to task or memory | 0 | `stickyId`, `targetType` | No |
+| mutate | `archive` | Archive sticky note | 0 | `stickyId` | No |
 
 ### Summary Counts
 
@@ -406,9 +411,9 @@ All sharing operations are tier 2 (multi-contributor workflows).
 | orchestrate | 9 | 6 | 15 |
 | tools | 21 | 14 | 35 |
 | admin | 20 | 15 | 35 |
-| nexus | 6 | 6 | 12 |
-| sharing | 3 | 7 | 10 |
-| **Total** | **117** | **90** | **207** |
+| nexus | 9 | 13 | 22 |
+| sticky | 2 | 3 | 5 |
+| **Total** | **119** | **93** | **212** |
 
 ---
 
@@ -416,11 +421,11 @@ All sharing operations are tier 2 (multi-contributor workflows).
 
 Operations are organized into 3 tiers. Agents SHOULD start at tier 0 and escalate only when needed:
 
-### Tier 0 -- Core (132 operations)
+### Tier 0 -- Core (133 operations)
 
 Available to all agents from session start. Covers 80% of typical workflows.
 
-**Domains**: tasks, session, check, pipeline, orchestrate, tools, admin
+**Domains**: tasks, session, check, pipeline, orchestrate, tools, admin, sticky
 
 ### Tier 1 -- Extended (36 operations)
 
@@ -428,20 +433,20 @@ Memory, manifest, and advanced query operations. Agents escalate here when they 
 
 **Domains**: memory plus extended operations across pipeline, session, admin, and tools
 
-### Tier 2 -- Full System (39 operations)
+### Tier 2 -- Full System (25 operations)
 
 Cross-project coordination, advanced tooling, and administrative functions. Used by orchestrator agents and system administrators.
 
-**Domains**: nexus, sharing, plus advanced operations across admin and tools
+**Domains**: nexus plus advanced operations across admin and tools
 
 ### Tier Escalation
 
 An agent discovers tier 1+ operations via `admin.help`:
 
 ```
-cleo_query { domain: "admin", operation: "help" }                  -- tier 0 ops
-cleo_query { domain: "admin", operation: "help", params: { tier: 1 } }  -- + tier 1
-cleo_query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all ops
+query { domain: "admin", operation: "help" }                  -- tier 0 ops
+query { domain: "admin", operation: "help", params: { tier: 1 } }  -- + tier 1
+query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all ops
 ```
 
 ---
@@ -451,7 +456,7 @@ cleo_query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all o
 Protocol injection is performed via `session.context.inject` (mutate gateway):
 
 ```
-cleo_mutate {
+mutate {
   domain: "session",
   operation: "context.inject",
   params: {
@@ -469,7 +474,7 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 ## 9. CLI/MCP Parity Rules
 
 1. The same `{domain}.{operation}` semantics apply to both CLI and MCP.
-2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `cleo_query tasks.show { id: "T123" }`.
+2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `query tasks.show { id: "T123" }`.
 3. CLI MAY provide aliases for convenience (e.g., `cleo done` for `tasks.complete`).
 4. MCP operations are the canonical names; CLI aliases are cosmetic.
 5. Both interfaces route through the shared dispatch layer (`src/dispatch/`) to `src/core/`.

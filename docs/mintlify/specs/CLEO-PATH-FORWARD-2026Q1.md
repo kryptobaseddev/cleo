@@ -28,7 +28,7 @@ The MCP server now operates as a standalone cross-platform engine, removing the 
 **What was built:**
 
 - **Native TypeScript engine** with 29 operations running cross-platform without Bash
-- **Two-tool CQRS gateway**: `cleo_query` (reads) and `cleo_mutate` (writes) across 8 domains (tasks, session, orchestrate, research, lifecycle, validate, release, system)
+- **Two-tool CQRS gateway**: `query` (reads) and `mutate` (writes) across 8 domains (tasks, session, orchestrate, research, lifecycle, validate, release, system)
 - **Hybrid routing**: native TypeScript for core operations, transparent CLI fallback for advanced operations
 - **Capability matrix** (`src/mcp/engine/capability-matrix.ts`) defining native vs CLI-backed operations
 - **Structured error contracts** with `error.fix` suggestions and `error.alternatives` arrays
@@ -181,7 +181,7 @@ Agent context injection follows a four-level progressive disclosure model, deliv
 
 ### 4.2 Interface Delineation
 
-- **MCP tools** (`cleo_query` / `cleo_mutate`): Primary entry point for all AI agent consumers. Structured JSON in/out, cross-platform, 2-tool surface.
+- **MCP tools** (`query` / `mutate`): Primary entry point for all AI agent consumers. Structured JSON in/out, cross-platform, 2-tool surface.
 - **CLI** (`cleo` / `ct`): Primary entry point for human developers. Rich terminal formatting, scriptable, Bash-native.
 - **Both converge** on the same business logic, validation rules, and data files.
 
@@ -277,7 +277,7 @@ This path forward aligns with CLEO's canonical BRAIN model:
 
 The MCP native engine delivers on Pillar 3 (Interoperable Interfaces) of the canonical vision:
 
-- **Any MCP-compatible agent** can use CLEO through `cleo_query`/`cleo_mutate`
+- **Any MCP-compatible agent** can use CLEO through `query`/`mutate`
 - **No Bash dependency** for core operations (29 native operations)
 - **Transparent routing** to CLI for advanced operations -- agents do not need to know the difference
 - **Structured contracts** (JSON in, JSON out) replace text parsing
@@ -328,7 +328,7 @@ Every aspect of this path forward prioritizes agent consumption:
 | MCP Agent Interaction | `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` | MCP vs CLI delineation |
 | Track A/B Planning | `.cleo/agent-outputs/track-ab-planning.md` | Epic decomposition details |
 | CAAMP Analysis | `.cleo/agent-outputs/caamp-dependency-analysis.md` | Dependency analysis |
-| Vision | `docs/concepts/vision.mdx` | Immutable vision identity |
+| Vision | `docs/concepts/CLEO-VISION.mdx` | Immutable vision identity |
 | Portable Brain | `docs/specs/PORTABLE-BRAIN-SPEC.md` | Canonical product contract |
 | v2 ADR | `claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md` | Architecture decisions |
 
@@ -347,5 +347,5 @@ Every aspect of this path forward prioritizes agent consumption:
 ---
 
 **Document Status**: STABLE
-**Authority**: This document synthesizes decisions made on 2026-02-11 into an authoritative path-forward reference. It defers to `docs/concepts/vision.mdx` (immutable identity) and `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract) for canonical product definition.
+**Authority**: This document synthesizes decisions made on 2026-02-11 into an authoritative path-forward reference. It defers to `docs/concepts/CLEO-VISION.mdx` (immutable identity) and `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract) for canonical product definition.
 **Next Review**: After Track A completion

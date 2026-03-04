@@ -11,9 +11,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { loadConfig } from '../config.js';
-import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
-import type { SharingConfig } from '../../types/config.js';
+import { loadConfig } from '../../config.js';
+import { getCleoDirAbsolute, getProjectRoot } from '../../paths.js';
+import type { SharingConfig } from '../../../types/config.js';
 
 /** Result of a sharing status check. */
 export interface SharingStatus {

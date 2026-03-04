@@ -1,6 +1,6 @@
 # CLEO Roadmap
 
-This roadmap reflects current implementation reality from `docs/concepts/vision.md`, active task state, and shipped changes through `2026.3.8`.
+This roadmap reflects current implementation reality from `docs/concepts/CLEO-VISION.md`, active task state, and shipped changes through `2026.3.8`.
 
 ## Current Reality
 

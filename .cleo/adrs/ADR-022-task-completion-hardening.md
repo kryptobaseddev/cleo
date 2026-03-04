@@ -81,4 +81,4 @@ This created ambiguity for agents and inconsistent enforcement outcomes.
 - `docs/guides/task-fields.md`
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md`
-- `docs/concepts/vision.md`
+- `docs/concepts/CLEO-VISION.md`

@@ -93,3 +93,12 @@ export {
   blockingAnalysis,
   orphanDetection,
 } from './deps.js';
+
+// Sharing - multi-contributor .cleo/ state management
+export {
+  // Types
+  type SharingStatus,
+  // Operations
+  getSharingStatus,
+  syncGitignore,
+} from './sharing/index.js';

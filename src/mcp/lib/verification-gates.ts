@@ -88,7 +88,7 @@ export interface VerificationResult {
 export interface OperationContext {
   domain: string;
   operation: string;
-  gateway: 'cleo_query' | 'cleo_mutate';
+  gateway: 'query' | 'mutate';
   params?: Record<string, unknown>;
   taskId?: string;
   protocolType?: ProtocolType;
@@ -308,7 +308,7 @@ export class VerificationGate {
    */
   static requiresValidation(context: OperationContext): boolean {
     // All mutate operations require validation
-    if (context.gateway === 'cleo_mutate') {
+    if (context.gateway === 'mutate') {
       return true;
     }
 

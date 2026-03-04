@@ -1,9 +1,9 @@
 /**
  * In-memory query cache for CLEO MCP Server
  *
- * Caches cleo_query responses with configurable TTL.
+ * Caches query responses with configurable TTL.
  * Cache key = domain + operation + hash(params).
- * Invalidated on any cleo_mutate operation for the relevant domain.
+ * Invalidated on any mutate operation for the relevant domain.
  *
  * @task T3145
  */
@@ -131,7 +131,7 @@ export class QueryCache {
   /**
    * Invalidate all cached entries for a domain
    *
-   * Called on any cleo_mutate operation to ensure consistency.
+   * Called on any mutate operation to ensure consistency.
    */
   invalidateDomain(domain: string): number {
     const keys = this.domainKeys.get(domain);

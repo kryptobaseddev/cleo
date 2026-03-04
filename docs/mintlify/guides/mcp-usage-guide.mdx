@@ -210,8 +210,8 @@ CLEO exposes two MCP tools using a CQRS (Command Query Responsibility Segregatio
 
 | Tool            | Purpose              | Side effects              |
 | --------------- | -------------------- | ------------------------- |
-| **cleo_query**  | Read-only operations | Never modifies state      |
-| **cleo_mutate** | Write operations     | Validated, logged, atomic |
+| **query**  | Read-only operations | Never modifies state      |
+| **mutate** | Write operations     | Validated, logged, atomic |
 
 Both accept the same parameter structure:
 
@@ -230,45 +230,45 @@ Both accept the same parameter structure:
 ## Workflow: Feature Implementation
 
 ```
-1. cleo_query   → domain: session,  operation: status
-2. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority }
-3. cleo_mutate  → domain: session,  operation: start     → params: { scope: "task:T####", name, autoFocus: true }
-4. cleo_mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
+1. query   → domain: session,  operation: status
+2. mutate  → domain: tasks,    operation: create    → params: { title, description, priority }
+3. mutate  → domain: session,  operation: start     → params: { scope: "task:T####", name, autoFocus: true }
+4. mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
 5.   ... do the work ...
-6. cleo_mutate  → domain: tasks,    operation: update    → params: { taskId, notes: "progress..." }
-7. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "what was done" }
-8. cleo_mutate  → domain: session,  operation: end       → params: { note: "summary" }
+6. mutate  → domain: tasks,    operation: update    → params: { taskId, notes: "progress..." }
+7. mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "what was done" }
+8. mutate  → domain: session,  operation: end       → params: { note: "summary" }
 ```
 
 ## Workflow: Bug Investigation
 
 ```
-1. cleo_query   → domain: system,   operation: dash
-2. cleo_query   → domain: tasks,    operation: find      → params: { query: "search terms" }
-3. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority: "high" }
-4. cleo_mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
+1. query   → domain: system,   operation: dash
+2. query   → domain: tasks,    operation: find      → params: { query: "search terms" }
+3. mutate  → domain: tasks,    operation: create    → params: { title, description, priority: "high" }
+4. mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
 5.   ... investigate ...
-6. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "root cause and fix" }
+6. mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "root cause and fix" }
 ```
 
 ## Workflow: Task Decomposition
 
 ```
-1. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, type: "epic" }
-2. cleo_mutate  → domain: session,  operation: start     → params: { scope: "epic:T####", autoFocus: true }
-3. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, parent: "T####" }
+1. mutate  → domain: tasks,    operation: create    → params: { title, description, type: "epic" }
+2. mutate  → domain: session,  operation: start     → params: { scope: "epic:T####", autoFocus: true }
+3. mutate  → domain: tasks,    operation: create    → params: { title, description, parent: "T####" }
    ... repeat for each sub-task ...
-4. cleo_mutate  → domain: tasks,    operation: update    → params: { taskId: "T###", depends: ["T###"] }
-5. cleo_query   → domain: tasks,    operation: tree      → params: { taskId: "T####" }
-6. cleo_query   → domain: tasks,    operation: next
+4. mutate  → domain: tasks,    operation: update    → params: { taskId: "T###", depends: ["T###"] }
+5. query   → domain: tasks,    operation: tree      → params: { taskId: "T####" }
+6. query   → domain: tasks,    operation: next
 ```
 
 ## Workflow: GitHub Issue Filing
 
 ```
-1. cleo_mutate  → domain: issues,   operation: create_bug → params: { title, body, severity, dryRun: true }
+1. mutate  → domain: issues,   operation: create_bug → params: { title, body, severity, dryRun: true }
 2.   ... user confirms preview ...
-3. cleo_mutate  → domain: issues,   operation: create_bug → params: { title, body, severity }
+3. mutate  → domain: issues,   operation: create_bug → params: { title, body, severity }
 ```
 
 Issue types: `create_bug`, `create_feature`, `create_help`

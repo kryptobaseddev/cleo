@@ -27,8 +27,8 @@ Implementation source files:
 
 | Gateway | Operations | Domains |
 |---------|-----------|---------|
-| cleo_query | 105 | 10 |
-| cleo_mutate | 83 | 10 |
+| query | 105 | 10 |
+| mutate | 83 | 10 |
 | **Total** | **188** | **10** |
 
 Canonical domains: tasks, session, orchestrate, memory, check, pipeline, admin, tools, nexus, sharing

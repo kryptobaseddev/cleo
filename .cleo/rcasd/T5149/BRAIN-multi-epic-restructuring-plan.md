@@ -78,7 +78,7 @@ Epic D: T4573 (EXISTING, no change) ─── Vision & Spec Revision
 
 ## Epic B: BRAIN Database & Cognitive Infrastructure [T5149]
 
-**Scope**: Everything brain.db per vision.md + ADR-009.
+**Scope**: Everything brain.db per CLEO-VISION.md + ADR-009.
 **Absorbs**: T5058, T5060 from T5057; SBMU Phases 3-6
 
 ### Phase 1: brain.db Foundation [T5150]
@@ -135,7 +135,7 @@ Epic D: T4573 (EXISTING, no change) ─── Vision & Spec Revision
 | T5141 | E2E test suite for full session-memory-recovery cycle | — |
 | T5142 | Performance benchmarks (FTS5 vs JSONL vs vec vs pageindex) | T5141 |
 | T5143 | Migration CLI (cleo migrate claude-mem) | — |
-| T5144 | Update vision.md + specs — mark brain.db SHIPPED | — |
+| T5144 | Update CLEO-VISION.md + specs — mark brain.db SHIPPED | — |
 | T5145 | Remove claude-mem, update injection to native ops | T5141, T5143 |
 
 ---

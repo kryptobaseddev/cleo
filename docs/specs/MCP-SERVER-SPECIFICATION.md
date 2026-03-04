@@ -22,8 +22,8 @@ Implementation operation counts and live operation matrices MUST be sourced from
 
 As of 2026-02-27, implementation counts are:
 
-- `cleo_query`: 97 (across 10 canonical domains)
-- `cleo_mutate`: 80 (across 10 canonical domains)
+- `query`: 97 (across 10 canonical domains)
+- `mutate`: 80 (across 10 canonical domains)
 - Total: 177
 
 > **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries are the canonical count for deployed operations. Legacy domain aliases (research, lifecycle, validate, release, system, issues, skills, providers) still route to canonical domains.
@@ -43,7 +43,7 @@ As of 2026-02-27, implementation counts are:
 │                            MCP TOOL LAYER (2 Entry Points)                       │
 │                                                                                  │
 │   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
-│   │         cleo_query              │    │         cleo_mutate             │    │
+│   │         query              │    │         mutate             │    │
 │   │      (97 Read Operations)       │    │      (80 Write Operations)      │    │
 │   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
 └────────────────────┼──────────────────────────────────────┼──────────────────────┘
@@ -76,7 +76,7 @@ As of 2026-02-27, implementation counts are:
 
 ## 2. Gateway Tool Definitions
 
-### 2.1 `cleo_query` - Read Operations
+### 2.1 `query` - Read Operations
 
 **Purpose**: All read-only operations for discovery, status, analysis, and validation checks.
 
@@ -91,7 +91,7 @@ As of 2026-02-27, implementation counts are:
 
 ```json
 {
-  "name": "cleo_query",
+  "name": "query",
   "description": "CLEO read operations: task discovery, status checks, analysis, validation, and compliance metrics. Never modifies state.",
   "inputSchema": {
     "type": "object",
@@ -256,7 +256,7 @@ As of 2026-02-27, implementation counts are:
 
 ---
 
-### 2.2 `cleo_mutate` - Write Operations
+### 2.2 `mutate` - Write Operations
 
 **Purpose**: All state-modifying operations for task management, orchestration, and system changes.
 
@@ -271,7 +271,7 @@ As of 2026-02-27, implementation counts are:
 
 ```json
 {
-  "name": "cleo_mutate",
+  "name": "mutate",
   "description": "CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation.",
   "inputSchema": {
     "type": "object",
@@ -440,7 +440,7 @@ All operations return a consistent envelope:
 ```json
 {
   "_meta": {
-    "gateway": "cleo_query|cleo_mutate",
+    "gateway": "query|mutate",
     "domain": "tasks",
     "operation": "show",
     "version": "1.0.0",
@@ -459,7 +459,7 @@ All operations return a consistent envelope:
 ```json
 {
   "_meta": {
-    "gateway": "cleo_mutate",
+    "gateway": "mutate",
     "domain": "tasks",
     "operation": "add",
     "version": "1.0.0",
@@ -479,7 +479,7 @@ All operations return a consistent envelope:
     "alternatives": [
       {
         "action": "Use generated description",
-        "command": "cleo_mutate tasks add --title \"...\" --description \"Implementation of ...\""
+        "command": "mutate tasks add --title \"...\" --description \"Implementation of ...\""
       }
     ]
   }
@@ -1042,28 +1042,28 @@ These are implementation-alignment concerns. Canonical behavior remains CLI-sema
 
 ```javascript
 // 1. Find task
-const result = await cleo_query({
+const result = await query({
   domain: "tasks",
   operation: "find",
   params: { query: "authentication" },
 });
 
 // 2. Get task details
-const task = await cleo_query({
+const task = await query({
   domain: "tasks",
   operation: "show",
   params: { taskId: "T2405" },
 });
 
 // 3. Set focus
-await cleo_mutate({
+await mutate({
   domain: "tasks",
   operation: "start",
   params: { taskId: "T2405" },
 });
 
 // 4. Complete task
-await cleo_mutate({
+await mutate({
   domain: "tasks",
   operation: "complete",
   params: { taskId: "T2405", notes: "Implemented successfully" },
@@ -1074,28 +1074,28 @@ await cleo_mutate({
 
 ```javascript
 // 1. Initialize orchestration
-const startup = await cleo_mutate({
+const startup = await mutate({
   domain: "orchestrate",
   operation: "start",
   params: { epicId: "T2400" },
 });
 
 // 2. Check lifecycle prerequisites
-const lifecycle = await cleo_query({
+const lifecycle = await query({
   domain: "lifecycle",
   operation: "validate",
   params: { taskId: "T2405", targetStage: "implementation" },
 });
 
 // 3. Generate spawn prompt
-const spawn = await cleo_mutate({
+const spawn = await mutate({
   domain: "orchestrate",
   operation: "spawn",
   params: { taskId: "T2405", skill: "ct-task-executor" },
 });
 
 // 4. Validate protocol compliance after completion
-const validation = await cleo_query({
+const validation = await query({
   domain: "validate",
   operation: "protocol",
   params: { taskId: "T2405", protocolType: "implementation" },
@@ -1106,41 +1106,41 @@ const validation = await cleo_query({
 
 ```javascript
 // 1. Run release gates
-const gates = await cleo_mutate({
+const gates = await mutate({
   domain: "release",
   operation: "gates.run",
   params: { gates: ["tests", "lint", "security"] },
 });
 
 // 2. Prepare release
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "prepare",
   params: { version: "1.2.0", type: "minor" },
 });
 
 // 3. Generate changelog
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "changelog",
   params: { version: "1.2.0" },
 });
 
 // 4. Create commit and tag
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "commit",
   params: { version: "1.2.0" },
 });
 
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "tag",
   params: { version: "1.2.0" },
 });
 
 // 5. Push
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "push",
   params: { version: "1.2.0" },
@@ -1212,7 +1212,7 @@ All inputs MUST be validated:
 
 The two-gateway design enables permission separation:
 
-- **Read-only access**: Grant `cleo_query` only
+- **Read-only access**: Grant `query` only
 - **Full access**: Grant both gateways
 - **Audit trail**: All mutations logged
 
@@ -1230,7 +1230,7 @@ Recommended limits:
 
 ### Appendix A: Domain Operation Quick Reference
 
-#### cleo_query Domains
+#### query Domains
 
 | Domain      | Operations                                                                                                                         |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -1245,7 +1245,7 @@ Recommended limits:
 | skills      | list, show, find, dispatch, verify, dependencies                                                                                   |
 | providers   | list, detect, inject.status                                                                                                        |
 
-#### cleo_mutate Domains
+#### mutate Domains
 
 | Domain      | Operations                                                                                                              |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -1327,7 +1327,7 @@ Recommended limits:
 ### v1.0.0 (2026-01-31)
 
 - Initial specification
-- Two-gateway CQRS design (cleo_query + cleo_mutate)
+- Two-gateway CQRS design (query + mutate)
 - Full RCSD-IVTR protocol coverage
 - 93 operations across 8 domains (46 query + 47 mutate)
 - Complete exit code mapping

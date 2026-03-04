@@ -39,7 +39,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 ### Documentation
 
 - Updated canonical docs for completion hardening semantics:
-  - `docs/concepts/vision.md`
+  - `docs/concepts/CLEO-VISION.md`
   - `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
   - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md`
   - `docs/guides/task-fields.md`
@@ -124,7 +124,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ### Documentation
 - Updated `README.md` and `AGENTS.md` operation counts/content to match current dispatch and gateway reality (T5149).
-- Updated BRAIN docs to shipped status: `docs/concepts/vision.md` and `docs/specs/CLEO-BRAIN-SPECIFICATION.md` now reflect approved v1.2.0 and shipped `brain.db` baseline (T5144).
+- Updated BRAIN docs to shipped status: `docs/concepts/CLEO-VISION.md` and `docs/specs/CLEO-BRAIN-SPECIFICATION.md` now reflect approved v1.2.0 and shipped `brain.db` baseline (T5144).
 - Promoted and refreshed roadmap/features documentation: canonical `docs/ROADMAP.md`, canonical `docs/FEATURES.json`, generated `docs/FEATURES.md`, and TypeScript-based `dev/generate-features.ts` generator.
 - Added/updated protocol and lifecycle documentation artifacts from completion sweep and compliance follow-through (T5239).
 

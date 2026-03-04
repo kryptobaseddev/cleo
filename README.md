@@ -166,7 +166,7 @@ cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": ".
 
 ### Source of Truth Hierarchy
 
-1. [`docs/concepts/vision.md`](docs/concepts/vision.md) - immutable product vision
+1. [`docs/concepts/CLEO-VISION.md`](docs/concepts/CLEO-VISION.md) - immutable product vision
 2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
 3. [`README.md`](README.md) - operational public contract
 4. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan

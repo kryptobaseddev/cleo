@@ -5,7 +5,7 @@
 **Date**: 2026-02-27
 **Epic**: T4284 (CLEO Nexus Command Center WebUI)
 **Supersedes**: CLEO-WEB-API-SPEC v1.0.0 (complete rewrite based on challenge findings)
-**Vision**: [docs/concepts/vision.md](../concepts/vision.md)
+**Vision**: [docs/concepts/CLEO-VISION.md](../concepts/CLEO-VISION.md)
 **UI Spec**: [CLEO-WEB-DASHBOARD-UI.md](../mintlify/specs/CLEO-WEB-DASHBOARD-UI.md)
 
 ---
@@ -28,7 +28,7 @@ The Web API is the **fourth adapter** over CLEO's shared core (`src/core/`), joi
 
 ## 2. Architecture Overview
 
-The Dispatcher IS the RPC layer. The HTTP adapter exposes it directly via two endpoints that mirror the MCP `cleo_query` / `cleo_mutate` tools exactly.
+The Dispatcher IS the RPC layer. The HTTP adapter exposes it directly via two endpoints that mirror the MCP `query` / `mutate` tools exactly.
 
 ```
 Browser (localhost:<dynamic-port>)
@@ -71,7 +71,7 @@ POST /api/query   ->  Dispatcher.dispatch({ gateway: 'query', ... })
 POST /api/mutate  ->  Dispatcher.dispatch({ gateway: 'mutate', ... })
 ```
 
-These mirror MCP's `cleo_query` / `cleo_mutate` tools exactly. The architecture is honest: CLEO already has a complete dispatch system with validation, routing, middleware, and error handling. The HTTP layer is a thin translation between HTTP and `DispatchRequest`/`DispatchResponse`.
+These mirror MCP's `query` / `mutate` tools exactly. The architecture is honest: CLEO already has a complete dispatch system with validation, routing, middleware, and error handling. The HTTP layer is a thin translation between HTTP and `DispatchRequest`/`DispatchResponse`.
 
 ### Why Not tRPC?
 

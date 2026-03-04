@@ -32,4 +32,4 @@ export {
   isAbsolutePath,
 } from './paths.js';
 export { loadConfig, getConfigValue } from './config.js';
-export { validateAgainstSchema, validateAgainstSchemaFile, checkSchema } from './schema.js';
+export { validateAgainstSchema, validateAgainstSchemaFile, checkSchema } from './json-schema-validator.js';

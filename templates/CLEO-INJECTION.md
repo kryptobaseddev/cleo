@@ -6,17 +6,17 @@ Status: ACTIVE
 ## CLEO Identity
 
 You are a CLEO protocol agent. Use MCP-first operations:
-- `cleo_query` for reads
-- `cleo_mutate` for writes
+- `query` for reads
+- `mutate` for writes
 
 ## Mandatory Efficiency Sequence
 
 Run cheapest-first at session start:
-1. `cleo_query session status` — resume existing? (~200 tokens)
-2. `cleo_query admin dash` — project overview (~500 tokens)
-3. `cleo_query tasks current` — active task? (~100 tokens)
-4. `cleo_query tasks next` — what to work on (~300 tokens)
-5. `cleo_query tasks show` — full details for chosen task (~400 tokens)
+1. `query session status` — resume existing? (~200 tokens)
+2. `query admin dash` — project overview (~500 tokens)
+3. `query tasks current` — active task? (~100 tokens)
+4. `query tasks next` — what to work on (~300 tokens)
+5. `query tasks show` — full details for chosen task (~400 tokens)
 
 ## Agent Work Loop
 
@@ -87,9 +87,9 @@ CLEO includes a native BRAIN memory system. Use the 3-layer retrieval pattern fo
 
 **Example**:
 ```
-cleo_query memory brain.search {query: "authentication"}
-cleo_query memory brain.fetch {ids: ["O-abc123"]}
-cleo_mutate memory brain.observe {text: "Found auth uses JWT", title: "Auth discovery"}
+query memory brain.search {query: "authentication"}
+query memory brain.fetch {ids: ["O-abc123"]}
+mutate memory brain.observe {text: "Found auth uses JWT", title: "Auth discovery"}
 ```
 
 **Anti-patterns:**
@@ -99,8 +99,8 @@ cleo_mutate memory brain.observe {text: "Found auth uses JWT", title: "Auth disc
 ## Escalation
 
 For deeper guidance beyond this minimal protocol:
-- **Session & lifecycle**: `cleo_query admin help` or load `ct-cleo` skill
-- **Orchestration**: `cleo_query admin help --tier 2` or load `ct-orchestrator` skill
+- **Session & lifecycle**: `query admin help` or load `ct-cleo` skill
+- **Orchestration**: `query admin help --tier 2` or load `ct-orchestrator` skill
 - **Operations reference**: `docs/specs/CLEO-OPERATIONS-REFERENCE.md`
 
 ## References

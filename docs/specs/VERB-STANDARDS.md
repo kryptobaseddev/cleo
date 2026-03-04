@@ -1,6 +1,6 @@
 # CLEO Verb Standards
 
-**Version**: 2026.2.27
+**Version**: 2026.3.3
 **Status**: MANDATORY
 **Scope**: All CLEO CLI commands, MCP operations, and API endpoints
 
@@ -27,8 +27,8 @@ This document establishes the canonical verb standard for CLEO to ensure consist
 | Soft-delete | `archive` | - | Enforced |
 | Restore | `restore` | `unarchive`, `reopen`, `uncancel` | Enforced |
 | Finish work | `complete` | `end`, `done`, `finish` | Enforced |
-| Begin work | `start` | `focus-set`, `tasks.start` | Enforced |
-| Stop work | `stop` | `focus-clear`, `tasks.stop`, `end` | Enforced |
+| Begin work | `start` | `focus-set` | Enforced |
+| Stop work | `stop` | `focus-clear` | Enforced |
 | Check current | `status` | `show` (when showing state, not entity) | Enforced |
 | Validate compliance | `validate` | `check` (when validating compliance) | Enforced |
 | Record event | `record` | `log` (when recording decisions/assumptions) | Enforced |
@@ -45,17 +45,20 @@ This document establishes the canonical verb standard for CLEO to ensure consist
 | Execute action | `run` | `exec`, `execute` (compound verb: `test.run`, `gates.run`) | Enforced |
 | End session | `end` | - (MCP operation) | Enforced |
 | Link entities | `link` | `connect`, `associate`, `attach` | Enforced |
-| Configure settings | `configure` | `setup`, `config` (when configuring skills) | Enforced |
 | Health check | `check` | `ping`, `probe`, `test` (when checking liveness) | Enforced |
-| Data repair | `repair` | `fix`, `heal`, `correct` (when repairing data) | Enforced |
-| Conflict resolution | `resolve` | `settle`, `fix`, `merge` (when resolving conflicts) | Enforced |
+| Data repair | `repair` | `fix`, `heal`, `correct` (when repairing data) | Reserved |
+| Conflict resolution | `resolve` | `settle`, `fix`, `merge` (when resolving conflicts) | Reserved |
 | Unlink entities | `unlink` | `disconnect`, `detach`, `deassociate` | Enforced |
 | Compute value | `compute` | `calculate`, `derive`, `eval` (when computing metrics) | Enforced |
 | Composite read | `plan` | — (composite multi-query aggregation for planning views) | Enforced |
-| Schedule work | `schedule` | `defer`, `queue` (when scheduling tasks for future execution) | Enforced |
-| Cancel task | `cancel` | `abort`, `stop`, `kill` (when cancelling tasks) | Enforced |
+| Schedule work | `schedule` | `defer`, `queue` (when scheduling tasks for future execution) | Reserved |
+| Cancel task | `cancel` | `abort`, `stop`, `kill` (when cancelling tasks) | Reserved |
 | Synchronize data | `sync` | `pull`, `push`, `reconcile` (when syncing stores) | Enforced |
-| Inspect internals | `inspect` | `diagnose`, `debug`, `examine` (when inspecting state) | Enforced |
+| Inspect internals | `inspect` | `diagnose`, `debug`, `examine` (when inspecting state) | Reserved |
+| Save observation | `observe` | `note`, `capture` (when saving observations to cognitive memory) | Enforced |
+| Append-only write | `store` | `add` for memory, `write` for audit entries | Enforced |
+| Batch retrieve | `fetch` | — (new verb; batch retrieval by ID array) | Enforced |
+| Chronological context | `timeline` | — (new verb; anchored context retrieval) | Enforced |
 
 ---
 
@@ -126,7 +129,7 @@ cleo find "keyword"
 cleo search "keyword"
 ```
 
-**MCP Usage**: `tasks.find`, `skills.find`
+**MCP Usage**: `tasks.find`, `tools.skill.find`
 
 ---
 
@@ -224,14 +227,14 @@ cleo end T123
 ### 10. Start (Begin Work)
 
 **Standard**: `start`
-**Replaces**: `focus-set`, `tasks.start`
+**Replaces**: `focus-set`
 
 ```bash
 # CORRECT
 cleo start T123
 
 # INCORRECT
-cleo start T123
+cleo focus-set T123
 ```
 
 **MCP Usage**: `tasks.start`, `session.start`
@@ -241,7 +244,7 @@ cleo start T123
 ### 11. Stop (Stop Work)
 
 **Standard**: `stop`
-**Replaces**: `focus-clear`, `tasks.stop`, `end`
+**Replaces**: `focus-clear`
 
 ```bash
 # CORRECT
@@ -281,15 +284,15 @@ cleo show session
 
 ```bash
 # CORRECT
-cleo lifecycle validate --stage implementation
+cleo pipeline validate --stage implementation
 cleo validate schema
 cleo validate protocol
 
 # INCORRECT
-cleo lifecycle check --stage implementation
+cleo pipeline check --stage implementation
 ```
 
-**MCP Usage**: `lifecycle.validate`, `validate.schema`, `validate.protocol`
+**MCP Usage**: `pipeline.stage.validate`, `check.schema`, `check.protocol`
 
 **Note**: `validate` is for compliance and schema checks. For liveness checks, use `check`. For artifact-level gate verification, use `verify`.
 
@@ -303,14 +306,14 @@ cleo lifecycle check --stage implementation
 
 ```bash
 # CORRECT
-cleo lifecycle record --stage research --epicId T001
+cleo pipeline record --stage research --epicId T001
 cleo compliance record --taskId T123
 
 # INCORRECT
-cleo lifecycle log --stage research
+cleo pipeline log --stage research
 ```
 
-**MCP Usage**: `lifecycle.record`, `session.record.decision`, `validate.compliance.record`
+**MCP Usage**: `pipeline.stage.record`, `session.record.decision`, `check.compliance.record`
 
 ---
 
@@ -359,13 +362,13 @@ cleo session pause
 
 ```bash
 # CORRECT
-cleo lifecycle reset --stage implementation --epicId T001
+cleo pipeline reset --stage implementation --epicId T001
 
 # INCORRECT
-cleo lifecycle clear --stage implementation
+cleo pipeline clear --stage implementation
 ```
 
-**MCP Usage**: `lifecycle.reset`
+**MCP Usage**: `pipeline.stage.reset`
 
 **Warning**: `reset` is destructive. Use only in emergency situations.
 
@@ -386,7 +389,7 @@ cleo setup
 cleo bootstrap
 ```
 
-**MCP Usage**: `system.init`
+**MCP Usage**: `admin.init`
 
 ---
 
@@ -404,7 +407,7 @@ cleo skills disable ct-validator
 cleo skills activate ct-research-agent
 ```
 
-**MCP Usage**: `skills.enable`, `skills.disable`
+**MCP Usage**: `tools.skill.enable`, `tools.skill.disable`
 
 ---
 
@@ -422,7 +425,7 @@ cleo backup add
 cleo snapshot
 ```
 
-**MCP Usage**: `system.backup`
+**MCP Usage**: `admin.backup`
 
 ---
 
@@ -439,7 +442,7 @@ cleo migrate run
 cleo upgrade schema
 ```
 
-**MCP Usage**: `system.migrate`
+**MCP Usage**: `admin.migrate`
 
 ---
 
@@ -459,7 +462,7 @@ cleo check T123
 cleo audit T123
 ```
 
-**MCP Usage**: `skills.verify`
+**MCP Usage**: `tools.skill.verify`
 
 **Note**: `verify` focuses on artifact-level checks (gates, frontmatter). Use `validate` for schema/protocol compliance.
 
@@ -478,7 +481,7 @@ cleo memory inject --protocol memory
 cleo insert protocol
 ```
 
-**MCP Usage**: `memory.inject`, `providers.inject`, `system.inject.generate`
+**MCP Usage**: `session.context.inject`, `tools.provider.inject`, `admin.inject.generate`
 
 ---
 
@@ -496,7 +499,7 @@ cleo test run
 cleo exec tests
 ```
 
-**MCP Usage**: `validate.test.run`, `release.gates.run`
+**MCP Usage**: `check.test.run`, `pipeline.release.gates.run`
 
 **Rule**: `run` MUST always be used as part of a compound verb. Never use as a standalone verb.
 
@@ -529,20 +532,13 @@ cleo memory connect M001 T123
 
 ---
 
-### 27. Configure (Adjust Settings)
+### 27. Configure — Removed (See §5 Update)
 
-**Standard**: `configure`
-**Replaces**: `setup`, `config` (when configuring skill parameters)
+`configure` is not a standalone canonical verb. Use `update` (§5) for entity modification.
 
-```bash
-# CORRECT
-cleo skills configure ct-orchestrator --param maxAgents --value 3
+The `tools.skill.configure` operation exists in the registry as a compound sub-operation for skill-specific parameter adjustment, but it does not constitute a canonical standalone verb. The Standard Verb Matrix (§2) confirms that `update` replaces `configure` (line 25).
 
-# INCORRECT
-cleo skills setup ct-orchestrator
-```
-
-**MCP Usage**: `skills.configure`
+**Removed from Enforced matrix**: 2026.3.3 (T5253). See [Reserved & Planned Verbs](#reserved--planned-verbs) for tracking.
 
 ---
 
@@ -554,7 +550,7 @@ cleo skills setup ct-orchestrator
 
 ```bash
 # CORRECT
-cleo system check
+cleo admin check
 cleo check --health
 
 # INCORRECT
@@ -562,7 +558,7 @@ cleo ping
 cleo probe
 ```
 
-**MCP Usage**: `system.check`, `check.health`
+**MCP Usage**: `admin.health`, `check.coherence.check`
 
 **Distinction from `validate`**: `check` is for liveness and health probing. `validate` is for compliance and schema correctness. `verify` is for artifact gates.
 
@@ -576,7 +572,7 @@ cleo probe
 
 ```bash
 # CORRECT
-cleo system repair --sequence
+cleo admin repair --sequence
 cleo repair index
 
 # INCORRECT
@@ -584,7 +580,7 @@ cleo fix sequence
 cleo heal data
 ```
 
-**MCP Usage**: `system.repair`
+**MCP Usage**: `admin.repair` [Reserved — not yet implemented in registry]
 
 **Note**: `repair` is non-destructive — it corrects inconsistencies without losing data. For destructive resets use `reset`.
 
@@ -606,7 +602,7 @@ cleo settle conflict T123
 cleo fix conflict T123
 ```
 
-**MCP Usage**: `issues.resolve`
+**MCP Usage**: `tools.issue.resolve` [Reserved — not yet implemented in registry]
 
 ---
 
@@ -692,7 +688,7 @@ cleo defer T123
 cleo queue T123
 ```
 
-**MCP Usage**: `tasks.schedule`
+**MCP Usage**: `tasks.schedule` [Reserved — not yet implemented in registry]
 
 ---
 
@@ -712,7 +708,7 @@ cleo abort T123
 cleo kill T123
 ```
 
-**MCP Usage**: `tasks.cancel`
+**MCP Usage**: `tasks.cancel` [Reserved — not yet implemented in registry]
 
 **Note**: `cancel` sets status to `cancelled` (soft terminal state). Use `delete` to permanently remove. Use `archive` to move to archive store.
 
@@ -726,7 +722,7 @@ cleo kill T123
 
 ```bash
 # CORRECT
-cleo system sync
+cleo admin sync
 cleo sync --provider todowrite
 
 # INCORRECT
@@ -734,7 +730,7 @@ cleo pull
 cleo reconcile
 ```
 
-**MCP Usage**: `system.sync`
+**MCP Usage**: `admin.sync`
 
 ---
 
@@ -755,7 +751,7 @@ cleo diagnose db
 cleo debug session
 ```
 
-**MCP Usage**: `system.inspect`, `admin.inspect`
+**MCP Usage**: `admin.inspect` [Reserved — not yet implemented in registry]
 
 **Note**: `inspect` exposes raw internal state for debugging. Use `show` for normal entity retrieval.
 
@@ -775,7 +771,7 @@ cleo memory add ...  # Use 'store' for memory, 'add' for tasks
 cleo memory create ...
 ```
 
-**MCP Usage**: `memory.pattern.store`, `memory.learning.store`
+**MCP Usage**: `memory.decision.store`, `memory.pattern.store`, `memory.learning.store`
 
 **Rationale**: `store` is distinct from `add` because memory entries are append-only, support deduplication via running averages, and are not user-managed entities. `add` implies CRUD lifecycle; `store` implies accumulation.
 
@@ -800,6 +796,69 @@ cleo memory search ...
 
 ---
 
+### 40. Observe (Save Observation)
+
+**Standard**: `observe`
+**Replaces**: `note`, `capture` (when saving observations to cognitive memory)
+**Scope**: Memory domain — saving raw observations to brain.db
+
+```bash
+# CORRECT
+cleo memory observe --text "Discovered pattern in auth flow"
+
+# INCORRECT
+cleo memory add --text "..."
+cleo memory write --text "..."
+```
+
+**MCP Usage**: `memory.observe`
+
+**Note**: `observe` is the append-only write operation for raw observations to brain.db. Distinct from `store` which is used for structured memory types (patterns, learnings, decisions).
+
+---
+
+### 41. Fetch (Batch Retrieve by IDs)
+
+**Standard**: `fetch`
+**Replaces**: — (new verb; does not replace any existing verb)
+**Scope**: Memory domain — step 3 of 3-layer retrieval workflow
+
+```bash
+# CORRECT
+cleo memory fetch --ids O-abc123,O-def456
+
+# INCORRECT
+cleo memory show O-abc123 O-def456  # 'show' is single-entity; 'fetch' is batch
+cleo memory get --ids ...            # 'get' is deprecated
+```
+
+**MCP Usage**: `memory.fetch`
+
+**Note**: `fetch` is the batch retrieval verb for the 3-layer cognitive retrieval pattern: `find` (search index) → `timeline` (context) → `fetch` (full details). Distinct from `show` (single entity by ID) and `list` (filtered collection).
+
+---
+
+### 42. Timeline (Chronological Context)
+
+**Standard**: `timeline`
+**Replaces**: — (new verb; does not replace any existing verb)
+**Scope**: Memory domain — step 2 of 3-layer retrieval workflow
+
+```bash
+# CORRECT
+cleo memory timeline --anchor O-abc123
+cleo memory timeline --query "authentication"
+
+# INCORRECT
+cleo memory context O-abc123
+```
+
+**MCP Usage**: `memory.timeline`
+
+**Note**: `timeline` is step 2 of the BRAIN 3-layer retrieval workflow: (1) `find` → get index with IDs, (2) `timeline` → get chronological context around an anchor, (3) `fetch` → get full details for filtered IDs. Use after `memory find` to understand context before committing to `memory fetch`.
+
+---
+
 ## Naming Conventions
 
 ### Command Structure
@@ -808,7 +867,7 @@ cleo memory search ...
 
 ```
 {domain}.{action}              → tasks.add, session.start
-{domain}.{namespace}.{action}  → validate.protocol, gate.pass
+{domain}.{namespace}.{action}  → check.protocol, pipeline.stage.validate
 ```
 
 #### Multi-Word Commands
@@ -918,6 +977,58 @@ compliance  Compliance summary and violations
 test.run    Execute test suite
 ```
 
+#### Sticky Operations (Domain: sticky)
+
+All sticky operations use the `sticky.*` namespace (canonical 10th domain):
+
+```
+add         Create new sticky note
+list        List sticky notes
+show        Show sticky note details
+convert     Convert sticky to task or memory
+archive     Archive sticky note
+```
+
+**CLI Examples:**
+```bash
+cleo sticky add "Check edge case in validation"
+cleo sticky add "Bug: login fails" --tag bug --priority high
+cleo sticky list
+cleo sticky list --tag bug
+cleo sticky show SN-042
+cleo sticky convert SN-042 --to-task --title "Fix validation"
+cleo sticky archive SN-042
+```
+
+**Note**: Sticky notes are lightweight capture entries. The `convert` verb promotes them to formal entities (tasks or memory). Unlike other domains, sticky uses `convert` instead of `complete` for promotion workflows, and does not support `update`, `delete`, or `restore` operations.
+
+#### Nexus.Share Operations
+
+All sharing operations are under the `nexus.share.*` sub-namespace (10 operations):
+
+```
+nexus.share.status           Query sharing status
+nexus.share.remotes          List configured remotes
+nexus.share.sync.status      Query sync status
+nexus.share.snapshot.export  Export project snapshot
+nexus.share.snapshot.import  Import project snapshot
+nexus.share.sync.gitignore   Sync gitignore with CLEO paths
+nexus.share.remote.add       Add sharing remote
+nexus.share.remote.remove    Remove sharing remote
+nexus.share.push             Push to sharing remote
+nexus.share.pull             Pull from sharing remote
+```
+
+**MCP Examples:**
+```bash
+query { domain: "nexus", operation: "share.status" }
+query { domain: "nexus", operation: "share.remotes" }
+mutate { domain: "nexus", operation: "share.push" }
+mutate { domain: "nexus", operation: "share.snapshot.export" }
+```
+
+**Note**: Sharing operations have always been under `nexus.share.*`. There was no `sharing` domain in production.
+
 ---
 
 ## Enforcement
@@ -938,7 +1049,89 @@ test.run    Execute test suite
 
 ---
 
+## Reserved & Planned Verbs
+
+These verbs appear in the Standard Verb Matrix with **Reserved** status. They are documented here for planning purposes but are **not yet implemented** in the registry. Do not use them in MCP operations until they are promoted to Enforced status.
+
+### Reserved Verbs (Documented but Not Implemented)
+
+| Verb | Intended Domain | Rationale | Originally Added |
+|------|-----------------|-----------|------------------|
+| `repair` | `admin` | Data integrity repair (sequence counters, indexes). No `admin.repair` in Constitution domain tables. Awaiting implementation. | T4791 (2026.2.25) |
+| `resolve` | `tools.issue` | Conflict/issue resolution. No `tools.issue.resolve` in registry. Awaiting implementation. | T4791 (2026.2.25) |
+| `schedule` | `tasks` | Deferred task execution. No `tasks.schedule` in registry. Awaiting implementation. | T4791 (2026.2.25) |
+| `cancel` | `tasks` | Task cancellation (terminal state). No `tasks.cancel` in registry. Note: `admin.job.cancel` exists for background jobs but is a different concept. | T4791 (2026.2.25) |
+| `inspect` | `admin` | Internal state examination. Registry verb exists but no entry in Constitution domain tables. Awaiting formal registration. | T4791 (2026.2.25) |
+
+### Deferred Verbs (Pending Design Decision)
+
+| Verb | Context | Status |
+|------|---------|--------|
+| `consolidate` | BRAIN reasoning & consolidation | Pending Reasoning R&C outcome |
+| `predict` | BRAIN predictive features | Pending Reasoning R&C outcome |
+| `suggest` | BRAIN suggestion engine | Pending Reasoning R&C outcome |
+| `spawn` | Agent orchestration | In registry as `orchestrate.spawn`; verb section deferred |
+| `kill` | Agent termination | Pending design — may use `stop` instead |
+| `learn` | BRAIN learning accumulation | Overlaps with `store` — pending clarification |
+| `score` | Grading / quality scoring | In registry as `admin.grade`; verb section deferred |
+
+### Removed from Enforced Matrix
+
+| Verb | Was Line | Reason | Date |
+|------|----------|--------|------|
+| `configure` | 48 | Contradicts line 25 (`update` replaces `configure`). Zero standalone operations in registry. `tools.skill.configure` is a compound operation under `update` semantics. | 2026.3.3 |
+| `repair` | 50 | Not in registry or Constitution Sec 4. Moved to Reserved. | 2026.3.3 |
+| `resolve` | 51 | Not in registry or Constitution Sec 4. Moved to Reserved. | 2026.3.3 |
+| `schedule` | 55 | Not in registry or Constitution Sec 4. Moved to Reserved. | 2026.3.3 |
+| `cancel` | 56 | Not in registry as `tasks.cancel`. `job.cancel` is different semantics. Moved to Reserved. | 2026.3.3 |
+| `inspect` | 58 | Not in Constitution domain tables. Moved to Reserved. | 2026.3.3 |
+
+---
+
 ## Migration History
+
+### 2026.3.3 - Verb Standards Alignment and Domain Restructure (verb-standards-alignment)
+
+**Verb Matrix Changes:**
+- **Removed**: `configure` as standalone enforced verb. Redirected to §5 Update. `tools.skill.configure` is a compound sub-operation, not a canonical standalone verb.
+- **Reclassified to Reserved**: `repair`, `resolve`, `schedule`, `cancel`, `inspect` — declared Enforced but not yet implemented in registry
+- **Added as Enforced**: `observe` (§40), `fetch` (§41), `timeline` (§42) — missing from documentation but in registry and Constitution since BRAIN cutover (T5241)
+- `store` (§38) and `recall` (§39) already existed — verified and MCP Usage lines corrected
+
+**Namespace Corrections (22 replacements):**
+All MCP examples updated to use current canonical domains:
+- `lifecycle.*` → `pipeline.*` (stage.validate, stage.record, stage.reset)
+- `system.*` → `admin.*` (init, backup, migrate, check, repair, sync, inspect)
+- `skills.*` → `tools.skill.*` (find, enable, disable, verify)
+- `providers.*` → `tools.provider.*` (inject)
+- `validate.*` → `check.*` (schema, protocol, compliance.record, test.run)
+- `issues.*` → `tools.issue.*` (resolve)
+- `memory.inject` → `session.context.inject`
+
+**Bug Fixes:**
+- §10 Start: INCORRECT example was identical to CORRECT example — fixed to show `cleo focus-set T123`
+- §10 Start / §11 Stop: Removed `tasks.start` and `tasks.stop` from Replaces fields (these are canonical operation names, not deprecated verbs)
+- §27 Configure: Rewritten as redirect note — `configure` is not a standalone canonical verb
+
+**Domain Restructure:**
+- `sharing` domain absorbed into `nexus` — 10 operations moved to `nexus.share.*` namespace
+- `sticky` domain added as 10th canonical domain — 5 operations: sticky.add, sticky.list, sticky.show, sticky.convert, sticky.archive
+
+**Reserved & Planned Verbs:** New section added documenting reclassified verbs with planned MCP addresses.
+
+**Enforced verb count:** 36 (was 39; removed 6 including `configure`, added 4: `observe`, `store`, `fetch`, `timeline`; net -2; `store` was missing from matrix but had §38 section)
+
+**Version alignment:** Synchronized with CLEO-OPERATION-CONSTITUTION.md at 2026.3.3
+
+### 2026.3.3 - Domain Restructure: Final Domain Consolidation (T5276, T5267)
+
+- **Finalized**: 10 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky
+- **Added**: `sticky` domain (5 operations): `add`, `list`, `show`, `convert`, `archive`
+- **Confirmed**: `nexus` domain includes 10 `share.*` sub-namespace operations (total 22 operations)
+- **New verbs**: `convert` for sticky-to-entity promotion workflows
+- **Updated**: Total operations: 198 (119 query + 79 mutate)
+- **Documentation**: Added Sticky Operations and Nexus.Share Operations sections to Verb Quick Reference
+- **No migration needed**: Sharing operations were always under `nexus.share.*`
 
 ### 2026.2.27 - BRAIN Memory Verb Addition (T4763, T4780)
 

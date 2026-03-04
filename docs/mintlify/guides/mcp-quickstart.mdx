@@ -52,7 +52,7 @@ MCP server configs are read at startup. Restart your AI tool (or reload the wind
 Ask your AI agent to check the CLEO version:
 
 ```typescript
-await cleo_query({
+await query({
   domain: "system",
   operation: "version"
 });
@@ -109,12 +109,12 @@ The standard JSON configuration block is:
 
 All MCP operations go through exactly two tools:
 
-### cleo_query -- Read Operations
+### query -- Read Operations
 
-Use `cleo_query` for anything that reads state without modifying it.
+Use `query` for anything that reads state without modifying it.
 
 ```typescript
-await cleo_query({
+await query({
   domain: "<domain>",
   operation: "<operation>",
   params: { /* operation-specific parameters */ }
@@ -137,12 +137,12 @@ await cleo_query({
 | `system` | `dash` | Project overview dashboard |
 | `lifecycle` | `check` | Validate lifecycle gates |
 
-### cleo_mutate -- Write Operations
+### mutate -- Write Operations
 
-Use `cleo_mutate` for anything that creates, updates, or deletes state.
+Use `mutate` for anything that creates, updates, or deletes state.
 
 ```typescript
-await cleo_mutate({
+await mutate({
   domain: "<domain>",
   operation: "<operation>",
   params: { /* operation-specific parameters */ }
@@ -170,21 +170,21 @@ await cleo_mutate({
 
 ```typescript
 // 1. Search for tasks (minimal context, fast)
-const results = await cleo_query({
+const results = await query({
   domain: "tasks",
   operation: "find",
   params: { query: "authentication" }
 });
 
 // 2. Get full details for a specific task
-const task = await cleo_query({
+const task = await query({
   domain: "tasks",
   operation: "get",
   params: { taskId: "T042" }
 });
 
 // 3. Create a new task
-await cleo_mutate({
+await mutate({
   domain: "tasks",
   operation: "create",
   params: {
@@ -195,7 +195,7 @@ await cleo_mutate({
 });
 
 // 4. Complete a task
-await cleo_mutate({
+await mutate({
   domain: "tasks",
   operation: "complete",
   params: {
@@ -209,13 +209,13 @@ await cleo_mutate({
 
 ```typescript
 // 1. Check for existing sessions
-const sessions = await cleo_query({
+const sessions = await query({
   domain: "session",
   operation: "list"
 });
 
 // 2. Start a new session scoped to an epic
-await cleo_mutate({
+await mutate({
   domain: "session",
   operation: "start",
   params: {
@@ -226,14 +226,14 @@ await cleo_mutate({
 });
 
 // 3. Set focus on a specific task
-await cleo_mutate({
+await mutate({
   domain: "session",
   operation: "tasks.start",
   params: { taskId: "T105" }
 });
 
 // 4. End the session
-await cleo_mutate({
+await mutate({
   domain: "session",
   operation: "end",
   params: { notes: "Completed auth tasks" }
@@ -244,19 +244,19 @@ await cleo_mutate({
 
 ```typescript
 // Project dashboard
-await cleo_query({
+await query({
   domain: "system",
   operation: "dash"
 });
 
 // Run diagnostics
-await cleo_query({
+await query({
   domain: "system",
   operation: "doctor"
 });
 
 // Check lifecycle status for a task
-await cleo_query({
+await query({
   domain: "lifecycle",
   operation: "status",
   params: { taskId: "T100" }
@@ -268,7 +268,7 @@ await cleo_query({
 All responses follow a consistent structure. Check `success` before using the data:
 
 ```typescript
-const result = await cleo_mutate({
+const result = await mutate({
   domain: "tasks",
   operation: "create",
   params: {
@@ -336,7 +336,7 @@ Or in the MCP server configuration:
 Check which stages are missing:
 
 ```typescript
-await cleo_query({
+await query({
   domain: "lifecycle",
   operation: "status",
   params: { taskId: "T100" }
@@ -346,7 +346,7 @@ await cleo_query({
 Then complete or skip the missing stages:
 
 ```typescript
-await cleo_mutate({
+await mutate({
   domain: "lifecycle",
   operation: "progress",
   params: {

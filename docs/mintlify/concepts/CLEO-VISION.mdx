@@ -1,3 +1,9 @@
+---
+title: "CLEO Vision"
+description: "The constitutional vision for CLEO: a portable Brain and Memory system for AI software development"
+icon: "compass"
+---
+
 # CLEO Vision
 
 **The contract between you and your AI coding agent.**
@@ -10,11 +16,11 @@ This document is CLEO's constitutional vision and source of product identity. Al
 
 ```
 MODE: READ_ONLY_IDENTITY_BOOTSTRAP
-PRIMARY_SOURCE: docs/concepts/vision.md
+PRIMARY_SOURCE: docs/concepts/CLEO-VISION.md
 IDENTITY_LOCK: TRUE
 
 READ_ORDER:
-1) docs/concepts/vision.md                     (this document — canonical identity)
+1) docs/concepts/CLEO-VISION.md                     (this document — canonical identity)
 2) docs/specs/PORTABLE-BRAIN-SPEC.md            (normative product contract)
 3) README.md                                    (public-facing product statement)
 4) docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md    (phase/gate execution plan)
@@ -28,6 +34,7 @@ NON_NEGOTIABLES:
 - LOOM (Logical Order of Operations Methodology) is the lifecycle pipeline — encompassing RCASD-IVTR+C
 - BRAIN is the memory system
 - NEXUS is the cross-project connective layer
+- Workshop vocabulary such as Thread, Tapestry, Tessera, Cogs, Cascade, Tome, and Sticky Notes is conceptual language layered on top of the existing systems and domains; it MUST NOT be treated as a replacement for the canonical four systems or 10 domains
 
 CANONICAL_IDENTITY:
 CLEO is a vendor-neutral Brain and Memory system for AI software
@@ -49,7 +56,9 @@ CANONICAL_PILLARS:
 
 CLEO is a vendor-neutral **Brain and Memory system** for AI software development. It provides portable project memory, verifiable provenance, and agent-safe orchestration across any repository, model provider, or coding tool.
 
-> **One developer. One AI agent. One source of truth.**
+<Note>
+**One developer. One AI agent. One source of truth.**
+</Note>
 
 ### The Name
 
@@ -94,7 +103,7 @@ CLEO is composed of four interdependent systems. Each has a distinct role, and t
 |                                                                     |
 |  +-----------------------------------------------------------------+
 |  |                   Shared Core (src/core/)                       |
-|  |  CLI (Commander.js)  |  MCP (cleo_query/cleo_mutate)  | API    |
+|  |  CLI (Commander.js)  |  MCP (query/mutate)  | API    |
 |  +-----------------------------------------------------------------+
 |  |                   SQLite (Drizzle ORM)                          |
 |  |  .cleo/tasks.db        .cleo/brain.db          ~/.cleo/nexus.db [TGT]
@@ -145,7 +154,8 @@ CLEO's 10 canonical domains map directly to cognitive functions — each domain 
 | **check** | Immune System | Validation, quality — catches problems before they spread. The check domain identifies issues, validates compliance, and ensures work quality before problems propagate. |
 | **pipeline** | Executive Pipeline | RCASD-IVTR+C — the structured process of deciding and doing. The pipeline domain governs the LOOM lifecycle stages with gate enforcement and stage management. |
 | **orchestrate** | Executive Function | Multi-agent coordination — how the brain delegates work. Orchestrate handles wave planning, agent spawning, and coordination of parallel workstreams. |
-| **tools** | Capabilities | Skills, providers — learned abilities. The tools domain manages the capabilities CLEO can invoke: skills, provider integrations, and issue tracking. |
+| **tools** | Capabilities | Skills, providers — learned abilities. The tools domain manages the capabilities CLEO can invoke: skills, provider integrations, and issue tracking.
+</Info> |
 | **admin** | Autonomic System | Background infrastructure — breathing, heartbeat, backups. Admin handles the unconscious operations: configuration, backups, migrations, and system health. |
 | **nexus** | Hive Network | Cross-project intelligence — connecting brains. Nexus enables knowledge sharing and federated queries across registered CLEO projects. |
 | **sharing** | Social Memory | What gets shared with others. The sharing domain manages allowlists and sync status for cross-project collaboration. |
@@ -213,7 +223,9 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 | **M** | `brain.db` + SQLite-vec | In Progress (T5157) | Vector embeddings for semantic similarity search |
 | **L** | `brain.db` + PageIndex + Graph | Planned (T5160) | Graph-based traversal and cross-reference discovery via NEXUS |
 
-> **Current state (2026-03-02)**: BRAIN memory is in `brain.db` (SQLite) with 5 tables, FTS5 search, 3-layer retrieval API, and 5,122 observations migrated from claude-mem. The JSONL file era is over.
+<Info>
+**Current state (2026-03-02)**: BRAIN memory is in `brain.db` (SQLite) with 5 tables, FTS5 search, 3-layer retrieval API, and 5,122 observations migrated from claude-mem. The JSONL file era is over.
+</Info>
 
 ### Current State vs Target
 
@@ -289,6 +301,21 @@ Within LOOM, work units form a neural hierarchy:
 | **Hierarchy** | Weights | Proximity strengthens relevance (parent-child relationships) |
 
 This neural model enables CLEO's vectorless RAG: structural discovery through dependency graphs and hierarchy traversal, without requiring vector embeddings.
+
+### The Workshop Vocabulary of Work
+
+CLEO also uses a non-normative workshop language to make work more intuitive to humans without changing the runtime contract:
+
+- **Sticky Note**: ephemeral project-wide capture before formal binding
+- **Thread**: a concrete task-level strand of work
+- **Loom**: an epic-scale frame that holds related Threads under lifecycle discipline
+- **Tapestry**: a composed body of work made from multiple Looms
+- **Tessera**: a reusable composition pattern that can generate Tapestries with different inputs
+- **Cogs**: discrete callable capabilities; small tool-level mechanisms
+- **Cascade**: a Tapestry in live gated motion across execution thresholds
+- **Tome**: living readable canon rendered from durable memory and system state
+
+These terms help describe how work feels and flows. They do not create new canonical systems or domains.
 
 ---
 
@@ -458,7 +485,9 @@ Every operation undergoes **four-layer validation**:
 
 ## Atomic Operations
 
-> **No partial writes. No data corruption. Full rollback on any failure.**
+<Info>
+**No partial writes. No data corruption. Full rollback on any failure.**
+</Info>
 
 Every write operation follows this pattern:
 
@@ -495,7 +524,7 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `src/core/`:
 
-- **MCP (Primary)**: 2 tools (`cleo_query`, `cleo_mutate`), 201 operations across 10 domains — the agent interface
+- **MCP (Primary)**: 2 tools (`query`, `mutate`), 201 operations across 10 domains — the agent interface
 - **CLI (Backup)**: 86 commands via Commander.js — the human interface
 - **src/core/ (Canonical)**: All business logic. Both MCP and CLI delegate here
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics
@@ -580,7 +609,7 @@ cleo session end --note "Completed auth flow, tests passing"
 
 | Priority | Document | Purpose |
 |----------|----------|---------|
-| 1 | `docs/concepts/vision.md` | Immutable vision identity (this document) |
+| 1 | `docs/concepts/CLEO-VISION.md` | Immutable vision identity (this document) |
 | 2 | `docs/specs/PORTABLE-BRAIN-SPEC.md` | Normative product contract |
 | 3 | `README.md` | Public-facing product statement |
 | 4 | `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | Phase/gate execution plan |
@@ -588,4 +617,6 @@ cleo session end --note "Completed auth flow, tests passing"
 
 If conflicts occur, higher priority prevails.
 
-> **Migration note**: Specs at priority 2, 4, and 5 are currently in `docs/mintlify/specs/` awaiting validation and promotion to `docs/specs/`. See T4573 for alignment task tracking.
+<Info>
+**Migration note**: Specs at priority 2, 4, and 5 are currently in `docs/mintlify/specs/` awaiting validation and promotion to `docs/specs/`. See T4573 for alignment task tracking.
+</Info>

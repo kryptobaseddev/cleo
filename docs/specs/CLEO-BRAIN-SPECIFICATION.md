@@ -29,7 +29,7 @@ This specification defines CLEO as an **Agentic Cognitive Infrastructure** imple
 
 This document is a capability-model specification. Product identity and canonical invariants are defined by higher-authority documents:
 
-1. `docs/concepts/vision.md` (immutable vision identity)
+1. `docs/concepts/CLEO-VISION.md` (immutable vision identity)
 2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (canonical product contract)
 
 If conflicts occur, higher-authority documents prevail. This specification defines dimension-level implementation requirements and measurable certification criteria.
@@ -922,7 +922,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 **Deliverables**:
 - 163 files → 100 files
-- MCP Server v1.0.0 (2 tools: `cleo_query`, `cleo_mutate`)
+- MCP Server v1.0.0 (2 tools: `query`, `mutate`)
 - Zero breaking changes
 
 ### 3.3 Phase 1: Validation (Months 3-4)
@@ -1603,7 +1603,7 @@ All 5 dimensions MUST meet certification criteria:
 
 - **CLAUDE.md**: Core repository guidelines
 - **.cleo/templates/CLEO-INJECTION.md**: Subagent architecture
-- **docs/concepts/vision.md**: CLEO vision statement
+- **docs/concepts/CLEO-VISION.md**: CLEO vision statement
 
 ---
 
@@ -1628,7 +1628,7 @@ All 5 dimensions MUST meet certification criteria:
 ┌─────────────────────────────────────────────────────────────┐
 │ USER INTERACTION LAYER                                       │
 │ - CLI commands (76 commands)                                 │
-│ - MCP Server (cleo_query / cleo_mutate)                     │
+│ - MCP Server (query / mutate)                     │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼

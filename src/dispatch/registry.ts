@@ -1950,13 +1950,13 @@ export const OPERATIONS: OperationDef[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // sharing — multi-contributor operations
+  // nexus.share — multi-contributor operations
   // ---------------------------------------------------------------------------
   {
     gateway: 'query' as const,
-    domain: 'sharing',
-    operation: 'status',
-    description: 'sharing.status (query) — sharing status',
+    domain: 'nexus',
+    operation: 'share.status',
+    description: 'nexus.share.status (query) — sharing status',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -1964,9 +1964,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query' as const,
-    domain: 'sharing',
-    operation: 'remotes',
-    description: 'sharing.remotes (query) — list configured remotes',
+    domain: 'nexus',
+    operation: 'share.remotes',
+    description: 'nexus.share.remotes (query) — list configured remotes',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -1974,9 +1974,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'query' as const,
-    domain: 'sharing',
-    operation: 'sync.status',
-    description: 'sharing.sync.status (query) — sync status',
+    domain: 'nexus',
+    operation: 'share.sync.status',
+    description: 'nexus.share.sync.status (query) — sync status',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
@@ -1984,9 +1984,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'sharing',
-    operation: 'snapshot.export',
-    description: 'sharing.snapshot.export (mutate) — export project snapshot',
+    domain: 'nexus',
+    operation: 'share.snapshot.export',
+    description: 'nexus.share.snapshot.export (mutate) — export project snapshot',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -1994,9 +1994,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'sharing',
-    operation: 'snapshot.import',
-    description: 'sharing.snapshot.import (mutate) — import project snapshot',
+    domain: 'nexus',
+    operation: 'share.snapshot.import',
+    description: 'nexus.share.snapshot.import (mutate) — import project snapshot',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -2004,9 +2004,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'sharing',
-    operation: 'sync.gitignore',
-    description: 'sharing.sync.gitignore (mutate) — sync gitignore',
+    domain: 'nexus',
+    operation: 'share.sync.gitignore',
+    description: 'nexus.share.sync.gitignore (mutate) — sync gitignore',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -2014,9 +2014,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'sharing',
-    operation: 'remote.add',
-    description: 'sharing.remote.add (mutate) — add remote',
+    domain: 'nexus',
+    operation: 'share.remote.add',
+    description: 'nexus.share.remote.add (mutate) — add remote',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -2024,9 +2024,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'sharing',
-    operation: 'remote.remove',
-    description: 'sharing.remote.remove (mutate) — remove remote',
+    domain: 'nexus',
+    operation: 'share.remote.remove',
+    description: 'nexus.share.remote.remove (mutate) — remove remote',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -2034,9 +2034,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'sharing',
-    operation: 'push',
-    description: 'sharing.push (mutate) — push to remote',
+    domain: 'nexus',
+    operation: 'share.push',
+    description: 'nexus.share.push (mutate) — push to remote',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -2044,9 +2044,9 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate' as const,
-    domain: 'sharing',
-    operation: 'pull',
-    description: 'sharing.pull (mutate) — pull from remote',
+    domain: 'nexus',
+    operation: 'share.pull',
+    description: 'nexus.share.pull (mutate) — pull from remote',
     tier: 2,
     idempotent: false,
     sessionRequired: false,
@@ -2179,6 +2179,64 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['name', 'level'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // sticky — Ephemeral notes for quick capture (T5282)
+  // ---------------------------------------------------------------------------
+
+  // Query operations
+  {
+    gateway: 'query' as const,
+    domain: 'sticky',
+    operation: 'list',
+    description: 'sticky.list (query) — list sticky notes',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'query' as const,
+    domain: 'sticky',
+    operation: 'show',
+    description: 'sticky.show (query) — show a specific sticky note',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['stickyId'],
+  },
+
+  // Mutate operations
+  {
+    gateway: 'mutate' as const,
+    domain: 'sticky',
+    operation: 'add',
+    description: 'sticky.add (mutate) — create a new sticky note',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['content'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sticky',
+    operation: 'convert',
+    description: 'sticky.convert (mutate) — convert sticky to task or memory',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['stickyId', 'targetType'],
+  },
+  {
+    gateway: 'mutate' as const,
+    domain: 'sticky',
+    operation: 'archive',
+    description: 'sticky.archive (mutate) — archive sticky notes',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['stickyId'],
   },
 ];
 

@@ -35,7 +35,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Task Title',
           description: 'Valid task description with sufficient length',
@@ -53,7 +53,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'INVALID',
         },
@@ -68,7 +68,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Hi',
         },
@@ -84,7 +84,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           status: 'invalid_status',
         },
@@ -99,7 +99,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           priority: 15,
         },
@@ -115,7 +115,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           description: 'x'.repeat(1001),
         },
@@ -131,7 +131,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           description: 'x'.repeat(1000),
         },
@@ -148,7 +148,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             id: 'T12-short',  // Only 2 digits, needs 3+
@@ -165,7 +165,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             id: 'T1234-research-output',
@@ -182,7 +182,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             id: 'T1234-Research-Output',
@@ -199,7 +199,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             date: '02/06/2026',
@@ -215,7 +215,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             date: '2026-02-06',
@@ -233,7 +233,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             agent_type: 'unknown_type',
@@ -250,7 +250,7 @@ describe('Gate Validators', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'complete',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: {
             manifestEntry: {
               agent_type: agentType,
@@ -270,7 +270,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Task Title',
           description: 'Different description',
@@ -285,7 +285,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Same Content',
           description: 'Same Content',
@@ -301,7 +301,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           depends: ['T1234'],
@@ -317,7 +317,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'session',
         operation: 'start',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           scope: 'invalid_format',
         },
@@ -332,7 +332,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
         },
@@ -352,7 +352,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Task Title',
           description: 'Task description',
@@ -372,7 +372,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           updated: futureDate.toISOString(),
@@ -391,7 +391,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Task Title',
           description: 'Task description',
@@ -412,7 +412,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           manifestEntry: {
@@ -431,7 +431,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           parent: 'T1234',
           depends: ['T5678', 'T9012'],
@@ -446,7 +446,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           parent: 'INVALID',
         },
@@ -461,7 +461,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           depends: ['T1234', 'INVALID'],
         },
@@ -476,7 +476,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {},
       };
 
@@ -490,7 +490,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           depth: 4,
         },
@@ -505,7 +505,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           depth: 3,
         },
@@ -521,7 +521,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           siblingCount: 7,
         },
@@ -535,7 +535,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           siblingCount: 6,
         },
@@ -551,7 +551,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           manifestEntry: {
@@ -572,7 +572,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {},
       };
 
@@ -585,7 +585,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             id: 'T1234-slug',
@@ -604,7 +604,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           manifestEntry: {
             id: 'T1234-slug',
@@ -627,7 +627,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           files: ['lib/new-module.ts'],
         },
@@ -644,7 +644,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           manifestEntry: {
@@ -662,7 +662,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           manifestEntry: {
@@ -680,7 +680,7 @@ describe('Gate Validators', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           manifestEntry: {

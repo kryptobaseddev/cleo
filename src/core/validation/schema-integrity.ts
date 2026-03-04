@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoDirAbsolute } from '../paths.js';
-import { checkSchema } from '../schema.js';
+import { checkSchema } from '../json-schema-validator.js';
 import { resolveSchemaPath, getSchemaVersion } from '../schema-management.js';
 
 // ============================================================================

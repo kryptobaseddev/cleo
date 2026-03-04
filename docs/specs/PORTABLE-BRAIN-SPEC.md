@@ -23,7 +23,7 @@ This document is normative. Roadmap documents define sequencing. Capability docu
 
 Authority order for product truth:
 
-1. `docs/concepts/vision.md` (immutable vision identity)
+1. `docs/concepts/CLEO-VISION.md` (immutable vision identity)
 2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (normative product contract)
 3. `README.md` (operational public contract)
 4. `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` (phase and gate execution plan)
@@ -102,7 +102,7 @@ The TypeScript CLI (`src/cli/`) is the primary runtime interface (per ADR-004). 
 
 ### 7.2 MCP
 
-MCP is the strategic interface for provider-neutral integration. The MCP server exposes 2 tools (`cleo_query`, `cleo_mutate`) with 177 canonical operations (97 query + 80 mutate) across 10 domains. The MCP engine (`src/mcp/engine/`) delegates to `src/core/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.). Of 153 routed operations, 146 run natively in TypeScript via `src/core/`.
+MCP is the strategic interface for provider-neutral integration. The MCP server exposes 2 tools (`query`, `mutate`) with 177 canonical operations (97 query + 80 mutate) across 10 domains. The MCP engine (`src/mcp/engine/`) delegates to `src/core/` modules via thin wrapper engines (task-engine, system-engine, orchestrate-engine, config-engine, etc.). Of 153 routed operations, 146 run natively in TypeScript via `src/core/`.
 
 **Architecture status (updated 2026-02-27)**: The earlier finding (2026-02-16, T4565/T4566) that MCP duplicated task CRUD independently has been resolved. The MCP engine at `src/mcp/engine/` now imports directly from `src/core/tasks/`, `src/core/sessions/`, `src/core/system/`, and other core modules. See `src/mcp/engine/capability-matrix.ts` for the native/cli/hybrid routing matrix.
 
@@ -130,7 +130,7 @@ Progression MUST remain gate-driven and evidence-based.
 
 ### 9.1 Immutable Vision Requirement
 
-`docs/concepts/vision.md` defines product identity and MUST be treated as constitutional text.
+`docs/concepts/CLEO-VISION.md` defines product identity and MUST be treated as constitutional text.
 
 ### 9.2 Amendment Process
 
@@ -152,7 +152,7 @@ Documentation and implementation MUST use the same canonical terms for:
 
 ## 10. References
 
-- `docs/concepts/vision.md`
+- `docs/concepts/CLEO-VISION.md`
 - `README.md`
 - `docs/mintlify/specs/CLEO-CANONICAL-PLAN-SPEC.md` (canonical strategy and decisions)
 - `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`

@@ -1,5 +1,5 @@
 /**
- * cleo_query Gateway - Read Operations
+ * query Gateway - Read Operations
  *
  * Handles all read-only operations for discovery, status, analysis,
  * and validation checks. Never modifies state.
@@ -21,7 +21,7 @@ import { deriveGatewayMatrix } from '../../dispatch/registry.js';
  * Request from MCP gateway (inline — replaces legacy router.ts import)
  */
 export interface DomainRequest {
-  gateway: 'cleo_query' | 'cleo_mutate';
+  gateway: 'query' | 'mutate';
   domain: string;
   operation: string;
   params?: Record<string, unknown>;
@@ -53,7 +53,7 @@ export interface DomainResponse {
 }
 
 /**
- * All accepted domain names for cleo_query.
+ * All accepted domain names for query.
  *
  * Includes both canonical dispatch names and legacy MCP names
  * for backward compatibility. The dispatch adapter resolves
@@ -114,7 +114,7 @@ export function validateQueryParams(request: QueryRequest): {
       valid: false,
       error: {
         _meta: {
-          gateway: 'cleo_query',
+          gateway: 'query',
           domain,
           operation,
           version: '1.0.0',
@@ -143,7 +143,7 @@ export function validateQueryParams(request: QueryRequest): {
       valid: false,
       error: {
         _meta: {
-          gateway: 'cleo_query',
+          gateway: 'query',
           domain,
           operation,
           version: '1.0.0',
@@ -154,11 +154,11 @@ export function validateQueryParams(request: QueryRequest): {
         error: {
           code: 'E_INVALID_OPERATION',
           exitCode: 2,
-          message: `Operation '${operation}' not supported for cleo_query in domain '${domain}'`,
+          message: `Operation '${operation}' not supported for query in domain '${domain}'`,
           fix: `Use one of: ${validOps.join(', ')}`,
           alternatives: validOps.map((op) => ({
             action: `Use ${op}`,
-            command: `cleo_query ${domain} ${op}`,
+            command: `query ${domain} ${op}`,
           })),
         },
       },
@@ -169,13 +169,13 @@ export function validateQueryParams(request: QueryRequest): {
 }
 
 /**
- * Register cleo_query tool with MCP server
+ * Register query tool with MCP server
  *
  * Returns tool definition for ListToolsRequestSchema handler
  */
 export function registerQueryTool() {
   return {
-    name: 'cleo_query',
+    name: 'query',
     description:
       'CLEO read operations: task discovery, status checks, analysis, validation, and compliance metrics. Never modifies state. First call: use domain "admin", operation "help" to discover all available operations.',
     inputSchema: {
@@ -202,7 +202,7 @@ export function registerQueryTool() {
 }
 
 /**
- * Handle cleo_query request
+ * Handle query request
  *
  * Validates parameters and routes to domain handler via DomainRouter
  *
@@ -220,7 +220,7 @@ export async function handleQueryRequest(
 
   // Build domain request (will be routed by DomainRouter)
   const domainRequest: DomainRequest = {
-    gateway: 'cleo_query',
+    gateway: 'query',
     domain: request.domain,
     operation: request.operation,
     params: request.params,
@@ -231,7 +231,7 @@ export async function handleQueryRequest(
   // The actual routing happens in DomainRouter.routeOperation()
   return {
     _meta: {
-      gateway: 'cleo_query',
+      gateway: 'query',
       domain: request.domain,
       operation: request.operation,
       version: '1.0.0',

@@ -23,7 +23,7 @@ CLEO currently operates with **11 MCP domains**: tasks, session, orchestrate, re
 - **Confirmed duplicates**: 8+ operations with identical or near-identical implementations across domains
 - **80/20 usage pattern**: 80% of agent sessions use only tasks + session (8 operations), yet all 11 domains are exposed
 - **Naming collisions**: "validate" domain vs. validate operations in orchestrate, pipeline
-- **Identity misalignment**: CLEO's Brain/Memory identity (vision.mdx, PORTABLE-BRAIN-SPEC.md) is not reflected in domain naming
+- **Identity misalignment**: CLEO's Brain/Memory identity (CLEO-VISION.mdx, PORTABLE-BRAIN-SPEC.md) is not reflected in domain naming
 
 **Additional Critical Issue: Parallel Routing Architectures**
 
@@ -534,7 +534,7 @@ The system domain (28-40 ops) SHALL be decomposed:
 The 9-domain model is derived from seven convergent evidence streams:
 
 1. **Agent workflow clustering** (T4797 Finding 2): 80% of agents use only tasks+session → domains tiered by access frequency
-2. **CLEO Brain/Memory identity** (vision.mdx, PORTABLE-BRAIN-SPEC.md): Domains map to cognitive functions aligned with 5 pillars
+2. **CLEO Brain/Memory identity** (CLEO-VISION.mdx, PORTABLE-BRAIN-SPEC.md): Domains map to cognitive functions aligned with 5 pillars
 3. **src/core/ natural clustering** (T4797 Finding 3): 13 core modules group into ~9 cohesive clusters when measured by cohesion
 4. **System domain junk drawer** (T4797 Finding 4): 28-40 ops mixing 7 concerns must be decomposed
 5. **RCASD-IVTR pipeline**: 9-stage lifecycle (+ contribution cross-cutting) with clear phase boundaries and iteration support

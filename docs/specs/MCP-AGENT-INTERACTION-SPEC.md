@@ -12,7 +12,7 @@ task: "T4334"
 
 ## 1. Purpose
 
-This specification defines when and how AI agents should interact with CLEO through MCP tools (`cleo_query` / `cleo_mutate`) versus the CLI (`cleo` / `ct`), and establishes a progressive disclosure architecture for agent context injection.
+This specification defines when and how AI agents should interact with CLEO through MCP tools (`query` / `mutate`) versus the CLI (`cleo` / `ct`), and establishes a progressive disclosure architecture for agent context injection.
 
 CLEO's vision positions it as a vendor-neutral Brain and Memory system with interoperable interfaces (Pillar 3). The MCP gateway and CLI are both first-class interfaces, but they serve different consumers with different constraints. This document makes those boundaries explicit.
 
@@ -36,7 +36,7 @@ This specification does NOT cover:
 
 | Term                       | Definition                                                                                |
 | -------------------------- | ----------------------------------------------------------------------------------------- |
-| **MCP Gateway**            | The two-tool CQRS surface: `cleo_query` (reads) and `cleo_mutate` (writes)                |
+| **MCP Gateway**            | The two-tool CQRS surface: `query` (reads) and `mutate` (writes)                |
 | **CLI**                    | The TypeScript command-line interface invoked via `cleo` or `ct` alias                    |
 | **Native operation**       | An operation implemented in TypeScript that runs cross-platform without Bash              |
 | **CLI-only operation**     | An operation that requires the CLI subprocess                                             |
@@ -48,7 +48,7 @@ This specification does NOT cover:
 
 ### 4.1 Statement
 
-When an AI agent needs to interact with CLEO, it SHOULD prefer MCP tools (`cleo_query` / `cleo_mutate`) over CLI commands invoked through Bash.
+When an AI agent needs to interact with CLEO, it SHOULD prefer MCP tools (`query` / `mutate`) over CLI commands invoked through Bash.
 
 ### 4.2 Rationale
 
@@ -89,7 +89,7 @@ Agent needs to interact with CLEO
     │
     ├── Is MCP server available?
     │   ├── YES ─── Is operation native or hybrid?
-    │   │           ├── YES ─── Use cleo_query / cleo_mutate
+    │   │           ├── YES ─── Use query / mutate
     │   │           └── NO ──── MCP routes to CLI automatically (transparent)
     │   └── NO ──── Use CLI directly via Bash tool
     │
@@ -132,15 +132,15 @@ The MCP server maintains a capability matrix (`src/mcp/engine/capability-matrix.
 
 ### 5.3 Routing Transparency
 
-From the agent's perspective, all operations are invoked identically through `cleo_query` or `cleo_mutate`. The MCP server handles routing internally:
+From the agent's perspective, all operations are invoked identically through `query` or `mutate`. The MCP server handles routing internally:
 
 ```
-Agent calls: cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }
+Agent calls: query { domain: "tasks", operation: "show", params: { id: "T1234" } }
     │
     ├── Capability matrix says: native
     └── Engine executes TypeScript directly
 
-Agent calls: cleo_query { domain: "orchestrate", operation: "waves", params: { epic: "T001" } }
+Agent calls: query { domain: "orchestrate", operation: "waves", params: { epic: "T001" } }
     │
     ├── Capability matrix says: cli
     └── Engine spawns: cleo orchestrator waves --epic T001
@@ -164,18 +164,18 @@ Progressive disclosure delivers agent context in layers, expanding only when the
 
 ```
 CLEO provides two MCP tools:
-- cleo_query(domain, operation, params) - Read operations (never modifies state)
-- cleo_mutate(domain, operation, params) - Write operations (validated, logged, atomic)
+- query(domain, operation, params) - Read operations (never modifies state)
+- mutate(domain, operation, params) - Write operations (validated, logged, atomic)
 
 Domains: tasks, session, system, validate, orchestrate, research, lifecycle, release, issues, skills, providers
 
 Quick reference:
-- Show task:    cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }
-- Add task:     cleo_mutate { domain: "tasks", operation: "add", params: { title: "..." } }
-- Complete:     cleo_mutate { domain: "tasks", operation: "complete", params: { id: "T1234" } }
-- Focus set:    cleo_mutate { domain: "tasks", operation: "start", params: { id: "T1234" } }
-- Find tasks:   cleo_query { domain: "tasks", operation: "find", params: { query: "..." } }
-- Session start: cleo_mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }
+- Show task:    query { domain: "tasks", operation: "show", params: { id: "T1234" } }
+- Add task:     mutate { domain: "tasks", operation: "add", params: { title: "..." } }
+- Complete:     mutate { domain: "tasks", operation: "complete", params: { id: "T1234" } }
+- Focus set:    mutate { domain: "tasks", operation: "start", params: { id: "T1234" } }
+- Find tasks:   query { domain: "tasks", operation: "find", params: { query: "..." } }
+- Session start: mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }
 ```
 
 #### Level 1: Domain Discovery
@@ -228,7 +228,7 @@ Errors:
   E_SIBLING_LIMIT (12): Configured sibling limit exceeded (`hierarchy.maxSiblings`, default: unlimited)
 
 Example:
-  cleo_mutate { domain: "tasks", operation: "add", params: {
+  mutate { domain: "tasks", operation: "add", params: {
     title: "Implement auth flow",
     description: "Add JWT-based authentication",
     parent: "T001",
@@ -259,10 +259,10 @@ Agents can request higher disclosure levels through MCP:
 
 ```json
 // Discover available domains and operations
-cleo_query { domain: "system", operation: "help", params: { level: 1 } }
+query { domain: "system", operation: "help", params: { level: 1 } }
 
 // Get operation-specific schema
-cleo_query { domain: "system", operation: "help", params: { level: 2, domain: "tasks", operation: "add" } }
+query { domain: "system", operation: "help", params: { level: 2, domain: "tasks", operation: "add" } }
 ```
 
 This is self-service: agents discover what they need when they need it, rather than receiving everything upfront.
@@ -279,8 +279,8 @@ This is self-service: agents discover what they need when they need it, rather t
 ┌─────────────────────────────────────────────────┐
 │                  MCP Gateway                     │
 │                                                  │
-│  cleo_query(domain, operation, params)           │
-│  cleo_mutate(domain, operation, params)          │
+│  query(domain, operation, params)           │
+│  mutate(domain, operation, params)          │
 │                                                  │
 │  ┌───────────────────────────────────────────┐  │
 │  │          Domain Router                     │  │
@@ -323,11 +323,11 @@ Every MCP operation MUST have a CLI equivalent. Every CLI command SHOULD be acce
 
 | MCP                                                                                     | CLI                                  |
 | --------------------------------------------------------------------------------------- | ------------------------------------ |
-| `cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }`            | `ct show T1234`                      |
-| `cleo_mutate { domain: "tasks", operation: "add", params: { title: "Fix bug" } }`       | `ct add "Fix bug"`                   |
-| `cleo_mutate { domain: "tasks", operation: "complete", params: { id: "T42" } }`         | `ct complete T42`                    |
-| `cleo_query { domain: "session", operation: "status" }`                                 | `ct session status`                  |
-| `cleo_mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }` | `ct session start --scope epic:T001` |
+| `query { domain: "tasks", operation: "show", params: { id: "T1234" } }`            | `ct show T1234`                      |
+| `mutate { domain: "tasks", operation: "add", params: { title: "Fix bug" } }`       | `ct add "Fix bug"`                   |
+| `mutate { domain: "tasks", operation: "complete", params: { id: "T42" } }`         | `ct complete T42`                    |
+| `query { domain: "session", operation: "status" }`                                 | `ct session status`                  |
+| `mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }` | `ct session start --scope epic:T001` |
 
 ## 8. Agent Injection Evolution Plan
 
@@ -413,7 +413,7 @@ All MCP operations return structured errors:
     "code": "E_NOT_FOUND",
     "exitCode": 4,
     "message": "Task T9999 not found",
-    "fix": "cleo_query { domain: 'tasks', operation: 'find', params: { query: 'T9999' } }",
+    "fix": "query { domain: 'tasks', operation: 'find', params: { query: 'T9999' } }",
     "alternatives": [
       { "action": "Search by title", "operation": "tasks.find" },
       { "action": "List all tasks", "operation": "tasks.list" }
@@ -478,7 +478,7 @@ The following tasks implement this specification:
 
 ## 13. References
 
-- `docs/concepts/vision.md` - CLEO canonical vision
+- `docs/concepts/CLEO-VISION.md` - CLEO canonical vision
 - `docs/specs/PORTABLE-BRAIN-SPEC.md` - Product contract
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server internals
 - `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing

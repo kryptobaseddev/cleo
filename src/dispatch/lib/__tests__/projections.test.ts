@@ -88,7 +88,7 @@ describe('PROJECTIONS', () => {
   it('orchestrator tier should include all domains', () => {
     const domains = PROJECTIONS.orchestrator.allowedDomains;
     expect(domains).toContain('orchestrate');
-    expect(domains).toContain('sharing');
+    expect(domains).toContain('sticky');
     expect(domains).toContain('nexus');
     expect(domains).toContain('lifecycle');
     expect(domains).toContain('release');
