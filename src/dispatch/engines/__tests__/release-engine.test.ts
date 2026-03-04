@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
   releasePrepare,
@@ -19,31 +19,33 @@ import {
   releaseGatesRun,
   releaseRollback,
 } from '../release-engine.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { resetDbState } from '../../../store/sqlite.js';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 
 const TEST_ROOT = join(process.cwd(), '.test-release-engine');
-const CLEO_DIR = join(TEST_ROOT, '.cleo');
-
-function writeTodoJson(tasks: any[]): void {
-  mkdirSync(CLEO_DIR, { recursive: true });
-  writeFileSync(
-    join(CLEO_DIR, 'todo.json'),
-    JSON.stringify({ tasks, _meta: { schemaVersion: '2.6.0' } }, null, 2),
-    'utf-8'
-  );
-}
 
 const SAMPLE_TASKS = [
-  { id: 'T001', title: 'feat: Add new feature', description: 'New feature', status: 'done', priority: 'high', completedAt: '2026-02-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
-  { id: 'T002', title: 'fix: Bug fix', description: 'Fixed bug', status: 'done', priority: 'medium', completedAt: '2026-02-02T00:00:00Z', createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
-  { id: 'T003', title: 'docs: Update docs', description: 'Documentation', status: 'pending', priority: 'low', createdAt: '2026-01-01T00:00:00Z', updatedAt: null },
+  { id: 'T001', title: 'feat: Add new feature', description: 'New feature', status: 'done', priority: 'high', completedAt: '2026-02-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'T002', title: 'fix: Bug fix', description: 'Fixed bug', status: 'done', priority: 'medium', completedAt: '2026-02-02T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'T003', title: 'docs: Update docs', description: 'Documentation', status: 'pending', priority: 'low', createdAt: '2026-01-01T00:00:00Z' },
 ];
 
+async function setupTestDb(): Promise<void> {
+  resetDbState();
+  const accessor = await createSqliteDataAccessor(TEST_ROOT);
+  await seedTasks(accessor, SAMPLE_TASKS);
+  await accessor.close();
+  resetDbState();
+}
+
 describe('Release Engine', () => {
-  beforeEach(() => {
-    writeTodoJson(SAMPLE_TASKS);
+  beforeEach(async () => {
+    await setupTestDb();
   });
 
   afterEach(() => {
+    resetDbState();
     if (existsSync(TEST_ROOT)) {
       rmSync(TEST_ROOT, { recursive: true, force: true });
     }
