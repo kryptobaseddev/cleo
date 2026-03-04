@@ -80,7 +80,7 @@ describe('AdminHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
-        'version', 'health', 'doctor', 'config.show', 'config.get', 'stats', 'context',
+        'version', 'health', 'doctor', 'config.show', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
       ]);
@@ -121,15 +121,6 @@ describe('AdminHandler', () => {
 
       expect(res.success).toBe(true);
       expect(systemHealth).toHaveBeenCalledWith('/mock/project', { detailed: true });
-    });
-
-    it('should call configGet for config.get', async () => {
-      vi.mocked(configGet).mockReturnValue({ success: true, data: { key: 'val' } });
-
-      const res = await handler.query('config.get', { key: 'some.key' });
-
-      expect(res.success).toBe(true);
-      expect(configGet).toHaveBeenCalledWith('/mock/project', 'some.key');
     });
 
     it('should call systemStats for stats', async () => {

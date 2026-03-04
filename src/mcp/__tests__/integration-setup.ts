@@ -193,7 +193,7 @@ class CLIExecutor {
     // System domain
     const systemOps: Record<string, string> = {
       version: 'version', config: 'config', 'config.show': 'config',
-      'config.get': 'config', 'config.set': 'config',
+      'config.set': 'config',
       backup: 'backup', cleanup: 'cleanup', health: 'doctor',
       stats: 'stats', context: 'context',
     };

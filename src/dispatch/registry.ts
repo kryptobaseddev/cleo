@@ -1,7 +1,7 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 201 operations (112 query + 89 mutate) mapped
+ * Single source of truth for all 207 operations (118 query + 89 mutate) mapped
  * to 10 canonical domains. Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
@@ -765,16 +765,6 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'query',
     domain: 'admin',
-    operation: 'config.get',
-    description: 'admin.config.get (query) — alias for config.show (backward compat)',
-    tier: 0,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'query',
-    domain: 'admin',
     operation: 'stats',
     description: 'admin.stats (query)',
     tier: 0,
@@ -1173,16 +1163,6 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'tasks',
     operation: 'reorder',
     description: 'tasks.reorder (mutate)',
-    tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tasks',
-    operation: 'reopen',
-    description: 'tasks.reopen (mutate) — alias for tasks.restore',
     tier: 0,
     idempotent: false,
     sessionRequired: false,
@@ -1713,37 +1693,6 @@ export const OPERATIONS: OperationDef[] = [
     operation: 'issue.add.help',
     description: 'tools.issue.add.help (mutate)',
     tier: 0,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  // Backward compat aliases for issue.create.* -> issue.add.*
-  {
-    gateway: 'mutate',
-    domain: 'tools',
-    operation: 'issue.create.bug',
-    description: 'tools.issue.create.bug (mutate) — alias for issue.add.bug (backward compat)',
-    tier: 2,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tools',
-    operation: 'issue.create.feature',
-    description: 'tools.issue.create.feature (mutate) — alias for issue.add.feature (backward compat)',
-    tier: 2,
-    idempotent: false,
-    sessionRequired: false,
-    requiredParams: [],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'tools',
-    operation: 'issue.create.help',
-    description: 'tools.issue.create.help (mutate) — alias for issue.add.help (backward compat)',
-    tier: 2,
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],

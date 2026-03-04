@@ -45,14 +45,14 @@ describe('MUTATE_OPERATIONS', () => {
 
   it('should have correct operation counts per domain', () => {
     // Canonical domains (updated for T5282)
-    expect(MUTATE_OPERATIONS.tasks.length).toBe(13);
+    expect(MUTATE_OPERATIONS.tasks.length).toBe(12);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(6);
     expect(MUTATE_OPERATIONS.memory.length).toBe(5);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(14);
     expect(MUTATE_OPERATIONS.admin.length).toBe(15);
-    expect(MUTATE_OPERATIONS.tools.length).toBe(14);
+    expect(MUTATE_OPERATIONS.tools.length).toBe(11);
     expect(MUTATE_OPERATIONS.nexus.length).toBe(13);  // Includes share.* operations
     expect(getMutateOperationCount("nexus")).toBe(13);  // add, convert, archive
   });
@@ -383,14 +383,14 @@ describe('getMutateOperationCount', () => {
 
   it('should return domain-specific counts', () => {
     // Canonical domains
-    expect(getMutateOperationCount('tasks')).toBe(13);
+    expect(getMutateOperationCount('tasks')).toBe(12);
     expect(getMutateOperationCount('session')).toBe(8);
     expect(getMutateOperationCount('orchestrate')).toBe(6);
     expect(getMutateOperationCount('memory')).toBe(5);
     expect(getMutateOperationCount('check')).toBe(2);
     expect(getMutateOperationCount('pipeline')).toBe(14);
     expect(getMutateOperationCount('admin')).toBe(15);
-    expect(getMutateOperationCount('tools')).toBe(14);
+    expect(getMutateOperationCount('tools')).toBe(11);
     expect(getMutateOperationCount('sticky')).toBe(3);
     expect(getMutateOperationCount('nexus')).toBe(13);
   });
@@ -427,7 +427,7 @@ describe('getMutateOperations', () => {
     expect(taskOps).toContain('add');
     expect(taskOps).toContain('update');
     expect(taskOps).toContain('complete');
-    expect(taskOps.length).toBe(13);
+    expect(taskOps.length).toBe(12);
   });
 
   it('should return empty array for unknown domain', () => {

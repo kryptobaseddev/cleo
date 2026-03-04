@@ -89,7 +89,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'tasks', operation: 'reorder', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'reparent', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'promote', gateway: 'mutate', mode: 'native' },
-  { domain: 'tasks', operation: 'reopen', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'relates.add', gateway: 'mutate', mode: 'native' },
   // Native query operations (active task)
   { domain: 'tasks', operation: 'current', gateway: 'query', mode: 'native' },
@@ -123,7 +122,6 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   // === Admin Domain ===
   { domain: 'admin', operation: 'version', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'config.show', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'config.get', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'context', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'metrics', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'health', gateway: 'query', mode: 'native' },

@@ -80,8 +80,8 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('check')).toBe(10);
     });
 
-    it('admin domain should have 20 operations', () => {
-      expect(getQueryOperationCount('admin')).toBe(20);
+    it('admin domain should have 19 operations', () => {
+      expect(getQueryOperationCount('admin')).toBe(19);
     });
   });
 
@@ -424,10 +424,6 @@ describe('Query Gateway', () => {
 
     it('should support config.show operation', () => {
       expect(adminOps).toContain('config.show');
-    });
-
-    it('should support config.get alias', () => {
-      expect(adminOps).toContain('config.get');
     });
 
     it('should support stats operation', () => {

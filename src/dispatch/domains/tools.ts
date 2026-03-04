@@ -135,7 +135,6 @@ export class ToolsHandler implements DomainHandler {
       mutate: [
         // issue
         'issue.add.bug', 'issue.add.feature', 'issue.add.help',
-        'issue.create.bug', 'issue.create.feature', 'issue.create.help',
         'issue.generate.config',
         // skill
         'skill.install', 'skill.uninstall', 'skill.enable',
@@ -206,10 +205,7 @@ export class ToolsHandler implements DomainHandler {
     switch (sub) {
       case 'add.bug':
       case 'add.feature':
-      case 'add.help':
-      case 'create.bug':
-      case 'create.feature':
-      case 'create.help': {
+      case 'add.help': {
         const title = params?.title as string;
         const body = params?.body as string;
         if (!title || !body) {

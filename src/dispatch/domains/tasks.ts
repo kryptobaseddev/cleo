@@ -4,7 +4,7 @@
  * Handles all task CRUD and non-CRUD operations: show, list, find, exists,
  * tree, blockers, depends, analyze, next, relates, complexity.estimate,
  * current, add, update, complete, delete, archive, restore, reparent,
- * promote, reorder, reopen, relates.add, start, stop.
+ * promote, reorder, relates.add, start, stop.
  *
  * Query operations delegate to task-engine; start/stop/current delegate
  * to session-engine (which hosts task-work functions).
@@ -39,7 +39,6 @@ import {
   taskReorder,
   taskReparent,
   taskPromote,
-  taskReopen,
   taskComplexityEstimate,
   taskDepends,
   taskDepsOverview,
@@ -352,18 +351,6 @@ export class TasksHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
-        case 'reopen': {
-          const taskId = params?.taskId as string;
-          if (!taskId) {
-            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
-          }
-          const result = await taskReopen(this.projectRoot, taskId, {
-            status: params?.status as string | undefined,
-            reason: params?.reason as string | undefined,
-          });
-          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
-        }
-
         case 'relates.add': {
           const taskId = params?.taskId as string;
           // Accept both targetId and relatedId for compatibility (T5149)
@@ -417,7 +404,7 @@ export class TasksHandler implements DomainHandler {
       ],
       mutate: [
         'add', 'update', 'complete', 'delete', 'archive', 'restore',
-        'reparent', 'promote', 'reorder', 'reopen', 'relates.add',
+        'reparent', 'promote', 'reorder', 'relates.add',
         'start', 'stop',
       ],
     };

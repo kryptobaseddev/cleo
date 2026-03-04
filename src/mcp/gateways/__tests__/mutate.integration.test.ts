@@ -183,30 +183,6 @@ describe('cleo_mutate Gateway Integration', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should reopen completed task', async () => {
-      // Complete first
-      await context.executor.execute({
-        domain: 'tasks',
-        operation: 'complete',
-        args: [taskId],
-        flags: { notes: 'Test completion for reopen', json: true },
-      });
-
-      // Reopen (requires --reason flag)
-      const result = await context.executor.execute({
-        domain: 'tasks',
-        operation: 'reopen',
-        args: [taskId],
-        flags: { reason: 'Testing reopen functionality', json: true },
-      });
-
-      expect(result.success).toBe(true);
-      const d = result.data as any;
-      // CLI reopen returns {task: id, reopened: true, newStatus: 'pending'}
-      // MCP native returns {id, status: 'pending'}
-      expect(d?.task?.status || d?.status || d?.newStatus).toBe('pending');
-    });
-
     it('should delete task', async () => {
       const result = await context.executor.execute({
         domain: 'tasks',

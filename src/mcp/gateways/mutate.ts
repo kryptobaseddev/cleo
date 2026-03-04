@@ -296,7 +296,6 @@ function validateTasksParams(
     case 'reparent':
     case 'promote':
     case 'reorder':
-    case 'reopen':
     case 'start':
       if (!params?.taskId) {
         return {
