@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -19,6 +19,9 @@ import {
   canExecute,
 } from '../permissions.js';
 import { nexusRegister, nexusInit } from '../registry.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { resetDbState } from '../../../store/sqlite.js';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 
 let testDir: string;
 let projectDir: string;
@@ -30,10 +33,13 @@ beforeEach(async () => {
 
   await mkdir(registryDir, { recursive: true });
   await mkdir(join(projectDir, '.cleo'), { recursive: true });
-  await writeFile(
-    join(projectDir, '.cleo', 'todo.json'),
-    '{"tasks":[]}',
-  );
+
+  // Create empty tasks.db
+  resetDbState();
+  const accessor = await createSqliteDataAccessor(projectDir);
+  await seedTasks(accessor, []);
+  await accessor.close();
+  resetDbState();
 
   process.env['CLEO_HOME'] = registryDir;
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
@@ -48,6 +54,7 @@ afterEach(async () => {
   delete process.env['NEXUS_CACHE_DIR'];
   delete process.env['NEXUS_REGISTRY_FILE'];
   delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
+  resetDbState();
   await rm(testDir, { recursive: true, force: true });
 });
 
