@@ -87,6 +87,16 @@ describe('checkStorageMigration', () => {
     expect(result.summary).toContain('No data found');
   });
 
+  it('ignores legacy tasks.json for stale-file migration checks', () => {
+    writeFileSync(join(cleoDir, 'tasks.json'), JSON.stringify({ tasks: [] }));
+    writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ storage: { engine: 'sqlite' } }));
+    writeFileSync(join(cleoDir, 'tasks.db'), Buffer.alloc(4096));
+
+    const result = checkStorageMigration(tmpDir);
+    expect(result.migrationNeeded).toBe(false);
+    expect(result.summary).toContain('SQLite storage active');
+  });
+
   it('counts archive tasks in total', () => {
     writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
       tasks: [],
@@ -269,5 +279,16 @@ describe('runUpgrade structural parity', () => {
 
     expect(existsSync(join(cleoDir, 'config.json'))).toBe(true);
     expect(result.actions.some((a) => a.action === 'config_file' && a.status === 'applied')).toBe(true);
+  });
+
+  it('does not treat tasks.json as stale cleanup target', async () => {
+    writeFileSync(join(cleoDir, 'tasks.db'), Buffer.alloc(4096));
+    writeFileSync(join(cleoDir, 'tasks.json'), JSON.stringify({ tasks: [] }));
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
+
+    expect(result.success).toBe(true);
+    expect(result.actions.some((a) => a.action === 'stale_json_cleanup')).toBe(false);
+    expect(existsSync(join(cleoDir, 'tasks.json'))).toBe(true);
   });
 });

@@ -33,7 +33,6 @@ export interface PreflightResult {
     archiveJsonTaskCount: number;
     sessionsJsonExists: boolean;
     sessionsJsonCount: number;
-    tasksJsonExists: boolean;
     tasksDbExists: boolean;
     tasksDbSize: number;
     configEngine: string | null;
@@ -58,7 +57,6 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     archiveJsonTaskCount: 0,
     sessionsJsonExists: false,
     sessionsJsonCount: 0,
-    tasksJsonExists: false,
     tasksDbExists: false,
     tasksDbSize: 0,
     configEngine: null,
@@ -111,12 +109,6 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
     }
   }
 
-  // Check legacy tasks.json
-  const tasksJsonPath = join(cleoDir, 'tasks.json');
-  if (existsSync(tasksJsonPath)) {
-    details.tasksJsonExists = true;
-  }
-
   // Check tasks.db
   const dbPath = join(cleoDir, 'tasks.db');
   if (existsSync(dbPath)) {
@@ -140,7 +132,7 @@ export function checkStorageMigration(cwd?: string): PreflightResult {
   let summary = '';
   let fix: string | null = null;
 
-  const hasStaleLegacyFiles = details.todoJsonExists || details.archiveJsonExists || details.sessionsJsonExists || details.tasksJsonExists;
+  const hasStaleLegacyFiles = details.todoJsonExists || details.archiveJsonExists || details.sessionsJsonExists;
 
   if (!details.tasksDbExists && jsonHasData) {
     // Legacy JSON data exists but no SQLite DB — migration needed

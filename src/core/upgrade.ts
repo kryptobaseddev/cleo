@@ -428,7 +428,7 @@ export async function runUpgrade(options: {
   // If tasks.db exists and there are stale legacy files, safely backup and delete them
   // so they don't trigger false positives or cause confusion.
   if (needsCleanup) {
-    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', 'tasks.json', '.sequence', '.sequence.json'];
+    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', '.sequence', '.sequence.json'];
     const foundStale = staleJsonFiles.filter(f => existsSync(join(cleoDir, f)));
 
     if (foundStale.length > 0) {
