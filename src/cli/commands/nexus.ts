@@ -13,8 +13,7 @@
 
 // CLI-only: nexus operations have no dispatch route (cross-project file system access)
 import { Command } from 'commander';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { getAccessor } from '../../store/data-accessor.js';
 import {
   nexusInit,
   nexusRegister,
@@ -356,13 +355,8 @@ async function discoverRelatedTasks(
   for (const project of Object.values(registry.projects)) {
     let tasks: Array<{ id: string; title: string; description?: string; labels?: string[]; status: string }>;
     try {
-      let raw: string;
-      try {
-        raw = await readFile(join(project.path, '.cleo', 'tasks.json'), 'utf-8');
-      } catch {
-        raw = await readFile(join(project.path, '.cleo', 'todo.json'), 'utf-8');
-      }
-      const data = JSON.parse(raw) as { tasks: typeof tasks };
+      const accessor = await getAccessor(project.path);
+      const data = await accessor.loadTaskFile();
       tasks = data.tasks ?? [];
     } catch {
       continue;
@@ -512,13 +506,8 @@ async function searchAcrossProjects(
   for (const project of projectEntries) {
     let tasks: Array<{ id: string; title: string; description?: string; status: string; priority?: string }>;
     try {
-      let raw: string;
-      try {
-        raw = await readFile(join(project.path, '.cleo', 'tasks.json'), 'utf-8');
-      } catch {
-        raw = await readFile(join(project.path, '.cleo', 'todo.json'), 'utf-8');
-      }
-      const data = JSON.parse(raw) as { tasks: typeof tasks };
+      const accessor = await getAccessor(project.path);
+      const data = await accessor.loadTaskFile();
       tasks = data.tasks ?? [];
     } catch {
       continue;

@@ -105,10 +105,20 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
 }
 
 /**
- * Get the path to the project's tasks.json file.
+ * Get the path to the project's tasks.db file (SQLite database).
+ * @deprecated Use getAccessor() from '../store/data-accessor.js' instead. This function
+ *   returns the database file path for legacy compatibility, but all task data access
+ *   should go through the DataAccessor interface to ensure proper SQLite interaction.
+ *   Example:
+ *     // OLD (deprecated):
+ *     const taskPath = getTaskPath(cwd);
+ *     const data = await readJsonFile<TaskFile>(taskPath);
+ *     // NEW (correct):
+ *     const accessor = await getAccessor(cwd);
+ *     const data = await accessor.loadTaskFile();
  */
 export function getTaskPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'tasks.json');
+  return join(getCleoDirAbsolute(cwd), 'tasks.db');
 }
 
 /**

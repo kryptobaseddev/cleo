@@ -13,7 +13,7 @@ import { CleoError } from '../../core/errors.js';
 import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { restoreFromBackup, listBackups } from '../../store/backup.js';
-import { getTaskPath, getConfigPath, getArchivePath, getBackupDir, getProjectRoot } from '../../core/paths.js';
+import { getTaskPath, getConfigPath, getBackupDir, getProjectRoot } from '../../core/paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { coreTaskRestore, coreTaskReopen, coreTaskUnarchive } from '../../core/tasks/task-ops.js';
 
@@ -26,23 +26,22 @@ export function registerRestoreCommand(program: Command): void {
   restoreCmd
     .command('backup')
     .description('Restore todo files from backup')
-    .option('--file <name>', 'Specific file to restore (tasks.json, config.json, etc.)')
+    .option('--file <name>', 'Specific file to restore (tasks.db, config.json, etc.)')
     .option('--dry-run', 'Preview what would be restored')
     .action(async (opts: Record<string, unknown>) => {
       try {
         const backupDir = getBackupDir();
-        const fileName = (opts['file'] as string) || 'tasks.json';
+        const fileName = (opts['file'] as string) || 'tasks.db';
 
         // Map file name to target path
         const targetPathMap: Record<string, string> = {
-          'tasks.json': getTaskPath(),
+          'tasks.db': getTaskPath(),
           'config.json': getConfigPath(),
-          'tasks-archive.json': getArchivePath(),
         };
 
         const targetPath = targetPathMap[fileName];
         if (!targetPath) {
-          throw new CleoError(ExitCode.INVALID_INPUT, `Unknown file: ${fileName}. Valid: ${Object.keys(targetPathMap).join(', ')}`);
+          throw new CleoError(ExitCode.INVALID_INPUT, `Unknown file: ${fileName}. Valid files: tasks.db, config.json`);
         }
 
         // Check available backups

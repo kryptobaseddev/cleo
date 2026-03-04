@@ -201,12 +201,12 @@ export async function coreTaskNext(
   }>;
   totalCandidates: number;
 }> {
+  const accessor = await getAccessor(projectRoot);
   const allTasks = await loadAllTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
-  const taskPath = getDataPath(projectRoot, 'tasks.json');
-  const todoMeta = storeReadJsonFile<{ project?: { currentPhase?: string | null } }>(taskPath);
-  const currentPhase = todoMeta?.project?.currentPhase;
+  const taskFile = await accessor.loadTaskFile();
+  const currentPhase = taskFile.project?.currentPhase ?? null;
 
   const candidates = allTasks.filter((t) =>
     t.status === 'pending' && depsReady(t.depends, taskMap),
