@@ -790,7 +790,8 @@ export async function systemInjectGenerate(
 ): Promise<EngineResult<import('../../core/system/inject-generate.js').InjectGenerateResult>> {
   try {
     const root = projectRoot || process.cwd();
-    const result = await generateInjection(root);
+    const accessor = await getAccessor(root);
+    const result = await generateInjection(root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);

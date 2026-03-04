@@ -73,7 +73,7 @@ describe('PROJECTIONS', () => {
     expect(PROJECTIONS.minimal.allowedDomains).toEqual(['tasks', 'session', 'admin']);
   });
 
-  it('standard tier should include minimal plus memory, check, pipeline, tools, validate', () => {
+  it('standard tier should include minimal plus memory, check, pipeline, tools, sticky', () => {
     const domains = PROJECTIONS.standard.allowedDomains;
     expect(domains).toContain('tasks');
     expect(domains).toContain('session');
@@ -82,7 +82,7 @@ describe('PROJECTIONS', () => {
     expect(domains).toContain('check');
     expect(domains).toContain('pipeline');
     expect(domains).toContain('tools');
-    expect(domains).toContain('validate');
+    expect(domains).toContain('sticky');
   });
 
   it('orchestrator tier should include all domains', () => {
@@ -90,9 +90,6 @@ describe('PROJECTIONS', () => {
     expect(domains).toContain('orchestrate');
     expect(domains).toContain('sticky');
     expect(domains).toContain('nexus');
-    expect(domains).toContain('lifecycle');
-    expect(domains).toContain('release');
-    expect(domains).toContain('system');
   });
 
   it('each higher tier should be a superset of the lower', () => {

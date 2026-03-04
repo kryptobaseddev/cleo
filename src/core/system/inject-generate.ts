@@ -155,6 +155,6 @@ ${focusLine}
 
 ### Detailed Guidance
 
-For full protocol details, load the **ct-cleo** skill: \`cleo_query({ domain: "skills", operation: "show", params: { name: "ct-cleo" }})\`
+For full protocol details, load the **ct-cleo** skill: \`query({ domain: "skills", operation: "show", params: { name: "ct-cleo" }})\`
 `;
 }
