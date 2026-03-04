@@ -474,7 +474,7 @@ export async function coreTaskRelatesAdd(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const fromTask = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -634,7 +634,7 @@ export async function coreTaskRestore(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -691,7 +691,7 @@ export async function coreTaskRestore(
 // ============================================================================
 
 /**
- * Move an archived task back to tasks.json.
+ * Move an archived task back to active tasks.
  * @task T4790
  */
 export async function coreTaskUnarchive(
@@ -702,7 +702,7 @@ export async function coreTaskUnarchive(
   const accessor = await getAccessor(projectRoot);
   const taskFile = await accessor.loadTaskFile();
   if (!taskFile || !taskFile.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const archive = await accessor.loadArchive();
@@ -716,7 +716,7 @@ export async function coreTaskUnarchive(
   }
 
   if (taskFile.tasks.some((t) => t.id === taskId)) {
-    throw new Error(`Task '${taskId}' already exists in tasks.json`);
+    throw new Error(`Task '${taskId}' already exists in active tasks`);
   }
 
   const task = archive.archivedTasks[taskIndex] as TaskRecord & { _archive?: Record<string, unknown> };
@@ -764,7 +764,7 @@ export async function coreTaskReorder(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId);
@@ -828,7 +828,7 @@ export async function coreTaskReparent(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const taskMap = new Map(current.tasks.map((t) => [t.id, t]));
@@ -928,7 +928,7 @@ export async function coreTaskPromote(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -976,7 +976,7 @@ export async function coreTaskReopen(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -1614,7 +1614,7 @@ export async function coreTaskImport(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   let importData: unknown;

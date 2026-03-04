@@ -391,8 +391,8 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('pipeline')).toBe(14);
     expect(getMutateOperationCount('admin')).toBe(15);
     expect(getMutateOperationCount('tools')).toBe(14);
-    expect(getMutateOperationCount('sharing')).toBe(7);
-    expect(getMutateOperationCount('nexus')).toBe(6);
+    expect(getMutateOperationCount('sticky')).toBe(3);
+    expect(getMutateOperationCount('nexus')).toBe(13);
   });
 
   it('should return 0 for unknown domain', () => {

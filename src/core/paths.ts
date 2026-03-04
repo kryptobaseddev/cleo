@@ -15,7 +15,7 @@ import { existsSync, readFileSync, renameSync } from 'node:fs';
 
 /**
  * Check if a CLEO project is initialized at the given root.
- * Checks for both tasks.json (canonical) and todo.json (legacy).
+ * Checks for tasks.db (current), tasks.json (legacy), and todo.json (legacy).
  */
 export function isProjectInitialized(projectRoot?: string): boolean {
   const root = projectRoot ?? getProjectRoot();
