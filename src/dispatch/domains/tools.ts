@@ -25,7 +25,7 @@ import {
   validateLabels,
 } from '../engines/template-parser.js';
 import { collectDiagnostics } from '../../core/issue/diagnostics.js';
-import { createIssue } from '../../core/issue/create.js';
+import { addIssue } from '../../core/issue/create.js';
 import {
   catalog,
   discoverSkill,
@@ -214,7 +214,7 @@ export class ToolsHandler implements DomainHandler {
         }
         // Extract issue type from sub (e.g. "add.bug" -> "bug")
         const issueType = sub.split('.').pop()!;
-        const result = createIssue({
+        const result = addIssue({
           issueType,
           title,
           body,

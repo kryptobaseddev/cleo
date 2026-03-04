@@ -11,15 +11,13 @@ import { formatError } from '../../core/output.js';
 import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import {
-  getTemplateForSubcommand,
   collectDiagnostics,
-  buildIssueBody,
-  checkGhCli,
-  createGhIssue,
+  addIssue,
 } from '../../core/issue/index.js';
 import { execFileSync } from 'node:child_process';
+import { BUILD_CONFIG } from '../../config/build-config.js';
 
-const CLEO_REPO = 'kryptobaseddev/cleo';
+const CLEO_REPO = BUILD_CONFIG.repository.fullName;
 
 /**
  * Register the issue command with all subcommands.
@@ -89,6 +87,7 @@ export function registerIssueCommand(program: Command): void {
 
 /**
  * Handle issue creation for a subcommand type (bug, feature, help).
+ * Uses shared addIssue from core to ensure DRY principle.
  * @task T4555
  */
 async function handleIssueType(
@@ -96,38 +95,31 @@ async function handleIssueType(
   opts: Record<string, unknown>,
 ): Promise<void> {
   try {
-    const title = opts['title'] as string;
-    const body = opts['body'] as string;
-    const severity = opts['severity'] as string | undefined;
-    const area = opts['area'] as string | undefined;
-    const dryRun = !!opts['dryRun'];
+    // Use the shared addIssue function from core
+    const result = addIssue({
+      issueType,
+      title: opts['title'] as string,
+      body: opts['body'] as string,
+      severity: opts['severity'] as string | undefined,
+      area: opts['area'] as string | undefined,
+      dryRun: !!opts['dryRun'],
+    });
 
-    // Get template-driven label and title prefix
-    const template = getTemplateForSubcommand(issueType);
-    const labels = template?.labels?.join(',') ?? issueType;
-    const titlePrefix = template?.title ?? '';
-    const fullTitle = titlePrefix ? `${titlePrefix}${title}` : title;
-
-    // Build structured body
-    const fullBody = buildIssueBody(issueType, body, severity, area);
-
-    if (dryRun) {
+    if (result.dryRun) {
       cliOutput({
         dryRun: true,
-        type: issueType,
-        repo: CLEO_REPO,
-        title: fullTitle,
-        labels: labels.split(','),
-        body: fullBody,
+        type: result.type,
+        repo: result.repo,
+        title: result.title,
+        labels: result.labels,
+        body: result.body,
       }, { command: 'issue' });
       return;
     }
 
-    checkGhCli();
-    const issueUrl = createGhIssue(fullTitle, fullBody, labels);
-    const issueNumber = issueUrl.match(/(\d+)$/)?.[1] ?? 'unknown';
-
-    if (opts['open'] && issueUrl.startsWith('https://')) {
+    // Handle browser open if requested
+    if (opts['open'] && result.url?.startsWith('https://')) {
+      const issueNumber = result.url.match(/(\d+)$/)?.[1] ?? 'unknown';
       try {
         execFileSync('gh', ['issue', 'view', issueNumber, '--repo', CLEO_REPO, '--web'], {
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -138,11 +130,11 @@ async function handleIssueType(
     }
 
     cliOutput({
-      type: issueType,
-      url: issueUrl,
-      number: parseInt(issueNumber, 10) || issueNumber,
-      title: fullTitle,
-      labels: labels.split(','),
+      type: result.type,
+      url: result.url,
+      number: result.number,
+      title: result.title,
+      labels: result.labels,
     }, { command: 'issue' });
   } catch (err) {
     if (err instanceof CleoError) {
