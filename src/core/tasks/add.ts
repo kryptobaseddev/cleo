@@ -343,7 +343,6 @@ export function getNextPosition(parentId: string | null | undefined, tasks: Task
  * @task T4460
  */
 export async function logOperation(
-  _logPath: string,
   operation: string,
   taskId: string,
   details: Record<string, unknown>,

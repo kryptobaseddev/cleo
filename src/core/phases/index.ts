@@ -8,7 +8,7 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { PhaseStatus, PhaseTransition, TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir, getLogPath } from '../paths.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
@@ -228,7 +228,7 @@ export async function setPhase(options: SetPhaseOptions, cwd?: string, accessor?
   } else {
     await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
-  await logOperation(getLogPath(cwd), 'phase_set', options.slug, {
+  await logOperation('phase_set', options.slug, {
     previousPhase: oldPhase,
     isRollback,
   }, accessor);
@@ -280,7 +280,7 @@ export async function startPhase(slug: string, cwd?: string, accessor?: DataAcce
   } else {
     await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
-  await logOperation(getLogPath(cwd), 'phase_started', slug, {}, accessor);
+  await logOperation('phase_started', slug, {}, accessor);
 
   return { phase: slug, startedAt: now };
 }
@@ -329,7 +329,7 @@ export async function completePhase(slug: string, cwd?: string, accessor?: DataA
   } else {
     await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
-  await logOperation(getLogPath(cwd), 'phase_completed', slug, {}, accessor);
+  await logOperation('phase_completed', slug, {}, accessor);
 
   return { phase: slug, completedAt: now };
 }

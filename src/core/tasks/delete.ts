@@ -8,7 +8,7 @@ import { readJsonRequired, readJson, saveJson, computeChecksum } from '../../sto
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getArchivePath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getArchivePath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
@@ -37,7 +37,6 @@ export interface DeleteTaskResult {
 export async function deleteTask(options: DeleteTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<DeleteTaskResult> {
   const taskPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -187,7 +186,7 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
   } else {
     await saveJson(taskPath, data, { backupDir });
     await saveJson(archivePath, archive, { backupDir });
-    await logOperation(logPath, 'task_deleted', options.taskId, {
+    await logOperation('task_deleted', options.taskId, {
       title: task.title,
       cascadeDeleted: cascadeDeleted.length > 0 ? cascadeDeleted : undefined,
     });

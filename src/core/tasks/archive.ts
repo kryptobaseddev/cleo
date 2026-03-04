@@ -6,7 +6,7 @@
 
 import { readJsonRequired, readJson, saveJson, computeChecksum } from '../../store/json.js';
 import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getArchivePath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getArchivePath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
@@ -43,7 +43,6 @@ export interface ArchiveTasksResult {
 export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ArchiveTasksResult> {
   const taskPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -165,7 +164,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   } else {
     await saveJson(taskPath, data, { backupDir });
     await saveJson(archivePath, archiveData, { backupDir });
-    await logOperation(logPath, 'tasks_archived', archived.join(','), {
+    await logOperation('tasks_archived', archived.join(','), {
       count: archived.length,
       ids: archived,
     });
