@@ -31,7 +31,6 @@
     "prepare": "npm run build",
     "prepack": "npm run build",
     "postinstall": "node bin/postinstall.js",
-    "migrate:todos": "node dist/scripts/migrate-todo-to-tasks.js",
     "cleo:update-status": "node dist/scripts/update-task-status.js",
     "adr:validate": "tsx dev/validate-adrs.ts",
     "adr:manifest": "tsx dev/generate-adr-manifest.ts",
