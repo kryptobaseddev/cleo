@@ -19,6 +19,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
+import { expect } from 'vitest';
 import {
   createTestEnvironment,
   destroyTestEnvironment,
@@ -984,20 +985,3 @@ export function verifyResponseFormat(
   }
 }
 
-/**
- * Mock expect for TypeScript (when running without Jest in this context)
- */
-function expect(value: any) {
-  return {
-    toBeDefined: () => {
-      if (value === undefined || value === null) {
-        throw new Error(`Expected value to be defined, got ${value}`);
-      }
-    },
-    toBe: (expected: any) => {
-      if (value !== expected) {
-        throw new Error(`Expected ${value} to be ${expected}`);
-      }
-    },
-  };
-}

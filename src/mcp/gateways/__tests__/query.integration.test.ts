@@ -10,14 +10,10 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { handleQueryRequest, type QueryRequest } from '../query.js';
 import {
   setupIntegrationTest,
   cleanupIntegrationTest,
-  createTestTask,
-  createTestEpic,
   startTestSession,
-  verifyResponseFormat,
   type IntegrationTestContext,
 } from '../../__tests__/integration-setup.js';
 

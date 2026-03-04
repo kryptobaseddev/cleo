@@ -9,17 +9,13 @@
  * @task T2922
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { handleMutateRequest, type MutateRequest } from '../mutate.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   setupIntegrationTest,
   cleanupIntegrationTest,
   createTestTask,
-  createTestEpic,
   startTestSession,
-  verifyResponseFormat,
   getAuditLogEntries,
-  createManifestEntry,
   taskExists,
   type IntegrationTestContext,
 } from '../../__tests__/integration-setup.js';
@@ -43,17 +39,25 @@ describe('cleo_mutate Gateway Integration', () => {
   }, 30000);
 
   describe('Tasks Domain', () => {
-    let taskId: string;
+    // Pre-create a pool of tasks in beforeAll instead of one-per-test in beforeEach.
+    // Each test that mutates a task destructively pulls from this pool by index.
+    const taskPool: string[] = [];
+    const POOL_LABELS = [
+      'update', 'complete', 'idempotent-complete',
+      'archive', 'unarchive', 'delete',
+    ];
 
-    beforeEach(async () => {
-      // Create fresh task for each test
-      taskId = await createTestTask(
-        context,
-        `Mutate Test Task ${Date.now()}`,
-        'Task for testing mutate operations',
-        { parent: testEpicId }
-      );
-    });
+    beforeAll(async () => {
+      for (const label of POOL_LABELS) {
+        const id = await createTestTask(
+          context,
+          `Mutate Pool [${label}] ${Date.now()}`,
+          `Task for testing ${label} operations`,
+          { parent: testEpicId }
+        );
+        taskPool.push(id);
+      }
+    }, 120000);
 
     it('should create new task', async () => {
       const result = await context.executor.execute({
@@ -77,6 +81,7 @@ describe('cleo_mutate Gateway Integration', () => {
     });
 
     it('should update task fields', async () => {
+      const taskId = taskPool[0]; // 'update' slot
       const result = await context.executor.execute({
         domain: 'tasks',
         operation: 'update',
@@ -94,6 +99,7 @@ describe('cleo_mutate Gateway Integration', () => {
     });
 
     it('should complete task', async () => {
+      const taskId = taskPool[1]; // 'complete' slot
       const result = await context.executor.execute({
         domain: 'tasks',
         operation: 'complete',
@@ -111,6 +117,7 @@ describe('cleo_mutate Gateway Integration', () => {
     });
 
     it('should handle idempotent completion', async () => {
+      const taskId = taskPool[2]; // 'idempotent-complete' slot
       // Complete task first time
       await context.executor.execute({
         domain: 'tasks',
@@ -136,6 +143,7 @@ describe('cleo_mutate Gateway Integration', () => {
     });
 
     it('should archive done tasks', async () => {
+      const taskId = taskPool[3]; // 'archive' slot
       // Complete task first
       await context.executor.execute({
         domain: 'tasks',
@@ -157,6 +165,7 @@ describe('cleo_mutate Gateway Integration', () => {
     });
 
     it('should unarchive task', async () => {
+      const taskId = taskPool[4]; // 'unarchive' slot
       // Complete and archive first
       await context.executor.execute({
         domain: 'tasks',
@@ -184,6 +193,7 @@ describe('cleo_mutate Gateway Integration', () => {
     });
 
     it('should delete task', async () => {
+      const taskId = taskPool[5]; // 'delete' slot
       const result = await context.executor.execute({
         domain: 'tasks',
         operation: 'delete',

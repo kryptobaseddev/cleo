@@ -55,6 +55,7 @@
   "files": [
     "dist",
     "drizzle",
+    "drizzle-brain",
     "packages/ct-skills",
     "schemas",
     "templates",
