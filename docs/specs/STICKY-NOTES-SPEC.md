@@ -44,7 +44,7 @@ They map to CLEO's existing workshop vocabulary per [CLEO-SYSTEM-FLOW-ATLAS.md](
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  sticky Domain                                              │
-│  ├── sticky.add    → brain.db.sticky_notes                  │
+│  ├── sticky.add    → brain.db.brain_sticky_notes            │
 │  ├── sticky.list   → query active notes                     │
 │  ├── sticky.show   → get single note                        │
 │  ├── sticky.convert → promote to task/memory                │
@@ -57,10 +57,10 @@ They map to CLEO's existing workshop vocabulary per [CLEO-SYSTEM-FLOW-ATLAS.md](
 
 ## 3. Database Schema
 
-**Location:** `brain.db` (SQLite) - sticky domain owns sticky_notes table
+**Location:** `brain.db` (SQLite) - sticky domain owns `brain_sticky_notes` table
 
 ```sql
-CREATE TABLE sticky_notes (
+CREATE TABLE brain_sticky_notes (
   id TEXT PRIMARY KEY,           -- SN-001, SN-002...
   content TEXT NOT NULL,          -- Raw note text
   created_at TEXT NOT NULL,       -- ISO 8601 timestamp
@@ -73,9 +73,9 @@ CREATE TABLE sticky_notes (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_sticky_notes_status ON sticky_notes(status);
-CREATE INDEX idx_sticky_notes_created ON sticky_notes(created_at);
-CREATE INDEX idx_sticky_notes_tags ON sticky_notes(tags);
+CREATE INDEX idx_brain_sticky_status ON brain_sticky_notes(status);
+CREATE INDEX idx_brain_sticky_created ON brain_sticky_notes(created_at);
+CREATE INDEX idx_brain_sticky_tags ON brain_sticky_notes(tags);
 ```
 
 ---
@@ -215,7 +215,7 @@ cleo skill install library:ct-stickynote
 
 | Phase | Task | Description | Status |
 |-------|------|-------------|--------|
-| 1 | T5268 | Database schema (brain.db sticky_notes table) | Pending |
+| 1 | T5268 | Database schema (brain.db brain_sticky_notes table) | Pending |
 | 2 | T5269 | Core module (src/core/sticky/) | Pending |
 | 3 | T5270 | Domain operations (sticky.* in registry) | Pending |
 | 4 | T5271 | VERB-STANDARDS.md updates | Pending |
@@ -229,7 +229,7 @@ cleo skill install library:ct-stickynote
 ## 11. Files to Create/Modify
 
 **New Files:**
-- `src/store/brain-schema.ts` - Add sticky_notes table
+- `src/store/brain-schema.ts` - Add brain_sticky_notes table
 - `src/core/sticky/` - Core module (8 files)
   - types.ts, id.ts, create.ts, list.ts, show.ts, convert.ts, archive.ts, index.ts
 - `src/dispatch/engines/sticky-engine.ts` - Engine layer
@@ -268,7 +268,7 @@ cleo skill install library:ct-stickynote
 1. **Domain: sticky** (not session.stickynote) - Clean domain ownership
 2. **CLI: cleo sticky** (not cleo note) - Canonical naming
 3. **10th domain slot** - Replaces sharing (merged into nexus)
-4. **brain.db storage** - Sticky domain owns sticky_notes table
+4. **brain.db storage** - Sticky domain owns brain_sticky_notes table
 5. **5 core operations** - add, list, show, convert, archive
 
 ---

@@ -36,7 +36,7 @@ The realm also uses a secondary workshop language for how work is shaped. This l
 
 | Term | Primary Domain(s) | Meaning |
 |------|-------------------|---------|
-| **Sticky Notes** | sticky | Quick project-wide capture before formal classification. Supports conversion to tasks or memory. Stored in .cleo/sticky.jsonl with optional tags and priority. |
+| **Sticky Notes** | sticky | Quick project-wide capture before formal classification. Supports conversion to tasks or memory. Stored in brain.db (`brain_sticky_notes`) with optional tags and priority. |
 | **Thread** | tasks | A task-level strand of work |
 | **Loom** | pipeline, tasks | An epic-scale working frame for related Threads |
 | **Tapestry** | pipeline, orchestrate | A composed body of work made from multiple Looms |
@@ -70,8 +70,8 @@ The realm also uses a secondary workshop language for how work is shaped. This l
  |  tasks    |   | session  | | admin  | |  sticky  |
  |  domain   |   | domain   | | domain | |  domain  |
  |           |   |          | |        | |          |
- | tasks.db  |   |sessions/ | |config  | |.cleo/    |
- +-----------+   +----------+ |tasks.db| |sticky/   |
+ | tasks.db  |   |sessions/ | |config  | |brain.db  |
+ +-----------+   +----------+ |tasks.db| |(table)   |
                                +--------+ +----------+
 
  +------+----+   +----------+   +----------+
@@ -234,7 +234,7 @@ Domains interact with each other through core business logic, not directly. The 
 | `config.json` | admin | JSON | `.cleo/config.json` | Project configuration |
 | `nexus.db` | nexus | SQLite | `~/.cleo/nexus.db` | Cross-project registry (global), sharing state |
 | `.cleo/skills/` | tools | YAML/JSON | `.cleo/skills/` | Skill definitions and configuration |
-| `.cleo/sticky.jsonl` | sticky | JSONL | `.cleo/sticky.jsonl` | Quick capture sticky notes (append-only) |
+| `brain_sticky_notes` | sticky | SQLite table | `.cleo/brain.db` | Quick capture sticky notes (active/converted/archived) |
 | `.cleo/metrics/` | check | JSONL | `.cleo/metrics/` | Compliance data, grades, telemetry |
 
 ### Ownership Rules
