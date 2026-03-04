@@ -11,7 +11,7 @@
 
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 /**
  * Check if a CLEO project is initialized at the given root.
@@ -144,25 +144,11 @@ export function getArchivePath(cwd?: string): string {
 
 /**
  * Get the path to the project's log file.
- * Auto-migrates legacy todo-log.json to tasks-log.jsonl if needed.
+ * Canonical structured runtime log path (pino).
  * @task T4644
  */
 export function getLogPath(cwd?: string): string {
-  const cleoDir = getCleoDirAbsolute(cwd);
-  const newPath = join(cleoDir, 'tasks-log.jsonl');
-  const legacyPath = join(cleoDir, 'todo-log.json');
-
-  // Auto-migrate: rename legacy file if new file doesn't exist
-  if (!existsSync(newPath) && existsSync(legacyPath)) {
-    try {
-      renameSync(legacyPath, newPath);
-    } catch {
-      // If rename fails (e.g. permissions), fall back to legacy path
-      return legacyPath;
-    }
-  }
-
-  return newPath;
+  return join(getCleoDirAbsolute(cwd), 'logs', 'cleo.log');
 }
 
 /**

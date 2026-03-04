@@ -15,7 +15,6 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { readLogFileEntries, getDataPath } from '../../core/platform.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { TaskRecord } from './task-engine.js';
 import { engineError, type EngineResult } from './_error.js';
@@ -429,21 +428,16 @@ export async function systemLog(
   },
 ): Promise<EngineResult<LogQueryData>> {
   try {
-    // Try SQLite audit_log table first
+    // Canonical path: SQLite audit_log table.
     const entries = await queryAuditLogSqlite(projectRoot, filters);
-    if (entries !== null) {
-      return { success: true, data: entries };
-    }
-
-    // Fallback: JSONL file (for JSON-engine installs or pre-migration state)
-    return queryAuditLogJsonl(projectRoot, filters);
+    return { success: true, data: entries };
   } catch (err: unknown) {
     return engineError('E_FILE_ERROR', (err as Error).message);
   }
 }
 
 /**
- * Query audit_log from SQLite. Returns null if SQLite is unavailable.
+ * Query audit_log from SQLite.
  * Includes dispatch-level fields (domain, requestId, durationMs, success,
  * source, gateway, errorMessage) when present (T4844).
  *
@@ -460,12 +454,19 @@ async function queryAuditLogSqlite(
     limit?: number;
     offset?: number;
   },
-): Promise<LogQueryData | null> {
+): Promise<LogQueryData> {
   try {
     const { join } = await import('node:path');
     const { existsSync } = await import('node:fs');
     const dbPath = join(projectRoot, '.cleo', 'tasks.db');
-    if (!existsSync(dbPath)) return null;
+    if (!existsSync(dbPath)) {
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit ?? 20;
+      return {
+        entries: [],
+        pagination: { total: 0, offset, limit, hasMore: false },
+      };
+    }
 
     const { getDb } = await import('../../store/sqlite.js');
     const { auditLog } = await import('../../store/schema.js');
@@ -501,7 +502,12 @@ async function queryAuditLogSqlite(
       );
       const total = countResult[0]?.cnt ?? 0;
 
-      if (total === 0) return null; // Fall through to JSONL
+      if (total === 0) {
+        return {
+          entries: [],
+          pagination: { total: 0, offset: filters?.offset ?? 0, limit: filters?.limit ?? 20, hasMore: false },
+        };
+      }
 
       const offset = filters?.offset ?? 0;
       const limit = filters?.limit ?? 20;
@@ -558,59 +564,21 @@ async function queryAuditLogSqlite(
         pagination: { total, offset, limit, hasMore: offset + limit < total },
       };
     } catch {
-      // audit_log table may not exist yet — fall through to JSONL
-      return null;
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit ?? 20;
+      return {
+        entries: [],
+        pagination: { total: 0, offset, limit, hasMore: false },
+      };
     }
   } catch {
-    return null;
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit ?? 20;
+    return {
+      entries: [],
+      pagination: { total: 0, offset, limit, hasMore: false },
+    };
   }
-}
-
-/**
- * Query audit log from JSONL file (fallback path).
- */
-function queryAuditLogJsonl(
-  projectRoot: string,
-  filters?: {
-    operation?: string;
-    taskId?: string;
-    since?: string;
-    until?: string;
-    limit?: number;
-    offset?: number;
-  },
-): EngineResult<LogQueryData> {
-  const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
-  const raw = readLogFileEntries(logPath) as Array<{ operation: string; timestamp: string; taskId?: string; [key: string]: unknown }>;
-  let entries = raw;
-
-  if (filters?.operation) {
-    entries = entries.filter(e => e.operation === filters.operation);
-  }
-  if (filters?.taskId) {
-    entries = entries.filter(e => e.taskId === filters.taskId);
-  }
-  if (filters?.since) {
-    entries = entries.filter(e => e.timestamp >= filters.since!);
-  }
-  if (filters?.until) {
-    entries = entries.filter(e => e.timestamp <= filters.until!);
-  }
-
-  entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-  const total = entries.length;
-  const offset = filters?.offset ?? 0;
-  const limit = filters?.limit ?? 20;
-  const paginated = entries.slice(offset, offset + limit);
-
-  return {
-    success: true,
-    data: {
-      entries: paginated,
-      pagination: { total, offset, limit, hasMore: offset + limit < total },
-    },
-  };
 }
 
 // ===== Context =====

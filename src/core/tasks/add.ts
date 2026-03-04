@@ -10,7 +10,7 @@ import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../../types/task.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
 import { getArchivePath } from '../paths.js';
-import { appendJsonl, computeChecksum } from '../../store/json.js';
+import { computeChecksum } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { loadConfig } from '../config.js';
 import { createTaskSafe, updateTask } from '../../store/task-store.js';
@@ -343,7 +343,7 @@ export function getNextPosition(parentId: string | null | undefined, tasks: Task
  * @task T4460
  */
 export async function logOperation(
-  logPath: string,
+  _logPath: string,
   operation: string,
   taskId: string,
   details: Record<string, unknown>,
@@ -364,8 +364,6 @@ export async function logOperation(
   try {
     if (accessor) {
       await accessor.appendLog(entry);
-    } else {
-      await appendJsonl(logPath, entry);
     }
   } catch {
     // Log failure is non-fatal

@@ -82,8 +82,6 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 *.db-wal
 *.db-journal
 log.json
-tasks-log.jsonl
-todo-log.jsonl
 bypass-log.json
 qa-log.json
 .deps-cache/

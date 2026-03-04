@@ -336,7 +336,7 @@ export const schemaMeta = sqliteTable('schema_meta', {
 
 /**
  * Task change audit log — stores every add/update/complete/delete/archive operation.
- * Migrated from tasks-log.jsonl to SQLite per ADR-006/ADR-012.
+ * Migrated from legacy JSONL task logs to SQLite per ADR-006/ADR-012.
  * No FK on taskId — log entries must survive task deletion.
  *
  * @task T4837

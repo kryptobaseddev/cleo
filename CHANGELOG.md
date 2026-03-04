@@ -35,6 +35,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 - Moved `sticky_notes` from tasks.db schema to brain.db `brain_sticky_notes` -- never physically existed in tasks.db (T5267)
 - Removed runtime legacy JSON task paths (T5284)
 - Removed dead todo migration script (T5303)
+- Removed runtime audit-log JSONL fallbacks (`todo-log.jsonl` / `tasks-log.jsonl`) in upgrade, system log queries, and task history; runtime now uses SQLite audit log + structured logger path only (T5317/T5304/T5305)
 
 **Breaking changes**
 - MCP clients using `admin.config.get` must migrate to `admin.config.show`

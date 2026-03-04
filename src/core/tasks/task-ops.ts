@@ -14,7 +14,7 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../store/file-utils.js';
+import { readJsonFile as storeReadJsonFile, getDataPath } from '../../store/file-utils.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
 import { depsReady } from './deps-ready.js';
 import {
@@ -1388,24 +1388,61 @@ export async function coreTaskHistory(
   taskId: string,
   limit?: number,
 ): Promise<Array<Record<string, unknown>>> {
-  const logPath = getDataPath(projectRoot, 'tasks-log.jsonl');
-  const entries = readLogFileEntries(logPath);
+  try {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { auditLog } = await import('../../store/schema.js');
+    const { sql } = await import('drizzle-orm');
 
-  const taskEntries = entries.filter((entry) => {
-    if (entry.taskId === taskId) return true;
-    if (entry.id === taskId) return true;
-    if (typeof entry.details === 'string' && entry.details.includes(taskId)) return true;
-    if (typeof entry.message === 'string' && entry.message.includes(taskId)) return true;
-    return false;
-  });
+    const db = await getDb(projectRoot);
+    const maxRows = limit && limit > 0 ? limit : 100;
 
-  taskEntries.sort((a, b) => {
-    const timeA = String(a.timestamp ?? a.date ?? '');
-    const timeB = String(b.timestamp ?? b.date ?? '');
-    return timeB.localeCompare(timeA);
-  });
+    const rows = await db.all<{
+      id: string;
+      timestamp: string;
+      action: string;
+      task_id: string;
+      actor: string;
+      details_json: string | null;
+      before_json: string | null;
+      after_json: string | null;
+      domain: string | null;
+      operation: string | null;
+      session_id: string | null;
+      request_id: string | null;
+      duration_ms: number | null;
+      success: number | null;
+      source: string | null;
+      gateway: string | null;
+      error_message: string | null;
+    }>(
+      sql`SELECT * FROM ${auditLog}
+          WHERE ${auditLog.taskId} = ${taskId}
+          ORDER BY ${auditLog.timestamp} DESC
+          LIMIT ${maxRows}`,
+    );
 
-  return limit && limit > 0 ? taskEntries.slice(0, limit) : taskEntries;
+    return rows.map((row) => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      operation: row.operation ?? row.action,
+      action: row.action,
+      taskId: row.task_id,
+      actor: row.actor,
+      details: row.details_json ? JSON.parse(row.details_json) : {},
+      before: row.before_json ? JSON.parse(row.before_json) : undefined,
+      after: row.after_json ? JSON.parse(row.after_json) : undefined,
+      domain: row.domain,
+      sessionId: row.session_id,
+      requestId: row.request_id,
+      durationMs: row.duration_ms,
+      success: row.success === null ? undefined : row.success === 1,
+      source: row.source,
+      gateway: row.gateway,
+      error: row.error_message,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // ============================================================================

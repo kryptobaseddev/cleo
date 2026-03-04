@@ -22,6 +22,21 @@ const execAsync = promisify(execFile);
 /** Stale JSON files that should not exist alongside tasks.db (ADR-006). */
 const STALE_JSON_FILES = ['todo.json', 'sessions.json', 'todo-archive.json'] as const;
 
+function resolveStructuredLogPath(cleoDir: string): string {
+  const defaultPath = join(cleoDir, 'logs', 'cleo.log');
+  const configPath = join(cleoDir, 'config.json');
+  if (!existsSync(configPath)) return defaultPath;
+  try {
+    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as {
+      logging?: { filePath?: string }
+    };
+    if (!config.logging?.filePath) return defaultPath;
+    return join(cleoDir, config.logging.filePath);
+  } catch {
+    return defaultPath;
+  }
+}
+
 export interface HealthCheck {
   name: string;
   status: 'pass' | 'warn' | 'fail';
@@ -111,11 +126,11 @@ export function getSystemHealth(
   }
 
   if (opts?.detailed) {
-    const logPath = join(cleoDir, 'todo-log.jsonl');
+    const logPath = resolveStructuredLogPath(cleoDir);
     if (existsSync(logPath)) {
-      checks.push({ name: 'log_file', status: 'pass', message: 'todo-log.jsonl exists' });
+      checks.push({ name: 'log_file', status: 'pass', message: `structured log present: ${logPath}` });
     } else {
-      checks.push({ name: 'log_file', status: 'warn', message: 'todo-log.jsonl not found' });
+      checks.push({ name: 'log_file', status: 'warn', message: `structured log not found: ${logPath}` });
     }
 
     const backupDir = join(cleoDir, '.backups');
@@ -159,7 +174,7 @@ export async function getSystemDiagnostics(
     details: c.message,
     fix: c.status === 'fail'
       ? c.name === 'cleo_dir' ? 'Run: cleo init' :
-        c.name === 'todo_json' ? 'Run: cleo init (or restore from backup)' :
+        c.name === 'tasks_db' ? 'Run: cleo init (or restore from backup)' :
         undefined
       : undefined,
   }));
@@ -437,12 +452,12 @@ export async function coreDoctorReport(
     });
   }
 
-  const logPath = join(cleoDir, 'todo-log.jsonl');
+  const logPath = resolveStructuredLogPath(cleoDir);
   const logExists = existsSync(logPath);
   checks.push({
     check: 'log_file',
     status: logExists ? 'ok' : 'warning',
-    message: logExists ? 'log file present' : 'log file not found',
+    message: logExists ? `structured log present: ${logPath}` : `structured log not found: ${logPath}`,
   });
 
   // 4. Check root .gitignore for .cleo/ blocking
