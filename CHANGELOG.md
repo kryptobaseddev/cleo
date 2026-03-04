@@ -28,6 +28,8 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 **CI/Testing**
 - Added parity gate: `tests/integration/parity-gate.test.ts` -- 7 tests enforce canonical domain/op counts (T5251)
 - Fixed 24 pre-existing test failures (todo.json to SQLite fixture migration across nexus, release, engine-compat tests)
+- Added regression coverage for session hook behavior when brain schema tables are unavailable, and made session hook writes best-effort for missing brain tables in test/bootstrap environments (T5306)
+- Stabilized memory/validation compat suites by isolating fixture roots per test run to prevent cross-test SQLite state leakage (T5307)
 - Fixed `release-push-guard` 51-second hang
 - Full suite: 3868 tests, 0 failures, ~151s
 

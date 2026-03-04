@@ -8,6 +8,12 @@
 import { hooks } from '../registry.js';
 import type { OnSessionStartPayload, OnSessionEndPayload } from '../types.js';
 
+function isMissingBrainSchemaError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const message = String(err.message || '').toLowerCase();
+  return message.includes('no such table') && message.includes('brain_');
+}
+
 /**
  * Handle onSessionStart - capture initial session context
  */
@@ -17,13 +23,17 @@ export async function handleSessionStart(
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
-  await observeBrain(projectRoot, {
-    text: `Session started: ${payload.name}\nScope: ${JSON.stringify(payload.scope)}\nAgent: ${payload.agent || 'unknown'}`,
-    title: `Session start: ${payload.name}`,
-    type: 'discovery',
-    sourceSessionId: payload.sessionId,
-    sourceType: 'agent',
-  });
+  try {
+    await observeBrain(projectRoot, {
+      text: `Session started: ${payload.name}\nScope: ${JSON.stringify(payload.scope)}\nAgent: ${payload.agent || 'unknown'}`,
+      title: `Session start: ${payload.name}`,
+      type: 'discovery',
+      sourceSessionId: payload.sessionId,
+      sourceType: 'agent',
+    });
+  } catch (err) {
+    if (!isMissingBrainSchemaError(err)) throw err;
+  }
 }
 
 /**
@@ -35,13 +45,17 @@ export async function handleSessionEnd(
 ): Promise<void> {
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
-  await observeBrain(projectRoot, {
-    text: `Session ended: ${payload.sessionId}\nDuration: ${payload.duration}s\nTasks completed: ${payload.tasksCompleted.join(', ') || 'none'}`,
-    title: `Session end: ${payload.sessionId}`,
-    type: 'change',
-    sourceSessionId: payload.sessionId,
-    sourceType: 'agent',
-  });
+  try {
+    await observeBrain(projectRoot, {
+      text: `Session ended: ${payload.sessionId}\nDuration: ${payload.duration}s\nTasks completed: ${payload.tasksCompleted.join(', ') || 'none'}`,
+      title: `Session end: ${payload.sessionId}`,
+      type: 'change',
+      sourceSessionId: payload.sessionId,
+      sourceType: 'agent',
+    });
+  } catch (err) {
+    if (!isMissingBrainSchemaError(err)) throw err;
+  }
 }
 
 // Register handlers on module load
