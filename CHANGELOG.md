@@ -5,7 +5,42 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [Unreleased]
+## [Unreleased] — 2026.3.13-beta.2
+
+### Zero-Legacy Compliance Closure (T5244)
+
+**Registry & Dispatch**
+- Removed 5 backward-compat alias operations: `admin.config.get`, `tasks.reopen`, `tools.issue.create.{bug,feature,help}` (T5245)
+- Registry now contains 207 canonical operations (was 212)
+
+**MCP Gateways**
+- Non-canonical domain names now return `E_INVALID_DOMAIN` (T5246)
+- Removed legacy domain types: sharing, validate, lifecycle, release, system, issues, skills, providers
+
+**CLI**
+- Removed legacy CLI aliases: `restore --alias reopen/unarchive/uncancel`, `find --alias search`, `memory-brain recall --alias search` (T5249)
+
+**Documentation**
+- CLEO-OPERATION-CONSTITUTION.md: +7 verbs (check/verify/validate/timeline/convert/unlink/compute), +6 operations (T5250)
+- VERB-STANDARDS.md: `convert` verb added, enforced verb count 36 to 37 (T5250)
+- Constitution, AGENTS.md, CLEO-VISION.md, schemas updated to 207 operation count
+
+**CI/Testing**
+- Added parity gate: `tests/integration/parity-gate.test.ts` -- 7 tests enforce canonical domain/op counts (T5251)
+- Fixed 24 pre-existing test failures (todo.json to SQLite fixture migration across nexus, release, engine-compat tests)
+- Fixed `release-push-guard` 51-second hang
+- Full suite: 3868 tests, 0 failures, ~151s
+
+**Storage**
+- Moved `sticky_notes` from tasks.db schema to brain.db `brain_sticky_notes` -- never physically existed in tasks.db (T5267)
+- Removed runtime legacy JSON task paths (T5284)
+- Removed dead todo migration script (T5303)
+
+**Breaking changes**
+- MCP clients using `admin.config.get` must migrate to `admin.config.show`
+- MCP clients using `tasks.reopen` must migrate to `tasks.restore`
+- MCP clients using `tools.issue.create.*` must migrate to `tools.issue.add.*`
+- MCP clients using `sharing.*` operations must migrate to `nexus.share.*` (T5276, prior release)
 
 ---
 
