@@ -18,16 +18,7 @@ import { join, basename } from 'node:path';
 import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
-import { MigrationLogger } from './migration/logger.js';
 import { forceCheckpointBeforeOperation, acquireLock, type ReleaseFn } from '../store/index.js';
-import {
-  createMigrationState,
-  updateMigrationPhase,
-  updateMigrationProgress,
-  addMigrationWarning,
-  completeMigration,
-  failMigration,
-} from './migration/state.js';
 import { ensureCleoStructure, ensureConfig, ensureGitignore, ensureProjectContext, ensureProjectInfo, ensureCleoGitRepo, ensureSqliteDb, removeCleoFromRootGitignore } from './scaffold.js';
 import { initAgentDefinition, initMcpServer, initCoreSkills, initNexusRegistration } from './init.js';
 import { ensureGitHooks } from './hooks.js';
@@ -104,19 +95,12 @@ export async function runUpgrade(options: {
   const dbPath = join(cleoDir, 'tasks.db');
   const dbExists = existsSync(dbPath);
   
-  // Check if JSON files have actual data (not just empty files)
-  const todoPath = join(cleoDir, 'todo.json');
-  const hasJsonData = existsSync(todoPath) && (() => {
-    try {
-      const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
-      return (data.tasks?.length ?? 0) > 0;
-    } catch {
-      return false;
-    }
-  })();
+  const legacyRecordCount = preflight.details.todoJsonTaskCount
+    + preflight.details.archiveJsonTaskCount
+    + preflight.details.sessionsJsonCount;
   
   // Migration needed only if: no DB exists AND JSON has data
-  const needsMigration = !dbExists && hasJsonData;
+  const needsMigration = !dbExists && legacyRecordCount > 0;
   // Cleanup needed if: DB exists AND stale JSON files exist
   const needsCleanup = dbExists && preflight.migrationNeeded;
 
@@ -158,6 +142,15 @@ export async function runUpgrade(options: {
         await forceCheckpointBeforeOperation('storage-migration', options.cwd);
 
         // Initialize migration state tracking
+        const { MigrationLogger } = await import('./migration/logger.js');
+        const {
+          createMigrationState,
+          updateMigrationPhase,
+          updateMigrationProgress,
+          addMigrationWarning,
+          completeMigration,
+          failMigration,
+        } = await import('./migration/state.js');
         const logger = new MigrationLogger(cleoDir);
         await createMigrationState(cleoDir, {
           todoJson: { path: join(cleoDir, 'todo.json'), checksum: '' },

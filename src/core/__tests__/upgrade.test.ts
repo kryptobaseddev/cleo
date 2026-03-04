@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkStorageMigration } from '../migration/preflight.js';
+import { checkStorageMigration } from '../system/storage-preflight.js';
 import { runUpgrade } from '../upgrade.js';
 import { acquireLock } from '../../store/lock.js';
 
@@ -290,5 +290,29 @@ describe('runUpgrade structural parity', () => {
     expect(result.success).toBe(true);
     expect(result.actions.some((a) => a.action === 'stale_json_cleanup')).toBe(false);
     expect(existsSync(join(cleoDir, 'tasks.json'))).toBe(true);
+  });
+
+  it('detects migration from archive data without todo.json', async () => {
+    writeFileSync(join(cleoDir, 'todo-archive.json'), JSON.stringify({
+      tasks: [{ id: 'T2', title: 'Archived Task', status: 'done' }],
+    }));
+    writeFileSync(join(cleoDir, 'config.json'), '{}');
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
+
+    expect(result.success).toBe(true);
+    expect(result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview')).toBe(true);
+  });
+
+  it('detects migration from sessions data without todo.json', async () => {
+    writeFileSync(join(cleoDir, 'sessions.json'), JSON.stringify({
+      sessions: [{ id: 'S1', startedAt: '2026-01-01T00:00:00.000Z' }],
+    }));
+    writeFileSync(join(cleoDir, 'config.json'), '{}');
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
+
+    expect(result.success).toBe(true);
+    expect(result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview')).toBe(true);
   });
 });
