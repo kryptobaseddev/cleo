@@ -18,7 +18,7 @@ import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../../core/paths.js';
-import { checkStorageMigration } from '../../core/migration/preflight.js';
+import { checkStorageMigration } from '../../core/system/storage-preflight.js';
 import { runUpgrade } from '../../core/upgrade.js';
 import { getRuntimeDiagnostics } from '../../core/system/runtime.js';
 import { readFile } from 'node:fs/promises';

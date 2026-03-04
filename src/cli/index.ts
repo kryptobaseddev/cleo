@@ -294,7 +294,7 @@ import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.j
 import { registerStickyCommand } from './commands/sticky.js';
 
 // Core: pre-flight migration check (@task T4699)
-import { checkStorageMigration } from '../core/migration/preflight.js';
+import { checkStorageMigration } from '../core/system/storage-preflight.js';
 
 // T4665: Output format resolution (LAFS middleware)
 import { resolveFormat } from './middleware/output-format.js';

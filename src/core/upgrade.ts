@@ -16,7 +16,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
-import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
+import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
 import { MigrationLogger } from './migration/logger.js';
 import { forceCheckpointBeforeOperation, acquireLock, type ReleaseFn } from '../store/index.js';

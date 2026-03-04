@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
-import { checkStorageMigration } from '../migration/preflight.js';
+import { checkStorageMigration } from './storage-preflight.js';
 import { checkCleoGitignore, checkVitalFilesTracked, checkCoreFilesNotIgnored, checkLegacyAgentOutputs, checkNodeVersion, type CheckResult } from '../validation/doctor/checks.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { checkProjectInfo, checkProjectContext } from '../scaffold.js';

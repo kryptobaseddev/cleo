@@ -38,6 +38,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 - Removed runtime legacy JSON task paths (T5284)
 - Removed dead todo migration script (T5303)
 - Removed runtime audit-log JSONL fallbacks (`todo-log.jsonl` / `tasks-log.jsonl`) in upgrade, system log queries, and task history; runtime now uses SQLite audit log + structured logger path only (T5317/T5304/T5305)
+- Decommissioned active runtime imports of legacy migration preflight paths; CLI/core/system now use canonical `core/system/storage-preflight` and package root exports canonical system migration/preflight APIs (T5305)
 
 **Breaking changes**
 - MCP clients using `admin.config.get` must migrate to `admin.config.show`
