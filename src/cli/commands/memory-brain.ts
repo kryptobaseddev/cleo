@@ -3,8 +3,7 @@
  *
  * Commands:
  *   cleo memory store --type <type> --content <text> --context <text>
- *   cleo memory recall <query>
- *   cleo memory search <query> --type <type>
+ *   cleo memory recall <query> [--type <type>]
  *   cleo memory stats
  *
  * @task T4770
@@ -91,11 +90,10 @@ export function registerMemoryBrainCommand(program: Command): void {
       }
     });
 
-  // -- recall / search --
+  // -- recall --
   memory
     .command('recall <query>')
-    .alias('search')
-    .description('Search BRAIN memory for patterns and learnings')
+    .description('Recall patterns and learnings from BRAIN memory')
     .option('--type <type>', 'Filter by memory type: pattern or learning')
     .option('--pattern-type <type>', 'Filter patterns by type: workflow, blocker, success, failure, optimization')
     .option('--min-confidence <n>', 'Minimum confidence for learnings', parseFloat)

@@ -5,7 +5,7 @@
  * @task T4795
  * @task T4904
  */
-// CLI-only: implements complex multi-branch logic (task reopen vs archive unarchive vs backup restore)
+// CLI-only: implements complex multi-branch logic (task restore from terminal state vs backup restore)
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
@@ -82,9 +82,6 @@ export function registerRestoreCommand(program: Command): void {
   // Universal task restore - handles archived, cancelled, and completed tasks
   restoreCmd
     .command('task <task-id>')
-    .alias('unarchive')
-    .alias('reopen')
-    .alias('uncancel')
     .description('Restore task from terminal state (archived, cancelled, or completed) back to active')
     .option('--status <status>', 'Status to restore task as (default: pending)', 'pending')
     .option('--preserve-status', 'Keep the original task status')
