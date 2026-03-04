@@ -1,6 +1,6 @@
 # CLEO Verb Standards
 
-**Version**: 2026.3.3
+**Version**: 2026.3.4
 **Status**: MANDATORY
 **Scope**: All CLEO CLI commands, MCP operations, and API endpoints
 
@@ -59,6 +59,7 @@ This document establishes the canonical verb standard for CLEO to ensure consist
 | Append-only write | `store` | `add` for memory, `write` for audit entries | Enforced |
 | Batch retrieve | `fetch` | — (new verb; batch retrieval by ID array) | Enforced |
 | Chronological context | `timeline` | — (new verb; anchored context retrieval) | Enforced |
+| Entity transformation | `convert` | `transform`, `promote` | Enforced |
 
 ---
 
@@ -859,6 +860,28 @@ cleo memory context O-abc123
 
 ---
 
+### 43. Convert (Entity Transformation)
+
+**Standard**: `convert`
+**Replaces**: `transform`, `promote` (when converting entity type)
+**Scope**: Sticky domain -- promoting sticky notes to tasks or memory
+
+```bash
+# CORRECT
+cleo sticky convert SN-042 --to-task --title "Implement auth flow"
+cleo sticky convert SN-042 --to-memory
+
+# INCORRECT
+cleo sticky promote SN-042
+cleo sticky transform SN-042
+```
+
+**MCP Usage**: `sticky.convert`
+
+**Note**: `convert` is used when changing an entity's type (e.g., sticky note to task or memory entry). It is distinct from `update` (which modifies properties without changing type) and `promote` (which in the tasks domain means moving a subtask to top-level within the same entity type).
+
+---
+
 ## Naming Conventions
 
 ### Command Structure
@@ -1089,6 +1112,13 @@ These verbs appear in the Standard Verb Matrix with **Reserved** status. They ar
 ---
 
 ## Migration History
+
+### 2026.3.4 - Convert Verb Addition (T5250)
+
+- **Added**: `convert` as 37th canonical verb (replaces `transform`, `promote` for entity type conversion)
+- **Added**: §43 Convert section with sticky domain examples
+- **Enforced verb count**: 37 (was 36; added 1: `convert`)
+- **Version alignment**: Synchronized with CLEO-OPERATION-CONSTITUTION.md at 2026.3.4
 
 ### 2026.3.3 - Verb Standards Alignment and Domain Restructure (verb-standards-alignment)
 

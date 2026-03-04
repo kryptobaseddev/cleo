@@ -1,9 +1,9 @@
 # CLEO Operation Constitution
 
-**Version**: 2026.3.3
+**Version**: 2026.3.4
 **Status**: APPROVED
-**Date**: 2026-03-03
-**Task**: T5241
+**Date**: 2026-03-04
+**Task**: T5250
 **Supersedes**: CLEO-OPERATIONS-REFERENCE.md
 
 ---
@@ -97,6 +97,15 @@ All operation names MUST use canonical verbs as defined in `docs/specs/VERB-STAN
 | `fetch` | Batch retrieve by IDs | `memory.fetch` |
 | `plan` | Composite planning view | `tasks.plan` |
 | `sync` | Synchronize data | `admin.sync`, `nexus.sync` |
+| `check` | Check system liveness/health | `admin.health`, `check.coherence.check` |
+| `verify` | Verify artifact gates/frontmatter | `tools.skill.verify` |
+| `validate` | Validate compliance/schema | `pipeline.stage.validate`, `check.schema` |
+| `timeline` | Chronological context retrieval | `memory.timeline` |
+| `convert` | Transform entity type | `sticky.convert` |
+| `unlink` | Dissociate entities | `memory.unlink` (planned) |
+| `compute` | Compute derived values | `orchestrate.compute` (planned) |
+
+> **Note**: `unlink` and `compute` are spec-ahead -- documented in the Constitution for completeness, not yet in registry.
 
 Deprecated verbs (`create`, `get`, `search`, `query` as verb) MUST NOT appear in new operations.
 
@@ -133,7 +142,7 @@ interface OperationDef {
 
 ## 6. Domain Operation Tables
 
-### 6.1 tasks (28 operations)
+### 6.1 tasks (27 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -161,7 +170,6 @@ interface OperationDef {
 | mutate | `reparent` | Move task to new parent | 0 | -- | No |
 | mutate | `promote` | Promote subtask to top-level | 0 | -- | No |
 | mutate | `reorder` | Reorder tasks within parent | 0 | -- | No |
-| mutate | `reopen` | Alias for `restore` (backward compat) | 0 | -- | No |
 | mutate | `relates.add` | Add task relationship | 0 | -- | No |
 | mutate | `start` | Begin working on task | 0 | -- | No |
 | mutate | `stop` | Stop working on task | 0 | -- | No |
@@ -277,11 +285,12 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | query | `critical.path` | Critical path analysis | 0 | -- | Yes |
 | mutate | `start` | Start orchestration | 0 | -- | No |
 | mutate | `spawn` | Spawn sub-agent | 0 | -- | No |
+| mutate | `spawn.execute` | Execute spawn for task using adapter registry | 0 | `taskId` | No |
 | mutate | `validate` | Validate orchestration state | 0 | -- | No |
 | mutate | `parallel.start` | Begin parallel execution wave | 0 | -- | No |
 | mutate | `parallel.end` | End parallel execution wave | 0 | -- | No |
 
-### 6.7 tools (35 operations)
+### 6.7 tools (32 operations)
 
 The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 
@@ -296,19 +305,21 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | query | `skill.dispatch` | Dispatch skill execution | 0 | -- | Yes |
 | query | `skill.verify` | Verify skill frontmatter | 0 | -- | Yes |
 | query | `skill.dependencies` | Show skill dependencies | 0 | -- | Yes |
+| query | `skill.spawn.providers` | List spawn-capable providers by capability | 1 | -- | Yes |
 | query | `skill.catalog.protocols` | List CAAMP protocol definitions | 2 | -- | Yes |
 | query | `skill.catalog.profiles` | List CAAMP dispatch profiles | 2 | -- | Yes |
 | query | `skill.catalog.resources` | List CAAMP shared resources | 2 | -- | Yes |
 | query | `skill.catalog.info` | Get CAAMP catalog metadata | 2 | -- | Yes |
+| query | `skill.precedence.show` | Show skills precedence mapping | 1 | -- | Yes |
+| query | `skill.precedence.resolve` | Resolve skill paths for provider | 1 | `providerId` | Yes |
 | query | `provider.list` | List registered providers | 0 | -- | Yes |
 | query | `provider.detect` | Detect available providers | 0 | -- | Yes |
 | query | `provider.inject.status` | Provider injection status | 0 | -- | Yes |
+| query | `provider.supports` | Check if provider supports capability | 1 | -- | Yes |
+| query | `provider.hooks` | List providers by hook event support | 1 | -- | Yes |
 | mutate | `issue.add.bug` | File bug report | 0 | -- | No |
 | mutate | `issue.add.feature` | File feature request | 0 | -- | No |
 | mutate | `issue.add.help` | File help request | 0 | -- | No |
-| mutate | `issue.create.bug` | Alias for `issue.add.bug` (backward compat) | 2 | -- | No |
-| mutate | `issue.create.feature` | Alias for `issue.add.feature` (backward compat) | 2 | -- | No |
-| mutate | `issue.create.help` | Alias for `issue.add.help` (backward compat) | 2 | -- | No |
 | mutate | `issue.generate.config` | Generate issue template configuration | 2 | -- | No |
 | mutate | `skill.install` | Install skill | 0 | -- | No |
 | mutate | `skill.uninstall` | Uninstall skill | 0 | -- | No |
@@ -318,14 +329,13 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `skill.refresh` | Refresh skill catalog | 0 | -- | No |
 | mutate | `provider.inject` | Inject provider configuration | 0 | -- | No |
 
-### 6.8 admin (35 operations)
+### 6.8 admin (34 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
 | query | `version` | Show CLEO version | 0 | -- | Yes |
 | query | `health` | System health check | 0 | -- | Yes |
 | query | `config.show` | Show configuration value | 0 | -- | Yes |
-| query | `config.get` | Alias for `config.show` (backward compat) | 0 | -- | Yes |
 | query | `stats` | Project statistics | 0 | -- | Yes |
 | query | `context` | Project context info | 0 | -- | Yes |
 | query | `runtime` | Runtime environment info | 0 | -- | Yes |
@@ -403,17 +413,17 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
-| tasks | 15 | 13 | 28 |
+| tasks | 15 | 12 | 27 |
 | session | 11 | 8 | 19 |
 | memory | 12 | 5 | 17 |
 | check | 10 | 2 | 12 |
 | pipeline | 10 | 14 | 24 |
 | orchestrate | 9 | 6 | 15 |
-| tools | 21 | 14 | 35 |
-| admin | 20 | 15 | 35 |
+| tools | 21 | 11 | 32 |
+| admin | 19 | 15 | 34 |
 | nexus | 9 | 13 | 22 |
 | sticky | 2 | 3 | 5 |
-| **Total** | **119** | **93** | **212** |
+| **Total** | **118** | **89** | **207** |
 
 ---
 
@@ -421,9 +431,9 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 
 Operations are organized into 3 tiers. Agents SHOULD start at tier 0 and escalate only when needed:
 
-### Tier 0 -- Core (133 operations)
+### Tier 0 -- Core (135 operations)
 
-Available to all agents from session start. Covers 80% of typical workflows.
+Available to all agents from session start. Covers 65% of typical workflows.
 
 **Domains**: tasks, session, check, pipeline, orchestrate, tools, admin, sticky
 
@@ -433,7 +443,7 @@ Memory, manifest, and advanced query operations. Agents escalate here when they 
 
 **Domains**: memory plus extended operations across pipeline, session, admin, and tools
 
-### Tier 2 -- Full System (25 operations)
+### Tier 2 -- Full System (36 operations)
 
 Cross-project coordination, advanced tooling, and administrative functions. Used by orchestrator agents and system administrators.
 

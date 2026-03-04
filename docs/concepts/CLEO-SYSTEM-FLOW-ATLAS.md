@@ -1,9 +1,9 @@
 # CLEO System Flow Atlas
 
-**Version**: 2026.3.3
+**Version**: 2026.3.4
 **Status**: APPROVED
-**Date**: 2026-03-03
-**Task**: T5241
+**Date**: 2026-03-04
+**Task**: T5250
 
 ---
 
@@ -391,9 +391,9 @@ Step 4: Agent stores a new learning
 
 | Tier | Operations | % of Total | Typical User |
 |------|-----------|------------|--------------|
-| 0 | 133 | 67% | All agents |
-| 1 | 36 | 18% | Agents needing memory/manifest |
-| 2 | 25 | 13% | Orchestrators, admins |
+| 0 | 135 | 65% | All agents |
+| 1 | 36 | 17% | Agents needing memory/manifest |
+| 2 | 36 | 17% | Orchestrators, admins |
 
 ---
 
