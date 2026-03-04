@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 export interface SafestopResult {
   stopped: boolean;
@@ -63,24 +64,25 @@ export function safestop(
 }
 
 /** Uncancel a cancelled task (restore to pending). */
-export function uncancelTask(
+export async function uncancelTask(
   projectRoot: string,
   params: { taskId: string; cascade?: boolean; notes?: string; dryRun?: boolean },
-): UncancelResult {
+): Promise<UncancelResult> {
   if (!params.taskId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'taskId is required');
   }
 
-  const taskPath = join(projectRoot, '.cleo', 'tasks.json');
-  if (!existsSync(taskPath)) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.json found');
+  const taskDbPath = join(projectRoot, '.cleo', 'tasks.db');
+  if (!existsSync(taskDbPath)) {
+    throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.db found');
   }
 
-  let taskFile: { tasks: Array<{ id: string; status: string; parentId?: string; notes?: Array<{ text: string; timestamp: string }> }> };
+  let taskFile: { tasks: Array<{ id: string; status: string; parentId?: string | null; notes?: Array<{ text: string; timestamp: string }> }> };
+  const accessor = await getAccessor(projectRoot);
   try {
-    taskFile = JSON.parse(readFileSync(taskPath, 'utf-8'));
+    taskFile = await accessor.loadTaskFile() as unknown as { tasks: Array<{ id: string; status: string; parentId?: string | null; notes?: Array<{ text: string; timestamp: string }> }> };
   } catch {
-    throw new CleoError(ExitCode.FILE_ERROR, 'Failed to parse tasks.json');
+    throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.db');
   }
 
   const task = taskFile.tasks.find(t => t.id === params.taskId);
@@ -108,7 +110,7 @@ export function uncancelTask(
         }
       }
     }
-    writeFileSync(taskPath, JSON.stringify(taskFile, null, 2), 'utf-8');
+    await accessor.saveTaskFile(taskFile as unknown as Awaited<ReturnType<typeof accessor.loadTaskFile>>);
   } else if (params.cascade) {
     cascadeCount = taskFile.tasks.filter(t => t.parentId === params.taskId && t.status === 'cancelled').length;
   }

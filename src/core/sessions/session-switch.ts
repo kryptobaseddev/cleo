@@ -67,7 +67,7 @@ export async function switchSession(
   targetSession.endedAt = undefined;
   targetSession.resumeCount = (targetSession.resumeCount || 0) + 1;
 
-  // Update todo.json
+  // Update task data
   if (current._meta) {
     current._meta.activeSession = sessionId;
     current._meta.generation = (current._meta.generation || 0) + 1;

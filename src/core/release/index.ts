@@ -398,7 +398,7 @@ function performGitOperations(
       'CHANGELOG.md',
       'package.json',
       'README.md',
-      '.cleo/todo.json',
+      '.cleo/tasks.db',
       '.cleo/config.json',
     ].filter(f => existsSync(join(projectRoot, f)));
 

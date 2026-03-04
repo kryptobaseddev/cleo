@@ -340,7 +340,7 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'migrate': {
-          const result = systemMigrate(this.projectRoot, params as { target?: string; dryRun?: boolean } | undefined);
+          const result = await systemMigrate(this.projectRoot, params as { target?: string; dryRun?: boolean } | undefined);
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 

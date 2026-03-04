@@ -5,6 +5,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { getAccessor } from '../../store/data-accessor.js';
 
 export interface AuditIssue {
   severity: 'error' | 'warning' | 'info';
@@ -24,20 +25,21 @@ export interface AuditResult {
 }
 
 /** Audit data integrity. */
-export function auditData(
+export async function auditData(
   projectRoot: string,
   opts?: { scope?: string; fix?: boolean },
-): AuditResult {
+): Promise<AuditResult> {
   const cleoDir = join(projectRoot, '.cleo');
   const scope = opts?.scope ?? 'all';
   const issues: AuditIssue[] = [];
 
   if (scope === 'all' || scope === 'tasks') {
-    const taskPath = join(cleoDir, 'tasks.json');
-    if (existsSync(taskPath)) {
+    const tasksDbPath = join(cleoDir, 'tasks.db');
+    if (existsSync(tasksDbPath)) {
       try {
-        const taskFile = JSON.parse(readFileSync(taskPath, 'utf-8'));
-        const tasks: Array<{ id: string; status: string; title: string; parentId?: string; depends?: string[] }> = taskFile.tasks ?? [];
+        const accessor = await getAccessor(projectRoot);
+        const taskFile = await accessor.loadTaskFile();
+        const tasks: Array<{ id: string; status: string; title: string; parentId?: string | null; depends?: string[] }> = taskFile.tasks ?? [];
 
         const idSet = new Set<string>();
         for (const t of tasks) {
@@ -68,7 +70,7 @@ export function auditData(
           }
         }
       } catch (err) {
-        issues.push({ severity: 'error', category: 'tasks', message: `Failed to parse tasks.json: ${err}` });
+        issues.push({ severity: 'error', category: 'tasks', message: `Failed to read tasks.db: ${err}` });
       }
     }
   }

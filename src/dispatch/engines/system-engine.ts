@@ -1082,12 +1082,12 @@ export function systemRestore(
  * Check/run schema migrations.
  * @task T4631
  */
-export function systemMigrate(
+export async function systemMigrate(
   projectRoot: string,
   params?: { target?: string; dryRun?: boolean },
-): EngineResult<import('../../core/system/migrate.js').MigrateResult> {
+): Promise<EngineResult<import('../../core/system/migrate.js').MigrateResult>> {
   try {
-    const result = getMigrationStatus(projectRoot, params);
+    const result = await getMigrationStatus(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_MIGRATE_FAILED';
@@ -1120,12 +1120,12 @@ export function systemCleanup(
  * Audit data integrity.
  * @task T4631
  */
-export function systemAudit(
+export async function systemAudit(
   projectRoot: string,
   params?: { scope?: string; fix?: boolean },
-): EngineResult<import('../../core/system/audit.js').AuditResult> {
+): Promise<EngineResult<import('../../core/system/audit.js').AuditResult>> {
   try {
-    const result = auditData(projectRoot, params);
+    const result = await auditData(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
@@ -1184,12 +1184,12 @@ export function systemSafestop(
  * Uncancel a cancelled task (restore to pending).
  * @task T4631
  */
-export function systemUncancel(
+export async function systemUncancel(
   projectRoot: string,
   params: { taskId: string; cascade?: boolean; notes?: string; dryRun?: boolean },
-): EngineResult<import('../../core/system/safestop.js').UncancelResult> {
+): Promise<EngineResult<import('../../core/system/safestop.js').UncancelResult>> {
   try {
-    const result = uncancelTask(projectRoot, params);
+    const result = await uncancelTask(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_UNCANCEL_FAILED';

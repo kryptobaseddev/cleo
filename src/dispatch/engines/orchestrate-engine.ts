@@ -34,7 +34,7 @@ import { buildBrainState } from '../../core/orchestration/bootstrap.js';
 import { engineError, type EngineResult } from './_error.js';
 
 /**
- * Load all tasks from todo.json
+ * Load all tasks from task data.
  */
 async function loadTasks(projectRoot?: string): Promise<TaskRecord[]> {
   const root = projectRoot || resolveProjectRoot();

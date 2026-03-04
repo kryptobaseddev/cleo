@@ -37,7 +37,7 @@ export interface ArchiveTasksResult {
 
 /**
  * Archive completed (and optionally cancelled) tasks.
- * Moves them from todo.json to todo-archive.json.
+ * Moves them from active task data to archive.
  * @task T4461
  */
 export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ArchiveTasksResult> {
@@ -134,7 +134,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
     archiveData.archivedTasks.push(t);
   }
 
-  // Update todo.json
+  // Update active task data
   data.tasks = remainingTasks;
   data._meta.checksum = computeChecksum(remainingTasks);
   data.lastUpdated = now;

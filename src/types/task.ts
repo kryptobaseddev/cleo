@@ -183,7 +183,7 @@ export interface TaskWorkState {
   primarySession?: string | null;
 }
 
-/** Root tasks.json structure. */
+/** Root task data structure. */
 export interface TaskFile {
   version: string;
   project: ProjectMeta;

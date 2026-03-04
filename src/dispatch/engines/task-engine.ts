@@ -91,7 +91,7 @@ function tasksToRecords(tasks: Task[]): TaskRecord[] {
 }
 
 /**
- * Task object as stored in todo.json
+ * Task object as stored in task data.
  */
 export interface TaskRecord {
   id: string;
@@ -468,7 +468,7 @@ export async function taskDelete(
 
 /**
  * Archive completed tasks.
- * Moves done/cancelled tasks from todo.json to todo-archive.json.
+ * Moves done/cancelled tasks from active task data to archive.
  */
 export async function taskArchive(
   projectRoot: string,
@@ -732,7 +732,7 @@ export async function taskRestore(
 }
 
 /**
- * Move an archived task back to todo.json with status 'done' (or specified status).
+ * Move an archived task back to active task data with status 'done' (or specified status).
  * @task T4790
  */
 export async function taskUnarchive(

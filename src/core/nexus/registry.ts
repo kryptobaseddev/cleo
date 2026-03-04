@@ -11,12 +11,13 @@
 
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { mkdir, access, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../paths.js';
 import { readJson, saveJson } from '../../store/json.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
@@ -131,10 +132,11 @@ export async function nexusInit(): Promise<void> {
   }
 }
 
-/** Check if a path contains a CLEO project (has .cleo/todo.json). */
+/** Check if a path contains a CLEO project (has readable task data). */
 async function isCleoProject(projectPath: string): Promise<boolean> {
   try {
-    await access(join(projectPath, '.cleo', 'todo.json'));
+    const accessor = await getAccessor(projectPath);
+    await accessor.loadTaskFile();
     return true;
   } catch {
     return false;
@@ -144,14 +146,9 @@ async function isCleoProject(projectPath: string): Promise<boolean> {
 /** Read task metadata from a project's task file. */
 async function readProjectMeta(projectPath: string): Promise<{ taskCount: number; labels: string[] }> {
   try {
-    let raw: string;
-    try {
-      raw = await readFile(join(projectPath, '.cleo', 'tasks.json'), 'utf-8');
-    } catch {
-      raw = await readFile(join(projectPath, '.cleo', 'todo.json'), 'utf-8');
-    }
-    const data = JSON.parse(raw) as { tasks: Array<{ labels?: string[] }> };
-    const tasks = data.tasks ?? [];
+    const accessor = await getAccessor(projectPath);
+    const taskFile = await accessor.loadTaskFile();
+    const tasks = taskFile.tasks ?? [];
     const allLabels = tasks.flatMap(t => t.labels ?? []);
     const uniqueLabels = [...new Set(allLabels)].sort();
     return { taskCount: tasks.length, labels: uniqueLabels };
@@ -173,11 +170,11 @@ export async function nexusRegister(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project path required');
   }
 
-  // Validate project has .cleo/todo.json
+  // Validate project has readable task data
   if (!(await isCleoProject(projectPath))) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
-      `Path missing .cleo/todo.json: ${projectPath}`,
+      `Path missing .cleo/tasks.db: ${projectPath}`,
       { fix: `cd ${projectPath} && cleo init` },
     );
   }

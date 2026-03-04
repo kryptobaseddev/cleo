@@ -9,13 +9,12 @@
  * @epic T4540
  */
 
-import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { readRegistryRequired, type NexusRegistryFile } from './registry.js';
 import { parseQuery, validateSyntax, resolveTask } from './query.js';
 import { checkPermission } from './permissions.js';
@@ -102,14 +101,9 @@ const CROSS_REF_RE = /^([a-z0-9_-]+):(.+)$/;
 /** Read tasks from a project path, returning empty array on failure. */
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
   try {
-    let raw: string;
-    try {
-      raw = await readFile(join(projectPath, '.cleo', 'tasks.json'), 'utf-8');
-    } catch {
-      raw = await readFile(join(projectPath, '.cleo', 'todo.json'), 'utf-8');
-    }
-    const data = JSON.parse(raw) as { tasks: Task[] };
-    return data.tasks ?? [];
+    const accessor = await getAccessor(projectPath);
+    const taskFile = await accessor.loadTaskFile();
+    return taskFile.tasks ?? [];
   } catch {
     return [];
   }
@@ -121,13 +115,9 @@ async function computeGlobalChecksum(registry: NexusRegistryFile): Promise<strin
 
   for (const project of Object.values(registry.projects)) {
     try {
-      let content: string;
-      try {
-        content = await readFile(join(project.path, '.cleo', 'tasks.json'), 'utf-8');
-      } catch {
-        content = await readFile(join(project.path, '.cleo', 'todo.json'), 'utf-8');
-      }
-      hash.update(content);
+      const accessor = await getAccessor(project.path);
+      const taskFile = await accessor.loadTaskFile();
+      hash.update(JSON.stringify(taskFile.tasks ?? []));
     } catch {
       // Skip unreadable projects
     }

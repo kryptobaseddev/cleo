@@ -2,7 +2,7 @@
  * Release manifest operations for the releases.json data model.
  *
  * These functions manage the separate .cleo/releases.json file used by
- * the MCP release domain. This is distinct from the todo.json-based
+ * the MCP release domain. This is distinct from the previous JSON-based
  * release tracking in index.ts.
  *
  * @task T4788

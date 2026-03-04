@@ -68,7 +68,7 @@ export async function generateInjection(
       }
     }
   } catch {
-    // fallback to tasks.json data
+    // fallback to task data
   }
 
   // Storage engine is always sqlite (ADR-006)

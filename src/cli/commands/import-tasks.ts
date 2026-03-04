@@ -73,7 +73,7 @@ export function registerImportTasksCommand(program: Command): void {
   program
     .command('import-tasks <file>')
     .description('Import tasks from .cleo-export.json package with ID remapping')
-    .option('--dry-run', 'Preview import without writing to todo.json')
+    .option('--dry-run', 'Preview import without writing to task data')
     .option('--parent <id>', 'Attach all imported tasks under existing parent')
     .option('--phase <phase>', 'Override phase for all imported tasks')
     .option('--add-label <label>', 'Add label to all imported tasks')
@@ -230,7 +230,7 @@ export function registerImportTasksCommand(program: Command): void {
           return;
         }
 
-        // Write to todo.json
+        // Persist imported tasks
         taskData.tasks.push(...transformed);
         taskData._meta.checksum = computeChecksum(taskData.tasks);
         taskData.lastUpdated = new Date().toISOString();

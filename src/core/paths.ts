@@ -15,12 +15,12 @@ import { existsSync, readFileSync, renameSync } from 'node:fs';
 
 /**
  * Check if a CLEO project is initialized at the given root.
- * Checks for tasks.db (current), tasks.json (legacy), and todo.json (legacy).
+ * Checks for tasks.db.
  */
 export function isProjectInitialized(projectRoot?: string): boolean {
   const root = projectRoot ?? getProjectRoot();
   const cleoDir = join(root, '.cleo');
-  return existsSync(cleoDir) && (existsSync(join(cleoDir, 'tasks.json')) || existsSync(join(cleoDir, 'todo.json')) || existsSync(join(cleoDir, 'tasks.db')));
+  return existsSync(cleoDir) && existsSync(join(cleoDir, 'tasks.db'));
 }
 
 /**

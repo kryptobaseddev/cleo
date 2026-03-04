@@ -202,11 +202,8 @@ const LOCK_OPTIONS: lockfile.LockOptions = {
  * Always acquire locks in this order.
  */
 const LOCK_ORDER: Record<string, number> = {
-  'todo.json': 1,
-  'sessions.json': 2,
-  'todo-archive.json': 3,
-  'todo-log.jsonl': 4,
-  'config.json': 5,
+  'tasks.db': 1,
+  'config.json': 2,
 };
 
 function getLockPriority(filePath: string): number {
@@ -287,7 +284,7 @@ export async function withFileLock<R>(
 /**
  * Acquire locks on multiple files in correct order.
  * Used for operations that need to modify multiple files atomically
- * (e.g., moving a task from todo.json to archive).
+ * (e.g., coordinated updates across task data and config).
  *
  * @param filePaths - Files to lock
  * @param operation - Function to execute while locks are held
@@ -334,7 +331,7 @@ export async function withMultiLock<T>(
  */
 export function isProjectInitialized(projectRoot: string): boolean {
   const cleoDir = join(projectRoot, '.cleo');
-  return existsSync(cleoDir) && existsSync(join(cleoDir, 'todo.json'));
+  return existsSync(cleoDir) && existsSync(join(cleoDir, 'tasks.db'));
 }
 
 /**
