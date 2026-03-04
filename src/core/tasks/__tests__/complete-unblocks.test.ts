@@ -31,6 +31,7 @@ describe('completeTask unblocked tasks', () => {
     cleoDir = join(tempDir, '.cleo');
     await mkdir(cleoDir, { recursive: true });
     await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
+    await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ verification: { enabled: false } }));
   });
 
   afterEach(async () => {

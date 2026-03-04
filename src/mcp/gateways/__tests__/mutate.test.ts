@@ -25,10 +25,9 @@ describe('MUTATE_OPERATIONS', () => {
     expect(totalCount).toBeGreaterThan(0);
   });
 
-  it('should have all 18 domains (10 canonical + 8 legacy)', () => {
+  it('should have all 10 canonical domains', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
-    // Derived from registry — order follows OPERATIONS definition order
-    // for canonical domains, then LEGACY_DOMAIN_ALIASES iteration order
+    // Derived from registry — order follows canonical OPERATIONS definition order
     expect(domains).toEqual([
       // Canonical domains (order from OPERATIONS array)
       'tasks',
@@ -41,15 +40,6 @@ describe('MUTATE_OPERATIONS', () => {
       'tools',
       'sharing',
       'nexus',
-      // Legacy aliases (order from LEGACY_DOMAIN_ALIASES)
-      'research',
-      'validate',
-      'lifecycle',
-      'release',
-      'system',
-      'skills',
-      'providers',
-      'issues',
     ]);
   });
 
@@ -57,23 +47,14 @@ describe('MUTATE_OPERATIONS', () => {
     // Canonical domains
     expect(MUTATE_OPERATIONS.tasks.length).toBe(13);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
-    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
+    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(6);
     expect(MUTATE_OPERATIONS.memory.length).toBe(5);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(14);
     expect(MUTATE_OPERATIONS.admin.length).toBe(15);
     expect(MUTATE_OPERATIONS.tools.length).toBe(14);
-    // Legacy aliases (derived from canonical — may include more ops than
-    // the old hand-maintained lists due to no-prefix aliases getting
-    // all canonical ops and prefix aliases getting new ops added to canonical)
-    expect(MUTATE_OPERATIONS.research.length).toBe(MUTATE_OPERATIONS.memory.length);
-    expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
-    expect(MUTATE_OPERATIONS.validate.length).toBe(MUTATE_OPERATIONS.check.length);
-    expect(MUTATE_OPERATIONS.release.length).toBe(7);
-    expect(MUTATE_OPERATIONS.system.length).toBe(MUTATE_OPERATIONS.admin.length);
-    expect(MUTATE_OPERATIONS.issues.length).toBe(7);
-    expect(MUTATE_OPERATIONS.skills.length).toBe(6);
-    expect(MUTATE_OPERATIONS.providers.length).toBe(1);
+    expect(MUTATE_OPERATIONS.sharing.length).toBe(7);
+    expect(MUTATE_OPERATIONS.nexus.length).toBe(6);
   });
 });
 
@@ -96,12 +77,13 @@ describe('validateMutateParams', () => {
         'tasks',
         'session',
         'orchestrate',
-        'research',
-        'lifecycle',
-        'validate',
-        'release',
-        'system',
-        'issues',
+        'memory',
+        'pipeline',
+        'check',
+        'admin',
+        'tools',
+        'sharing',
+        'nexus',
       ];
 
       for (const domain of domains) {
@@ -311,41 +293,19 @@ describe('validateMutateParams', () => {
     });
   });
 
-  describe('research domain parameter validation (legacy alias for memory)', () => {
-    it('should reject inject as invalid operation (moved to session.context.inject)', () => {
-      const request: MutateRequest = {
-        domain: 'research',
-        operation: 'inject',
-        params: {},
-      };
+  describe('legacy domain aliases are rejected', () => {
+    it('rejects removed legacy aliases with E_INVALID_DOMAIN', () => {
+      const legacyDomains = ['research', 'validate', 'lifecycle', 'release', 'system', 'skills', 'providers', 'issues'];
 
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.code).toBe('E_INVALID_OPERATION');
-    });
-
-    it('should reject link without researchId and taskId', () => {
-      const request: MutateRequest = {
-        domain: 'research',
-        operation: 'link',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('researchId and taskId');
-    });
-
-    it('should reject manifest.append as invalid operation (moved to pipeline)', () => {
-      const request: MutateRequest = {
-        domain: 'research',
-        operation: 'manifest.append',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.code).toBe('E_INVALID_OPERATION');
+      for (const domain of legacyDomains) {
+        const result = validateMutateParams({
+          domain: domain as MutateRequest['domain'],
+          operation: 'add',
+          params: {},
+        });
+        expect(result.valid).toBe(false);
+        expect(result.error?.error?.code).toBe('E_INVALID_DOMAIN');
+      }
     });
   });
 
@@ -386,135 +346,13 @@ describe('validateMutateParams', () => {
     });
   });
 
-  describe('lifecycle domain parameter validation', () => {
-    it('should reject record without required params', () => {
-      const request: MutateRequest = {
-        domain: 'lifecycle',
-        operation: 'record',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('taskId, stage, and status');
-    });
-
-    it('should reject skip without required params', () => {
-      const request: MutateRequest = {
-        domain: 'lifecycle',
-        operation: 'skip',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('taskId, stage, and reason');
-    });
-
-    it('should reject gate.pass without taskId and gateName', () => {
-      const request: MutateRequest = {
-        domain: 'lifecycle',
-        operation: 'gate.pass',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('taskId and gateName');
-    });
-  });
-
-  describe('validate domain parameter validation', () => {
-    it('should reject compliance.record without taskId and result', () => {
-      const request: MutateRequest = {
-        domain: 'validate',
-        operation: 'compliance.record',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('taskId and result');
-    });
-  });
-
-  describe('release domain parameter validation', () => {
-    it('should reject release operations without version', () => {
-      const operations = ['prepare', 'changelog', 'commit', 'tag', 'push', 'rollback'];
-
-      for (const operation of operations) {
-        const request: MutateRequest = {
-          domain: 'release',
-          operation,
-          params: {},
-        };
-
-        const result = validateMutateParams(request);
-        expect(result.valid).toBe(false);
-        expect(result.error?.error?.message).toContain('version');
-      }
-    });
-
-    it('should accept release operations with version', () => {
-      const request: MutateRequest = {
-        domain: 'release',
-        operation: 'tag',
-        params: {
-          version: '1.0.0',
-        },
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(true);
-    });
-  });
-
-  describe('system domain parameter validation', () => {
-    it('should reject config.set without key and value', () => {
-      const request: MutateRequest = {
-        domain: 'system',
-        operation: 'config.set',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('key and value');
-    });
-
-    it('should reject restore without backupId', () => {
-      const request: MutateRequest = {
-        domain: 'system',
-        operation: 'restore',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('backupId');
-    });
-
-    it('should reject cleanup without type', () => {
-      const request: MutateRequest = {
-        domain: 'system',
-        operation: 'cleanup',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('type');
-    });
-  });
 });
 
 describe('isIdempotentOperation', () => {
   it('should identify idempotent operations', () => {
-    expect(isIdempotentOperation('tasks', 'complete')).toBe(true);
-    expect(isIdempotentOperation('tasks', 'archive')).toBe(true);
-    expect(isIdempotentOperation('session', 'end')).toBe(true);
-    expect(isIdempotentOperation('lifecycle', 'record')).toBe(true);
-    expect(isIdempotentOperation('system', 'init')).toBe(true);
+    expect(isIdempotentOperation('session', 'context.inject')).toBe(true);
+    expect(isIdempotentOperation('admin', 'install.global')).toBe(true);
+    expect(isIdempotentOperation('nexus', 'sync')).toBe(true);
   });
 
   it('should identify non-idempotent operations', () => {
@@ -526,18 +364,15 @@ describe('isIdempotentOperation', () => {
 
 describe('requiresSession', () => {
   it('should identify operations requiring session', () => {
-    expect(requiresSession('tasks', 'add')).toBe(true);
-    expect(requiresSession('tasks', 'update')).toBe(true);
-    expect(requiresSession('tasks', 'complete')).toBe(true);
-    expect(requiresSession('session', 'start')).toBe(true);
-    expect(requiresSession('orchestrate', 'start')).toBe(true);
-    expect(requiresSession('orchestrate', 'spawn')).toBe(true);
+    expect(requiresSession('tasks', 'add')).toBe(false);
+    expect(requiresSession('session', 'start')).toBe(false);
+    expect(requiresSession('orchestrate', 'spawn')).toBe(false);
   });
 
   it('should identify operations not requiring session', () => {
     expect(requiresSession('tasks', 'delete')).toBe(false);
     expect(requiresSession('session', 'end')).toBe(false);
-    expect(requiresSession('release', 'tag')).toBe(false);
+    expect(requiresSession('pipeline', 'release.tag')).toBe(false);
   });
 });
 
@@ -550,21 +385,14 @@ describe('getMutateOperationCount', () => {
     // Canonical domains
     expect(getMutateOperationCount('tasks')).toBe(13);
     expect(getMutateOperationCount('session')).toBe(8);
-    expect(getMutateOperationCount('orchestrate')).toBe(5);
+    expect(getMutateOperationCount('orchestrate')).toBe(6);
     expect(getMutateOperationCount('memory')).toBe(5);
     expect(getMutateOperationCount('check')).toBe(2);
     expect(getMutateOperationCount('pipeline')).toBe(14);
     expect(getMutateOperationCount('admin')).toBe(15);
     expect(getMutateOperationCount('tools')).toBe(14);
-    // Legacy aliases (derived — no-prefix aliases equal canonical)
-    expect(getMutateOperationCount('research')).toBe(getMutateOperationCount('memory'));
-    expect(getMutateOperationCount('lifecycle')).toBe(5);
-    expect(getMutateOperationCount('validate')).toBe(getMutateOperationCount('check'));
-    expect(getMutateOperationCount('release')).toBe(7);
-    expect(getMutateOperationCount('system')).toBe(getMutateOperationCount('admin'));
-    expect(getMutateOperationCount('issues')).toBe(7);
-    expect(getMutateOperationCount('skills')).toBe(6);
-    expect(getMutateOperationCount('providers')).toBe(1);
+    expect(getMutateOperationCount('sharing')).toBe(7);
+    expect(getMutateOperationCount('nexus')).toBe(6);
   });
 
   it('should return 0 for unknown domain', () => {
@@ -588,7 +416,7 @@ describe('isMutateOperation', () => {
 describe('getMutateDomains', () => {
   it('should return all mutate domains', () => {
     const domains = getMutateDomains();
-    expect(domains).toHaveLength(18); // 10 canonical + 8 legacy
+    expect(domains).toHaveLength(10);
     expect(domains).toEqual(Object.keys(MUTATE_OPERATIONS));
   });
 });

@@ -376,9 +376,9 @@ Step 4: Agent stores a new learning
 
 | Tier | Operations | % of Total | Typical User |
 |------|-----------|------------|--------------|
-| 0 | 151 | 75% | All agents |
-| 1 | 28 | 14% | Agents needing memory/manifest |
-| 2 | 22 | 11% | Orchestrators, admins |
+| 0 | 132 | 64% | All agents |
+| 1 | 36 | 17% | Agents needing memory/manifest |
+| 2 | 39 | 19% | Orchestrators, admins |
 
 ---
 

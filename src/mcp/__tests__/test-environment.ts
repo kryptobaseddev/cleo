@@ -101,6 +101,9 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     // Disable cancellation reason requirement for delete tests
     await cleoExec(cliPath, tmpBase, 'config set cancellation.requireReason false --json');
 
+    // Keep integration/e2e flows focused on gateway behavior, not verification gates.
+    await cleoExec(cliPath, tmpBase, 'config set verification.enabled false --json');
+
     // Explicitly set storage engine to json for test environments (@task T4699)
     // Prevents pre-flight migration warning from firing during test CLI calls
     await cleoExec(cliPath, tmpBase, 'config set storage.engine json --json');

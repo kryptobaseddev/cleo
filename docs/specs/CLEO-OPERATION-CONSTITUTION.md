@@ -262,7 +262,7 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | mutate | `release.gates.run` | Run release gate checks | 0 | -- | No |
 | mutate | `release.rollback` | Rollback failed release | 0 | -- | No |
 
-### 6.6 orchestrate (14 operations)
+### 6.6 orchestrate (15 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -281,7 +281,7 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | mutate | `parallel.start` | Begin parallel execution wave | 0 | -- | No |
 | mutate | `parallel.end` | End parallel execution wave | 0 | -- | No |
 
-### 6.7 tools (30 operations)
+### 6.7 tools (35 operations)
 
 The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 
@@ -403,12 +403,12 @@ All sharing operations are tier 2 (multi-contributor workflows).
 | memory | 12 | 5 | 17 |
 | check | 10 | 2 | 12 |
 | pipeline | 10 | 14 | 24 |
-| orchestrate | 9 | 5 | 14 |
-| tools | 16 | 14 | 30 |
+| orchestrate | 9 | 6 | 15 |
+| tools | 21 | 14 | 35 |
 | admin | 20 | 15 | 35 |
 | nexus | 6 | 6 | 12 |
 | sharing | 3 | 7 | 10 |
-| **Total** | **112** | **89** | **201** |
+| **Total** | **117** | **90** | **207** |
 
 ---
 
@@ -416,23 +416,23 @@ All sharing operations are tier 2 (multi-contributor workflows).
 
 Operations are organized into 3 tiers. Agents SHOULD start at tier 0 and escalate only when needed:
 
-### Tier 0 -- Core (151 operations)
+### Tier 0 -- Core (132 operations)
 
 Available to all agents from session start. Covers 80% of typical workflows.
 
-**Domains**: tasks (26), session (17), check (12), pipeline (17), orchestrate (14), tools (20), admin (28)
+**Domains**: tasks, session, check, pipeline, orchestrate, tools, admin
 
-### Tier 1 -- Extended (28 operations)
+### Tier 1 -- Extended (36 operations)
 
 Memory, manifest, and advanced query operations. Agents escalate here when they need cognitive memory or research artifact access.
 
-**Domains**: memory (17), pipeline manifest ops (7), session debrief/chain/inject (3), admin archive.stats (1)
+**Domains**: memory plus extended operations across pipeline, session, admin, and tools
 
-### Tier 2 -- Full System (22 operations)
+### Tier 2 -- Full System (39 operations)
 
 Cross-project coordination, advanced tooling, and administrative functions. Used by orchestrator agents and system administrators.
 
-**Domains**: nexus (12), sharing (10), plus scattered admin/tools operations (adr.*, grade.*, skill.catalog.*, issue.templates, issue.validate.labels, issue.create.*, issue.generate.config, install.global)
+**Domains**: nexus, sharing, plus advanced operations across admin and tools
 
 ### Tier Escalation
 
@@ -480,10 +480,10 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 
 ### Request Validation
 
-1. The dispatcher validates `domain` against `CANONICAL_DOMAINS` (or legacy alias lookup).
+1. The dispatcher validates `domain` against `CANONICAL_DOMAINS`.
 2. The dispatcher validates `operation` against the registry for the resolved domain.
 3. Required parameters are validated via `validateRequiredParams()`.
-4. Invalid domain returns `E_INVALID_OPERATION`.
+4. Invalid domain returns `E_INVALID_DOMAIN`.
 5. Invalid operation returns `E_INVALID_OPERATION`.
 6. Missing required params returns `E_INVALID_INPUT`.
 

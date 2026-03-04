@@ -117,7 +117,7 @@ describe('Operation Registry', () => {
       expect(memoryOps.length).toBe(17);
 
       const toolsOps = getByDomain('tools');
-      expect(toolsOps.length).toBe(30);
+      expect(toolsOps.length).toBe(35);
     });
 
     it('should get operations by gateway', () => {

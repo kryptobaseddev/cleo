@@ -5,17 +5,12 @@
  * audit logging, and rollback support.
  *
  * Canonical domains (10): tasks, session, memory, check, pipeline,
- *   orchestrate, tools, admin, nexus, sharing
- * Legacy aliases (backward compat): research, lifecycle, validate,
- *   release, system, issues, skills, providers
- *
- * The dispatch adapter (src/dispatch/adapters/mcp.ts) resolves legacy
- * domain names to canonical names before routing.
+ * orchestrate, tools, admin, nexus, sharing
  *
  * @task T2929
  */
 
-import { deriveGatewayMatrix } from '../../dispatch/registry.js';
+import { deriveGatewayMatrix, getByGateway } from '../../dispatch/registry.js';
 
 /**
  * Request from MCP gateway (inline — replaces legacy router.ts import)
@@ -55,17 +50,12 @@ export interface DomainResponse {
 /**
  * All accepted domain names for cleo_mutate.
  *
- * Includes both canonical dispatch names and legacy MCP names
- * for backward compatibility. The dispatch adapter resolves
- * legacy names to canonical names at routing time.
+ * Canonical dispatch names only.
  */
 type MutateDomain =
   // Canonical domains
   | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sharing'
-  // Legacy aliases (backward compat)
-  | 'research' | 'lifecycle' | 'validate' | 'release'
-  | 'system' | 'issues' | 'skills' | 'providers';
+  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sharing';
 
 /**
  * Mutate request interface
@@ -85,7 +75,7 @@ export type MutateResponse = DomainResponse;
  * Mutate operation matrix - all write operations by domain.
  *
  * DERIVED from the dispatch registry — single source of truth.
- * Contains both canonical domains and legacy alias domains.
+ * Contains canonical domains.
  *
  * Reference: MCP-SERVER-SPECIFICATION.md Section 2.2.2
  */
@@ -99,27 +89,31 @@ if (actualMutateCount < 1) {
   console.error('Warning: Mutate operation registry is empty.');
 }
 
-/**
- * Idempotent operations that may return success for already-completed actions
- * These operations use exit codes 100+ to signal "already done" vs "just completed"
- */
-const IDEMPOTENT_OPERATIONS: Record<string, string[]> = {
-  tasks: ['complete', 'archive'],
-  session: ['end', 'gc'],
-  lifecycle: ['record', 'skip', 'gate.pass'],
-  validate: ['compliance.record'],
-  release: ['tag', 'push'],
-  system: ['init', 'migrate', 'cleanup'],
-};
+function buildOperationFlagMatrix(
+  predicate: (operation: { domain: string; operation: string; idempotent: boolean; sessionRequired: boolean }) => boolean,
+): Record<string, string[]> {
+  const matrix: Record<string, string[]> = {};
+  for (const op of getByGateway('mutate')) {
+    if (!predicate(op)) {
+      continue;
+    }
+    if (!matrix[op.domain]) {
+      matrix[op.domain] = [];
+    }
+    matrix[op.domain]!.push(op.operation);
+  }
+  return matrix;
+}
 
 /**
- * Operations that require session binding
+ * Idempotent operations derived from registry metadata.
  */
-const SESSION_REQUIRED_OPERATIONS: Record<string, string[]> = {
-  tasks: ['add', 'update', 'complete'],
-  session: ['start'],
-  orchestrate: ['start', 'spawn'],
-};
+const IDEMPOTENT_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(op => op.idempotent);
+
+/**
+ * Session-required operations derived from registry metadata.
+ */
+const SESSION_REQUIRED_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(op => op.sessionRequired);
 
 /**
  * Validate mutate request parameters
