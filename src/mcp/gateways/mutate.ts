@@ -201,8 +201,7 @@ function validateOperationParams(
   valid: boolean;
   error?: DomainResponse;
 } {
-  // Domain-specific parameter validation
-  // Handles both canonical domain names and legacy aliases
+  // Domain-specific parameter validation (canonical domains only)
   switch (domain) {
     case 'tasks':
       return validateTasksParams(operation, params);
@@ -210,23 +209,14 @@ function validateOperationParams(
       return validateSessionParams(operation, params);
     case 'orchestrate':
       return validateOrchestrateParams(operation, params);
-    case 'research':
     case 'memory':
-      return validateResearchParams(operation, params);
-    case 'lifecycle':
-      return validateLifecycleParams(operation, params);
-    case 'validate':
+      return validateMemoryParams(operation, params);
     case 'check':
-      return validateValidateParams(operation, params);
-    case 'release':
-      return validateReleaseParams(operation, params);
+      return validateCheckParams(operation, params);
     case 'pipeline':
       return validatePipelineParams(operation, params);
-    case 'system':
     case 'admin':
-      return validateSystemParams(operation, params);
-    case 'skills':
-      return validateSkillsParams(operation, params);
+      return validateAdminParams(operation, params);
     case 'tools':
       return validateToolsParams(operation, params);
     default:
@@ -555,9 +545,9 @@ function validateOrchestrateParams(
 }
 
 /**
- * Validate research domain parameters
+ * Validate memory domain parameters
  */
-function validateResearchParams(
+function validateMemoryParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -569,7 +559,7 @@ function validateResearchParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'research',
+              domain: 'memory',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -594,7 +584,7 @@ function validateResearchParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'research',
+              domain: 'memory',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -619,7 +609,7 @@ function validateResearchParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'research',
+              domain: 'memory',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -642,9 +632,9 @@ function validateResearchParams(
 }
 
 /**
- * Validate lifecycle domain parameters
+ * Validate pipeline stage.* sub-operation parameters
  */
-function validateLifecycleParams(
+function validateStageParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -656,7 +646,7 @@ function validateLifecycleParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'lifecycle',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -682,7 +672,7 @@ function validateLifecycleParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'lifecycle',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -708,7 +698,7 @@ function validateLifecycleParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'lifecycle',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -731,9 +721,9 @@ function validateLifecycleParams(
 }
 
 /**
- * Validate validate domain parameters
+ * Validate check domain parameters
  */
-function validateValidateParams(
+function validateCheckParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -745,7 +735,7 @@ function validateValidateParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'validate',
+              domain: 'check',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -768,7 +758,7 @@ function validateValidateParams(
 }
 
 /**
- * Validate release domain parameters
+ * Validate pipeline release.* sub-operation parameters
  */
 function validateReleaseParams(
   operation: string,
@@ -787,7 +777,7 @@ function validateReleaseParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'release',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -810,9 +800,9 @@ function validateReleaseParams(
 }
 
 /**
- * Validate system domain parameters
+ * Validate admin domain parameters
  */
-function validateSystemParams(
+function validateAdminParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -824,7 +814,7 @@ function validateSystemParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'system',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -849,7 +839,7 @@ function validateSystemParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'system',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -874,7 +864,7 @@ function validateSystemParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'system',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -899,7 +889,7 @@ function validateSystemParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'system',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -923,9 +913,9 @@ function validateSystemParams(
 }
 
 /**
- * Validate skills domain parameters
+ * Validate tools skill.* sub-operation parameters
  */
-function validateSkillsParams(
+function validateSkillSubParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -941,7 +931,7 @@ function validateSkillsParams(
           error: {
             _meta: {
               gateway: 'mutate',
-              domain: 'skills',
+              domain: 'tools',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -976,7 +966,7 @@ function validatePipelineParams(
   // Stage operations (lifecycle alias)
   if (operation.startsWith('stage.')) {
     const stageOp = operation.slice('stage.'.length);
-    return validateLifecycleParams(stageOp, params);
+    return validateStageParams(stageOp, params);
   }
   // Release operations
   if (operation.startsWith('release.')) {
@@ -999,7 +989,7 @@ function validateToolsParams(
   // Skill operations
   if (operation.startsWith('skill.')) {
     const skillOp = operation.slice('skill.'.length);
-    return validateSkillsParams(skillOp, params);
+    return validateSkillSubParams(skillOp, params);
   }
   // Issue and provider operations pass through without extra validation
   return { valid: true };

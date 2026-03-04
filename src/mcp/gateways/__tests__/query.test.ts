@@ -130,6 +130,22 @@ describe('Query Gateway', () => {
       expect(result.error?.error?.code).toBe('E_INVALID_DOMAIN');
     });
 
+    it('should reject all legacy domain aliases with E_INVALID_DOMAIN', () => {
+      const legacyDomains = [
+        'sharing', 'research', 'validate', 'lifecycle',
+        'release', 'system', 'issues', 'skills', 'providers', 'brain',
+      ];
+
+      for (const domain of legacyDomains) {
+        const result = validateQueryParams({
+          domain: domain as any,
+          operation: 'list',
+        });
+        expect(result.valid).toBe(false);
+        expect(result.error?.error?.code).toBe('E_INVALID_DOMAIN');
+      }
+    });
+
     it('should provide fix suggestions on error', () => {
       const request = {
         domain: 'invalid' as any,

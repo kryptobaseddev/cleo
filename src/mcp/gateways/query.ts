@@ -5,14 +5,9 @@
  * and validation checks. Never modifies state.
  *
  * Canonical domains (10): tasks, session, memory, check, pipeline,
- *   orchestrate, tools, admin, nexus, sharing
- * Legacy aliases (backward compat): research, lifecycle, validate,
- *   release, system, issues, skills, providers
+ *   orchestrate, tools, admin, nexus, sticky
  *
- * The dispatch adapter (src/dispatch/adapters/mcp.ts) resolves legacy
- * domain names to canonical names before routing.
- *
- * @task T2915
+ * @task T2915, T5246
  */
 
 import { deriveGatewayMatrix } from '../../dispatch/registry.js';
@@ -55,17 +50,12 @@ export interface DomainResponse {
 /**
  * All accepted domain names for query.
  *
- * Includes both canonical dispatch names and legacy MCP names
- * for backward compatibility. The dispatch adapter resolves
- * legacy names to canonical names at routing time.
+ * Canonical dispatch names only. Legacy aliases are rejected
+ * with E_INVALID_DOMAIN.
  */
 type QueryDomain =
-  // Canonical domains
   | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sharing'
-  // Legacy aliases (backward compat)
-  | 'research' | 'lifecycle' | 'validate'
-  | 'system' | 'issues' | 'skills' | 'providers';
+  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sticky';
 
 /**
  * Query request interface
@@ -85,7 +75,7 @@ export type QueryResponse = DomainResponse;
  * Query operation matrix - all read operations by domain.
  *
  * DERIVED from the dispatch registry — single source of truth.
- * Contains both canonical domains and legacy alias domains.
+ * Contains canonical domains only.
  *
  * Reference: MCP-SERVER-SPECIFICATION.md Section 2.1.2
  */

@@ -295,7 +295,7 @@ describe('validateMutateParams', () => {
 
   describe('legacy domain aliases are rejected', () => {
     it('rejects removed legacy aliases with E_INVALID_DOMAIN', () => {
-      const legacyDomains = ['research', 'validate', 'lifecycle', 'release', 'system', 'skills', 'providers', 'issues'];
+      const legacyDomains = ['sharing', 'research', 'validate', 'lifecycle', 'release', 'system', 'skills', 'providers', 'issues', 'brain'];
 
       for (const domain of legacyDomains) {
         const result = validateMutateParams({
