@@ -300,8 +300,8 @@ import { setFormatContext } from './format-context.js';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
 
 // Centralized pino logger
-import { initLogger } from '../core/logger.js';
 import { loadConfig as loadCoreConfig } from '../core/config.js';
+import { initCliLogger } from './logger-bootstrap.js';
 
 // Startup guard: fail fast if Node.js version is below minimum
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../core/platform.js';
@@ -504,7 +504,7 @@ program.hook('preAction', async () => {
   loggerInitialized = true;
   try {
     const config = await loadCoreConfig();
-    initLogger(join(process.cwd(), '.cleo'), config.logging);
+    initCliLogger(process.cwd(), config.logging);
 
     // Fire-and-forget audit log pruning (T5339, ADR-024 section 2.3)
     const { pruneAuditLog } = await import('../core/audit-prune.js');
