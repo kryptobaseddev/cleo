@@ -84,7 +84,7 @@ describe('resolveHierarchyPolicy', () => {
     delete h.countDoneInLimit;
     const policy = resolveHierarchyPolicy(config);
     expect(policy.maxSiblings).toBe(0);
-    expect(policy.maxActiveSiblings).toBe(32);
+    expect(policy.maxActiveSiblings).toBe(0);
     expect(policy.maxDepth).toBe(3);
     expect(policy.countDoneInLimit).toBe(false);
     expect(policy.enforcementProfile).toBe('llm-agent-first');
@@ -131,7 +131,7 @@ describe('resolveHierarchyPolicy', () => {
     const policy = resolveHierarchyPolicy(config);
     // Should fall back to llm-agent-first preset
     expect(policy.maxSiblings).toBe(0);
-    expect(policy.maxActiveSiblings).toBe(32);
+    expect(policy.maxActiveSiblings).toBe(0);
     expect(policy.maxDepth).toBe(3);
   });
 
@@ -166,7 +166,7 @@ describe('ENFORCEMENT_PROFILES', () => {
 
   it('llm-agent-first has maxSiblings=0 (unlimited)', () => {
     expect(ENFORCEMENT_PROFILES['llm-agent-first'].maxSiblings).toBe(0);
-    expect(ENFORCEMENT_PROFILES['llm-agent-first'].maxActiveSiblings).toBe(32);
+    expect(ENFORCEMENT_PROFILES['llm-agent-first'].maxActiveSiblings).toBe(0);
     expect(ENFORCEMENT_PROFILES['llm-agent-first'].maxDepth).toBe(3);
   });
 

@@ -33,7 +33,7 @@ const DEFAULTS: CleoConfig = {
     maxDepth: 3,
     maxSiblings: 0,
     cascadeDelete: false,
-    maxActiveSiblings: 32,
+    maxActiveSiblings: 0,
     countDoneInLimit: false,
     enforcementProfile: 'llm-agent-first',
   },
