@@ -68,7 +68,7 @@ Both stores share a common set of correlation fields (`projectHash`, `requestId`
 | `duration_ms` | INTEGER | Operation duration in milliseconds |
 | `success` | INTEGER | 1 for success, 0 for failure |
 | `source` | TEXT | Entry point: `'mcp'` or `'cli'` |
-| `gateway` | TEXT | Gateway type: `'mutate'`, `'query'`, `'cleo_mutate'`, `'cleo_query'` |
+| `gateway` | TEXT | Gateway type: `'mutate'`, `'query'` |
 | `error_message` | TEXT | Error message on failure (NULL on success) |
 | `project_hash` | TEXT | 12-char SHA-256 hex of project root path |
 

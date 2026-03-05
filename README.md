@@ -148,18 +148,18 @@ Supports: Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Wi
 
 #### Using the MCP Tools
 
-Your AI agent gets two tools: `cleo_query` (read) and `cleo_mutate` (write). Each takes a `domain`, `operation`, and optional `params`:
+Your AI agent gets two tools: `query` (read) and `mutate` (write). Each takes a `domain`, `operation`, and optional `params`:
 
 ```bash
 # Read operations (never changes anything)
-cleo_query  domain=tasks   operation=find   params={"query": "auth"}
-cleo_query  domain=admin  operation=dash
-cleo_query  domain=tasks   operation=next
+query  domain=tasks   operation=find   params={"query": "auth"}
+query  domain=admin  operation=dash
+query  domain=tasks   operation=next
 
 # Write operations (creates or modifies data)
-cleo_mutate domain=tasks   operation=add     params={"title": "...", "description": "..."}
-cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes": "Done."}
-cleo_mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
+mutate domain=tasks   operation=add     params={"title": "...", "description": "..."}
+mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes": "Done."}
+mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
 ```
 
 10 canonical domains, 201 operations (112 query + 89 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
@@ -1068,8 +1068,8 @@ Subagent spawning is handled via the MCP orchestration domain:
 
 ```
 # Spawn a subagent for a task (via MCP)
-cleo_mutate orchestrate.spawn { taskId: "T1234" }
-cleo_mutate orchestrate.spawn { taskId: "T1234", skill: "ct-research-agent" }
+mutate orchestrate.spawn { taskId: "T1234" }
+mutate orchestrate.spawn { taskId: "T1234", skill: "ct-research-agent" }
 ```
 
 The spawn pipeline (implemented in `src/core/skills/orchestrator/spawn.ts`) automates: task validation, context loading, token injection, template rendering, and prompt generation.

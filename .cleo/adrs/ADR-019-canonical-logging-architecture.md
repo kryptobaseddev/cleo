@@ -133,7 +133,7 @@ The `audit_log` table is the CANONICAL queryable audit store.
 | `duration_ms` | INTEGER | timing | Operation duration |
 | `success` | INTEGER | 0/1 | Whether operation succeeded |
 | `source` | TEXT | 'mcp'/'cli' | Entry point |
-| `gateway` | TEXT | 'cleo_mutate'/'cleo_query' | MCP gateway used |
+| `gateway` | TEXT | 'mutate'/'query' | MCP gateway used |
 | `error_message` | TEXT | error.message | Error details if failed |
 
 **Indexes**: task_id, action, timestamp, domain, request_id
@@ -152,8 +152,8 @@ The `audit_log` table is the CANONICAL queryable audit store.
 
 | Gateway | Audited | Condition |
 |---------|---------|-----------|
-| `cleo_mutate` | Always | All write operations |
-| `cleo_query` | Conditional | Only when session grade mode is active |
+| `mutate` | Always | All write operations |
+| `query` | Conditional | Only when session grade mode is active |
 
 Grade mode is activated by `CLEO_SESSION_GRADE=true` or session `gradeMode: true` in SQLite.
 

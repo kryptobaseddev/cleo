@@ -217,7 +217,7 @@ export const VALID_DOMAINS = [
   'lifecycle', 'validate', 'release', 'system',
 ] as const;
 
-export const VALID_GATEWAYS = ['cleo_query', 'cleo_mutate'] as const;
+export const VALID_GATEWAYS = ['query', 'mutate'] as const;
 
 export const VALID_MANIFEST_STATUSES = MANIFEST_STATUSES;
 

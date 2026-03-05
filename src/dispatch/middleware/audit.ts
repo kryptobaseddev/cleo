@@ -52,7 +52,7 @@ export interface AuditEntry {
     taskId?: string;
     userId?: string;
     source: 'mcp' | 'cli';
-    gateway?: 'mutate' | 'query' | 'cleo_mutate' | 'cleo_query';
+    gateway?: 'mutate' | 'query';
   };
   error?: string;
 }
@@ -161,7 +161,7 @@ export function createAudit(): Middleware {
       metadata: {
         taskId: (req.params?.taskId as string) || (req.params?.parent as string),
         source: req.source as 'mcp' | 'cli',
-        gateway: req.gateway as 'mutate' | 'query' | 'cleo_mutate' | 'cleo_query',
+        gateway: req.gateway as 'mutate' | 'query',
       },
       error: response.error?.message,
     };
@@ -249,7 +249,7 @@ export async function queryAudit(options?: {
       metadata: {
         taskId: row.taskId !== 'system' && row.taskId !== 'unknown' ? row.taskId : undefined,
         source: (row.source as 'mcp' | 'cli') ?? 'mcp',
-        gateway: row.gateway as 'mutate' | 'query' | 'cleo_mutate' | 'cleo_query' | undefined,
+        gateway: row.gateway as 'mutate' | 'query' | undefined,
       },
       error: row.errorMessage ?? undefined,
     }));

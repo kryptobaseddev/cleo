@@ -198,11 +198,11 @@ export class AdminHandler implements DomainHandler {
               tier,
               operationCount: ops.length,
               quickStart: tier === 0 ? [
-                'cleo_query tasks.current \u2014 check active task (~100 tokens)',
-                'cleo_query tasks.next \u2014 get suggestion (~300 tokens)',
-                'cleo_query tasks.find {query} \u2014 search tasks (~200 tokens)',
-                'cleo_mutate tasks.start {taskId} \u2014 begin work (~100 tokens)',
-                'cleo_mutate tasks.complete {taskId} \u2014 finish task (~200 tokens)',
+                'query tasks.current \u2014 check active task (~100 tokens)',
+                'query tasks.next \u2014 get suggestion (~300 tokens)',
+                'query tasks.find {query} \u2014 search tasks (~200 tokens)',
+                'mutate tasks.start {taskId} \u2014 begin work (~100 tokens)',
+                'mutate tasks.complete {taskId} \u2014 finish task (~200 tokens)',
               ] : undefined,
               operations: ops.map(op => ({
                 gateway: op.gateway,
@@ -213,7 +213,7 @@ export class AdminHandler implements DomainHandler {
               })),
               guidance: tierGuidance[tier] ?? tierGuidance[0],
               escalation: tier < 2
-                ? `For more operations: cleo_query({domain:"admin",operation:"help",params:{tier:${tier + 1}}})`
+                ? `For more operations: query({domain:"admin",operation:"help",params:{tier:${tier + 1}}})`
                 : 'Full operation set displayed.',
             },
           };

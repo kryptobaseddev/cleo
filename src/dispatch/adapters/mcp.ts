@@ -74,7 +74,7 @@ export function resetMcpDispatcher(): void {
 }
 
 /**
- * Handle an MCP tool call (cleo_query or cleo_mutate).
+ * Handle an MCP tool call (query or mutate).
  *
  * Translates the MCP parameters into a DispatchRequest, executes it
  * through the dispatcher, and formats the response back to the standard
@@ -103,7 +103,7 @@ export async function handleMcpToolCall(
       error: {
         code: 'E_INVALID_GATEWAY',
         exitCode: 2,
-        message: `Unknown gateway: ${gateway}. Use 'cleo_query' or 'cleo_mutate'.`,
+        message: `Unknown gateway: ${gateway}. Use 'query' or 'mutate'.`,
       },
     } as DispatchResponse;
   }

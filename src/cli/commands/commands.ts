@@ -102,7 +102,7 @@ export function registerCommandsCommand(program: Command): void {
         console.error(
           '[DEPRECATED] cleo commands reads from COMMANDS-INDEX.json which is deprecated.\n' +
           'The canonical operations reference is: docs/specs/CLEO-OPERATIONS-REFERENCE.md\n' +
-          'Use cleo_query/cleo_mutate MCP tools for programmatic access.\n',
+          'Use query/mutate MCP tools for programmatic access.\n',
         );
 
         // Handle workflows

@@ -83,8 +83,8 @@ CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route 
 
 ```
 MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► src/core/ ◄── src/cli/commands/
-     cleo_query (118 ops)                                                                  (86 commands)
-     cleo_mutate (89 ops)
+     query (118 ops)                                                                  (86 commands)
+     mutate (89 ops)
 ```
 
 - **MCP is PRIMARY**: 2 tools, 207 operations across 10 canonical domains (~1,800 tokens)
@@ -565,7 +565,7 @@ Migrations are implemented in `src/core/migration/` as TypeScript functions. Leg
 ## Agent Notes
 
 ### When Using AI Agents
-1. **MCP-first** - Use `cleo_query`/`cleo_mutate` for programmatic access, CLI for humans
+1. **MCP-first** - Use `query`/`mutate` for programmatic access, CLI for humans
 2. **Respect atomic operations** - Never bypass the temp->validate->backup->rename pattern
 3. **Maintain data integrity** - Always validate before and after operations
 4. **Use proper testing** - Add Vitest tests for new features and bug fixes
