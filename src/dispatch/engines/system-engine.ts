@@ -1134,12 +1134,12 @@ export async function systemMigrate(
  * Cleanup stale data (sessions, backups, logs).
  * @task T4631
  */
-export function systemCleanup(
+export async function systemCleanup(
   projectRoot: string,
   params: { target: string; olderThan?: string; dryRun?: boolean },
-): EngineResult<import('../../core/system/cleanup.js').CleanupResult> {
+): Promise<EngineResult<import('../../core/system/cleanup.js').CleanupResult>> {
   try {
-    const result = cleanupSystem(projectRoot, params);
+    const result = await cleanupSystem(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_CLEANUP_FAILED';

@@ -366,7 +366,7 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemCleanup for cleanup with target validation', async () => {
-      vi.mocked(systemCleanup).mockReturnValue({ success: true, data: { removed: 3 } });
+      vi.mocked(systemCleanup).mockResolvedValue({ success: true, data: { removed: 3 } });
 
       const res = await handler.mutate('cleanup', { target: 'backups', dryRun: true });
 

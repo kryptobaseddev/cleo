@@ -436,7 +436,7 @@ export class AdminHandler implements DomainHandler {
           if (!target) {
             return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'target is required', startTime);
           }
-          const result = systemCleanup(this.projectRoot, {
+          const result = await systemCleanup(this.projectRoot, {
             target,
             olderThan: params?.olderThan as string | undefined,
             dryRun: params?.dryRun as boolean | undefined,
