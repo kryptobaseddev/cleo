@@ -14,11 +14,12 @@ import { mkdir, access, writeFile, readFile } from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { saveJson } from '../store/json.js';
 import { getCleoDirAbsolute, getConfigPath } from './paths.js';
+import { generateProjectHash } from './nexus/hash.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -147,12 +148,8 @@ export async function removeCleoFromRootGitignore(
   return { removed: true };
 }
 
-/**
- * Generate a 12-character hex hash from a project path.
- */
-export function generateProjectHash(projectPath: string): string {
-  return createHash('sha256').update(projectPath).digest('hex').substring(0, 12);
-}
+// generateProjectHash moved to src/core/nexus/hash.ts (canonical location)
+export { generateProjectHash } from './nexus/hash.js';
 
 /**
  * Resolve the package root directory (where schemas/ and templates/ live).

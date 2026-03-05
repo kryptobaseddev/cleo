@@ -8,6 +8,9 @@
  * @epic T4540
  */
 
+// Hash - canonical project identity hash
+export { generateProjectHash } from './hash.js';
+
 // Registry - project registration and management
 export {
   // Types & schemas
@@ -23,7 +26,6 @@ export {
   getNexusHome,
   getNexusCacheDir,
   getRegistryPath,
-  generateProjectHash,
   // Operations
   readRegistry,
   readRegistryRequired,
@@ -35,6 +37,9 @@ export {
   nexusProjectExists,
   nexusSync,
   nexusSyncAll,
+  nexusSetPermission,
+  nexusReconcile,
+  resetNexusDbState,
 } from './registry.js';
 
 // Permissions - three-tier access control

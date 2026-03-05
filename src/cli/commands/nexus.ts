@@ -128,6 +128,35 @@ export function registerNexusCommand(program: Command): void {
       }, { command: 'nexus' });
     });
 
+  // ── nexus critical-path ───────────────────────────────────────────
+
+  nexus
+    .command('critical-path')
+    .description('Show global critical path across all registered projects')
+    .action(async () => {
+      await dispatchFromCli('query', 'nexus', 'critical-path', {}, { command: 'nexus' });
+    });
+
+  // ── nexus blocking ────────────────────────────────────────────────
+
+  nexus
+    .command('blocking <taskQuery>')
+    .description('Show blocking impact analysis for a task')
+    .action(async (taskQuery: string) => {
+      await dispatchFromCli('query', 'nexus', 'blocking', {
+        query: taskQuery,
+      }, { command: 'nexus' });
+    });
+
+  // ── nexus orphans ─────────────────────────────────────────────────
+
+  nexus
+    .command('orphans')
+    .description('Detect broken cross-project dependency references')
+    .action(async () => {
+      await dispatchFromCli('query', 'nexus', 'orphans', {}, { command: 'nexus' });
+    });
+
   // ── nexus sync ──────────────────────────────────────────────────────
 
   nexus

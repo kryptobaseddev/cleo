@@ -1,7 +1,7 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 207 operations (118 query + 89 mutate) mapped
+ * Single source of truth for all 247 operations (140 query + 107 mutate) mapped
  * to 10 canonical domains. Canonical domains only -- no legacy alias support.
  *
  * @epic T4820
@@ -676,6 +676,27 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: [],
   },
+  // T5405: WarpChain pipeline operations
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'chain.show',
+    description: 'pipeline.chain.show (query) — get chain definition by ID',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['chainId'],
+  },
+  {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'chain.list',
+    description: 'pipeline.chain.list (query) — list all chain definitions',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
   {
     gateway: 'query',
     domain: 'check',
@@ -837,6 +858,17 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: ['taskId'],
+  },
+  // T5405: WarpChain validation query
+  {
+    gateway: 'query',
+    domain: 'check',
+    operation: 'chain.validate',
+    description: 'check.chain.validate (query) — validate a WarpChain definition',
+    tier: 2,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['chain'],
   },
 
   {
@@ -1707,6 +1739,37 @@ export const OPERATIONS: OperationDef[] = [
       { name: 'reassignTo', type: 'string', required: false, description: 'Reassign tasks to another phase' },
       { name: 'force', type: 'boolean', required: false, description: 'Required safety flag' },
     ],
+  },
+  // T5405: WarpChain pipeline mutate operations
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'chain.add',
+    description: 'pipeline.chain.add (mutate) — store a validated chain definition',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['chain'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'chain.instantiate',
+    description: 'pipeline.chain.instantiate (mutate) — create chain instance for epic',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['chainId', 'epicId'],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'chain.advance',
+    description: 'pipeline.chain.advance (mutate) — advance instance to next stage',
+    tier: 2,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['instanceId', 'nextStage'],
   },
   {
     gateway: 'mutate',
@@ -2629,6 +2692,37 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: ['stickyId'],
+  },
+  // orchestrate — tessera template operations (T5411)
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
+    operation: 'tessera.show',
+    description: 'orchestrate.tessera.show (query) — show a Tessera template by ID',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['id'],
+  },
+  {
+    gateway: 'query',
+    domain: 'orchestrate',
+    operation: 'tessera.list',
+    description: 'orchestrate.tessera.list (query) — list all registered Tessera templates',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'orchestrate',
+    operation: 'tessera.instantiate',
+    description: 'orchestrate.tessera.instantiate (mutate) — instantiate a Tessera template into a chain instance',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['templateId', 'epicId'],
   },
 ];
 

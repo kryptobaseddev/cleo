@@ -9,7 +9,7 @@
  * @task T5128
  */
 
-import { eq, and, gte, desc, asc } from 'drizzle-orm';
+import { eq, and, or, gte, desc, asc } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { getBrainDb } from './brain-sqlite.js';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
@@ -27,6 +27,10 @@ import type {
   NewBrainMemoryLinkRow,
   BrainStickyNoteRow,
   NewBrainStickyNoteRow,
+  BrainPageNodeRow,
+  NewBrainPageNodeRow,
+  BrainPageEdgeRow,
+  NewBrainPageEdgeRow,
 } from './brain-schema.js';
 
 export class BrainDataAccessor {
@@ -400,6 +404,161 @@ export class BrainDataAccessor {
     await this.db
       .delete(brainSchema.brainStickyNotes)
       .where(eq(brainSchema.brainStickyNotes.id, id));
+  }
+
+  // =========================================================================
+  // PageIndex Node CRUD (T5383)
+  // =========================================================================
+
+  async addPageNode(node: NewBrainPageNodeRow): Promise<BrainPageNodeRow> {
+    await this.db.insert(brainSchema.brainPageNodes).values(node);
+    const result = await this.db
+      .select()
+      .from(brainSchema.brainPageNodes)
+      .where(eq(brainSchema.brainPageNodes.id, node.id));
+    return result[0]!;
+  }
+
+  async getPageNode(id: string): Promise<BrainPageNodeRow | null> {
+    const result = await this.db
+      .select()
+      .from(brainSchema.brainPageNodes)
+      .where(eq(brainSchema.brainPageNodes.id, id));
+    return result[0] ?? null;
+  }
+
+  async findPageNodes(params: {
+    nodeType?: typeof brainSchema.BRAIN_NODE_TYPES[number];
+    limit?: number;
+  } = {}): Promise<BrainPageNodeRow[]> {
+    const conditions: SQL[] = [];
+
+    if (params.nodeType) {
+      conditions.push(eq(brainSchema.brainPageNodes.nodeType, params.nodeType));
+    }
+
+    let query = this.db
+      .select()
+      .from(brainSchema.brainPageNodes)
+      .orderBy(desc(brainSchema.brainPageNodes.createdAt));
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+
+    if (params.limit) {
+      query = query.limit(params.limit) as typeof query;
+    }
+
+    return query;
+  }
+
+  async removePageNode(id: string): Promise<void> {
+    // Remove associated edges first (both directions)
+    await this.db
+      .delete(brainSchema.brainPageEdges)
+      .where(
+        or(
+          eq(brainSchema.brainPageEdges.fromId, id),
+          eq(brainSchema.brainPageEdges.toId, id),
+        ),
+      );
+    // Remove the node
+    await this.db
+      .delete(brainSchema.brainPageNodes)
+      .where(eq(brainSchema.brainPageNodes.id, id));
+  }
+
+  // =========================================================================
+  // PageIndex Edge CRUD (T5383)
+  // =========================================================================
+
+  async addPageEdge(edge: NewBrainPageEdgeRow): Promise<BrainPageEdgeRow> {
+    await this.db.insert(brainSchema.brainPageEdges).values(edge);
+    const result = await this.db
+      .select()
+      .from(brainSchema.brainPageEdges)
+      .where(
+        and(
+          eq(brainSchema.brainPageEdges.fromId, edge.fromId),
+          eq(brainSchema.brainPageEdges.toId, edge.toId),
+          eq(brainSchema.brainPageEdges.edgeType, edge.edgeType),
+        ),
+      );
+    return result[0]!;
+  }
+
+  async getPageEdges(
+    nodeId: string,
+    direction: 'in' | 'out' | 'both' = 'both',
+  ): Promise<BrainPageEdgeRow[]> {
+    if (direction === 'out') {
+      return this.db
+        .select()
+        .from(brainSchema.brainPageEdges)
+        .where(eq(brainSchema.brainPageEdges.fromId, nodeId))
+        .orderBy(asc(brainSchema.brainPageEdges.createdAt));
+    }
+    if (direction === 'in') {
+      return this.db
+        .select()
+        .from(brainSchema.brainPageEdges)
+        .where(eq(brainSchema.brainPageEdges.toId, nodeId))
+        .orderBy(asc(brainSchema.brainPageEdges.createdAt));
+    }
+    // both
+    return this.db
+      .select()
+      .from(brainSchema.brainPageEdges)
+      .where(
+        or(
+          eq(brainSchema.brainPageEdges.fromId, nodeId),
+          eq(brainSchema.brainPageEdges.toId, nodeId),
+        ),
+      )
+      .orderBy(asc(brainSchema.brainPageEdges.createdAt));
+  }
+
+  async getNeighbors(
+    nodeId: string,
+    edgeType?: typeof brainSchema.BRAIN_EDGE_TYPES[number],
+  ): Promise<BrainPageNodeRow[]> {
+    // Get edges from this node
+    const conditions: SQL[] = [eq(brainSchema.brainPageEdges.fromId, nodeId)];
+    if (edgeType) {
+      conditions.push(eq(brainSchema.brainPageEdges.edgeType, edgeType));
+    }
+
+    const edges = await this.db
+      .select()
+      .from(brainSchema.brainPageEdges)
+      .where(and(...conditions));
+
+    if (edges.length === 0) return [];
+
+    const neighborIds = edges.map(e => e.toId);
+    const nodes: BrainPageNodeRow[] = [];
+    for (const nid of neighborIds) {
+      const node = await this.getPageNode(nid);
+      if (node) nodes.push(node);
+    }
+    return nodes;
+  }
+
+  async removePageEdge(
+    fromId: string,
+    toId: string,
+    edgeType: typeof brainSchema.BRAIN_EDGE_TYPES[number],
+  ): Promise<void> {
+    await this.db
+      .delete(brainSchema.brainPageEdges)
+      .where(
+        and(
+          eq(brainSchema.brainPageEdges.fromId, fromId),
+          eq(brainSchema.brainPageEdges.toId, toId),
+          eq(brainSchema.brainPageEdges.edgeType, edgeType),
+        ),
+      );
   }
 }
 

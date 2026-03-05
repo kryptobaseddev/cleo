@@ -62,6 +62,16 @@ import {
   pipelineManifestArchive,
 } from '../../core/memory/pipeline-manifest-compat.js';
 
+import {
+  showChain,
+  listChains,
+  addChain,
+  createInstance,
+  advanceInstance,
+} from '../../core/lifecycle/chain-store.js';
+
+import type { WarpChain, GateResult } from '../../types/warp-chain.js';
+
 // ---------------------------------------------------------------------------
 // PipelineHandler
 // ---------------------------------------------------------------------------
@@ -99,6 +109,11 @@ export class PipelineHandler implements DomainHandler {
         return this.queryPhase(operation.slice('phase.'.length), params, startTime);
       }
 
+      // Chain sub-domain (T5405)
+      if (operation.startsWith('chain.')) {
+        return await this.queryChain(operation.slice('chain.'.length), params, startTime);
+      }
+
       return this.errorResponse('query', operation, 'E_INVALID_OPERATION',
         `Unknown pipeline query: ${operation}`, startTime);
     } catch (error) {
@@ -133,6 +148,11 @@ export class PipelineHandler implements DomainHandler {
         return this.mutatePhase(operation.slice('phase.'.length), params, startTime);
       }
 
+      // Chain sub-domain (T5405)
+      if (operation.startsWith('chain.')) {
+        return await this.mutateChain(operation.slice('chain.'.length), params, startTime);
+      }
+
       return this.errorResponse('mutate', operation, 'E_INVALID_OPERATION',
         `Unknown pipeline mutation: ${operation}`, startTime);
     } catch (error) {
@@ -148,6 +168,7 @@ export class PipelineHandler implements DomainHandler {
         'manifest.show', 'manifest.list', 'manifest.find',
         'manifest.pending', 'manifest.stats',
         'phase.show', 'phase.list',
+        'chain.show', 'chain.list',
       ],
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
@@ -158,6 +179,7 @@ export class PipelineHandler implements DomainHandler {
         'manifest.append', 'manifest.archive',
         'phase.set', 'phase.start', 'phase.complete',
         'phase.advance', 'phase.rename', 'phase.delete',
+        'chain.add', 'chain.instantiate', 'chain.advance',
       ],
     };
   }
@@ -582,6 +604,95 @@ export class PipelineHandler implements DomainHandler {
       default:
         return this.errorResponse('mutate', `phase.${sub}`, 'E_INVALID_OPERATION',
           `Unknown phase mutation: ${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Chain queries (T5405)
+  // -----------------------------------------------------------------------
+
+  private async queryChain(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    switch (sub) {
+      case 'show': {
+        const chainId = params?.chainId as string;
+        if (!chainId) {
+          return this.errorResponse('query', 'chain.show', 'E_INVALID_INPUT',
+            'chainId is required', startTime);
+        }
+        const chain = await showChain(chainId, this.projectRoot);
+        if (!chain) {
+          return this.errorResponse('query', 'chain.show', 'E_NOT_FOUND',
+            `Chain "${chainId}" not found`, startTime);
+        }
+        return this.wrapEngineResult({ success: true, data: chain }, 'query', 'chain.show', startTime);
+      }
+
+      case 'list': {
+        const chains = await listChains(this.projectRoot);
+        return this.wrapEngineResult({ success: true, data: chains }, 'query', 'chain.list', startTime);
+      }
+
+      default:
+        return this.errorResponse('query', `chain.${sub}`, 'E_INVALID_OPERATION',
+          `Unknown chain query: ${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Chain mutations (T5405)
+  // -----------------------------------------------------------------------
+
+  private async mutateChain(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    switch (sub) {
+      case 'add': {
+        const chain = params?.chain as WarpChain;
+        if (!chain) {
+          return this.errorResponse('mutate', 'chain.add', 'E_INVALID_INPUT',
+            'chain is required', startTime);
+        }
+        await addChain(chain, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data: { id: chain.id } }, 'mutate', 'chain.add', startTime);
+      }
+
+      case 'instantiate': {
+        const chainId = params?.chainId as string;
+        const epicId = params?.epicId as string;
+        if (!chainId || !epicId) {
+          return this.errorResponse('mutate', 'chain.instantiate', 'E_INVALID_INPUT',
+            'chainId and epicId are required', startTime);
+        }
+        const instance = await createInstance({
+          chainId,
+          epicId,
+          variables: params?.variables as Record<string, unknown> | undefined,
+          stageToTask: params?.stageToTask as Record<string, string> | undefined,
+        }, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data: instance }, 'mutate', 'chain.instantiate', startTime);
+      }
+
+      case 'advance': {
+        const instanceId = params?.instanceId as string;
+        const nextStage = params?.nextStage as string;
+        if (!instanceId || !nextStage) {
+          return this.errorResponse('mutate', 'chain.advance', 'E_INVALID_INPUT',
+            'instanceId and nextStage are required', startTime);
+        }
+        const gateResults = (params?.gateResults ?? []) as GateResult[];
+        const updated = await advanceInstance(instanceId, nextStage, gateResults, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data: updated }, 'mutate', 'chain.advance', startTime);
+      }
+
+      default:
+        return this.errorResponse('mutate', `chain.${sub}`, 'E_INVALID_OPERATION',
+          `Unknown chain mutation: ${sub}`, startTime);
     }
   }
 

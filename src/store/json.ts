@@ -106,6 +106,15 @@ export async function saveJson(
 
     // Atomic write
     await atomicWriteJson(filePath, data, { indent: options?.indent });
+
+    // Dispatch onFileChange hook (best-effort, fire-and-forget)
+    import('../core/hooks/registry.js').then(({ hooks: h }) =>
+      h.dispatch('onFileChange', process.cwd(), {
+        timestamp: new Date().toISOString(),
+        filePath,
+        changeType: 'write' as const,
+      }),
+    ).catch(() => { /* hook errors are non-fatal */ });
   });
 }
 

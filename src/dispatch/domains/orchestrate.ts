@@ -33,6 +33,12 @@ import {
   orchestrateCheck,
 } from '../lib/engine.js';
 
+import {
+  showTessera,
+  listTesseraTemplates,
+  instantiateTessera,
+} from '../../core/lifecycle/tessera-engine.js';
+
 // ---------------------------------------------------------------------------
 // OrchestrateHandler
 // ---------------------------------------------------------------------------
@@ -122,6 +128,33 @@ export class OrchestrateHandler implements DomainHandler {
         case 'critical.path': {
           const result = await orchestrateCriticalPath(this.projectRoot);
           return this.wrapEngineResult(result, 'query', operation, startTime);
+        }
+
+        case 'tessera.show': {
+          const id = params?.id as string;
+          if (!id) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
+              'id is required', startTime);
+          }
+          const template = showTessera(id);
+          if (!template) {
+            return this.errorResponse('query', operation, 'E_NOT_FOUND',
+              `Tessera template "${id}" not found`, startTime);
+          }
+          return {
+            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+            success: true,
+            data: template,
+          };
+        }
+
+        case 'tessera.list': {
+          const templates = listTesseraTemplates();
+          return {
+            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+            success: true,
+            data: { templates, count: templates.length },
+          };
         }
 
         default:
@@ -245,6 +278,35 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
+        case 'tessera.instantiate': {
+          const templateId = params?.templateId as string;
+          const epicId = params?.epicId as string;
+          if (!templateId) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'templateId is required', startTime);
+          }
+          if (!epicId) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'epicId is required', startTime);
+          }
+          const template = showTessera(templateId);
+          if (!template) {
+            return this.errorResponse('mutate', operation, 'E_NOT_FOUND',
+              `Tessera template "${templateId}" not found`, startTime);
+          }
+          const variables = (params?.variables as Record<string, unknown>) ?? {};
+          const instance = await instantiateTessera(
+            template,
+            { templateId, epicId, variables: { epicId, ...variables } },
+            this.projectRoot,
+          );
+          return {
+            _meta: dispatchMeta('mutate', 'orchestrate', operation, startTime),
+            success: true,
+            data: instance,
+          };
+        }
+
         default:
           return this.errorResponse('mutate', operation, 'E_INVALID_OPERATION',
             `Unknown orchestrate mutation: ${operation}`, startTime);
@@ -259,10 +321,12 @@ export class OrchestrateHandler implements DomainHandler {
       query: [
         'status', 'next', 'ready', 'analyze', 'context',
         'waves', 'bootstrap', 'unblock.opportunities', 'critical.path',
+        'tessera.show', 'tessera.list',
       ],
       mutate: [
         'start', 'spawn', 'handoff', 'spawn.execute', 'validate',
         'parallel.start', 'parallel.end', 'verify',
+        'tessera.instantiate',
       ],
     };
   }

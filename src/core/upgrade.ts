@@ -14,7 +14,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { join } from 'node:path';
 import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
 import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
@@ -703,7 +703,7 @@ export async function runUpgrade(options: {
     try {
       const nexusCreated: string[] = [];
       const nexusWarnings: string[] = [];
-      await initNexusRegistration(projectRootForMaint, basename(projectRootForMaint), nexusCreated, nexusWarnings);
+      await initNexusRegistration(projectRootForMaint, nexusCreated, nexusWarnings);
       if (nexusCreated.length > 0) {
         actions.push({ action: 'nexus_registration', status: 'applied', details: nexusCreated.join(', ') });
       }

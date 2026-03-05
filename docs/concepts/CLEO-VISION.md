@@ -297,7 +297,7 @@ CLEO also uses a non-normative workshop language to make work more intuitive to 
 
 - **Sticky Note**: ephemeral project-wide capture before formal binding
 - **Thread**: a concrete task-level strand of work
-- **Warp**: the vertical, structural protocol chains (the synthesis of MEOW's workflow shape and LOOM's quality gates) that hold the Tapestry together
+- **Warp**: the vertical, structural protocol chains (the synthesis of composable workflow shape and LOOM quality gates) that hold the Tapestry together
 - **Loom**: an epic-scale frame that holds related Threads under lifecycle discipline
 - **Tapestry**: a composed body of work made from multiple Looms
 - **Tessera**: a reusable composition pattern that can generate Tapestries with different inputs
@@ -306,6 +306,17 @@ CLEO also uses a non-normative workshop language to make work more intuitive to 
 - **Tome**: living readable canon rendered from durable memory and system state
 
 These terms help describe how work feels and flows. They do not create new canonical systems or domains.
+
+### Naming Contract: Warp, Loomed Tesserae, Loomed Tapestries
+
+To keep terminology stable across concept docs and runtime specs:
+
+- **Warp** is the canonical concept name for gated compositional work structure.
+- **Loomed Tesserae** names the definition-time form: reusable composition patterns with embedded quality expectations.
+- **Loomed Tapestries** names the runtime form: composed work in live, gated execution.
+- **Protocol chains** is acceptable implementation language for this same mechanism and does not supersede canon terms.
+
+This naming is conceptual only. It does not alter the runtime contract in `docs/specs/CLEO-OPERATION-CONSTITUTION.md`: two gateways (`query`, `mutate`), ten canonical domains, and canonical verbs remain unchanged.
 
 ---
 

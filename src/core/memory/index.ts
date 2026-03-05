@@ -1070,3 +1070,6 @@ export * from './learnings.js';
 
 // === BRAIN Retrieval functions (3-layer pattern) ===
 export * from './brain-retrieval.js';
+
+// === BRAIN Lifecycle (temporal decay) ===
+export * from './brain-lifecycle.js';

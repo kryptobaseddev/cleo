@@ -20,7 +20,16 @@ The reason the Thread metaphor matters is that strands on their own are useful, 
 
 But before the Threads can be woven, there must be a structure to hold them firm. This is the **Warp**.
 
-The Warp represents the unyielding protocol chains—the synthesis of continuous workflow and strict quality gates. It is the vertical structure of the system that ensures no matter how creatively the agents weave, the final Tapestry adheres to the constraints, validations, and lifecycle stages required by the realm.
+The Warp represents the unyielding protocol chains: the synthesis of composable workflow shape and strict quality gates. It is the vertical structure of the system that ensures no matter how creatively the agents weave, the final Tapestry adheres to the constraints, validations, and lifecycle stages required by the realm.
+
+In canon terms, **Warp** is the governing concept. In implementation language, this appears as protocol-chain composition. In workshop form, this is expressed as **Loomed Tesserae** at definition time (reusable composition) and **Loomed Tapestries** at runtime (live composed execution). These names describe one coherent motion and are not competing concepts.
+
+This naming does not introduce new runtime domains, tools, or verbs. It remains an overlay on the canonical contract:
+- composition and lifecycle in `pipeline`
+- flow control in `orchestrate`
+- gate enforcement in `check`
+- capability execution in `tools`
+- work units in `tasks`
 
 That is where **Loom** begins.
 
@@ -137,7 +146,7 @@ The `check` domain is the gatehouse. It does not weave, turn, or compose. It jud
 
 The `nexus` domain is the star road itself, carrying Looms, Tapestries, Tesserae, and Tome-worthy knowledge across project boundaries without losing origin.
 
-The `sharing` domain is the public shelf and caravan route, where useful patterns, entries, and mechanisms become available beyond their place of birth.
+Sharing behavior lives under `nexus.share.*` operations. It is the public shelf and caravan route, where useful patterns, entries, and mechanisms become available beyond their place of birth.
 
 The `admin` domain is the hearthkeeper’s office, unseen until something goes wrong, and therefore more important than most people realize.
 

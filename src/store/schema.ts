@@ -27,6 +27,15 @@ import {
   MANIFEST_STATUSES,
 } from './status-registry.js';
 
+// Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
+export { warpChains, warpChainInstances } from './chain-schema.js';
+export type {
+  WarpChainRow,
+  NewWarpChainRow,
+  WarpChainInstanceRow,
+  NewWarpChainInstanceRow,
+} from './chain-schema.js';
+
 // Re-export status constants and types so existing imports from schema.ts still work.
 export {
   TASK_STATUSES,

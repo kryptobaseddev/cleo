@@ -370,9 +370,9 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `adr.validate` | Validate ADR frontmatter against schema | 2 | -- | Yes |
 | mutate | `fix` | Auto-fix failed doctor checks | 0 | -- | No |
 
-### 6.9 nexus (25 operations)
+### 6.9 nexus (31 operations)
 
-All nexus operations are tier 2 (cross-project coordination). Includes 10 sharing operations in the `share.*` sub-namespace.
+All nexus operations are tier 2 (cross-project coordination) except `reconcile` (tier 1). Includes 10 sharing operations in the `share.*` sub-namespace.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -385,6 +385,11 @@ All nexus operations are tier 2 (cross-project coordination). Includes 10 sharin
 | query | `path.show` | Show critical dependency path across projects | 2 | -- | Yes |
 | query | `blockers.show` | Show blocking impact for a task query | 2 | `query` | Yes |
 | query | `orphans.list` | List orphaned cross-project dependencies | 2 | -- | Yes |
+| query | `critical-path` | Global critical path across all registered projects | 2 | -- | Yes |
+| query | `blocking` | Blocking impact analysis for a task | 2 | `query` | Yes |
+| query | `orphans` | Detect broken cross-project dependency references | 2 | -- | Yes |
+| query | `discover` | Discover related tasks across registered projects | 2 | `query` | Yes |
+| query | `search` | Search for patterns across registered projects | 2 | `query` | Yes |
 | query | `share.status` | Sharing status | 2 | -- | Yes |
 | query | `share.remotes` | List configured remotes | 2 | -- | Yes |
 | query | `share.sync.status` | Sync status | 2 | -- | Yes |
@@ -394,6 +399,7 @@ All nexus operations are tier 2 (cross-project coordination). Includes 10 sharin
 | mutate | `sync` | Sync project metadata (task count, labels) | 2 | `name` | Yes |
 | mutate | `sync.all` | Sync all registered projects | 2 | -- | Yes |
 | mutate | `permission.set` | Update project permissions | 2 | `name`, `level` | Yes |
+| mutate | `reconcile` | Reconcile project identity with global nexus registry | 1 | -- | Yes |
 | mutate | `share.snapshot.export` | Export project snapshot | 2 | -- | No |
 | mutate | `share.snapshot.import` | Import project snapshot | 2 | -- | No |
 | mutate | `share.sync.gitignore` | Sync gitignore with CLEO paths | 2 | -- | No |
@@ -426,9 +432,9 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 | orchestrate | 9 | 6 | 15 |
 | tools | 21 | 11 | 32 |
 | admin | 19 | 15 | 34 |
-| nexus | 12 | 13 | 25 |
+| nexus | 17 | 14 | 31 |
 | sticky | 2 | 3 | 5 |
-| **Total** | **121** | **91** | **212** |
+| **Total** | **126** | **92** | **218** |
 
 ---
 
@@ -442,13 +448,13 @@ Available to all agents from session start. Covers 65% of typical workflows.
 
 **Domains**: tasks, session, check, pipeline, orchestrate, tools, admin, sticky
 
-### Tier 1 -- Extended (36 operations)
+### Tier 1 -- Extended (37 operations)
 
 Memory, manifest, and advanced query operations. Agents escalate here when they need cognitive memory or research artifact access.
 
 **Domains**: memory plus extended operations across pipeline, session, admin, and tools
 
-### Tier 2 -- Full System (39 operations)
+### Tier 2 -- Full System (44 operations)
 
 Cross-project coordination, advanced tooling, and administrative functions. Used by orchestrator agents and system administrators.
 

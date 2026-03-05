@@ -26,6 +26,8 @@ import { BackgroundJobManager } from './lib/background-jobs.js';
 import { enforceBudget } from './lib/budget.js';
 import { loadConfig } from './lib/config.js';
 import { initMcpDispatcher, handleMcpToolCall } from '../dispatch/adapters/mcp.js';
+import { hooks } from '../core/hooks/registry.js';
+import '../core/hooks/handlers/index.js';
 import { setJobManager } from './lib/job-manager-accessor.js';
 import { initLogger, getLogger, closeLogger } from '../core/logger.js';
 import { getProjectInfoSync } from '../core/project-info.js';
@@ -244,8 +246,29 @@ async function main(): Promise<void> {
           }
         }
 
+        // Dispatch onPromptSubmit hook (best-effort, fire-and-forget)
+        hooks.dispatch('onPromptSubmit', process.cwd(), {
+          timestamp: new Date().toISOString(),
+          gateway: name,
+          domain,
+          operation,
+          source: 'mcp',
+        }).catch(() => { /* hook errors are non-fatal */ });
+
         // Route through dispatch layer (handles domain alias resolution)
+        const dispatchStart = Date.now();
         let result = await handleMcpToolCall(name, domain, operation, params);
+
+        // Dispatch onResponseComplete hook (best-effort, fire-and-forget)
+        hooks.dispatch('onResponseComplete', process.cwd(), {
+          timestamp: new Date().toISOString(),
+          gateway: name,
+          domain,
+          operation,
+          success: result.success,
+          durationMs: Date.now() - dispatchStart,
+          errorCode: result.error?.code,
+        }).catch(() => { /* hook errors are non-fatal */ });
 
         reqLog.debug({ result }, 'Tool call result');
 
@@ -286,6 +309,17 @@ async function main(): Promise<void> {
 
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+
+        // Dispatch onError hook (best-effort, fire-and-forget)
+        hooks.dispatch('onError', process.cwd(), {
+          timestamp: new Date().toISOString(),
+          errorCode: 'E_INTERNAL_ERROR',
+          message: errorMessage,
+          domain: args?.domain as string | undefined,
+          operation: args?.operation as string | undefined,
+          gateway: name,
+          stack: error instanceof Error ? error.stack : undefined,
+        }).catch(() => { /* hook errors are non-fatal */ });
 
         return {
           content: [

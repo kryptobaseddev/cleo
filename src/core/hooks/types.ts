@@ -143,6 +143,87 @@ export interface HookConfig {
 }
 
 /**
+ * Payload for onFileChange hook
+ * Fired when a tracked file is written, created, or deleted
+ */
+export interface OnFileChangePayload extends HookPayload {
+  /** Absolute or project-relative path of the changed file */
+  filePath: string;
+
+  /** Kind of filesystem change */
+  changeType: 'write' | 'create' | 'delete';
+
+  /** File size in bytes after the change (absent for deletes) */
+  sizeBytes?: number;
+}
+
+/**
+ * Payload for onError hook
+ * Fired when an operation fails with a structured error
+ */
+export interface OnErrorPayload extends HookPayload {
+  /** Numeric exit code or string error code */
+  errorCode: number | string;
+
+  /** Human-readable error message */
+  message: string;
+
+  /** Domain where the error occurred */
+  domain?: string;
+
+  /** Operation that failed */
+  operation?: string;
+
+  /** Gateway (query / mutate) that received the error */
+  gateway?: string;
+
+  /** Optional stack trace */
+  stack?: string;
+}
+
+/**
+ * Payload for onPromptSubmit hook
+ * Fired when an agent submits a prompt through a gateway
+ */
+export interface OnPromptSubmitPayload extends HookPayload {
+  /** Gateway that received the prompt (query / mutate) */
+  gateway: string;
+
+  /** Target domain */
+  domain: string;
+
+  /** Target operation */
+  operation: string;
+
+  /** Optional source identifier (e.g. agent name) */
+  source?: string;
+}
+
+/**
+ * Payload for onResponseComplete hook
+ * Fired when a gateway operation finishes (success or failure)
+ */
+export interface OnResponseCompletePayload extends HookPayload {
+  /** Gateway that handled the operation */
+  gateway: string;
+
+  /** Target domain */
+  domain: string;
+
+  /** Target operation */
+  operation: string;
+
+  /** Whether the operation succeeded */
+  success: boolean;
+
+  /** Wall-clock duration in milliseconds */
+  durationMs?: number;
+
+  /** Error code if the operation failed */
+  errorCode?: string;
+}
+
+/**
  * Mapping from CLEO internal lifecycle events to CAAMP hook events
  * This is where CLEO connects its lifecycle to CAAMP's event definitions
  */
@@ -151,6 +232,10 @@ export const CLEO_TO_CAAMP_HOOK_MAP = {
   'session.end': 'onSessionEnd',
   'task.start': 'onToolStart',
   'task.complete': 'onToolComplete',
+  'file.change': 'onFileChange',
+  'system.error': 'onError',
+  'prompt.submit': 'onPromptSubmit',
+  'response.complete': 'onResponseComplete',
 } as const;
 
 /**

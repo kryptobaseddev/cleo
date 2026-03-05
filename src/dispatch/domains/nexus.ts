@@ -24,6 +24,7 @@ import {
   nexusSync,
   nexusSyncAll,
   nexusGetProject,
+  nexusReconcile,
   readRegistry,
   type NexusPermissionLevel,
 } from '../../core/nexus/registry.js';
@@ -151,12 +152,14 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('query', operation, startTime, graph);
         }
 
-        case 'path.show': {
+        case 'path.show':
+        case 'critical-path': {
           const path = await criticalPath();
           return this.successResponse('query', operation, startTime, path);
         }
 
-        case 'blockers.show': {
+        case 'blockers.show':
+        case 'blocking': {
           const query = params?.query as string;
           if (!query) {
             return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
@@ -165,7 +168,8 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('query', operation, startTime, analysis);
         }
 
-        case 'orphans.list': {
+        case 'orphans.list':
+        case 'orphans': {
           const orphans = await orphanDetection();
           return this.successResponse('query', operation, startTime, {
             orphans,
@@ -321,6 +325,12 @@ export class NexusHandler implements DomainHandler {
           });
         }
 
+        case 'reconcile': {
+          const projectRoot = (params?.projectRoot as string) || process.cwd();
+          const result = await nexusReconcile(projectRoot);
+          return this.successResponse('mutate', operation, startTime, result);
+        }
+
         // Sharing sub-operations (T5277)
         case 'share.snapshot.export':
         case 'share.snapshot-export': {
@@ -433,12 +443,12 @@ export class NexusHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'discover', 'search',
+        'status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'critical-path', 'blocking', 'orphans', 'discover', 'search',
         // Sharing sub-operations (T5277)
         'share.status', 'share.remotes', 'share.sync.status',
       ],
       mutate: [
-        'init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set',
+        'init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set', 'reconcile',
         // Sharing sub-operations (T5277)
         'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore',
         'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull',

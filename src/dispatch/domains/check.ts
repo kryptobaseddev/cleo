@@ -37,6 +37,9 @@ import {
   validateGateVerify,
 } from '../lib/engine.js';
 
+import { validateChain } from '../../core/validation/chain-validation.js';
+import type { WarpChain } from '../../types/warp-chain.js';
+
 // ---------------------------------------------------------------------------
 // CheckHandler
 // ---------------------------------------------------------------------------
@@ -207,6 +210,19 @@ export class CheckHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
         }
 
+        // T5405: WarpChain validation
+        case 'chain.validate': {
+          const chain = params?.chain as WarpChain;
+          if (!chain) {
+            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'chain is required', startTime);
+          }
+          const chainResult = validateChain(chain);
+          return this.wrapEngineResult(
+            { success: chainResult.errors.length === 0, data: chainResult },
+            'query', 'check', operation, startTime,
+          );
+        }
+
         default:
           return this.unsupported('query', 'check', operation, startTime);
       }
@@ -272,6 +288,7 @@ export class CheckHandler implements DomainHandler {
         // T5327: Protocol validation operations
         'protocol.consensus', 'protocol.contribution', 'protocol.decomposition',
         'protocol.implementation', 'protocol.specification', 'gate.verify',
+        'chain.validate',
       ],
       mutate: ['compliance.record', 'test.run'],
     };

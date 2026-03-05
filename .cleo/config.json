@@ -12,7 +12,8 @@
   },
   "hierarchy": {
     "maxDepth": 3,
-    "maxSiblings": 0
+    "maxSiblings": 0,
+    "maxActiveSiblings": 0
   },
   "session": {
     "autoStart": false,

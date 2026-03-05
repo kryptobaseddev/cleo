@@ -464,8 +464,8 @@ describe('NexusHandler', () => {
     it('returns all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toEqual(['status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'discover', 'search', 'share.status', 'share.remotes', 'share.sync.status']);
-      expect(ops.mutate).toEqual(['init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set', 'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore', 'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull']);
+      expect(ops.query).toEqual(['status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'critical-path', 'blocking', 'orphans', 'discover', 'search', 'share.status', 'share.remotes', 'share.sync.status']);
+      expect(ops.mutate).toEqual(['init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set', 'reconcile', 'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore', 'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull']);
     });
   });
 

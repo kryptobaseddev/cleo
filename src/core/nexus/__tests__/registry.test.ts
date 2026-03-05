@@ -1,15 +1,14 @@
 /**
- * Tests for NEXUS registry module.
- * @task T4574
+ * Tests for NEXUS registry module (SQLite backend).
+ * @task T5366
  * @epic T4540
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  generateProjectHash,
   nexusInit,
   nexusRegister,
   nexusUnregister,
@@ -19,8 +18,9 @@ import {
   nexusSync,
   nexusSyncAll,
   readRegistry,
-  getRegistryPath,
+  resetNexusDbState,
 } from '../registry.js';
+import { generateProjectHash } from '../hash.js';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
 import { resetDbState } from '../../../store/sqlite.js';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
@@ -56,11 +56,14 @@ beforeEach(async () => {
     { id: 'T002', title: 'Another task', status: 'done', labels: ['api'], description: 'Another task description' },
   ]);
 
-  // Point env vars to test dirs
+  // Point env vars to test dirs — CLEO_HOME controls nexus.db location
   process.env['CLEO_HOME'] = registryDir;
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
   process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
   process.env['NEXUS_REGISTRY_FILE'] = join(registryDir, 'projects-registry.json');
+
+  // Reset nexus.db singleton so each test gets a fresh database
+  resetNexusDbState();
 });
 
 afterEach(async () => {
@@ -68,6 +71,7 @@ afterEach(async () => {
   delete process.env['NEXUS_HOME'];
   delete process.env['NEXUS_CACHE_DIR'];
   delete process.env['NEXUS_REGISTRY_FILE'];
+  resetNexusDbState();
   resetDbState();
   await rm(testDir, { recursive: true, force: true });
 });
@@ -92,7 +96,7 @@ describe('generateProjectHash', () => {
 });
 
 describe('nexusInit', () => {
-  it('creates the NEXUS directories and registry file', async () => {
+  it('creates the NEXUS directories and initializes nexus.db', async () => {
     await nexusInit();
 
     const registry = await readRegistry();

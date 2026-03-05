@@ -47,10 +47,10 @@ describe('MUTATE_OPERATIONS', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
     expect(MUTATE_OPERATIONS.tasks.length).toBe(15);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
-    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(7);
+    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(8);
     expect(MUTATE_OPERATIONS.memory.length).toBe(6);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
-    expect(MUTATE_OPERATIONS.pipeline.length).toBe(20);
+    expect(MUTATE_OPERATIONS.pipeline.length).toBe(23);
     expect(MUTATE_OPERATIONS.admin.length).toBe(20);
     expect(MUTATE_OPERATIONS.tools.length).toBe(11);
     expect(MUTATE_OPERATIONS.nexus.length).toBe(14);  // Includes share.* operations
@@ -397,10 +397,10 @@ describe('getMutateOperationCount', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
     expect(getMutateOperationCount('tasks')).toBe(15);
     expect(getMutateOperationCount('session')).toBe(8);
-    expect(getMutateOperationCount('orchestrate')).toBe(7);
+    expect(getMutateOperationCount('orchestrate')).toBe(8);
     expect(getMutateOperationCount('memory')).toBe(6);
     expect(getMutateOperationCount('check')).toBe(2);
-    expect(getMutateOperationCount('pipeline')).toBe(20);
+    expect(getMutateOperationCount('pipeline')).toBe(23);
     expect(getMutateOperationCount('admin')).toBe(20);
     expect(getMutateOperationCount('tools')).toBe(11);
     expect(getMutateOperationCount('sticky')).toBe(4);

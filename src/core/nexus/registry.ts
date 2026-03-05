@@ -11,6 +11,7 @@
  * @epic T4540
  */
 
+import { randomUUID } from 'node:crypto';
 import { join, basename } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { z } from 'zod';
@@ -18,10 +19,11 @@ import { eq, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../paths.js';
+import { getLogger } from '../logger.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { generateProjectHash } from './hash.js';
 import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
-import { projectRegistry } from '../../store/nexus-schema.js';
+import { projectRegistry, nexusAuditLog } from '../../store/nexus-schema.js';
 import type { ProjectRegistryRow } from '../../store/nexus-schema.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
@@ -100,6 +102,57 @@ function rowToProject(row: ProjectRegistryRow): NexusProject {
     taskCount: row.taskCount,
     labels,
   };
+}
+
+// ── Audit logging ───────────────────────────────────────────────────
+
+interface NexusAuditFields {
+  action: string;
+  projectHash?: string;
+  projectId?: string;
+  operation?: string;
+  sessionId?: string;
+  requestId?: string;
+  source?: string;
+  gateway?: string;
+  success: boolean;
+  durationMs?: number;
+  details?: Record<string, unknown>;
+  errorMessage?: string;
+}
+
+/**
+ * Write an audit entry to the nexus_audit_log table and emit a Pino log.
+ * Audit failures are caught and logged as warnings — they must never break
+ * primary operations.
+ */
+async function writeNexusAudit(fields: NexusAuditFields): Promise<void> {
+  try {
+    const db = await getNexusDb();
+    await db.insert(nexusAuditLog).values({
+      id: randomUUID(),
+      action: fields.action,
+      projectHash: fields.projectHash,
+      projectId: fields.projectId,
+      domain: 'nexus',
+      operation: fields.operation,
+      sessionId: fields.sessionId,
+      requestId: fields.requestId,
+      source: fields.source,
+      gateway: fields.gateway,
+      success: fields.success ? 1 : 0,
+      durationMs: fields.durationMs,
+      detailsJson: JSON.stringify(fields.details ?? {}),
+      errorMessage: fields.errorMessage,
+    });
+
+    getLogger('nexus').info(
+      { ...fields, domain: 'nexus' },
+      `nexus audit: ${fields.action}`,
+    );
+  } catch (err) {
+    getLogger('nexus').warn({ err }, 'nexus audit write failed');
+  }
 }
 
 // ── Registry operations ──────────────────────────────────────────────
@@ -283,7 +336,6 @@ export async function nexusRegister(
   } else {
     // Generate projectId fallback
     if (!projectId) {
-      const { randomUUID } = await import('node:crypto');
       projectId = randomUUID();
     }
 
@@ -303,6 +355,14 @@ export async function nexusRegister(
       labelsJson: JSON.stringify(meta.labels),
     });
   }
+
+  await writeNexusAudit({
+    action: 'register',
+    projectHash,
+    projectId,
+    operation: 'register',
+    success: true,
+  });
 
   return projectHash;
 }
@@ -326,6 +386,14 @@ export async function nexusUnregister(nameOrHash: string): Promise<void> {
   const db = await getNexusDb();
   await db.delete(projectRegistry)
     .where(eq(projectRegistry.projectHash, project.hash));
+
+  await writeNexusAudit({
+    action: 'unregister',
+    projectHash: project.hash,
+    projectId: project.projectId,
+    operation: 'unregister',
+    success: true,
+  });
 }
 
 /**
@@ -402,6 +470,14 @@ export async function nexusSync(nameOrHash: string): Promise<void> {
       lastSeen: now,
     })
     .where(eq(projectRegistry.projectHash, project.hash));
+
+  await writeNexusAudit({
+    action: 'sync',
+    projectHash: project.hash,
+    projectId: project.projectId,
+    operation: 'sync',
+    success: true,
+  });
 }
 
 /**
@@ -432,6 +508,13 @@ export async function nexusSyncAll(): Promise<{ synced: number; failed: number }
     }
   }
 
+  await writeNexusAudit({
+    action: 'sync-all',
+    operation: 'sync-all',
+    success: true,
+    details: { synced, failed },
+  });
+
   return { synced, failed };
 }
 
@@ -455,6 +538,15 @@ export async function nexusSetPermission(
   await db.update(projectRegistry)
     .set({ permissions: permission })
     .where(eq(projectRegistry.projectHash, project.hash));
+
+  await writeNexusAudit({
+    action: 'set-permission',
+    projectHash: project.hash,
+    projectId: project.projectId,
+    operation: 'set-permission',
+    success: true,
+    details: { permission },
+  });
 }
 
 /**
@@ -492,6 +584,14 @@ export async function nexusReconcile(projectRoot: string): Promise<{
       .where(eq(projectRegistry.projectHash, currentHash));
     const hashMatch = hashRows[0];
     if (hashMatch && hashMatch.projectId !== projectId) {
+      await writeNexusAudit({
+        action: 'reconcile',
+        projectHash: currentHash,
+        projectId,
+        operation: 'reconcile',
+        success: false,
+        errorMessage: `Identity conflict: hash ${currentHash} registered to '${hashMatch.projectId}', current project is '${projectId}'`,
+      });
       throw new CleoError(
         ExitCode.NEXUS_REGISTRY_CORRUPT,
         `Project identity conflict: hash ${currentHash} is registered to projectId '${hashMatch.projectId}' but current project has projectId '${projectId}'`,
@@ -514,6 +614,14 @@ export async function nexusReconcile(projectRoot: string): Promise<{
         await db.update(projectRegistry)
           .set({ lastSeen: now })
           .where(eq(projectRegistry.projectId, projectId));
+        await writeNexusAudit({
+          action: 'reconcile',
+          projectHash: currentHash,
+          projectId,
+          operation: 'reconcile',
+          success: true,
+          details: { status: 'ok' },
+        });
         return { status: 'ok' };
       }
 
@@ -526,6 +634,14 @@ export async function nexusReconcile(projectRoot: string): Promise<{
           lastSeen: now,
         })
         .where(eq(projectRegistry.projectId, projectId));
+      await writeNexusAudit({
+        action: 'reconcile',
+        projectHash: currentHash,
+        projectId,
+        operation: 'reconcile',
+        success: true,
+        details: { status: 'path_updated', oldPath, newPath: projectRoot },
+      });
       return { status: 'path_updated', oldPath, newPath: projectRoot };
     }
   }
@@ -540,6 +656,13 @@ export async function nexusReconcile(projectRoot: string): Promise<{
     await db.update(projectRegistry)
       .set({ lastSeen: now })
       .where(eq(projectRegistry.projectHash, currentHash));
+    await writeNexusAudit({
+      action: 'reconcile',
+      projectHash: currentHash,
+      operation: 'reconcile',
+      success: true,
+      details: { status: 'ok' },
+    });
     return { status: 'ok' };
   }
 
@@ -552,6 +675,14 @@ export async function nexusReconcile(projectRoot: string): Promise<{
       throw err;
     }
   }
+  await writeNexusAudit({
+    action: 'reconcile',
+    projectHash: currentHash,
+    projectId: projectId || undefined,
+    operation: 'reconcile',
+    success: true,
+    details: { status: 'auto_registered' },
+  });
   return { status: 'auto_registered' };
 }
 

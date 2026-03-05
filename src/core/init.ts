@@ -262,20 +262,25 @@ export async function initCoreSkills(
 }
 
 /**
- * Register project with NEXUS.
+ * Register/reconcile project with NEXUS.
+ * Uses nexusReconcile for idempotent handshake — auto-registers if new,
+ * updates path if moved, confirms identity if unchanged.
  * @task T4684
+ * @task T5368
  */
 export async function initNexusRegistration(
   projectRoot: string,
-  projectName: string,
   created: string[],
   warnings: string[],
 ): Promise<void> {
   try {
-    const { nexusInit, nexusRegister } = await import('./nexus/registry.js');
-    await nexusInit();
-    await nexusRegister(projectRoot, projectName);
-    created.push('NEXUS registration');
+    const { nexusReconcile } = await import('./nexus/registry.js');
+    const result = await nexusReconcile(projectRoot);
+    if (result.status === 'auto_registered') {
+      created.push('NEXUS registration');
+    } else if (result.status === 'path_updated') {
+      created.push(`NEXUS reconciled (path updated: ${result.oldPath} → ${result.newPath})`);
+    }
   } catch (err) {
     const errStr = String(err);
     if (!errStr.includes('already registered') && !errStr.includes('NEXUS_PROJECT_EXISTS')) {
@@ -342,7 +347,6 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
 
   const cleoDir = getCleoDirAbsolute();
   const projRoot = getProjectRoot();
-  const projectName = opts.name ?? projRoot.split('/').pop() ?? 'My Project';
   const force = !!opts.force;
 
   const created: string[] = [];
@@ -483,8 +487,8 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   // T4707 + T4689: Core skills installation
   await initCoreSkills(created, warnings);
 
-  // T4684: NEXUS registration
-  await initNexusRegistration(projRoot, projectName, created, warnings);
+  // T4684: NEXUS registration (reconcile-based handshake, T5368)
+  await initNexusRegistration(projRoot, created, warnings);
 
   // Remove .cleo/ from root .gitignore if present
   const rootGitignoreResult = await removeCleoFromRootGitignore(projRoot);

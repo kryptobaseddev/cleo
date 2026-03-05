@@ -64,20 +64,20 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('session')).toBe(11);
     });
 
-    it('orchestrate domain should have 9 operations', () => {
-      expect(getQueryOperationCount('orchestrate')).toBe(9);
+    it('orchestrate domain should have 11 operations', () => {
+      expect(getQueryOperationCount('orchestrate')).toBe(11);
     });
 
     it('memory domain should have 12 operations', () => {
       expect(getQueryOperationCount('memory')).toBe(12);
     });
 
-    it('pipeline domain should have 12 operations', () => {
-      expect(getQueryOperationCount('pipeline')).toBe(12);
+    it('pipeline domain should have 14 operations', () => {
+      expect(getQueryOperationCount('pipeline')).toBe(14);
     });
 
-    it('check domain should have 16 operations', () => {
-      expect(getQueryOperationCount('check')).toBe(16);
+    it('check domain should have 17 operations', () => {
+      expect(getQueryOperationCount('check')).toBe(17);
     });
 
     it('admin domain should have 23 operations', () => {
