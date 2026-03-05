@@ -14,6 +14,7 @@ import type {
   HookRegistration,
   HookConfig
 } from './types.js';
+import { getLogger } from '../logger.js';
 
 /**
  * Default configuration for the hook system.
@@ -127,7 +128,7 @@ export class HookRegistry {
           await reg.handler(projectRoot, payload);
         } catch (error) {
           // Hooks are best-effort - log but don't throw
-          console.warn(`Hook handler ${reg.id} failed:`, error);
+          getLogger('hooks').warn({ err: error, hookId: reg.id, event }, 'Hook handler failed');
         }
       })
     );

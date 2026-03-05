@@ -29,6 +29,7 @@ import { initMcpDispatcher, handleMcpToolCall } from '../dispatch/adapters/mcp.j
 import { setJobManager } from './lib/job-manager-accessor.js';
 import { initLogger, getLogger, closeLogger } from '../core/logger.js';
 import { getProjectInfoSync } from '../core/project-info.js';
+import { getCleoVersion } from '../core/scaffold.js';
 import { pruneAuditLog } from '../core/audit-prune.js';
 import { join } from 'node:path';
 
@@ -42,7 +43,12 @@ interface ServerState {
 }
 
 let serverState: ServerState | null = null;
-const startupLog = getLogger('mcp:startup');
+
+/**
+ * Pre-init fallback logger; replaced after initLogger() with a properly
+ * initialised child so post-init log calls go to the structured log file.
+ */
+let startupLog = getLogger('mcp:startup');
 
 
 /**
@@ -96,11 +102,17 @@ async function main(): Promise<void> {
       maxFiles: 5,
     }, projectInfo?.projectHash);
 
+    // Re-acquire startup logger now that initLogger has been called,
+    // so all subsequent log calls go to the structured log file.
+    startupLog = getLogger('mcp:startup');
     const log = startupLog;
 
-    // Log startup info
-    log.info({ logLevel: config.logLevel }, 'CLEO MCP server starting');
-    log.info({ logLevel: config.logLevel }, `Log level: ${config.logLevel}`);
+    // Log startup info with version and projectHash for production correlation
+    const cleoVersion = getCleoVersion();
+    log.info(
+      { version: cleoVersion, projectHash: projectInfo?.projectHash, logLevel: config.logLevel },
+      'CLEO MCP server starting',
+    );
     log.info({ enableMetrics: config.enableMetrics }, `Metrics: ${config.enableMetrics ? 'enabled' : 'disabled'}`);
 
     // Fire-and-forget audit log pruning (T5339)
