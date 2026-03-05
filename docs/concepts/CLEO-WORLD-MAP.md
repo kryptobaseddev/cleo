@@ -82,6 +82,10 @@ Sticky Note  ->  Thread  ->  Loom  ->  Tapestry  ->  Cascade  ->  Tome
  quick capture    task       epic       multi-Loom    live        living,
  before loss      strand     frame      campaign      flow        readable canon
 
+                 Warp provides the vertical, unyielding protocol chains
+                 that hold the Tapestry together, synthesizing continuous flow
+                 with strict quality gates.
+
                  Tessera stands beside this chain as the reusable pattern card
                  that can generate new Tapestries with different inputs.
 

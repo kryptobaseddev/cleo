@@ -279,17 +279,17 @@ LOOM — Logical Order of Operations Methodology
 
 LOOM treats the pipeline as a continuous thread: Research feeds Consensus, which produces ADRs, which inform Specifications, which drive Decomposition, which generates Implementation tasks that cycle through Validation and Testing until they emerge as Releases. The +C (Contribution) protocol runs through every stage, ensuring attribution and provenance.
 
-### The Neural Hierarchy of Work
+### The Workshop Hierarchy of Work
 
-Within LOOM, work units form a neural hierarchy:
+Within LOOM, work units form a structural hierarchy defined by the workshop:
 
-| Element | Brain Analog | Meaning |
+| Element | Workshop Analog | Meaning |
 |---------|--------------|---------|
-| **Tasks** | Neurons | Atomic knowledge units — the leaf thoughts |
-| **Dependencies** | Synapses | Directional connections between tasks |
-| **Hierarchy** | Weights | Proximity strengthens relevance (parent-child relationships) |
+| **Tasks** | The Hearth | Atomic units of work |
+| **Dependencies** | The Axle | Directional connections between tasks |
+| **Hierarchy** | Tension | Proximity strengthens relevance (parent-child relationships) |
 
-This neural model enables CLEO's vectorless RAG: structural discovery through dependency graphs and hierarchy traversal, without requiring vector embeddings.
+This structural model enables CLEO's vectorless RAG: discovery through dependency graphs and hierarchy traversal, without requiring vector embeddings.
 
 ### The Workshop Vocabulary of Work
 
@@ -297,6 +297,7 @@ CLEO also uses a non-normative workshop language to make work more intuitive to 
 
 - **Sticky Note**: ephemeral project-wide capture before formal binding
 - **Thread**: a concrete task-level strand of work
+- **Warp**: the vertical, structural protocol chains (the synthesis of MEOW's workflow shape and LOOM's quality gates) that hold the Tapestry together
 - **Loom**: an epic-scale frame that holds related Threads under lifecycle discipline
 - **Tapestry**: a composed body of work made from multiple Looms
 - **Tessera**: a reusable composition pattern that can generate Tapestries with different inputs

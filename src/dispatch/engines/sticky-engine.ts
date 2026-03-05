@@ -14,7 +14,10 @@ import {
   getSticky,
   convertStickyToTask,
   convertStickyToMemory,
+  convertStickyToTaskNote,
+  convertStickyToSessionNote,
   archiveSticky,
+  purgeSticky,
 } from '../../core/sticky/index.js';
 import type {
   CreateStickyParams,
@@ -147,6 +150,76 @@ export async function stickyArchive(
 ): Promise<EngineResult<StickyNote>> {
   try {
     const sticky = await archiveSticky(id, projectRoot);
+    if (!sticky) {
+      return engineError('E_NOT_FOUND', `Sticky note ${id} not found`);
+    }
+    return { success: true, data: sticky };
+  } catch (error) {
+    return engineError('E_INTERNAL', String(error));
+  }
+}
+
+/**
+ * Convert a sticky note to a task note.
+ *
+ * @param projectRoot - Project root path
+ * @param stickyId - Sticky note ID
+ * @param taskId - Target task ID
+ * @returns EngineResult with updated task ID
+ */
+export async function stickyConvertToTaskNote(
+  projectRoot: string,
+  stickyId: string,
+  taskId: string,
+): Promise<EngineResult<{ taskId: string }>> {
+  try {
+    const result = await convertStickyToTaskNote(stickyId, taskId, projectRoot);
+    if (!result.success) {
+      return engineError(result.error!.code, result.error!.message);
+    }
+    return { success: true, data: { taskId: result.taskId! } };
+  } catch (error) {
+    return engineError('E_INTERNAL', String(error));
+  }
+}
+
+/**
+ * Convert a sticky note to a session note.
+ *
+ * @param projectRoot - Project root path
+ * @param stickyId - Sticky note ID
+ * @param sessionId - Optional target session ID
+ * @returns EngineResult with session ID
+ */
+export async function stickyConvertToSessionNote(
+  projectRoot: string,
+  stickyId: string,
+  sessionId?: string,
+): Promise<EngineResult<{ sessionId: string }>> {
+  try {
+    const result = await convertStickyToSessionNote(stickyId, sessionId, projectRoot);
+    if (!result.success) {
+      return engineError(result.error!.code, result.error!.message);
+    }
+    return { success: true, data: { sessionId: result.sessionId! } };
+  } catch (error) {
+    return engineError('E_INTERNAL', String(error));
+  }
+}
+
+/**
+ * Purge (permanently delete) a sticky note.
+ *
+ * @param projectRoot - Project root path
+ * @param id - Sticky note ID
+ * @returns EngineResult with purged sticky note
+ */
+export async function stickyPurge(
+  projectRoot: string,
+  id: string,
+): Promise<EngineResult<StickyNote>> {
+  try {
+    const sticky = await purgeSticky(id, projectRoot);
     if (!sticky) {
       return engineError('E_NOT_FOUND', `Sticky note ${id} not found`);
     }

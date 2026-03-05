@@ -18,9 +18,13 @@ A Thread is not grand. It is not mythology pretending to be productivity. It is 
 
 The reason the Thread metaphor matters is that strands on their own are useful, but fragile. A desk full of loose thread is not fabric. It is potential and mess.
 
+But before the Threads can be woven, there must be a structure to hold them firm. This is the **Warp**.
+
+The Warp represents the unyielding protocol chains—the synthesis of continuous workflow and strict quality gates. It is the vertical structure of the system that ensures no matter how creatively the agents weave, the final Tapestry adheres to the constraints, validations, and lifecycle stages required by the realm.
+
 That is where **Loom** begins.
 
-Loom is the aspect of tension, framing, and order. It is the great stretched frame on which related Threads are held in relation long enough to become meaningful together. In practical terms, a Loom is the shape an epic takes when the system stops treating related tasks as a pile and starts treating them as one deliberate body of work. This is why it feels right that an epic is not merely "under" Loom, but can itself be called a Loom. An epic is a frame: a bounded field where many Threads are kept under tension until the pattern starts to hold.
+Loom is the aspect of tension, framing, and order. It is the great stretched frame on which related Threads are held in relation long enough to become meaningful together. In practical terms, a Loom is the shape an epic takes when the system stops treating related tasks as a pile and starts treating them as one deliberate body of work. This is why it feels right that an epic is not merely "under" Loom, but can itself be called a Loom. An epic is a frame: a bounded field where many Threads are kept under tension, guided by the Warp, until the pattern starts to hold.
 
 When developers say a project has direction, what they usually mean is that the Threads are no longer slipping around loose on the floor. They have been mounted on a Loom.
 

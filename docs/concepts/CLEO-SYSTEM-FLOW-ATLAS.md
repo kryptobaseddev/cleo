@@ -38,6 +38,7 @@ The realm also uses a secondary workshop language for how work is shaped. This l
 |------|-------------------|---------|
 | **Sticky Notes** | sticky | Quick project-wide capture before formal classification. Supports conversion to tasks or memory. Stored in brain.db (`brain_sticky_notes`) with optional tags and priority. |
 | **Thread** | tasks | A task-level strand of work |
+| **Warp** | pipeline, check | The vertical protocol chains (workflow shape + quality gates) that hold the Tapestry together |
 | **Loom** | pipeline, tasks | An epic-scale working frame for related Threads |
 | **Tapestry** | pipeline, orchestrate | A composed body of work made from multiple Looms |
 | **Tessera** | pipeline, orchestrate, tools | A reusable composition pattern for generating Tapestries |

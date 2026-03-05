@@ -20,7 +20,10 @@ import {
   stickyShow,
   stickyConvertToTask,
   stickyConvertToMemory,
+  stickyConvertToTaskNote,
+  stickyConvertToSessionNote,
   stickyArchive,
+  stickyPurge,
 } from '../engines/sticky-engine.js';
 
 // ---------------------------------------------------------------------------
@@ -101,12 +104,12 @@ export class StickyHandler implements DomainHandler {
 
         case 'convert': {
           const stickyId = params?.stickyId as string;
-          const targetType = params?.targetType as 'task' | 'memory' | undefined;
+          const targetType = params?.targetType as 'task' | 'memory' | 'session_note' | 'task_note' | undefined;
           if (!stickyId) {
             return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'stickyId is required', startTime);
           }
           if (!targetType) {
-            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'targetType is required (task or memory)', startTime);
+            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'targetType is required (task, memory, session_note, or task_note)', startTime);
           }
 
           if (targetType === 'task') {
@@ -114,6 +117,24 @@ export class StickyHandler implements DomainHandler {
               this.projectRoot,
               stickyId,
               params?.title as string | undefined,
+            );
+            return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+          } else if (targetType === 'task_note') {
+            const taskId = params?.taskId as string | undefined;
+            if (!taskId) {
+              return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'taskId is required for task_note conversion', startTime);
+            }
+            const result = await stickyConvertToTaskNote(
+              this.projectRoot,
+              stickyId,
+              taskId,
+            );
+            return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+          } else if (targetType === 'session_note') {
+            const result = await stickyConvertToSessionNote(
+              this.projectRoot,
+              stickyId,
+              params?.sessionId as string | undefined,
             );
             return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
           } else {
@@ -135,6 +156,15 @@ export class StickyHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
         }
 
+        case 'purge': {
+          const stickyId = params?.stickyId as string;
+          if (!stickyId) {
+            return this.errorResponse('mutate', 'sticky', operation, 'E_INVALID_INPUT', 'stickyId is required', startTime);
+          }
+          const result = await stickyPurge(this.projectRoot, stickyId);
+          return this.wrapEngineResult(result, 'mutate', 'sticky', operation, startTime);
+        }
+
         default:
           return this.unsupported('mutate', 'sticky', operation, startTime);
       }
@@ -150,7 +180,7 @@ export class StickyHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['list', 'show'],
-      mutate: ['add', 'convert', 'archive'],
+      mutate: ['add', 'convert', 'archive', 'purge'],
     };
   }
 

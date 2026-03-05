@@ -25,7 +25,7 @@ export type StickyNotePriority = 'low' | 'medium' | 'high';
 /**
  * Converted target type.
  */
-export type ConvertedTargetType = 'task' | 'memory';
+export type ConvertedTargetType = 'task' | 'memory' | 'session_note' | 'task_note';
 
 /**
  * Converted target reference.
@@ -90,4 +90,6 @@ export interface ConvertStickyParams {
   title?: string;
   /** Optional memory type when converting to memory */
   memoryType?: string;
+  /** Optional taskId when converting to task note */
+  taskId?: string;
 }

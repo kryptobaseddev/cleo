@@ -69,7 +69,7 @@ function generateSessionId(): string {
  * Read sessions from accessor or JSON file.
  * @task T4463
  */
-async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
+export async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
   if (accessor) {
     return accessor.loadSessions();
   }
@@ -83,7 +83,7 @@ async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Sess
  * Save sessions via accessor or JSON file.
  * @task T4463
  */
-async function saveSessions(sessions: Session[], cwd?: string, accessor?: DataAccessor): Promise<void> {
+export async function saveSessions(sessions: Session[], cwd?: string, accessor?: DataAccessor): Promise<void> {
   if (accessor) {
     await accessor.saveSessions(sessions);
     return;

@@ -207,6 +207,25 @@ export function registerStickyCommand(program: Command): void {
         throw err;
       }
     });
+
+  // ── sticky purge ────────────────────────────────────────────────────────
+
+  sticky
+    .command('purge <id>')
+    .description('Permanently delete a sticky note (cannot be undone)')
+    .action(async (id: string) => {
+      try {
+        await dispatchFromCli('mutate', 'sticky', 'purge', {
+          stickyId: id,
+        }, { command: 'sticky purge', operation: 'sticky.purge' });
+      } catch (err) {
+        if (err instanceof CleoError) {
+          console.error(formatError(err));
+          process.exit(err.code);
+        }
+        throw err;
+      }
+    });
 }
 
 /**
