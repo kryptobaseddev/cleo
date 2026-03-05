@@ -56,6 +56,12 @@ describe('deriveGatewayMatrix', () => {
       expect(queryMatrix.session).toContain('handoff.show');
     });
 
+    it('nexus query domain exposes analysis operations', () => {
+      expect(queryMatrix.nexus).toContain('path.show');
+      expect(queryMatrix.nexus).toContain('blockers.show');
+      expect(queryMatrix.nexus).toContain('orphans.list');
+    });
+
     it('tasks mutate domain has expected operations', () => {
       expect(mutateMatrix.tasks).toContain('add');
       expect(mutateMatrix.tasks).toContain('update');

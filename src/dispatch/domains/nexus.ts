@@ -37,6 +37,9 @@ import {
 import {
   nexusDeps,
   buildGlobalGraph,
+  criticalPath,
+  blockingAnalysis,
+  orphanDetection,
 } from '../../core/nexus/deps.js';
 
 import {
@@ -146,6 +149,28 @@ export class NexusHandler implements DomainHandler {
         case 'graph': {
           const graph = await buildGlobalGraph();
           return this.successResponse('query', operation, startTime, graph);
+        }
+
+        case 'path.show': {
+          const path = await criticalPath();
+          return this.successResponse('query', operation, startTime, path);
+        }
+
+        case 'blockers.show': {
+          const query = params?.query as string;
+          if (!query) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          }
+          const analysis = await blockingAnalysis(query);
+          return this.successResponse('query', operation, startTime, analysis);
+        }
+
+        case 'orphans.list': {
+          const orphans = await orphanDetection();
+          return this.successResponse('query', operation, startTime, {
+            orphans,
+            count: orphans.length,
+          });
         }
 
         case 'discover': {
@@ -408,7 +433,7 @@ export class NexusHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'status', 'list', 'show', 'query', 'deps', 'graph', 'discover', 'search',
+        'status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'discover', 'search',
         // Sharing sub-operations (T5277)
         'share.status', 'share.remotes', 'share.sync.status',
       ],
