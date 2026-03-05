@@ -47,7 +47,7 @@ describe('MUTATE_OPERATIONS', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
     expect(MUTATE_OPERATIONS.tasks.length).toBe(15);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
-    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(6);
+    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(7);
     expect(MUTATE_OPERATIONS.memory.length).toBe(6);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(20);
@@ -291,6 +291,18 @@ describe('validateMutateParams', () => {
       const result = validateMutateParams(request);
       expect(result.valid).toBe(true);
     });
+
+    it('should reject handoff without protocolType', () => {
+      const request: MutateRequest = {
+        domain: 'orchestrate',
+        operation: 'handoff',
+        params: { taskId: 'T1234' },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(false);
+      expect(result.error?.error?.message).toContain('taskId and protocolType');
+    });
   });
 
   describe('legacy domain aliases are rejected', () => {
@@ -385,7 +397,7 @@ describe('getMutateOperationCount', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
     expect(getMutateOperationCount('tasks')).toBe(15);
     expect(getMutateOperationCount('session')).toBe(8);
-    expect(getMutateOperationCount('orchestrate')).toBe(6);
+    expect(getMutateOperationCount('orchestrate')).toBe(7);
     expect(getMutateOperationCount('memory')).toBe(6);
     expect(getMutateOperationCount('check')).toBe(2);
     expect(getMutateOperationCount('pipeline')).toBe(20);

@@ -31,7 +31,46 @@ import { startParallelExecution, endParallelExecution, getParallelStatus } from 
 import { getSkillContent } from '../../core/orchestration/skill-ops.js';
 import { validateSpawnReadiness } from '../../core/orchestration/validate-spawn.js';
 import { buildBrainState } from '../../core/orchestration/bootstrap.js';
+import { sessionContextInject } from '../../core/sessions/context-inject.js';
 import { engineError, type EngineResult } from './_error.js';
+import { sessionEnd, sessionStatus } from './session-engine.js';
+
+type HandoffStepStatus = 'pending' | 'completed' | 'failed' | 'skipped';
+
+interface HandoffStepState {
+  status: HandoffStepStatus;
+  operation: string;
+  message?: string;
+}
+
+interface HandoffState {
+  contextInject: HandoffStepState;
+  sessionEnd: HandoffStepState;
+  spawn: HandoffStepState;
+}
+
+interface OrchestrateHandoffParams {
+  taskId: string;
+  protocolType: string;
+  note?: string;
+  nextAction?: string;
+  variant?: string;
+  tier?: 0 | 1 | 2;
+  idempotencyKey?: string;
+}
+
+interface HandoffFailureDetails {
+  failedStep: 'session.context.inject' | 'session.end' | 'orchestrate.spawn';
+  activeSessionId: string | null;
+  endedSessionId: string | null;
+  idempotency: {
+    key: string | null;
+    policy: 'non-idempotent';
+    safeRetryFrom: 'start' | 'orchestrate.spawn';
+    reason: string;
+  };
+  steps: HandoffState;
+}
 
 /**
  * Load all tasks from task data.
@@ -880,4 +919,187 @@ export function orchestrateSkillInject(
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     return engineError(code, (err as Error).message);
   }
+}
+
+/**
+ * orchestrate.handoff - Composite session handoff + successor spawn
+ *
+ * Step order is explicit and fixed:
+ * 1) session.context.inject
+ * 2) session.end
+ * 3) orchestrate.spawn
+ *
+ * Idempotency policy:
+ * - Non-idempotent overall. A retry after step 2 can duplicate spawn output.
+ * - Failures include exact step state and a safe retry entry point.
+ */
+export async function orchestrateHandoff(
+  params: OrchestrateHandoffParams,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.taskId) {
+    return engineError('E_INVALID_INPUT', 'taskId is required');
+  }
+
+  if (!params.protocolType) {
+    return engineError('E_INVALID_INPUT', 'protocolType is required');
+  }
+
+  const root = projectRoot || resolveProjectRoot();
+
+  const steps: HandoffState = {
+    contextInject: { status: 'pending', operation: 'session.context.inject' },
+    sessionEnd: { status: 'pending', operation: 'session.end' },
+    spawn: { status: 'pending', operation: 'orchestrate.spawn' },
+  };
+
+  const idempotency = {
+    key: params.idempotencyKey ?? null,
+    policy: 'non-idempotent' as const,
+    safeRetryFrom: 'start' as 'start' | 'orchestrate.spawn',
+    reason: 'session.end and orchestrate.spawn mutate state and may be executed independently on retry',
+  };
+
+  let activeSessionId: string | null = null;
+  let endedSessionId: string | null = null;
+
+  const failWithStep = (
+    code: string,
+    message: string,
+    failedStep: HandoffFailureDetails['failedStep'],
+    safeRetryFrom: 'start' | 'orchestrate.spawn',
+  ): EngineResult => {
+    idempotency.safeRetryFrom = safeRetryFrom;
+    return engineError(code, message, {
+      details: {
+        failedStep,
+        activeSessionId,
+        endedSessionId,
+        idempotency,
+        steps,
+      } satisfies HandoffFailureDetails,
+      fix: safeRetryFrom === 'orchestrate.spawn'
+        ? 'Retry only step 3 with mutate orchestrate spawn'
+        : 'Retry from step 1 with mutate orchestrate handoff',
+      alternatives: [
+        {
+          action: 'Run canonical multi-op fallback manually',
+          command: 'mutate session context.inject -> mutate session end -> mutate orchestrate spawn',
+        },
+      ],
+    });
+  };
+
+  const preflight = await sessionStatus(root);
+  if (!preflight.success) {
+    return failWithStep(
+      preflight.error?.code ?? 'E_NOT_INITIALIZED',
+      preflight.error?.message ?? 'Unable to load session status',
+      'session.context.inject',
+      'start',
+    );
+  }
+
+  if (!preflight.data?.hasActiveSession || !preflight.data.session?.id) {
+    steps.contextInject.status = 'skipped';
+    steps.contextInject.message = 'No active session available for handoff';
+    steps.sessionEnd.status = 'skipped';
+    steps.sessionEnd.message = 'No active session available for handoff';
+    steps.spawn.status = 'skipped';
+    steps.spawn.message = 'No active session available for handoff';
+    return failWithStep(
+      'E_SESSION_REQUIRED',
+      'orchestrate.handoff requires an active session',
+      'session.end',
+      'start',
+    );
+  }
+
+  activeSessionId = preflight.data.session.id;
+
+  const injectResult = sessionContextInject(
+    params.protocolType,
+    { taskId: params.taskId, variant: params.variant },
+    root,
+  );
+
+  if (!injectResult.success) {
+    steps.contextInject.status = 'failed';
+    steps.contextInject.message = injectResult.error?.message;
+    steps.sessionEnd.status = 'skipped';
+    steps.sessionEnd.message = 'Blocked by session.context.inject failure';
+    steps.spawn.status = 'skipped';
+    steps.spawn.message = 'Blocked by session.context.inject failure';
+    return failWithStep(
+      injectResult.error?.code ?? 'E_GENERAL',
+      injectResult.error?.message ?? 'Failed to inject handoff context',
+      'session.context.inject',
+      'start',
+    );
+  }
+
+  steps.contextInject.status = 'completed';
+  steps.contextInject.message = 'Handoff context injected';
+
+  const endResult = await sessionEnd(root, params.note);
+  if (!endResult.success) {
+    steps.sessionEnd.status = 'failed';
+    steps.sessionEnd.message = endResult.error?.message;
+    steps.spawn.status = 'skipped';
+    steps.spawn.message = 'Blocked by session.end failure';
+    return failWithStep(
+      endResult.error?.code ?? 'E_GENERAL',
+      endResult.error?.message ?? 'Failed to end predecessor session',
+      'session.end',
+      'start',
+    );
+  }
+
+  endedSessionId = endResult.data?.sessionId ?? null;
+  if (endedSessionId !== activeSessionId) {
+    steps.sessionEnd.status = 'failed';
+    steps.sessionEnd.message = `Ended session '${endedSessionId ?? 'null'}' does not match active session '${activeSessionId}'`;
+    steps.spawn.status = 'skipped';
+    steps.spawn.message = 'Blocked by session mismatch';
+    return failWithStep(
+      'E_CONCURRENT_SESSION',
+      'Active session changed during orchestrate.handoff',
+      'session.end',
+      'start',
+    );
+  }
+
+  steps.sessionEnd.status = 'completed';
+  steps.sessionEnd.message = `Ended session ${endedSessionId}`;
+
+  const spawnResult = await orchestrateSpawn(params.taskId, params.protocolType, root, params.tier);
+  if (!spawnResult.success) {
+    steps.spawn.status = 'failed';
+    steps.spawn.message = spawnResult.error?.message;
+    return failWithStep(
+      spawnResult.error?.code ?? 'E_GENERAL',
+      spawnResult.error?.message ?? 'Failed to prepare successor spawn context',
+      'orchestrate.spawn',
+      'orchestrate.spawn',
+    );
+  }
+
+  steps.spawn.status = 'completed';
+  steps.spawn.message = `Spawn prepared for ${params.taskId}`;
+
+  return {
+    success: true,
+    data: {
+      taskId: params.taskId,
+      predecessorSessionId: activeSessionId,
+      endedSessionId,
+      protocolType: params.protocolType,
+      note: params.note ?? null,
+      nextAction: params.nextAction ?? null,
+      idempotency,
+      steps,
+      contextInject: injectResult.data,
+      spawn: spawnResult.data,
+    },
+  };
 }

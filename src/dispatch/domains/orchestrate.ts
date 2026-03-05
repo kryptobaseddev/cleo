@@ -25,6 +25,7 @@ import {
   orchestrateCriticalPath,
   orchestrateStartup,
   orchestrateSpawn,
+  orchestrateHandoff,
   orchestrateSpawnExecute,
   orchestrateValidate,
   orchestrateParallelStart,
@@ -162,6 +163,30 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
+        case 'handoff': {
+          const taskId = params?.taskId as string;
+          const protocolType = params?.protocolType as string;
+          if (!taskId) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'taskId is required', startTime);
+          }
+          if (!protocolType) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'protocolType is required', startTime);
+          }
+          const tier = params?.tier as 0 | 1 | 2 | undefined;
+          const result = await orchestrateHandoff({
+            taskId,
+            protocolType,
+            note: params?.note as string | undefined,
+            nextAction: params?.nextAction as string | undefined,
+            variant: params?.variant as string | undefined,
+            tier,
+            idempotencyKey: params?.idempotencyKey as string | undefined,
+          }, this.projectRoot);
+          return this.wrapEngineResult(result, 'mutate', operation, startTime);
+        }
+
         case 'spawn.execute': {
           const taskId = params?.taskId as string;
           if (!taskId) {
@@ -236,7 +261,7 @@ export class OrchestrateHandler implements DomainHandler {
         'waves', 'bootstrap', 'unblock.opportunities', 'critical.path',
       ],
       mutate: [
-        'start', 'spawn', 'spawn.execute', 'validate',
+        'start', 'spawn', 'handoff', 'spawn.execute', 'validate',
         'parallel.start', 'parallel.end', 'verify',
       ],
     };

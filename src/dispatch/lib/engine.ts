@@ -201,6 +201,7 @@ export {
   orchestrateContext,
   orchestrateValidate,
   orchestrateSpawn,
+  orchestrateHandoff,
   orchestrateSpawnExecute,
   orchestrateStartup,
   orchestrateBootstrap,

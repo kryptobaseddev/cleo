@@ -69,6 +69,10 @@ describe('deriveGatewayMatrix', () => {
       expect(mutateMatrix.tasks).toContain('start');
       expect(mutateMatrix.tasks).toContain('stop');
     });
+
+    it('orchestrate mutate domain includes composite handoff', () => {
+      expect(mutateMatrix.orchestrate).toContain('handoff');
+    });
   });
 
   describe('legacy alias entries', () => {

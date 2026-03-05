@@ -514,6 +514,31 @@ function validateOrchestrateParams(
       }
       break;
 
+    case 'handoff':
+      if (!params?.taskId || !params?.protocolType) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'mutate',
+              domain: 'orchestrate',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameters: taskId and protocolType',
+              fix: 'Provide both taskId and protocolType parameters',
+            },
+          },
+        };
+      }
+      break;
+
     case 'parallel.start':
     case 'parallel.end':
       if (!params?.epicId || params?.wave === undefined) {
