@@ -42,6 +42,7 @@ interface ServerState {
 }
 
 let serverState: ServerState | null = null;
+const startupLog = getLogger('mcp:startup');
 
 
 /**
@@ -53,9 +54,13 @@ async function main(): Promise<void> {
   const nodeInfo = getNodeVersionInfo();
   if (!nodeInfo.meetsMinimum) {
     const upgrade = getNodeUpgradeInstructions();
-    console.error(
-      `[CLEO MCP] Error: Requires Node.js v${MINIMUM_NODE_MAJOR}+ but found v${nodeInfo.version}\n`
-      + `Upgrade: ${upgrade.recommended}`,
+    startupLog.fatal(
+      {
+        minimumNodeMajor: MINIMUM_NODE_MAJOR,
+        nodeVersion: nodeInfo.version,
+        recommendedUpgrade: upgrade.recommended,
+      },
+      'Unsupported Node.js version for MCP startup',
     );
     process.exit(1);
   }
@@ -66,11 +71,19 @@ async function main(): Promise<void> {
       const { ensureGlobalBootstrap } = await import('../core/global-bootstrap.js');
       ensureGlobalBootstrap();
     } catch (bootstrapErr) {
-      console.error('[CLEO MCP] Global bootstrap warning:', bootstrapErr instanceof Error ? bootstrapErr.message : String(bootstrapErr));
+      startupLog.warn(
+        {
+          err: bootstrapErr,
+          errorMessage:
+            bootstrapErr instanceof Error
+              ? bootstrapErr.message
+              : String(bootstrapErr),
+        },
+        'Global bootstrap warning',
+      );
     }
 
     // Load configuration
-    console.error('[CLEO MCP] Loading configuration...');
     const config = loadConfig();
 
     // Initialize structured logger (after config, before request handling)
@@ -83,7 +96,7 @@ async function main(): Promise<void> {
       maxFiles: 5,
     }, projectInfo?.projectHash);
 
-    const log = getLogger('mcp:startup');
+    const log = startupLog;
 
     // Log startup info
     log.info({ logLevel: config.logLevel }, 'CLEO MCP server starting');
@@ -304,8 +317,7 @@ async function main(): Promise<void> {
     log.info({ transport: 'stdio' }, 'Server started successfully');
     log.info('Ready for requests');
   } catch (error) {
-    getLogger('mcp:startup').fatal({ err: error }, 'Failed to start server');
-    console.error('[CLEO MCP] Failed to start server:', error);
+    startupLog.fatal({ err: error }, 'Failed to start server');
     process.exit(1);
   }
 }
@@ -314,7 +326,7 @@ async function main(): Promise<void> {
  * Graceful shutdown handler
  */
 async function shutdown(signal: string): Promise<void> {
-  console.error(`[CLEO MCP] Received ${signal}, shutting down...`);
+  startupLog.info({ signal }, 'Received shutdown signal');
 
   if (serverState) {
     try {
@@ -324,9 +336,9 @@ async function shutdown(signal: string): Promise<void> {
       serverState.cache.destroy();
       // Close server
       await serverState.server.close();
-      console.error('[CLEO MCP] Server closed');
+      startupLog.info({ signal }, 'Server closed');
     } catch (error) {
-      console.error('[CLEO MCP] Error during shutdown:', error);
+      startupLog.error({ err: error, signal }, 'Error during shutdown');
     }
   }
 
@@ -340,7 +352,7 @@ async function shutdown(signal: string): Promise<void> {
  * Error handler for uncaught exceptions
  */
 function handleUncaughtError(error: Error, type: string): void {
-  console.error(`[CLEO MCP] ${type}:`, error);
+  startupLog.fatal({ err: error, errorType: type }, 'Unhandled MCP process error');
 
   // Attempt graceful shutdown
   if (serverState) {
@@ -369,6 +381,6 @@ process.on('unhandledRejection', (reason) =>
 
 // Start server
 main().catch((error) => {
-  console.error('[CLEO MCP] Fatal error:', error);
+  startupLog.fatal({ err: error }, 'Fatal startup error in main()');
   process.exit(1);
 });
