@@ -370,7 +370,7 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `adr.validate` | Validate ADR frontmatter against schema | 2 | -- | Yes |
 | mutate | `fix` | Auto-fix failed doctor checks | 0 | -- | No |
 
-### 6.9 nexus (22 operations)
+### 6.9 nexus (25 operations)
 
 All nexus operations are tier 2 (cross-project coordination). Includes 10 sharing operations in the `share.*` sub-namespace.
 
@@ -382,6 +382,9 @@ All nexus operations are tier 2 (cross-project coordination). Includes 10 sharin
 | query | `query` | Resolve cross-project `project:taskId` query | 2 | `query` | Yes |
 | query | `deps` | Cross-project dependency analysis | 2 | `query` | Yes |
 | query | `graph` | Global dependency graph across all projects | 2 | -- | Yes |
+| query | `path.show` | Show critical dependency path across projects | 2 | -- | Yes |
+| query | `blockers.show` | Show blocking impact for a task query | 2 | `query` | Yes |
+| query | `orphans.list` | List orphaned cross-project dependencies | 2 | -- | Yes |
 | query | `share.status` | Sharing status | 2 | -- | Yes |
 | query | `share.remotes` | List configured remotes | 2 | -- | Yes |
 | query | `share.sync.status` | Sync status | 2 | -- | Yes |
@@ -423,9 +426,9 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 | orchestrate | 9 | 6 | 15 |
 | tools | 21 | 11 | 32 |
 | admin | 19 | 15 | 34 |
-| nexus | 9 | 13 | 22 |
+| nexus | 12 | 13 | 25 |
 | sticky | 2 | 3 | 5 |
-| **Total** | **118** | **91** | **209** |
+| **Total** | **121** | **91** | **212** |
 
 ---
 
@@ -445,7 +448,7 @@ Memory, manifest, and advanced query operations. Agents escalate here when they 
 
 **Domains**: memory plus extended operations across pipeline, session, admin, and tools
 
-### Tier 2 -- Full System (36 operations)
+### Tier 2 -- Full System (39 operations)
 
 Cross-project coordination, advanced tooling, and administrative functions. Used by orchestrator agents and system administrators.
 
