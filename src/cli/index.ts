@@ -15,7 +15,7 @@ class GroupedHelp extends Help {
   private domainGroups: Record<string, string[]> = {
     'Tasks': [
       'add', 'list', 'show', 'find', 'complete', 'update', 'delete',
-      'archive', 'start', 'stop', 'current', 'next', 'focus',
+      'archive', 'start', 'stop', 'current', 'next',
       'archive-stats', 'restore', 'reorder', 'reparent', 'relates',
       'tree', 'deps', 'labels', 'tags', 'blockers', 'exists', 'stats', 'history'
     ],
@@ -188,7 +188,6 @@ import { registerCompleteCommand } from './commands/complete.js';
 import { registerUpdateCommand } from './commands/update.js';
 import { registerDeleteCommand } from './commands/delete.js';
 import { registerArchiveCommand } from './commands/archive.js';
-import { registerFocusCommand } from './commands/focus.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerStopCommand } from './commands/stop.js';
 import { registerCurrentCommand } from './commands/current.js';
@@ -381,9 +380,6 @@ registerCurrentCommand(program);
 
 // T4916: Session briefing command
 registerBriefingCommand(program);
-
-// T4462: Focus commands (backward-compat aliases)
-registerFocusCommand(program);
 
 // T4463: Session commands
 registerSessionCommand(program);

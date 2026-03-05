@@ -57,6 +57,7 @@ export {
   taskCurrentGet,
   taskStart,
   taskStop,
+  taskWorkHistory,
   sessionStart,
   sessionEnd,
   sessionResume,

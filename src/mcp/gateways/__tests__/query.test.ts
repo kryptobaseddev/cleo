@@ -56,8 +56,8 @@ describe('Query Gateway', () => {
   });
 
   describe('Domain Operation Counts', () => {
-    it('tasks domain should have 15 operations', () => {
-      expect(getQueryOperationCount('tasks')).toBe(15);
+    it('tasks domain should have 17 operations', () => {
+      expect(getQueryOperationCount('tasks')).toBe(17);
     });
 
     it('session domain should have 11 query operations', () => {
@@ -201,7 +201,7 @@ describe('Query Gateway', () => {
 
     it('should return all operations for domain', () => {
       const tasksOps = getQueryOperations('tasks');
-      expect(tasksOps).toHaveLength(15);
+      expect(tasksOps).toHaveLength(17);
       expect(tasksOps).toContain('show');
       expect(tasksOps).toContain('list');
       expect(tasksOps).toContain('find');

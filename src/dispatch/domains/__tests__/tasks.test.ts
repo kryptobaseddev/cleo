@@ -78,7 +78,8 @@ describe('TasksHandler', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
         'show', 'list', 'find', 'exists', 'tree', 'blockers',
-        'depends', 'analyze', 'next', 'plan', 'relates', 'complexity.estimate', 'current',
+        'depends', 'analyze', 'next', 'plan', 'relates', 'relates.find', 'complexity.estimate',
+        'history', 'current',
         'label.list', 'label.show',
       ]);
     });
@@ -86,7 +87,7 @@ describe('TasksHandler', () => {
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'add', 'update', 'complete', 'delete', 'archive', 'restore',
+        'add', 'update', 'complete', 'cancel', 'delete', 'archive', 'restore',
         'reopen', 'unarchive',
         'reparent', 'promote', 'reorder', 'relates.add',
         'start', 'stop',

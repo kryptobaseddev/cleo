@@ -225,3 +225,9 @@ export async function getWorkHistory(cwd?: string, accessor?: DataAccessor): Pro
 
   return history.reverse(); // Most recent first
 }
+
+/**
+ * Get task work history (canonical verb alias for dispatch layer).
+ * @task T5323
+ */
+export const getTaskHistory = getWorkHistory;

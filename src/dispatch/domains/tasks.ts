@@ -49,6 +49,7 @@ import {
   taskCurrentGet,
   taskStart,
   taskStop,
+  taskWorkHistory,
 } from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
@@ -176,6 +177,29 @@ export class TasksHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
+        case 'relates.find': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          }
+          const { suggestRelated, discoverRelated } = await import('../../core/tasks/relates.js');
+          const { getAccessor } = await import('../../store/data-accessor.js');
+          const accessor = await getAccessor(this.projectRoot);
+          const mode = (params?.mode as string) ?? 'suggest';
+          let findResult: Record<string, unknown>;
+          if (mode === 'discover') {
+            findResult = await discoverRelated(taskId, undefined, accessor);
+          } else {
+            const threshold = params?.threshold ? Number(params.threshold) : 50;
+            findResult = await suggestRelated(taskId, { threshold }, accessor);
+          }
+          return {
+            _meta: dispatchMeta('query', 'tasks', operation, startTime),
+            success: true,
+            data: findResult,
+          };
+        }
+
         case 'complexity.estimate': {
           const taskId = params?.taskId as string;
           if (!taskId) {
@@ -187,6 +211,11 @@ export class TasksHandler implements DomainHandler {
 
         case 'current': {
           const result = await taskCurrentGet(this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+        }
+
+        case 'history': {
+          const result = await taskWorkHistory(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -435,7 +464,8 @@ export class TasksHandler implements DomainHandler {
     return {
       query: [
         'show', 'list', 'find', 'exists', 'tree', 'blockers',
-        'depends', 'analyze', 'next', 'plan', 'relates', 'complexity.estimate', 'current',
+        'depends', 'analyze', 'next', 'plan', 'relates', 'relates.find', 'complexity.estimate',
+        'history', 'current',
         'label.list', 'label.show',
       ],
       mutate: [

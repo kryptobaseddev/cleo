@@ -45,10 +45,10 @@ describe('MUTATE_OPERATIONS', () => {
 
   it('should have correct operation counts per domain', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
-    expect(MUTATE_OPERATIONS.tasks.length).toBe(14);
+    expect(MUTATE_OPERATIONS.tasks.length).toBe(15);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(6);
-    expect(MUTATE_OPERATIONS.memory.length).toBe(5);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(6);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(20);
     expect(MUTATE_OPERATIONS.admin.length).toBe(20);
@@ -383,10 +383,10 @@ describe('getMutateOperationCount', () => {
 
   it('should return domain-specific counts', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
-    expect(getMutateOperationCount('tasks')).toBe(14);
+    expect(getMutateOperationCount('tasks')).toBe(15);
     expect(getMutateOperationCount('session')).toBe(8);
     expect(getMutateOperationCount('orchestrate')).toBe(6);
-    expect(getMutateOperationCount('memory')).toBe(5);
+    expect(getMutateOperationCount('memory')).toBe(6);
     expect(getMutateOperationCount('check')).toBe(2);
     expect(getMutateOperationCount('pipeline')).toBe(20);
     expect(getMutateOperationCount('admin')).toBe(20);
@@ -427,7 +427,7 @@ describe('getMutateOperations', () => {
     expect(taskOps).toContain('add');
     expect(taskOps).toContain('update');
     expect(taskOps).toContain('complete');
-    expect(taskOps.length).toBe(14);
+    expect(taskOps.length).toBe(15);
   });
 
   it('should return empty array for unknown domain', () => {
