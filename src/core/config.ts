@@ -50,6 +50,8 @@ const DEFAULTS: CleoConfig = {
     filePath: 'logs/cleo.log',
     maxFileSize: 10 * 1024 * 1024, // 10MB
     maxFiles: 5,
+    auditRetentionDays: 90,
+    archiveBeforePrune: true,
   },
   sharing: {
     mode: 'none',
@@ -75,6 +77,7 @@ const ENV_MAP: Record<string, string> = {
   'CLEO_LIFECYCLE_MODE': 'lifecycle.mode',
   'CLEO_LOG_LEVEL': 'logging.level',
   'CLEO_LOG_FILE': 'logging.filePath',
+  'CLEO_AUDIT_RETENTION_DAYS': 'logging.auditRetentionDays',
 };
 
 /**

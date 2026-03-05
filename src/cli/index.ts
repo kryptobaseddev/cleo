@@ -505,6 +505,11 @@ program.hook('preAction', async () => {
   try {
     const config = await loadCoreConfig();
     initLogger(join(process.cwd(), '.cleo'), config.logging);
+
+    // Fire-and-forget audit log pruning (T5339, ADR-024 section 2.3)
+    const { pruneAuditLog } = await import('../core/audit-prune.js');
+    pruneAuditLog(join(process.cwd(), '.cleo'), config.logging)
+      .catch(() => { /* non-blocking */ });
   } catch {
     // Logger init is best-effort — fallback stderr logger will be used
   }

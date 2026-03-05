@@ -14,10 +14,24 @@
  */
 
 import { getLogger } from '../../core/logger.js';
+import { getProjectInfoSync } from '../../core/project-info.js';
 import { getConfig } from '../lib/config.js';
 import type { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
 
 const log = getLogger('audit');
+
+/** Cached project hash — read once from project-info.json (immutable at runtime). */
+let cachedProjectHash: string | null | undefined;
+function resolveProjectHash(): string | null {
+  if (cachedProjectHash !== undefined) return cachedProjectHash;
+  try {
+    const info = getProjectInfoSync();
+    cachedProjectHash = info?.projectHash ?? null;
+  } catch {
+    cachedProjectHash = null;
+  }
+  return cachedProjectHash;
+}
 
 /**
  * Audit entry interface.
@@ -100,6 +114,8 @@ async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<voi
       source: entry.metadata.source,
       gateway: entry.metadata.gateway ?? null,
       errorMessage: entry.error ?? null,
+      // Project correlation (T5337)
+      projectHash: resolveProjectHash(),
     }).run();
   } catch (err) {
     log.warn({ err }, 'Failed to write audit entry to SQLite');

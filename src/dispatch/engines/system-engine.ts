@@ -412,7 +412,7 @@ export async function systemArchiveStats(
 
 /**
  * Query audit log with optional filters.
- * Reads from SQLite audit_log table (primary) with JSONL fallback.
+ * Reads from SQLite audit_log table.
  *
  * @task T4837
  */

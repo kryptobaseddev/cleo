@@ -1,10 +1,16 @@
 # ADR-019: Canonical Logging Architecture
 
+> **SUPERSEDED**: Sections 2.1-2.4 of this document have been amended by
+> [ADR-024: Multi-Store Canonical Logging](ADR-024-multi-store-canonical-logging.md)
+> as of 2026-03-05. The core dual-write principle (Pino + SQLite) remains canonical.
+> This document is retained for historical context.
+
 **Date**: 2026-02-26
-**Status**: accepted
+**Status**: superseded
 **Accepted**: 2026-02-26
+**Superseded By**: [ADR-024](ADR-024-multi-store-canonical-logging.md) (2026-03-05)
 **Supersedes**: Legacy JSON audit file system (T2920, T2929)
-**Related ADRs**: ADR-006, ADR-010, ADR-012
+**Related ADRs**: ADR-006, ADR-010, ADR-012, ADR-024
 **Related Tasks**: T4844, T4837
 **Gate**: HITL
 **Gate Status**: passed

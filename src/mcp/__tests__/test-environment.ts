@@ -192,16 +192,8 @@ export async function destroyTestEnvironment(env: TestEnvironment): Promise<void
 }
 
 /**
- * Get the path to the CLEO log file in the test environment.
- * CLEO stores audit logs in .cleo/todo-log.jsonl (not audit-trail.jsonl).
- */
-export function getLogFilePath(projectRoot: string): string {
-  return path.join(projectRoot, '.cleo', 'todo-log.jsonl');
-}
-
-/**
- * Read audit log entries from the test environment's todo-log.jsonl.
- * CLEO stores logs as a JSON object with an "entries" array, not JSONL.
+ * Query audit log entries from the SQLite audit_log table in the test environment.
+ * Replaces legacy todo-log.jsonl readers (T5338, ADR-024).
  */
 export async function readAuditEntries(
   projectRoot: string,
@@ -211,14 +203,24 @@ export async function readAuditEntries(
     sessionId?: string;
   }
 ): Promise<any[]> {
-  const logPath = getLogFilePath(projectRoot);
   try {
-    const content = await fs.readFile(logPath, 'utf-8');
-    const parsed = JSON.parse(content);
-    let entries: any[] = parsed.entries || [];
+    const { getDb } = await import('../../store/sqlite.js');
+    const { auditLog } = await import('../../store/schema.js');
+    const db = await getDb(projectRoot);
+    const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
+
+    let entries = rows.map(r => ({
+      action: r.action,
+      taskId: r.taskId,
+      sessionId: r.sessionId,
+      timestamp: r.timestamp,
+      domain: r.domain,
+      operation: r.operation,
+      detailsJson: r.detailsJson,
+    }));
 
     if (filter) {
-      entries = entries.filter((entry: any) => {
+      entries = entries.filter((entry) => {
         if (filter.action && entry.action !== filter.action) return false;
         if (filter.taskId && entry.taskId !== filter.taskId) return false;
         if (filter.sessionId && entry.sessionId !== filter.sessionId) return false;

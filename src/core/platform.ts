@@ -219,5 +219,4 @@ export {
   getDataPath,
   readJsonFile,
   writeJsonFileAtomic,
-  readLogFileEntries,
 } from '../store/file-utils.js';

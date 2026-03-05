@@ -360,12 +360,15 @@ export const auditLog = sqliteTable('audit_log', {
   source: text('source'),
   gateway: text('gateway'),
   errorMessage: text('error_message'),
+  // Project correlation (T5334)
+  projectHash: text('project_hash'),
 }, (table) => [
   index('idx_audit_log_task_id').on(table.taskId),
   index('idx_audit_log_action').on(table.action),
   index('idx_audit_log_timestamp').on(table.timestamp),
   index('idx_audit_log_domain').on(table.domain),
   index('idx_audit_log_request_id').on(table.requestId),
+  index('idx_audit_log_project_hash').on(table.projectHash),
 ]);
 
 // === ARCHITECTURE DECISIONS ===

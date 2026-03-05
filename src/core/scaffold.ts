@@ -14,7 +14,7 @@ import { mkdir, access, writeFile, readFile } from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { saveJson } from '../store/json.js';
@@ -307,7 +307,19 @@ export async function ensureProjectInfo(
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const projectInfoPath = join(cleoDir, 'project-info.json');
 
+  // Backfill projectId on existing files that lack it (T5333)
   if (existsSync(projectInfoPath) && !opts?.force) {
+    try {
+      const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
+      if (typeof existing.projectId !== 'string' || existing.projectId.length === 0) {
+        existing.projectId = randomUUID();
+        existing.lastUpdated = new Date().toISOString();
+        await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
+        return { action: 'repaired', path: projectInfoPath, details: 'Added projectId' };
+      }
+    } catch {
+      // If parse fails, fall through to regenerate
+    }
     return { action: 'skipped', path: projectInfoPath, details: 'Already exists' };
   }
 
@@ -322,6 +334,7 @@ export async function ensureProjectInfo(
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
+    projectId: randomUUID(),
     projectHash,
     cleoVersion,
     lastUpdated: now,

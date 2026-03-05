@@ -88,6 +88,7 @@ export function cleanupSystem(
       break;
     }
     case 'logs': {
+      // Remove legacy rotated JSON audit files
       const auditPattern = /^audit-log-.*\.json$/;
       if (existsSync(cleoDir)) {
         for (const file of readdirSync(cleoDir)) {

@@ -27,6 +27,10 @@ import { enforceBudget } from './lib/budget.js';
 import { loadConfig } from './lib/config.js';
 import { initMcpDispatcher, handleMcpToolCall } from '../dispatch/adapters/mcp.js';
 import { setJobManager } from './lib/job-manager-accessor.js';
+import { initLogger, getLogger, closeLogger } from '../core/logger.js';
+import { getProjectInfoSync } from '../core/project-info.js';
+import { pruneAuditLog } from '../core/audit-prune.js';
+import { join } from 'node:path';
 
 /**
  * Server state for cleanup
@@ -69,27 +73,46 @@ async function main(): Promise<void> {
     console.error('[CLEO MCP] Loading configuration...');
     const config = loadConfig();
 
-    // Log startup info (to stderr, not stdout which is used by MCP)
-    console.error('[CLEO MCP] Starting server...');
-    console.error(`[CLEO MCP] Log level: ${config.logLevel}`);
-    console.error(`[CLEO MCP] Metrics: ${config.enableMetrics ? 'enabled' : 'disabled'}`);
+    // Initialize structured logger (after config, before request handling)
+    const projectInfo = getProjectInfoSync();
+    const cleoDir = join(process.cwd(), '.cleo');
+    initLogger(cleoDir, {
+      level: config.logLevel ?? 'info',
+      filePath: 'logs/cleo.log',
+      maxFileSize: 10 * 1024 * 1024,
+      maxFiles: 5,
+    }, projectInfo?.projectHash);
+
+    const log = getLogger('mcp:startup');
+
+    // Log startup info
+    log.info({ logLevel: config.logLevel }, 'CLEO MCP server starting');
+    log.info({ logLevel: config.logLevel }, `Log level: ${config.logLevel}`);
+    log.info({ enableMetrics: config.enableMetrics }, `Metrics: ${config.enableMetrics ? 'enabled' : 'disabled'}`);
+
+    // Fire-and-forget audit log pruning (T5339)
+    import('../core/config.js').then(({ loadConfig: loadCoreConfig }) =>
+      loadCoreConfig().then(coreConfig =>
+        pruneAuditLog(cleoDir, coreConfig.logging),
+      ),
+    ).catch(err => log.warn({ err }, 'audit log pruning failed'));
 
     // Initialize dispatch layer (replaces DomainRouter + executor + mode detection)
-    console.error('[CLEO MCP] Initializing dispatch layer...');
+    log.info('Initializing dispatch layer');
     initMcpDispatcher({
       rateLimiting: config.rateLimiting,
       strictMode: true,
     });
-    console.error('[CLEO MCP] Dispatch layer initialized');
+    log.info('Dispatch layer initialized');
 
     // Initialize background job manager
     const jobManager = new BackgroundJobManager({ maxJobs: 10, retentionMs: 3600000 });
     setJobManager(jobManager);
-    console.error('[CLEO MCP] Background job manager initialized (max: 10, retention: 1h)');
+    log.info({ maxJobs: 10, retentionMs: 3600000 }, 'Background job manager initialized');
 
     // Initialize query cache
     const cache = new QueryCache(config.queryCacheTtl, config.queryCache);
-    console.error(`[CLEO MCP] Query cache: ${config.queryCache ? 'enabled' : 'disabled'} (TTL: ${config.queryCacheTtl}ms)`);
+    log.info({ enabled: config.queryCache, ttlMs: config.queryCacheTtl }, `Query cache: ${config.queryCache ? 'enabled' : 'disabled'}`);
 
     // Create MCP server
     const server = new Server(
@@ -120,10 +143,9 @@ async function main(): Promise<void> {
       const name = rawName === 'query' ? 'query' : rawName === 'mutate' ? 'mutate' : rawName;
       const { arguments: args } = request.params;
 
-      console.error(`[CLEO MCP] Tool call: ${name}`);
-      if (config.logLevel === 'debug') {
-        console.error(`[CLEO MCP] Arguments:`, JSON.stringify(args, null, 2));
-      }
+      const reqLog = getLogger('mcp:request');
+      reqLog.debug({ tool: name }, `Tool call: ${name}`);
+      reqLog.debug({ args }, 'Tool call arguments');
 
       try {
         // Validate gateway name
@@ -185,9 +207,7 @@ async function main(): Promise<void> {
         if (name === 'query' && !bypassCache) {
           const cached = cache.get(domain, operation, params);
           if (cached !== undefined) {
-            if (config.logLevel === 'debug') {
-              console.error(`[CLEO MCP] Cache hit: ${domain}.${operation}`);
-            }
+            reqLog.debug({ domain, operation }, `Cache hit: ${domain}.${operation}`);
             return {
               content: [
                 {
@@ -202,9 +222,7 @@ async function main(): Promise<void> {
         // Route through dispatch layer (handles domain alias resolution)
         let result = await handleMcpToolCall(name, domain, operation, params);
 
-        if (config.logLevel === 'debug') {
-          console.error(`[CLEO MCP] Result:`, JSON.stringify(result, null, 2));
-        }
+        reqLog.debug({ result }, 'Tool call result');
 
         // Apply LAFS token budget enforcement (@task T4701)
         const tokenBudget = params?.tokenBudget as number | undefined;
@@ -214,9 +232,7 @@ async function main(): Promise<void> {
             tokenBudget,
           );
           result = enforced as unknown as typeof result;
-          if (config.logLevel === 'debug') {
-            console.error(`[CLEO MCP] Budget enforcement: ${enforcement.estimatedTokens}/${tokenBudget} tokens (${enforcement.truncated ? 'truncated' : 'ok'})`);
-          }
+          reqLog.debug({ estimatedTokens: enforcement.estimatedTokens, tokenBudget, truncated: enforcement.truncated }, `Budget enforcement: ${enforcement.estimatedTokens}/${tokenBudget} tokens`);
         }
 
         // Cache successful query results
@@ -227,8 +243,8 @@ async function main(): Promise<void> {
         // Invalidate domain cache on mutate operations
         if (name === 'mutate') {
           const invalidated = cache.invalidateDomain(domain);
-          if (invalidated > 0 && config.logLevel === 'debug') {
-            console.error(`[CLEO MCP] Cache invalidated ${invalidated} entries for domain: ${domain}`);
+          if (invalidated > 0) {
+            reqLog.debug({ domain, invalidated }, `Cache invalidated ${invalidated} entries for domain: ${domain}`);
           }
         }
 
@@ -241,7 +257,7 @@ async function main(): Promise<void> {
           ],
         };
       } catch (error) {
-        console.error(`[CLEO MCP] Error:`, error);
+        reqLog.error({ err: error }, 'Tool call error');
 
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -281,13 +297,14 @@ async function main(): Promise<void> {
     };
 
     // Create transport and connect
-    console.error('[CLEO MCP] Connecting to stdio transport...');
+    log.info('Connecting to stdio transport');
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    console.error('[CLEO MCP] Server started successfully');
-    console.error('[CLEO MCP] Ready for requests');
+    log.info({ transport: 'stdio' }, 'Server started successfully');
+    log.info('Ready for requests');
   } catch (error) {
+    getLogger('mcp:startup').fatal({ err: error }, 'Failed to start server');
     console.error('[CLEO MCP] Failed to start server:', error);
     process.exit(1);
   }
@@ -312,6 +329,9 @@ async function shutdown(signal: string): Promise<void> {
       console.error('[CLEO MCP] Error during shutdown:', error);
     }
   }
+
+  // Flush and close logger before exit
+  closeLogger();
 
   process.exit(0);
 }
