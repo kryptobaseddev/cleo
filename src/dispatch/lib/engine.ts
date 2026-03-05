@@ -33,6 +33,7 @@ export {
   taskReparent,
   taskPromote,
   taskReopen,
+  taskCancel,
   taskComplexityEstimate,
   taskDepends,
   taskDepsOverview,
@@ -105,6 +106,7 @@ export {
   systemCompliance,
   systemBackup,
   systemRestore,
+  backupRestore,
   systemMigrate,
   systemCleanup,
   systemAudit,
@@ -179,6 +181,13 @@ export {
   validateCoherenceCheck,
   validateTestRun,
   validateBatchValidate,
+  // T5327: Protocol validation operations
+  validateProtocolConsensus,
+  validateProtocolContribution,
+  validateProtocolDecomposition,
+  validateProtocolImplementation,
+  validateProtocolSpecification,
+  validateGateVerify,
 } from '../engines/validate-engine.js';
 
 // Orchestrate engine

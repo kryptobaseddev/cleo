@@ -7,13 +7,8 @@
  */
 
 import { Command } from 'commander';
-import { formatError } from '../../core/output.js';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
-import {
-  collectDiagnostics,
-  addIssue,
-} from '../../core/issue/index.js';
 import { execFileSync } from 'node:child_process';
 import { BUILD_CONFIG } from '../../config/build-config.js';
 
@@ -72,75 +67,51 @@ export function registerIssueCommand(program: Command): void {
     .command('diagnostics')
     .description('Show system diagnostics (no issue filed)')
     .action(async () => {
-      try {
-        const diag = collectDiagnostics();
-        cliOutput({ diagnostics: diag }, { command: 'issue' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'tools', 'issue.diagnostics', {}, {
+        command: 'issue',
+        operation: 'tools.issue.diagnostics',
+      });
     });
 }
 
 /**
  * Handle issue creation for a subcommand type (bug, feature, help).
- * Uses shared addIssue from core to ensure DRY principle.
+ * Routes through dispatch for the mutation, with post-dispatch browser open.
  * @task T4555
  */
 async function handleIssueType(
   issueType: string,
   opts: Record<string, unknown>,
 ): Promise<void> {
-  try {
-    // Use the shared addIssue function from core
-    const result = addIssue({
-      issueType,
-      title: opts['title'] as string,
-      body: opts['body'] as string,
-      severity: opts['severity'] as string | undefined,
-      area: opts['area'] as string | undefined,
-      dryRun: !!opts['dryRun'],
-    });
+  const params: Record<string, unknown> = {
+    issueType,
+    title: opts['title'],
+    body: opts['body'],
+    dryRun: !!opts['dryRun'],
+  };
+  if (opts['severity']) params['severity'] = opts['severity'];
+  if (opts['area']) params['area'] = opts['area'];
 
-    if (result.dryRun) {
-      cliOutput({
-        dryRun: true,
-        type: result.type,
-        repo: result.repo,
-        title: result.title,
-        labels: result.labels,
-        body: result.body,
-      }, { command: 'issue' });
-      return;
-    }
-
-    // Handle browser open if requested
-    if (opts['open'] && result.url?.startsWith('https://')) {
-      const issueNumber = result.url.match(/(\d+)$/)?.[1] ?? 'unknown';
-      try {
-        execFileSync('gh', ['issue', 'view', issueNumber, '--repo', CLEO_REPO, '--web'], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-      } catch {
-        // Browser open is non-fatal
-      }
-    }
-
-    cliOutput({
-      type: result.type,
-      url: result.url,
-      number: result.number,
-      title: result.title,
-      labels: result.labels,
-    }, { command: 'issue' });
-  } catch (err) {
-    if (err instanceof CleoError) {
-      console.error(formatError(err));
-      process.exit(err.code);
-    }
-    throw err;
+  const opName = `issue.add.${issueType}` as const;
+  const response = await dispatchRaw('mutate', 'tools', opName, params);
+  if (!response.success) {
+    handleRawError(response, { command: 'issue', operation: `tools.${opName}` });
+    return;
   }
+
+  const result = response.data as Record<string, unknown>;
+
+  // Handle browser open if requested
+  if (opts['open'] && typeof result['url'] === 'string' && result['url'].startsWith('https://')) {
+    const issueNumber = (result['url'] as string).match(/(\d+)$/)?.[1] ?? 'unknown';
+    try {
+      execFileSync('gh', ['issue', 'view', issueNumber, '--repo', CLEO_REPO, '--web'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch {
+      // Browser open is non-fatal
+    }
+  }
+
+  cliOutput(result, { command: 'issue', operation: `tools.${opName}` });
 }

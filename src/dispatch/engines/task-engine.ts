@@ -43,6 +43,7 @@ import {
   coreTaskReparent,
   coreTaskPromote,
   coreTaskReopen,
+  coreTaskCancel,
   coreTaskComplexityEstimate,
   coreTaskDepends,
   coreTaskDepsOverview,
@@ -860,6 +861,26 @@ export async function taskReopen(
       return engineError('E_INVALID_INPUT', message);
     }
     return engineError('E_NOT_INITIALIZED', 'Failed to reopen task');
+  }
+}
+
+/**
+ * Cancel a task (soft terminal state — reversible via restore).
+ * @task T4529
+ */
+export async function taskCancel(
+  projectRoot: string,
+  taskId: string,
+  reason?: string,
+): Promise<EngineResult<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }>> {
+  try {
+    const result = await coreTaskCancel(projectRoot, taskId, { reason });
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('not found')) return engineError('E_NOT_FOUND', message);
+    if (message.includes('already cancelled') || message.includes('completed')) return engineError('E_INVALID_INPUT', message);
+    return engineError('E_INTERNAL', message);
   }
 }
 

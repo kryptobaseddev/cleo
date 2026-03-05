@@ -223,7 +223,7 @@
               "type": "object",
               "description": "Query gateway matrix: domain -> operations[]",
               "patternProperties": {
-                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sharing)$": {
+                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sticky)$": {
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -249,7 +249,7 @@
               "type": "object",
               "description": "Mutate gateway matrix: domain -> operations[]",
               "patternProperties": {
-                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sharing)$": {
+                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sticky)$": {
                   "type": "array",
                   "items": {
                     "type": "string",

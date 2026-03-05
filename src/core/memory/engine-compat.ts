@@ -40,6 +40,7 @@ import {
 
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../../store/brain-accessor.js';
+import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { getProjectRoot } from '../paths.js';
 
@@ -791,32 +792,39 @@ export async function memoryLink(
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' } };
   }
 
+  const entryType = parseIdPrefix(params.entryId);
+  if (!entryType) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
+  }
+
   try {
     const root = resolveRoot(projectRoot);
-    const accessor = await getBrainAccessor(root);
-    const entryType = parseIdPrefix(params.entryId);
-
-    if (!entryType) {
-      return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
-    }
-
-    const typeMap: Record<string, 'decision' | 'pattern' | 'learning' | 'observation'> = {
-      decision: 'decision',
-      pattern: 'pattern',
-      learning: 'learning',
-      observation: 'observation',
-    };
-
-    await accessor.addLink({
-      memoryType: typeMap[entryType],
-      memoryId: params.entryId,
-      taskId: params.taskId,
-      linkType: 'applies_to',
-      createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
-    });
-
+    await linkMemoryToTask(root, entryType, params.entryId, params.taskId, 'applies_to');
     return { success: true, data: { linked: true, taskId: params.taskId, entryId: params.entryId } };
   } catch (error) {
     return { success: false, error: { code: 'E_MEMORY_LINK', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.unlink - Remove a link between a brain entry and a task */
+export async function memoryUnlink(
+  params: { taskId: string; entryId: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.taskId || !params.entryId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' } };
+  }
+
+  const entryType = parseIdPrefix(params.entryId);
+  if (!entryType) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    await unlinkMemoryFromTask(root, entryType, params.entryId, params.taskId, 'applies_to');
+    return { success: true, data: { unlinked: true, taskId: params.taskId, entryId: params.entryId } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_MEMORY_UNLINK', message: error instanceof Error ? error.message : String(error) } };
   }
 }

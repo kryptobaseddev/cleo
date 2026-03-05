@@ -87,6 +87,7 @@ describe('TasksHandler', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
         'add', 'update', 'complete', 'delete', 'archive', 'restore',
+        'reopen', 'unarchive',
         'reparent', 'promote', 'reorder', 'relates.add',
         'start', 'stop',
       ]);

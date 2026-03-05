@@ -29,6 +29,12 @@ import {
   validateTestCoverage,
   validateCoherenceCheck,
   validateTestRun,
+  validateProtocolConsensus,
+  validateProtocolContribution,
+  validateProtocolDecomposition,
+  validateProtocolImplementation,
+  validateProtocolSpecification,
+  validateGateVerify,
 } from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
@@ -120,6 +126,87 @@ export class CheckHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
         }
 
+        // Protocol validation operations (T5327)
+        case 'protocol.consensus': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+            votingMatrixFile: params?.votingMatrixFile as string | undefined,
+          };
+          const result = await validateProtocolConsensus(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.contribution': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+          };
+          const result = await validateProtocolContribution(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.decomposition': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+            epicId: params?.epicId as string | undefined,
+          };
+          const result = await validateProtocolDecomposition(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.implementation': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+          };
+          const result = await validateProtocolImplementation(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.specification': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+            specFile: params?.specFile as string | undefined,
+          };
+          const result = await validateProtocolSpecification(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'gate.verify': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          }
+          const gateParams = {
+            taskId,
+            gate: params?.gate as string | undefined,
+            value: params?.value as boolean | undefined,
+            agent: params?.agent as string | undefined,
+            all: params?.all as boolean | undefined,
+            reset: params?.reset as boolean | undefined,
+          };
+          const result = await validateGateVerify(gateParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'check', operation, startTime);
       }
@@ -182,6 +269,9 @@ export class CheckHandler implements DomainHandler {
         'schema', 'protocol', 'task', 'manifest', 'output',
         'compliance.summary', 'compliance.violations',
         'test.status', 'test.coverage', 'coherence.check',
+        // T5327: Protocol validation operations
+        'protocol.consensus', 'protocol.contribution', 'protocol.decomposition',
+        'protocol.implementation', 'protocol.specification', 'gate.verify',
       ],
       mutate: ['compliance.record', 'test.run'],
     };

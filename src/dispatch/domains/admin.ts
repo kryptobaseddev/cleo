@@ -18,7 +18,24 @@ import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { OPERATIONS } from '../registry.js';
 
-import { listAdrs, showAdr, syncAdrsToDb, validateAllAdrs, findAdrs } from '../../core/adrs/index.js';
+import {
+  listAdrs, showAdr, syncAdrsToDb, validateAllAdrs, findAdrs
+} from '../../core/adrs/index.js';
+import {
+  getSyncStatus,
+  clearSyncState,
+} from '../../core/admin/sync.js';
+import { exportTasks } from '../../core/admin/export.js';
+import { importTasks } from '../../core/admin/import.js';
+import { exportTasksPackage } from '../../core/admin/export-tasks.js';
+import { importTasksPackage } from '../../core/admin/import-tasks.js';
+import {
+  exportSnapshot,
+  writeSnapshot,
+  readSnapshot,
+  importSnapshot,
+  getDefaultSnapshotPath,
+} from '../../core/snapshot/index.js';
 import {
   systemDash,
   systemStats,
@@ -33,6 +50,7 @@ import {
   systemInjectGenerate,
   systemBackup,
   systemRestore,
+  backupRestore,
   systemMigrate,
   systemCleanup,
   systemSync,
@@ -285,6 +303,60 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'sync.status': {
+          const result = await getSyncStatus(this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+        }
+
+        case 'export': {
+          const result = await exportTasks({
+            format: params?.format as 'json' | 'csv' | 'tsv' | 'markdown' | 'todowrite' | undefined,
+            output: params?.output as string | undefined,
+            status: params?.status as string | undefined,
+            parent: params?.parent as string | undefined,
+            phase: params?.phase as string | undefined,
+            cwd: this.projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'snapshot.export': {
+          const snapshot = await exportSnapshot(this.projectRoot);
+          const outputPath = (params?.output as string) ?? getDefaultSnapshotPath(this.projectRoot);
+          await writeSnapshot(snapshot, outputPath);
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: {
+              exported: true,
+              taskCount: snapshot._meta.taskCount,
+              outputPath,
+              checksum: snapshot._meta.checksum,
+            },
+          };
+        }
+
+        case 'export.tasks': {
+          const result = await exportTasksPackage({
+            taskIds: params?.taskIds as string[] | undefined,
+            output: params?.output as string | undefined,
+            subtree: params?.subtree as boolean | undefined,
+            filter: params?.filter as string[] | undefined,
+            includeDeps: params?.includeDeps as boolean | undefined,
+            dryRun: params?.dryRun as boolean | undefined,
+            cwd: this.projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         default:
           return this.unsupported('query', 'admin', operation, startTime);
       }
@@ -335,6 +407,17 @@ export class AdminHandler implements DomainHandler {
             return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'backupId is required', startTime);
           }
           const result = systemRestore(this.projectRoot, { backupId, force: params?.force as boolean | undefined });
+          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
+        case 'backup.restore': {
+          const file = params?.file as string;
+          if (!file) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
+          }
+          const result = await backupRestore(this.projectRoot, file, {
+            dryRun: params?.dryRun as boolean | undefined,
+          });
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
@@ -422,6 +505,89 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'sync.clear': {
+          const result = await clearSyncState(this.projectRoot, params?.dryRun as boolean | undefined);
+          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
+        case 'import': {
+          const file = params?.file as string;
+          if (!file) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
+          }
+          const result = await importTasks({
+            file,
+            parent: params?.parent as string | undefined,
+            phase: params?.phase as string | undefined,
+            onDuplicate: params?.onDuplicate as 'skip' | 'overwrite' | 'rename' | undefined,
+            addLabel: params?.addLabel as string | undefined,
+            dryRun: params?.dryRun as boolean | undefined,
+            cwd: this.projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'snapshot.import': {
+          const file = params?.file as string;
+          if (!file) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
+          }
+          const snapshot = await readSnapshot(file);
+          if (params?.dryRun) {
+            return {
+              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+              success: true,
+              data: {
+                dryRun: true,
+                source: snapshot._meta.source,
+                taskCount: snapshot._meta.taskCount,
+                createdAt: snapshot._meta.createdAt,
+              },
+            };
+          }
+          const result = await importSnapshot(snapshot, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: true,
+            data: {
+              imported: true,
+              added: result.added,
+              updated: result.updated,
+              skipped: result.skipped,
+              conflicts: result.conflicts.length > 0 ? result.conflicts : undefined,
+            },
+          };
+        }
+
+        case 'import.tasks': {
+          const file = params?.file as string;
+          if (!file) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
+          }
+          const result = await importTasksPackage({
+            file,
+            dryRun: params?.dryRun as boolean | undefined,
+            parent: params?.parent as string | undefined,
+            phase: params?.phase as string | undefined,
+            addLabel: params?.addLabel as string | undefined,
+            provenance: params?.provenance as boolean | undefined,
+            resetStatus: params?.resetStatus as 'pending' | 'active' | 'blocked' | undefined,
+            onConflict: params?.onConflict as 'duplicate' | 'rename' | 'skip' | 'fail' | undefined,
+            onMissingDep: params?.onMissingDep as 'strip' | 'placeholder' | 'fail' | undefined,
+            force: params?.force as boolean | undefined,
+            cwd: this.projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         default:
           return this.unsupported('mutate', 'admin', operation, startTime);
       }
@@ -440,11 +606,12 @@ export class AdminHandler implements DomainHandler {
         'version', 'health', 'doctor', 'config.show', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
+        'sync.status', 'export', 'snapshot.export', 'export.tasks',
       ],
       mutate: [
-        'init', 'fix', 'config.set', 'backup', 'restore', 'migrate',
-        'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
-        'adr.sync', 'adr.validate',
+        'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
+        'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
+        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks',
       ],
     };
   }

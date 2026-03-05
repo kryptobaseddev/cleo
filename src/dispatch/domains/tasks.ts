@@ -36,6 +36,9 @@ import {
   taskRelatesAdd,
   taskAnalyze,
   taskRestore,
+  taskReopen,
+  taskCancel,
+  taskUnarchive,
   taskReorder,
   taskReparent,
   taskPromote,
@@ -316,6 +319,39 @@ export class TasksHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
         }
 
+        case 'cancel': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          }
+          const result = await taskCancel(this.projectRoot, taskId, params?.reason as string | undefined);
+          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+        }
+
+        case 'reopen': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          }
+          const result = await taskReopen(this.projectRoot, taskId, {
+            status: params?.status as string | undefined,
+            reason: params?.reason as string | undefined,
+          });
+          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+        }
+
+        case 'unarchive': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return this.errorResponse('mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          }
+          const result = await taskUnarchive(this.projectRoot, taskId, {
+            status: params?.status as string | undefined,
+            preserveStatus: params?.preserveStatus as boolean | undefined,
+          });
+          return this.wrapEngineResult(result, 'mutate', 'tasks', operation, startTime);
+        }
+
         case 'reparent': {
           const taskId = params?.taskId as string;
           if (!taskId) {
@@ -403,7 +439,8 @@ export class TasksHandler implements DomainHandler {
         'label.list', 'label.show',
       ],
       mutate: [
-        'add', 'update', 'complete', 'delete', 'archive', 'restore',
+        'add', 'update', 'complete', 'cancel', 'delete', 'archive', 'restore',
+        'reopen', 'unarchive',
         'reparent', 'promote', 'reorder', 'relates.add',
         'start', 'stop',
       ],

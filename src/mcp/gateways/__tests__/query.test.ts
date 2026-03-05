@@ -72,16 +72,16 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('memory')).toBe(12);
     });
 
-    it('pipeline domain should have 10 operations', () => {
-      expect(getQueryOperationCount('pipeline')).toBe(10);
+    it('pipeline domain should have 12 operations', () => {
+      expect(getQueryOperationCount('pipeline')).toBe(12);
     });
 
-    it('check domain should have 10 operations', () => {
-      expect(getQueryOperationCount('check')).toBe(10);
+    it('check domain should have 16 operations', () => {
+      expect(getQueryOperationCount('check')).toBe(16);
     });
 
-    it('admin domain should have 19 operations', () => {
-      expect(getQueryOperationCount('admin')).toBe(19);
+    it('admin domain should have 23 operations', () => {
+      expect(getQueryOperationCount('admin')).toBe(23);
     });
   });
 
@@ -132,7 +132,7 @@ describe('Query Gateway', () => {
 
     it('should reject all legacy domain aliases with E_INVALID_DOMAIN', () => {
       const legacyDomains = [
-        'sharing', 'research', 'validate', 'lifecycle',
+        'research', 'validate', 'lifecycle',
         'release', 'system', 'issues', 'skills', 'providers', 'brain',
       ];
 

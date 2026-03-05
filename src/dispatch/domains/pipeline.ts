@@ -39,6 +39,20 @@ import {
 } from '../lib/engine.js';
 
 import {
+  showPhase,
+  listPhases,
+} from '../../core/pipeline/phase.js';
+
+import {
+  setPhase,
+  startPhase,
+  completePhase,
+  advancePhase,
+  renamePhase,
+  deletePhase,
+} from '../../core/phases/index.js';
+
+import {
   pipelineManifestShow,
   pipelineManifestList,
   pipelineManifestFind,
@@ -80,6 +94,11 @@ export class PipelineHandler implements DomainHandler {
         return this.queryManifest(operation.slice('manifest.'.length), params, startTime);
       }
 
+      // Phase sub-domain
+      if (operation.startsWith('phase.')) {
+        return this.queryPhase(operation.slice('phase.'.length), params, startTime);
+      }
+
       return this.errorResponse('query', operation, 'E_INVALID_OPERATION',
         `Unknown pipeline query: ${operation}`, startTime);
     } catch (error) {
@@ -109,6 +128,11 @@ export class PipelineHandler implements DomainHandler {
         return this.mutateManifest(operation.slice('manifest.'.length), params, startTime);
       }
 
+      // Phase sub-domain
+      if (operation.startsWith('phase.')) {
+        return this.mutatePhase(operation.slice('phase.'.length), params, startTime);
+      }
+
       return this.errorResponse('mutate', operation, 'E_INVALID_OPERATION',
         `Unknown pipeline mutation: ${operation}`, startTime);
     } catch (error) {
@@ -123,6 +147,7 @@ export class PipelineHandler implements DomainHandler {
         'stage.gates', 'stage.prerequisites',
         'manifest.show', 'manifest.list', 'manifest.find',
         'manifest.pending', 'manifest.stats',
+        'phase.show', 'phase.list',
       ],
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
@@ -131,6 +156,8 @@ export class PipelineHandler implements DomainHandler {
         'release.tag', 'release.push', 'release.gates.run',
         'release.rollback',
         'manifest.append', 'manifest.archive',
+        'phase.set', 'phase.start', 'phase.complete',
+        'phase.advance', 'phase.rename', 'phase.delete',
       ],
     };
   }
@@ -422,6 +449,29 @@ export class PipelineHandler implements DomainHandler {
     }
   }
 
+  private async queryPhase(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    switch (sub) {
+      case 'show': {
+        const phaseId = params?.phaseId as string | undefined;
+        const result = await showPhase(this.projectRoot, phaseId);
+        return this.wrapEngineResult(result, 'query', 'phase.show', startTime);
+      }
+
+      case 'list': {
+        const result = await listPhases(this.projectRoot);
+        return this.wrapEngineResult(result, 'query', 'phase.list', startTime);
+      }
+
+      default:
+        return this.errorResponse('query', `phase.${sub}`, 'E_INVALID_OPERATION',
+          `Unknown phase query: ${sub}`, startTime);
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Manifest mutations
   // -----------------------------------------------------------------------
@@ -451,6 +501,87 @@ export class PipelineHandler implements DomainHandler {
       default:
         return this.errorResponse('mutate', `manifest.${sub}`, 'E_INVALID_OPERATION',
           `Unknown manifest mutation: ${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Phase mutations (T5326)
+  // -----------------------------------------------------------------------
+
+  private async mutatePhase(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    switch (sub) {
+      case 'set': {
+        const phaseId = params?.phaseId as string;
+        if (!phaseId) {
+          return this.errorResponse('mutate', 'phase.set', 'E_INVALID_INPUT',
+            'phaseId is required', startTime);
+        }
+        const data = await setPhase({
+          slug: phaseId,
+          rollback: params?.rollback as boolean | undefined,
+          force: params?.force as boolean | undefined,
+          dryRun: params?.dryRun as boolean | undefined,
+        }, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.set', startTime);
+      }
+
+      case 'start': {
+        const phaseId = params?.phaseId as string;
+        if (!phaseId) {
+          return this.errorResponse('mutate', 'phase.start', 'E_INVALID_INPUT',
+            'phaseId is required', startTime);
+        }
+        const data = await startPhase(phaseId, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.start', startTime);
+      }
+
+      case 'complete': {
+        const phaseId = params?.phaseId as string;
+        if (!phaseId) {
+          return this.errorResponse('mutate', 'phase.complete', 'E_INVALID_INPUT',
+            'phaseId is required', startTime);
+        }
+        const data = await completePhase(phaseId, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.complete', startTime);
+      }
+
+      case 'advance': {
+        const force = params?.force as boolean | undefined;
+        const data = await advancePhase(force, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.advance', startTime);
+      }
+
+      case 'rename': {
+        const oldName = params?.oldName as string;
+        const newName = params?.newName as string;
+        if (!oldName || !newName) {
+          return this.errorResponse('mutate', 'phase.rename', 'E_INVALID_INPUT',
+            'oldName and newName are required', startTime);
+        }
+        const data = await renamePhase(oldName, newName, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.rename', startTime);
+      }
+
+      case 'delete': {
+        const phaseId = params?.phaseId as string;
+        if (!phaseId) {
+          return this.errorResponse('mutate', 'phase.delete', 'E_INVALID_INPUT',
+            'phaseId is required', startTime);
+        }
+        const data = await deletePhase(phaseId, {
+          reassignTo: params?.reassignTo as string | undefined,
+          force: params?.force as boolean | undefined,
+        }, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.delete', startTime);
+      }
+
+      default:
+        return this.errorResponse('mutate', `phase.${sub}`, 'E_INVALID_OPERATION',
+          `Unknown phase mutation: ${sub}`, startTime);
     }
   }
 

@@ -117,9 +117,9 @@ describe('Group 1: Registry completeness', () => {
     const queryCount = OPERATIONS.filter(o => o.gateway === 'query').length;
     const mutateCount = OPERATIONS.filter(o => o.gateway === 'mutate').length;
 
-    expect(queryCount).toBe(118);
-    expect(mutateCount).toBe(89);
-    expect(OPERATIONS.length).toBe(207);
+    expect(queryCount).toBe(132);
+    expect(mutateCount).toBe(102);
+    expect(OPERATIONS.length).toBe(234);
   });
 
   it('all operations have valid gateway values', () => {

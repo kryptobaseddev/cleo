@@ -102,8 +102,8 @@ All operation names MUST use canonical verbs as defined in `docs/specs/VERB-STAN
 | `validate` | Validate compliance/schema | `pipeline.stage.validate`, `check.schema` |
 | `timeline` | Chronological context retrieval | `memory.timeline` |
 | `convert` | Transform entity type | `sticky.convert` |
-| `unlink` | Dissociate entities | `memory.unlink` (planned) |
-| `compute` | Compute derived values | `orchestrate.compute` (planned) |
+| `unlink` | Dissociate entities | `memory.unlink` |
+| `compute` | Compute derived values | Reserved — not yet in registry |
 
 > **Note**: `unlink` and `compute` are spec-ahead -- documented in the Constitution for completeness, not yet in registry.
 
@@ -142,7 +142,7 @@ interface OperationDef {
 
 ## 6. Domain Operation Tables
 
-### 6.1 tasks (27 operations)
+### 6.1 tasks (28 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -164,6 +164,7 @@ interface OperationDef {
 | mutate | `add` | Create new task | 0 | -- | No |
 | mutate | `update` | Modify task properties (`status=done` MUST route to completion semantics) | 0 | -- | No |
 | mutate | `complete` | Canonical completion path (deps, acceptance policy, verification gates) | 0 | -- | No |
+| mutate | `cancel` | Cancel task (soft terminal state — reversible via `restore`) | 0 | `taskId` | No |
 | mutate | `delete` | Permanently remove task | 0 | -- | No |
 | mutate | `archive` | Soft-delete task to archive | 0 | -- | No |
 | mutate | `restore` | Restore task from terminal state | 0 | -- | No |
@@ -198,7 +199,7 @@ interface OperationDef {
 | mutate | `record.assumption` | Record an assumption in current session | 0 | -- | No |
 | mutate | `context.inject` | Inject protocol content into session context | 1 | `protocolType` | Yes |
 
-### 6.3 memory (17 operations)
+### 6.3 memory (18 operations)
 
 All memory operations target **brain.db** (SQLite with FTS5). The memory domain is the runtime interface to the BRAIN cognitive system.
 
@@ -221,6 +222,7 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 | mutate | `pattern.store` | Store reusable workflow or anti-pattern | 1 | `pattern`, `context` | No |
 | mutate | `learning.store` | Store insight or lesson learned | 1 | `insight`, `source` | No |
 | mutate | `link` | Link brain entry to task | 1 | `taskId`, `entryId` | No |
+| mutate | `unlink` | Remove link between brain entry and task | 1 | `taskId`, `entryId` | Yes |
 
 ### 6.4 check (12 operations)
 
@@ -413,9 +415,9 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
-| tasks | 15 | 12 | 27 |
+| tasks | 15 | 13 | 28 |
 | session | 11 | 8 | 19 |
-| memory | 12 | 5 | 17 |
+| memory | 12 | 6 | 18 |
 | check | 10 | 2 | 12 |
 | pipeline | 10 | 14 | 24 |
 | orchestrate | 9 | 6 | 15 |
@@ -423,7 +425,7 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 | admin | 19 | 15 | 34 |
 | nexus | 9 | 13 | 22 |
 | sticky | 2 | 3 | 5 |
-| **Total** | **118** | **89** | **207** |
+| **Total** | **118** | **91** | **209** |
 
 ---
 

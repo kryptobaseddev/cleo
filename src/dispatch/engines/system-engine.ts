@@ -1044,6 +1044,71 @@ export function systemRestore(
   }
 }
 
+/**
+ * Restore an individual file from backup.
+ * @task T5329
+ */
+export async function backupRestore(
+  projectRoot: string,
+  fileName: string,
+  options?: { dryRun?: boolean },
+): Promise<EngineResult<{ restored: boolean; file: string; from: string; targetPath: string; dryRun?: boolean }>> {
+  try {
+    const { getBackupDir, getTaskPath, getConfigPath } = await import('../../core/paths.js');
+    const { restoreFromBackup, listBackups } = await import('../../store/backup.js');
+
+    const backupDir = getBackupDir(projectRoot);
+
+    const targetPathMap: Record<string, () => string> = {
+      'tasks.db': getTaskPath,
+      'config.json': getConfigPath,
+    };
+
+    const pathGetter = targetPathMap[fileName];
+    if (!pathGetter) {
+      return engineError('E_INVALID_INPUT', `Unknown file: ${fileName}. Valid files: tasks.db, config.json`);
+    }
+
+    const targetPath = pathGetter();
+
+    const backups = await listBackups(fileName, backupDir);
+    if (backups.length === 0) {
+      return engineError('E_NOT_FOUND', `No backups found for ${fileName}`);
+    }
+
+    if (options?.dryRun) {
+      return {
+        success: true,
+        data: {
+          restored: false,
+          file: fileName,
+          from: backups[0]!,
+          targetPath,
+          dryRun: true,
+        },
+      };
+    }
+
+    const restoredFrom = await restoreFromBackup(fileName, backupDir, targetPath);
+
+    return {
+      success: true,
+      data: {
+        restored: true,
+        file: fileName,
+        from: restoredFrom,
+        targetPath,
+      },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('not found') || message.includes('No backups')) {
+      return engineError('E_NOT_FOUND', message);
+    }
+    return engineError('E_GENERAL', `Backup restore failed: ${message}`);
+  }
+}
+
 // ===== Migrate =====
 
 /**

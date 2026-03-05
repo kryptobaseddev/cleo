@@ -14,6 +14,7 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
+import { cancelTask } from './cancel-ops.js';
 import { readJsonFile as storeReadJsonFile, getDataPath } from '../../store/file-utils.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
 import { depsReady } from './deps-ready.js';
@@ -684,6 +685,44 @@ export async function coreTaskRestore(
   }
 
   return { task: taskId, restored, count: restored.length };
+}
+
+// ============================================================================
+// taskCancel
+// ============================================================================
+
+/**
+ * Cancel a task (sets status to 'cancelled', a soft terminal state).
+ * Use restore to reverse. Use delete for permanent removal.
+ * @task T4529
+ */
+export async function coreTaskCancel(
+  projectRoot: string,
+  taskId: string,
+  params?: { reason?: string },
+): Promise<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }> {
+  const accessor = await getAccessor(projectRoot);
+  const current = await accessor.loadTaskFile();
+  if (!current || !current.tasks) {
+    throw new Error('No valid task data found');
+  }
+
+  const { tasks: updatedTasks, result } = cancelTask(taskId, current.tasks as Parameters<typeof cancelTask>[1], params?.reason);
+
+  if (!result.success) {
+    throw new Error(result.error!.message);
+  }
+
+  current.tasks = updatedTasks as typeof current.tasks;
+
+  const cancelledTask = updatedTasks.find((t) => t.id === taskId);
+  if (cancelledTask && accessor.upsertSingleTask) {
+    await accessor.upsertSingleTask(cancelledTask as Parameters<typeof accessor.upsertSingleTask>[0]);
+  } else {
+    await accessor.saveTaskFile(current);
+  }
+
+  return { task: taskId, cancelled: true, reason: result.reason, cancelledAt: result.cancelledAt! };
 }
 
 // ============================================================================

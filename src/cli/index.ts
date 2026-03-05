@@ -41,7 +41,7 @@ class GroupedHelp extends Help {
       'research', 'extract', 'web', 'docs'
     ],
     'Nexus': [
-      'nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'sharing', 'export', 'import'
+      'nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'export', 'import'
     ],
     'Admin': [
       'config', 'backup', 'export-tasks', 'import-tasks',
@@ -271,9 +271,6 @@ import { registerOpsCommand } from './commands/ops.js';
 // T4882: Multi-contributor snapshot
 import { registerSnapshotCommand } from './commands/snapshot.js';
 
-// T4883: Config-driven sharing allowlist
-import { registerSharingCommand } from './commands/sharing.js';
-
 // T4884: .cleo/.git remote push/pull
 import { registerRemoteCommand } from './commands/remote.js';
 
@@ -483,9 +480,6 @@ registerOpsCommand(program);
 
 // T4882: Multi-contributor snapshot export/import
 registerSnapshotCommand(program);
-
-// T4883: Config-driven sharing allowlist
-registerSharingCommand(program);
 
 // T4884: .cleo/.git remote push/pull
 registerRemoteCommand(program);

@@ -38,6 +38,7 @@ import {
   memoryContradictions,
   memorySuperseded,
   memoryLink,
+  memoryUnlink,
 } from '../../core/memory/engine-compat.js';
 
 // ---------------------------------------------------------------------------
@@ -301,6 +302,19 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
+        case 'unlink': {
+          const taskId = params?.taskId as string;
+          const entryId = params?.entryId as string;
+          if (!taskId || !entryId) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'taskId and entryId are required', startTime);
+          }
+          const result = await memoryUnlink(
+            { taskId, entryId },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
         default:
           return this.unsupported('mutate', 'memory', operation, startTime);
       }
@@ -316,7 +330,7 @@ export class MemoryHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['show', 'find', 'timeline', 'fetch', 'stats', 'contradictions', 'superseded', 'decision.find', 'pattern.find', 'pattern.stats', 'learning.find', 'learning.stats'],
-      mutate: ['observe', 'decision.store', 'pattern.store', 'learning.store', 'link'],
+      mutate: ['observe', 'decision.store', 'pattern.store', 'learning.store', 'link', 'unlink'],
     };
   }
 

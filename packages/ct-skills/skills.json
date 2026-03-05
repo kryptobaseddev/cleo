@@ -258,7 +258,7 @@
       "license": "MIT",
       "metadata": {
         "concepts": ["LOOM", "RCASD-IVTR+C", "lifecycle pipeline", "neural hierarchy", "brain metaphor"],
-        "domains": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sharing"]
+        "domains": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sticky"]
       }
     }
   ]

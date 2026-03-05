@@ -26,27 +26,26 @@ import { CANONICAL_DOMAINS, type CanonicalDomain } from '../../src/dispatch/type
 // Constants — update these ONLY when operations are intentionally changed
 // ===========================================================================
 
-const EXPECTED_TOTAL = 207;
-const EXPECTED_QUERY = 118;
-const EXPECTED_MUTATE = 89;
+const EXPECTED_TOTAL = 234;
+const EXPECTED_QUERY = 132;
+const EXPECTED_MUTATE = 102;
 
 const EXPECTED_DOMAIN_COUNTS: Record<string, { query: number; mutate: number; total: number }> = {
-  tasks:       { query: 15, mutate: 12, total: 27 },
+  tasks:       { query: 15, mutate: 14, total: 29 },
   session:     { query: 11, mutate:  8, total: 19 },
   memory:      { query: 12, mutate:  5, total: 17 },
-  check:       { query: 10, mutate:  2, total: 12 },
-  pipeline:    { query: 10, mutate: 14, total: 24 },
+  check:       { query: 16, mutate:  2, total: 18 },
+  pipeline:    { query: 12, mutate: 20, total: 32 },
   orchestrate: { query:  9, mutate:  6, total: 15 },
   tools:       { query: 21, mutate: 11, total: 32 },
-  admin:       { query: 19, mutate: 15, total: 34 },
-  nexus:       { query:  9, mutate: 13, total: 22 },
+  admin:       { query: 23, mutate: 20, total: 43 },
+  nexus:       { query: 11, mutate: 13, total: 24 },
   sticky:      { query:  2, mutate:  3, total:  5 },
 };
 
 /** Aliases removed in T5245 — must never reappear. */
 const REMOVED_ALIASES = [
   'admin.config.get',
-  'tasks.reopen',
   'tools.issue.create.bug',
   'tools.issue.create.feature',
   'tools.issue.create.help',

@@ -83,15 +83,16 @@ describe('AdminHandler', () => {
         'version', 'health', 'doctor', 'config.show', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
+        'sync.status', 'export', 'snapshot.export', 'export.tasks',
       ]);
     });
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'init', 'fix', 'config.set', 'backup', 'restore', 'migrate',
-        'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
-        'adr.sync', 'adr.validate',
+        'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
+        'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
+        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks',
       ]);
     });
   });

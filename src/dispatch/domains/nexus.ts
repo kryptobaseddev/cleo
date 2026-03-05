@@ -30,6 +30,7 @@ import {
 
 import {
   resolveTask,
+  parseQuery,
   validateSyntax,
 } from '../../core/nexus/query.js';
 
@@ -41,6 +42,8 @@ import {
 import {
   setPermission,
 } from '../../core/nexus/permissions.js';
+
+import { getAccessor } from '../../store/data-accessor.js';
 
 // Sharing core imports (merged from sharing domain)
 import {
@@ -143,6 +146,37 @@ export class NexusHandler implements DomainHandler {
         case 'graph': {
           const graph = await buildGlobalGraph();
           return this.successResponse('query', operation, startTime, graph);
+        }
+
+        case 'discover': {
+          const query = params?.query as string;
+          if (!query) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          }
+          const method = (params?.method as string) ?? 'auto';
+          const limit = (params?.limit as number) ?? 10;
+          const results = await this.discoverRelatedTasks(query, method, limit);
+          return this.successResponse('query', operation, startTime, {
+            query,
+            method,
+            results,
+            total: results.length,
+          });
+        }
+
+        case 'search': {
+          const pattern = params?.pattern as string;
+          if (!pattern) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'pattern is required', startTime);
+          }
+          const projectFilter = params?.project as string | undefined;
+          const limit = (params?.limit as number) ?? 20;
+          const results = await this.searchAcrossProjects(pattern, projectFilter, limit);
+          return this.successResponse('query', operation, startTime, {
+            pattern,
+            results,
+            resultCount: results.length,
+          });
         }
 
         // Sharing sub-operations (T5277)
@@ -374,7 +408,7 @@ export class NexusHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'status', 'list', 'show', 'query', 'deps', 'graph',
+        'status', 'list', 'show', 'query', 'deps', 'graph', 'discover', 'search',
         // Sharing sub-operations (T5277)
         'share.status', 'share.remotes', 'share.sync.status',
       ],
@@ -389,6 +423,194 @@ export class NexusHandler implements DomainHandler {
 
   // -----------------------------------------------------------------------
   // Helpers
+  // -----------------------------------------------------------------------
+
+  // -----------------------------------------------------------------------
+  // Discovery & Search engines (moved from CLI, T5323/T5330)
+  // -----------------------------------------------------------------------
+
+  private async discoverRelatedTasks(
+    taskQuery: string,
+    method: string,
+    limit: number,
+  ): Promise<Array<{ project: string; taskId: string; title: string; score: number; type: string; reason: string }>> {
+    if (!validateSyntax(taskQuery)) {
+      throw new Error(`Invalid query syntax: ${taskQuery}. Expected: T001, project:T001, .:T001, or *:T001`);
+    }
+
+    const sourceTask = await resolveTask(taskQuery);
+    if (Array.isArray(sourceTask)) {
+      throw new Error('Wildcard queries not supported for discovery. Specify a single task.');
+    }
+
+    const sourceLabels = new Set(sourceTask.labels ?? []);
+    const sourceDesc = (sourceTask.description ?? '').toLowerCase();
+    const sourceTitle = (sourceTask.title ?? '').toLowerCase();
+    const sourceWords = this.extractKeywords(sourceTitle + ' ' + sourceDesc);
+    const parsed = parseQuery(taskQuery);
+
+    const registry = await readRegistry();
+    if (!registry) return [];
+
+    const candidates: Array<{ project: string; taskId: string; title: string; score: number; type: string; reason: string }> = [];
+
+    for (const project of Object.values(registry.projects)) {
+      let tasks: Array<{ id: string; title: string; description?: string; labels?: string[]; status: string }>;
+      try {
+        const accessor = await getAccessor(project.path);
+        const data = await accessor.loadTaskFile();
+        tasks = data.tasks ?? [];
+      } catch {
+        continue;
+      }
+
+      for (const task of tasks) {
+        if (task.id === parsed.taskId && project.name === parsed.project) continue;
+
+        let score = 0;
+        let matchType = 'none';
+        let reason = '';
+
+        if (method === 'labels' || method === 'auto') {
+          const taskLabels = task.labels ?? [];
+          const overlap = taskLabels.filter(l => sourceLabels.has(l));
+          if (overlap.length > 0) {
+            const labelScore = overlap.length / Math.max(sourceLabels.size, taskLabels.length, 1);
+            if (method === 'labels' || labelScore > score) {
+              score = Math.max(score, labelScore);
+              matchType = 'labels';
+              reason = `Shared labels: ${overlap.join(', ')}`;
+            }
+          }
+        }
+
+        if (method === 'description' || method === 'auto') {
+          const taskDesc = ((task.description ?? '') + ' ' + (task.title ?? '')).toLowerCase();
+          const taskWords = this.extractKeywords(taskDesc);
+          const commonWords = sourceWords.filter(w => taskWords.includes(w));
+          if (commonWords.length > 0) {
+            const descScore = commonWords.length / Math.max(sourceWords.length, taskWords.length, 1);
+            if (descScore > score) {
+              score = descScore;
+              matchType = 'description';
+              reason = `Keyword match: ${commonWords.slice(0, 5).join(', ')}`;
+            }
+          }
+        }
+
+        if (score > 0) {
+          candidates.push({
+            project: project.name,
+            taskId: task.id,
+            title: task.title,
+            score: Math.round(score * 100) / 100,
+            type: matchType,
+            reason,
+          });
+        }
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates.slice(0, limit);
+  }
+
+  private async searchAcrossProjects(
+    pattern: string,
+    projectFilter?: string,
+    limit = 20,
+  ): Promise<Array<{ id: string; title: string; status: string; priority?: string; description?: string; _project: string }>> {
+    // Handle wildcard query syntax (*:T001) - delegate to resolveTask
+    if (/^\*:.+$/.test(pattern)) {
+      try {
+        const result = await resolveTask(pattern);
+        const tasks = Array.isArray(result) ? result : [result];
+        return tasks.slice(0, limit).map(t => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          description: t.description,
+          _project: t._project,
+        }));
+      } catch {
+        // Fall through to pattern search if resolveTask fails
+      }
+    }
+
+    const registry = await readRegistry();
+    if (!registry) return [];
+
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    const regexPattern = escaped.replace(/\*/g, '.*');
+    let regex: RegExp;
+    try {
+      regex = new RegExp(regexPattern, 'i');
+    } catch {
+      throw new Error(`Invalid search pattern: ${pattern}`);
+    }
+
+    const results: Array<{ id: string; title: string; status: string; priority?: string; description?: string; _project: string }> = [];
+    const projectEntries = projectFilter
+      ? Object.values(registry.projects).filter(p => p.name === projectFilter)
+      : Object.values(registry.projects);
+
+    if (projectFilter && projectEntries.length === 0) {
+      throw new Error(`Project not found in registry: ${projectFilter}`);
+    }
+
+    for (const project of projectEntries) {
+      let tasks: Array<{ id: string; title: string; description?: string; status: string; priority?: string }>;
+      try {
+        const accessor = await getAccessor(project.path);
+        const data = await accessor.loadTaskFile();
+        tasks = data.tasks ?? [];
+      } catch {
+        continue;
+      }
+
+      for (const task of tasks) {
+        const matchesId = regex.test(task.id);
+        const matchesTitle = regex.test(task.title);
+        const matchesDesc = regex.test(task.description ?? '');
+
+        if (matchesId || matchesTitle || matchesDesc) {
+          results.push({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            priority: task.priority,
+            description: task.description,
+            _project: project.name,
+          });
+        }
+      }
+    }
+
+    return results.slice(0, limit);
+  }
+
+  private extractKeywords(text: string): string[] {
+    const stopWords = new Set([
+      'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+      'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'to', 'of',
+      'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through',
+      'during', 'before', 'after', 'above', 'below', 'and', 'but', 'or', 'nor',
+      'not', 'so', 'yet', 'both', 'either', 'neither', 'each', 'every', 'all',
+      'any', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'only',
+      'own', 'same', 'than', 'too', 'very', 'just', 'because', 'if', 'when',
+      'this', 'that', 'these', 'those', 'it', 'its',
+    ]);
+
+    return text
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w));
+  }
+
+  // -----------------------------------------------------------------------
+  // Response helpers
   // -----------------------------------------------------------------------
 
   private successResponse(
