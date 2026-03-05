@@ -26,9 +26,9 @@ import { CANONICAL_DOMAINS, type CanonicalDomain } from '../../src/dispatch/type
 // Constants — update these ONLY when operations are intentionally changed
 // ===========================================================================
 
-const EXPECTED_TOTAL = 238;
-const EXPECTED_QUERY = 134;
-const EXPECTED_MUTATE = 104;
+const EXPECTED_TOTAL = 247;
+const EXPECTED_QUERY = 140;
+const EXPECTED_MUTATE = 107;
 
 const EXPECTED_DOMAIN_COUNTS: Record<string, { query: number; mutate: number; total: number }> = {
   tasks:       { query: 17, mutate: 15, total: 32 },
@@ -36,11 +36,11 @@ const EXPECTED_DOMAIN_COUNTS: Record<string, { query: number; mutate: number; to
   memory:      { query: 12, mutate:  6, total: 18 },
   check:       { query: 16, mutate:  2, total: 18 },
   pipeline:    { query: 12, mutate: 20, total: 32 },
-  orchestrate: { query:  9, mutate:  6, total: 15 },
+  orchestrate: { query:  9, mutate:  7, total: 16 },
   tools:       { query: 21, mutate: 11, total: 32 },
   admin:       { query: 23, mutate: 20, total: 43 },
-  nexus:       { query: 11, mutate: 13, total: 24 },
-  sticky:      { query:  2, mutate:  3, total:  5 },
+  nexus:       { query: 17, mutate: 14, total: 31 },
+  sticky:      { query:  2, mutate:  4, total:  6 },
 };
 
 /** Aliases removed in T5245 — must never reappear. */

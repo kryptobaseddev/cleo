@@ -1,23 +1,28 @@
 /**
  * NEXUS project registry - cross-project registration and management.
  *
- * Manages the global project registry at ~/.cleo/projects-registry.json.
- * Supports registering, unregistering, listing, and syncing projects
- * for cross-project task coordination.
+ * SQLite-backed via nexus.db (Drizzle ORM). The global project registry
+ * is stored in ~/.cleo/nexus.db in the project_registry table.
  *
- * @task T4574
+ * Legacy JSON backend (projects-registry.json) is migrated on first init
+ * via migrate-json-to-sqlite.ts.
+ *
+ * @task T5366
  * @epic T4540
  */
 
-import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { z } from 'zod';
+import { eq, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../paths.js';
-import { readJson, saveJson } from '../../store/json.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { generateProjectHash } from './hash.js';
+import { getNexusDb, resetNexusDbState } from '../../store/nexus-sqlite.js';
+import { projectRegistry } from '../../store/nexus-schema.js';
+import type { ProjectRegistryRow } from '../../store/nexus-schema.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
@@ -29,6 +34,7 @@ export type NexusHealthStatus = z.infer<typeof NexusHealthStatusSchema>;
 
 export const NexusProjectSchema = z.object({
   hash: z.string().regex(/^[a-f0-9]{12}$/),
+  projectId: z.string().default(''),
   path: z.string().min(1),
   name: z.string().min(1).max(64),
   registeredAt: z.string(),
@@ -62,36 +68,70 @@ export function getNexusCacheDir(): string {
   return process.env['NEXUS_CACHE_DIR'] ?? join(getNexusHome(), 'cache');
 }
 
-/** Get path to the unified projects registry file. */
+/**
+ * Get path to the legacy projects registry JSON file.
+ * @deprecated Use nexus.db via getNexusDb() instead. Retained for JSON-to-SQLite migration.
+ */
 export function getRegistryPath(): string {
   return process.env['NEXUS_REGISTRY_FILE'] ?? join(getCleoHome(), 'projects-registry.json');
 }
 
-// ── Hash ─────────────────────────────────────────────────────────────
+// ── Row-to-NexusProject mapping ─────────────────────────────────────
 
-/**
- * Generate a 12-character hex hash from a project path.
- * Matches Bash CLI's generate_project_hash() behavior.
- */
-export function generateProjectHash(projectPath: string): string {
-  const hash = createHash('sha256').update(projectPath).digest('hex');
-  return hash.substring(0, 12);
+/** Convert a project_registry row to a NexusProject object. */
+function rowToProject(row: ProjectRegistryRow): NexusProject {
+  let labels: string[] = [];
+  try {
+    labels = JSON.parse(row.labelsJson);
+  } catch {
+    labels = [];
+  }
+  return {
+    hash: row.projectHash,
+    projectId: row.projectId,
+    path: row.projectPath,
+    name: row.name,
+    registeredAt: row.registeredAt,
+    lastSeen: row.lastSeen,
+    healthStatus: row.healthStatus as NexusHealthStatus,
+    healthLastCheck: row.healthLastCheck ?? null,
+    permissions: row.permissions as NexusPermissionLevel,
+    lastSync: row.lastSync,
+    taskCount: row.taskCount,
+    labels,
+  };
 }
 
 // ── Registry operations ──────────────────────────────────────────────
 
 /**
- * Read the global registry file.
- * Returns null if the file does not exist.
+ * Read all projects from nexus.db and return as a NexusRegistryFile.
+ * Compatibility wrapper for consumers that expect the legacy JSON shape.
+ * Returns null if nexus.db has not been initialized yet.
  */
 export async function readRegistry(): Promise<NexusRegistryFile | null> {
-  const data = await readJson<NexusRegistryFile>(getRegistryPath());
-  if (!data) return null;
-  return NexusRegistryFileSchema.parse(data);
+  try {
+    const db = await getNexusDb();
+    const rows = await db.select().from(projectRegistry);
+    const projects: Record<string, NexusProject> = {};
+    let latestUpdate = '';
+    for (const row of rows) {
+      const p = rowToProject(row);
+      projects[p.hash] = p;
+      if (p.lastSeen > latestUpdate) latestUpdate = p.lastSeen;
+    }
+    return {
+      schemaVersion: '1.0.0',
+      lastUpdated: latestUpdate || new Date().toISOString(),
+      projects,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Read the global registry file, throwing if it does not exist.
+ * Read the global registry, throwing if not initialized.
  */
 export async function readRegistryRequired(): Promise<NexusRegistryFile> {
   const registry = await readRegistry();
@@ -106,29 +146,27 @@ export async function readRegistryRequired(): Promise<NexusRegistryFile> {
 }
 
 /**
- * Initialize the NEXUS directory structure and registry file.
+ * Initialize the NEXUS directory structure and nexus.db.
  * Idempotent -- safe to call multiple times.
+ * Migrates legacy JSON registry on first run if present.
  */
 export async function nexusInit(): Promise<void> {
   const nexusHome = getNexusHome();
   const cacheDir = getNexusCacheDir();
-  const registryPath = getRegistryPath();
 
   // Create directories
   await mkdir(nexusHome, { recursive: true });
   await mkdir(cacheDir, { recursive: true });
 
-  // Create empty registry if it doesn't exist
-  const existing = await readJson(registryPath);
-  if (!existing) {
-    const now = new Date().toISOString();
-    const registry: NexusRegistryFile = {
-      $schema: './schemas/projects-registry.schema.json',
-      schemaVersion: '1.0.0',
-      lastUpdated: now,
-      projects: {},
-    };
-    await saveJson(registryPath, registry);
+  // Initialize nexus.db (runs migrations)
+  await getNexusDb();
+
+  // Migrate legacy JSON if nexus.db is empty and JSON exists
+  const db = await getNexusDb();
+  const existing = await db.select().from(projectRegistry);
+  if (existing.length === 0) {
+    const { migrateJsonToSqlite } = await import('./migrate-json-to-sqlite.js');
+    await migrateJsonToSqlite();
   }
 }
 
@@ -158,7 +196,23 @@ async function readProjectMeta(projectPath: string): Promise<{ taskCount: number
 }
 
 /**
- * Register a project in the global registry.
+ * Read project-info.json from a project directory for projectId.
+ * Returns empty string if not available.
+ */
+async function readProjectId(projectPath: string): Promise<string> {
+  try {
+    const { readFileSync, existsSync } = await import('node:fs');
+    const infoPath = join(projectPath, '.cleo', 'project-info.json');
+    if (!existsSync(infoPath)) return '';
+    const data = JSON.parse(readFileSync(infoPath, 'utf-8'));
+    return typeof data.projectId === 'string' ? data.projectId : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Register a project in the global registry (nexus.db).
  * @returns The project hash.
  */
 export async function nexusRegister(
@@ -179,15 +233,18 @@ export async function nexusRegister(
     );
   }
 
-  const projectName = name || projectPath.split('/').pop() || 'unnamed';
+  const projectName = name || basename(projectPath) || 'unnamed';
   const projectHash = generateProjectHash(projectPath);
 
-  // Ensure registry exists
+  // Ensure nexus.db is initialized
   await nexusInit();
-  const registry = await readRegistryRequired();
+  const db = await getNexusDb();
 
   // Check if already registered
-  const existing = registry.projects[projectHash];
+  const existingRows = await db.select().from(projectRegistry)
+    .where(eq(projectRegistry.projectHash, projectHash));
+  const existing = existingRows[0];
+
   if (existing?.permissions) {
     throw new CleoError(
       ExitCode.NEXUS_PROJECT_EXISTS,
@@ -197,8 +254,9 @@ export async function nexusRegister(
 
   // Check for name conflicts (new entries only)
   if (!existing) {
-    const nameConflict = Object.values(registry.projects).find(p => p.name === projectName);
-    if (nameConflict) {
+    const nameConflictRows = await db.select().from(projectRegistry)
+      .where(eq(projectRegistry.name, projectName));
+    if (nameConflictRows.length > 0) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Project name '${projectName}' already exists in registry`,
@@ -209,19 +267,31 @@ export async function nexusRegister(
   // Read project metadata
   const meta = await readProjectMeta(projectPath);
   const now = new Date().toISOString();
+  let projectId = await readProjectId(projectPath);
 
   if (existing) {
     // Merge nexus fields into existing entry
-    existing.permissions = permissions;
-    existing.lastSync = now;
-    existing.taskCount = meta.taskCount;
-    existing.labels = meta.labels;
-    existing.lastSeen = now;
+    await db.update(projectRegistry)
+      .set({
+        permissions,
+        lastSync: now,
+        taskCount: meta.taskCount,
+        labelsJson: JSON.stringify(meta.labels),
+        lastSeen: now,
+      })
+      .where(eq(projectRegistry.projectHash, projectHash));
   } else {
+    // Generate projectId fallback
+    if (!projectId) {
+      const { randomUUID } = await import('node:crypto');
+      projectId = randomUUID();
+    }
+
     // Create new entry
-    registry.projects[projectHash] = {
-      hash: projectHash,
-      path: projectPath,
+    await db.insert(projectRegistry).values({
+      projectId,
+      projectHash,
+      projectPath,
       name: projectName,
       registeredAt: now,
       lastSeen: now,
@@ -230,12 +300,10 @@ export async function nexusRegister(
       permissions,
       lastSync: now,
       taskCount: meta.taskCount,
-      labels: meta.labels,
-    };
+      labelsJson: JSON.stringify(meta.labels),
+    });
   }
 
-  registry.lastUpdated = now;
-  await saveJson(getRegistryPath(), registry);
   return projectHash;
 }
 
@@ -247,28 +315,30 @@ export async function nexusUnregister(nameOrHash: string): Promise<void> {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project name or hash required');
   }
 
-  const registry = await readRegistryRequired();
-  const hash = resolveProjectHash(registry, nameOrHash);
-
-  if (!hash || !registry.projects[hash]) {
+  const project = await nexusGetProject(nameOrHash);
+  if (!project) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
       `Project not found in registry: ${nameOrHash}`,
     );
   }
 
-  delete registry.projects[hash];
-  registry.lastUpdated = new Date().toISOString();
-  await saveJson(getRegistryPath(), registry);
+  const db = await getNexusDb();
+  await db.delete(projectRegistry)
+    .where(eq(projectRegistry.projectHash, project.hash));
 }
 
 /**
  * List all registered projects.
  */
 export async function nexusList(): Promise<NexusProject[]> {
-  const registry = await readRegistry();
-  if (!registry) return [];
-  return Object.values(registry.projects);
+  try {
+    const db = await getNexusDb();
+    const rows = await db.select().from(projectRegistry);
+    return rows.map(rowToProject);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -276,16 +346,24 @@ export async function nexusList(): Promise<NexusProject[]> {
  * Returns null if not found.
  */
 export async function nexusGetProject(nameOrHash: string): Promise<NexusProject | null> {
-  const registry = await readRegistry();
-  if (!registry) return null;
+  try {
+    const db = await getNexusDb();
 
-  // Try hash first
-  if (/^[a-f0-9]{12}$/.test(nameOrHash)) {
-    return registry.projects[nameOrHash] ?? null;
+    // Try hash match first, then name
+    const rows = await db.select().from(projectRegistry)
+      .where(
+        or(
+          eq(projectRegistry.projectHash, nameOrHash),
+          eq(projectRegistry.name, nameOrHash),
+        ),
+      );
+
+    const row = rows[0];
+    if (!row) return null;
+    return rowToProject(row);
+  } catch {
+    return null;
   }
-
-  // Try name
-  return Object.values(registry.projects).find(p => p.name === nameOrHash) ?? null;
 }
 
 /**
@@ -304,26 +382,26 @@ export async function nexusSync(nameOrHash: string): Promise<void> {
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project name or hash required');
   }
 
-  const registry = await readRegistryRequired();
-  const hash = resolveProjectHash(registry, nameOrHash);
-
-  if (!hash || !registry.projects[hash]) {
+  const project = await nexusGetProject(nameOrHash);
+  if (!project) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
       `Project not found in registry: ${nameOrHash}`,
     );
   }
 
-  const project = registry.projects[hash];
   const meta = await readProjectMeta(project.path);
   const now = new Date().toISOString();
+  const db = await getNexusDb();
 
-  project.taskCount = meta.taskCount;
-  project.labels = meta.labels;
-  project.lastSync = now;
-  registry.lastUpdated = now;
-
-  await saveJson(getRegistryPath(), registry);
+  await db.update(projectRegistry)
+    .set({
+      taskCount: meta.taskCount,
+      labelsJson: JSON.stringify(meta.labels),
+      lastSync: now,
+      lastSeen: now,
+    })
+    .where(eq(projectRegistry.projectHash, project.hash));
 }
 
 /**
@@ -331,37 +409,154 @@ export async function nexusSync(nameOrHash: string): Promise<void> {
  * @returns Counts of synced and failed projects.
  */
 export async function nexusSyncAll(): Promise<{ synced: number; failed: number }> {
-  const registry = await readRegistryRequired();
+  const projects = await nexusList();
   let synced = 0;
   let failed = 0;
+  const db = await getNexusDb();
 
-  for (const project of Object.values(registry.projects)) {
+  for (const project of projects) {
     try {
       const meta = await readProjectMeta(project.path);
-      project.taskCount = meta.taskCount;
-      project.labels = meta.labels;
-      project.lastSync = new Date().toISOString();
+      const now = new Date().toISOString();
+      await db.update(projectRegistry)
+        .set({
+          taskCount: meta.taskCount,
+          labelsJson: JSON.stringify(meta.labels),
+          lastSync: now,
+          lastSeen: now,
+        })
+        .where(eq(projectRegistry.projectHash, project.hash));
       synced++;
     } catch {
       failed++;
     }
   }
 
-  registry.lastUpdated = new Date().toISOString();
-  await saveJson(getRegistryPath(), registry);
   return { synced, failed };
 }
 
-// ── Internal helpers ─────────────────────────────────────────────────
-
-/** Resolve a name-or-hash to a registry key (hash). */
-function resolveProjectHash(registry: NexusRegistryFile, nameOrHash: string): string | null {
-  // Direct hash match
-  if (/^[a-f0-9]{12}$/.test(nameOrHash) && registry.projects[nameOrHash]) {
-    return nameOrHash;
+/**
+ * Update a project's permission level in the registry.
+ * Used by permissions.ts to avoid direct JSON file writes.
+ */
+export async function nexusSetPermission(
+  nameOrHash: string,
+  permission: NexusPermissionLevel,
+): Promise<void> {
+  const project = await nexusGetProject(nameOrHash);
+  if (!project) {
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `Project not found in registry: ${nameOrHash}`,
+    );
   }
 
-  // Name lookup
-  const entry = Object.entries(registry.projects).find(([, p]) => p.name === nameOrHash);
-  return entry ? entry[0] : null;
+  const db = await getNexusDb();
+  await db.update(projectRegistry)
+    .set({ permissions: permission })
+    .where(eq(projectRegistry.projectHash, project.hash));
 }
+
+/**
+ * Reconcile the current project's identity with the global nexus registry.
+ *
+ * 4-scenario policy:
+ *   1. projectId in registry + path matches → update lastSeen, return {status:'ok'}
+ *   2. projectId in registry + path changed → update path+hash, return {status:'path_updated'}
+ *   3. projectId not in registry → auto-register, return {status:'auto_registered'}
+ *   4. projectHash matches but different projectId → throw CleoError (identity conflict)
+ *
+ * Uses projectId as the stable identifier across project moves, since
+ * projectHash is derived from the absolute path and changes when moved.
+ *
+ * @task T5368
+ */
+export async function nexusReconcile(projectRoot: string): Promise<{
+  status: 'ok' | 'path_updated' | 'auto_registered';
+  oldPath?: string;
+  newPath?: string;
+}> {
+  if (!projectRoot) {
+    throw new CleoError(ExitCode.INVALID_INPUT, 'Project root path required');
+  }
+
+  await nexusInit();
+  const db = await getNexusDb();
+
+  const projectId = await readProjectId(projectRoot);
+  const currentHash = generateProjectHash(projectRoot);
+
+  // Scenario 4 check: hash matches but different projectId
+  if (projectId) {
+    const hashRows = await db.select().from(projectRegistry)
+      .where(eq(projectRegistry.projectHash, currentHash));
+    const hashMatch = hashRows[0];
+    if (hashMatch && hashMatch.projectId !== projectId) {
+      throw new CleoError(
+        ExitCode.NEXUS_REGISTRY_CORRUPT,
+        `Project identity conflict: hash ${currentHash} is registered to projectId '${hashMatch.projectId}' but current project has projectId '${projectId}'`,
+        { fix: 'Manually resolve the conflict with `cleo nexus unregister` and re-register' },
+      );
+    }
+  }
+
+  // Look up by projectId (stable across moves)
+  if (projectId) {
+    const idRows = await db.select().from(projectRegistry)
+      .where(eq(projectRegistry.projectId, projectId));
+    const existing = idRows[0];
+
+    if (existing) {
+      const now = new Date().toISOString();
+
+      if (existing.projectPath === projectRoot) {
+        // Scenario 1: path matches — just update lastSeen
+        await db.update(projectRegistry)
+          .set({ lastSeen: now })
+          .where(eq(projectRegistry.projectId, projectId));
+        return { status: 'ok' };
+      }
+
+      // Scenario 2: path changed — update path, hash, and lastSeen
+      const oldPath = existing.projectPath;
+      await db.update(projectRegistry)
+        .set({
+          projectPath: projectRoot,
+          projectHash: currentHash,
+          lastSeen: now,
+        })
+        .where(eq(projectRegistry.projectId, projectId));
+      return { status: 'path_updated', oldPath, newPath: projectRoot };
+    }
+  }
+
+  // Also check by hash for projects without a projectId
+  const hashRows = await db.select().from(projectRegistry)
+    .where(eq(projectRegistry.projectHash, currentHash));
+  const hashMatch = hashRows[0];
+
+  if (hashMatch) {
+    const now = new Date().toISOString();
+    await db.update(projectRegistry)
+      .set({ lastSeen: now })
+      .where(eq(projectRegistry.projectHash, currentHash));
+    return { status: 'ok' };
+  }
+
+  // Scenario 3: not in registry — auto-register
+  try {
+    await nexusRegister(projectRoot);
+  } catch (err) {
+    const errStr = String(err);
+    if (!errStr.includes('already registered') && !errStr.includes('NEXUS_PROJECT_EXISTS')) {
+      throw err;
+    }
+  }
+  return { status: 'auto_registered' };
+}
+
+/**
+ * Reset the nexus database singleton state.
+ * Re-exported from nexus-sqlite for test convenience.
+ */
+export { resetNexusDbState };
