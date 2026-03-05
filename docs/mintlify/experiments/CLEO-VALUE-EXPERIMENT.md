@@ -24,7 +24,7 @@
 |-----------|-------------|-------------------|
 | **A: CLEO** | Full CLEO injection | Standard CLEO setup |
 | **B: Baseline** | No task system | Minimal project description only |
-| **C: Simple TODO** | Basic markdown checklist | `TODO.md` with task list |
+| **C: Simple Checklist** | Basic markdown checklist | `TASKS.md` with task list |
 
 ### Test Tasks (5 standardized tasks)
 
@@ -130,7 +130,7 @@ A bash-based task management CLI.
 - tests/: BATS tests
 EOF
 
-# Simple TODO: Markdown only
+# Simple Checklist: Markdown only
 cd /tmp/cleo-experiment/simple-todo/repo
 rm -rf .cleo
 cat > CLAUDE.md << 'EOF'

@@ -107,7 +107,7 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 **Pain Points**:
 
 - Implementation gaps (missing protocol CLI, Nexus CLI)
-- Technical debt (1,111 TODO comments)
+- Technical debt (1,111 to-do comments)
 - Nexus premature complexity (5 files, zero usage data)
 - 22% protocol enforcement (orphaned code)
 
@@ -157,12 +157,12 @@ The following gaps were identified by domain research and **MUST** be addressed:
 | **Orphaned protocol code**   | T2997           | Connect 3250 LOC to CLI entry points                                              | High     |
 | **22% protocol enforcement** | T2997           | CLI wrappers expose validation (target 40%)                                       | High     |
 
-**Technical Debt** (Target: 1,111 TODO comments → <100)
+**Technical Debt** (Target: 1,111 to-do comments → <100)
 
 The following cleanup **MUST** occur:
 
-1. Convert actionable TODO comments to tracked tasks via `cleo add`
-2. Remove completed TODOs (code review)
+1. Convert actionable to-do comments to tracked tasks via `cleo add`
+2. Remove completed to-do notes (code review)
 3. Archive orphaned code paths (unused functions)
 4. Update stale documentation (last modified >1 year)
 
@@ -174,7 +174,7 @@ The following cleanup **MUST** occur:
 | **Protocol CLI**            | N/A             | +2 commands    | Add consensus.sh, contribution.sh (research T2997)     |
 | **Nexus CLI**               | N/A             | +3 commands    | Add query, discover, search (research T2995)           |
 | **Protocol Enforcement**    | N/A             | 22% → 40%      | Connect orphaned code to CLI wrappers (research T2997) |
-| **TODO Comments**           | 1,111 → <100    | 1,111 → <100   | Unchanged                                              |
+| **To-Do Comments**          | 1,111 → <100    | 1,111 → <100   | Unchanged                                              |
 | **Test Pass Rate**          | 100%            | 100%           | Unchanged                                              |
 | **Architecture Validation** | N/A             | Complete       | Research T2992-T2996 confirms sound design             |
 
@@ -782,7 +782,7 @@ Communication **MUST** occur via one of:
 | **Protocol CLI Commands** | 7 commands    | 9 commands    | Add consensus.sh, contribution.sh           |
 | **Nexus CLI Commands**    | 2 commands    | 5 commands    | Add query, discover, search                 |
 | **Protocol Enforcement**  | 22%           | 40%           | Connect orphaned code to CLI                |
-| **TODO Comments**         | 1,111         | <100          | `grep -r TODO`                              |
+| **To-Do Comments**        | 1,111         | <100          | `rg -i "to-?do|fixme|hack"`                |
 | **MCP Token Reduction**   | 32,500 tokens | <3,500 tokens | MCP tool definitions                        |
 | **Test Pass Rate**        | 100%          | 100%          | BATS test suite                             |
 
@@ -949,7 +949,7 @@ All 4 capabilities **MUST** be demonstrated:
 | ------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------- |
 | **Dev Script Relocation** | Temporary confusion about script locations | Clear migration guide. Update imports systematically. Document in CLAUDE.md. |
 | **Protocol CLI Addition** | Increased command surface area             | Commands wrap existing lib functions. No new logic. Test coverage required.  |
-| **TODO Cleanup**          | Missed TODOs become lost work              | Convert to tracked tasks before deletion. Code review required.              |
+| **To-Do Cleanup**         | Missed to-do notes become lost work        | Convert to tracked tasks before deletion. Code review required.              |
 
 ### 7.4 Rollback Triggers
 
@@ -1283,7 +1283,7 @@ BRAIN Certification
 - Nexus CLI: 2 → 5 commands (add query, discover, search)
 - Protocol enforcement: 22% → 40%
 - MCP tokens: 32,500 → <3,500 (>90% reduction)
-- TODO comments: 1,111 → <100
+- To-do comments: 1,111 → <100
 
 **Phase 1 Targets**:
 
