@@ -142,7 +142,7 @@ interface OperationDef {
 
 ## 6. Domain Operation Tables
 
-### 6.1 tasks (28 operations)
+### 6.1 tasks (32 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -174,6 +174,10 @@ interface OperationDef {
 | mutate | `relates.add` | Add task relationship | 0 | -- | No |
 | mutate | `start` | Begin working on task | 0 | -- | No |
 | mutate | `stop` | Stop working on task | 0 | -- | No |
+| query | `relates.find` | Find suggested and discovered task relationships | 1 | `taskId` | Yes |
+| query | `history` | Show task work history (time tracked per task) | 1 | -- | Yes |
+| mutate | `reopen` | tasks.reopen (mutate) - reopen completed tasks | 0 | `taskId` | No |
+| mutate | `unarchive` | tasks.unarchive (mutate) - restore archived tasks | 0 | `taskId` | No |
 
 ### 6.2 session (19 operations)
 
@@ -224,7 +228,7 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 | mutate | `link` | Link brain entry to task | 1 | `taskId`, `entryId` | No |
 | mutate | `unlink` | Remove link between brain entry and task | 1 | `taskId`, `entryId` | Yes |
 
-### 6.4 check (12 operations)
+### 6.4 check (19 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -240,8 +244,15 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 | query | `coherence.check` | Check cross-data coherence | 0 | -- | Yes |
 | mutate | `compliance.record` | Record compliance check result | 0 | -- | No |
 | mutate | `test.run` | Execute test suite | 0 | -- | No |
+| query | `protocol.consensus` | check.protocol.consensus (query) - Validate consensus protocol compliance | 0 | -- | Yes |
+| query | `protocol.contribution` | check.protocol.contribution (query) - Validate contribution protocol compliance | 0 | -- | Yes |
+| query | `protocol.decomposition` | check.protocol.decomposition (query) - Validate decomposition protocol compliance | 0 | -- | Yes |
+| query | `protocol.implementation` | check.protocol.implementation (query) - Validate implementation protocol compliance | 0 | -- | Yes |
+| query | `protocol.specification` | check.protocol.specification (query) - Validate specification protocol compliance | 0 | -- | Yes |
+| query | `gate.verify` | check.gate.verify (query) - View or modify verification gates | 0 | `taskId` | No |
+| query | `chain.validate` | check.chain.validate (query) — validate a WarpChain definition | 2 | `chain` | Yes |
 
-### 6.5 pipeline (24 operations)
+### 6.5 pipeline (37 operations)
 
 The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact ledger, and release orchestration.
 
@@ -271,8 +282,21 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | mutate | `release.push` | Push release to remote | 0 | -- | No |
 | mutate | `release.gates.run` | Run release gate checks | 0 | -- | No |
 | mutate | `release.rollback` | Rollback failed release | 0 | -- | No |
+| query | `phase.show` | Show phase details by slug or current phase (query) | 1 | -- | Yes |
+| query | `phase.list` | List all phases with status and task counts (query) | 1 | -- | Yes |
+| query | `chain.show` | pipeline.chain.show (query) — get chain definition by ID | 2 | `chainId` | Yes |
+| query | `chain.list` | pipeline.chain.list (query) — list all chain definitions | 2 | -- | Yes |
+| mutate | `phase.set` | Set the active phase | 1 | `phaseId` | No |
+| mutate | `phase.start` | Start a phase (pending -> active) | 1 | `phaseId` | No |
+| mutate | `phase.complete` | Complete a phase (active -> completed) | 1 | `phaseId` | No |
+| mutate | `phase.advance` | Complete current phase and start next | 1 | -- | No |
+| mutate | `phase.rename` | Rename a phase and update all task references | 1 | `oldName`, `newName` | No |
+| mutate | `phase.delete` | Delete a phase with task reassignment protection | 1 | `phaseId` | No |
+| mutate | `chain.add` | pipeline.chain.add (mutate) — store a validated chain definition | 2 | `chain` | No |
+| mutate | `chain.instantiate` | pipeline.chain.instantiate (mutate) — create chain instance for epic | 2 | `chainId`, `epicId` | No |
+| mutate | `chain.advance` | pipeline.chain.advance (mutate) — advance instance to next stage | 2 | `instanceId`, `nextStage` | No |
 
-### 6.6 orchestrate (15 operations)
+### 6.6 orchestrate (19 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -291,6 +315,10 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | mutate | `validate` | Validate orchestration state | 0 | -- | No |
 | mutate | `parallel.start` | Begin parallel execution wave | 0 | -- | No |
 | mutate | `parallel.end` | End parallel execution wave | 0 | -- | No |
+| mutate | `handoff` | orchestrate.handoff (mutate) — composite handoff (context.inject -> session.end -> spawn) | 1 | `taskId`, `protocolType` | No |
+| query | `tessera.show` | orchestrate.tessera.show (query) — show a Tessera template by ID | 0 | `id` | Yes |
+| query | `tessera.list` | orchestrate.tessera.list (query) — list all registered Tessera templates | 0 | -- | Yes |
+| mutate | `tessera.instantiate` | orchestrate.tessera.instantiate (mutate) — instantiate a Tessera template into a chain instance | 0 | `templateId`, `epicId` | No |
 
 ### 6.7 tools (32 operations)
 
@@ -331,7 +359,7 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `skill.refresh` | Refresh skill catalog | 0 | -- | No |
 | mutate | `provider.inject` | Inject provider configuration | 0 | -- | No |
 
-### 6.8 admin (34 operations)
+### 6.8 admin (43 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -369,6 +397,15 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `adr.sync` | Sync ADR markdown files into architecture_decisions table | 2 | -- | Yes |
 | mutate | `adr.validate` | Validate ADR frontmatter against schema | 2 | -- | Yes |
 | mutate | `fix` | Auto-fix failed doctor checks | 0 | -- | No |
+| mutate | `backup.restore` | admin.backup.restore (mutate) - restore individual file from backup | 0 | `file` | No |
+| query | `sync.status` | Show current sync state with TodoWrite (query) | 1 | -- | Yes |
+| mutate | `sync.clear` | Clear sync state without merging (mutate) | 1 | -- | No |
+| query | `export` | admin.export (query) — export tasks to portable format (json, csv, tsv, markdown, todowrite) | 2 | -- | Yes |
+| mutate | `import` | admin.import (mutate) — import tasks from export file | 2 | `file` | No |
+| query | `snapshot.export` | admin.snapshot.export (query) — export current task state snapshot | 2 | -- | Yes |
+| mutate | `snapshot.import` | admin.snapshot.import (mutate) — import tasks from snapshot file | 2 | `file` | No |
+| query | `export.tasks` | admin.export.tasks (query) — export tasks to portable cross-project package | 2 | -- | Yes |
+| mutate | `import.tasks` | admin.import.tasks (mutate) — import tasks from cross-project export package | 2 | `file` | No |
 
 ### 6.9 nexus (31 operations)
 
@@ -408,7 +445,7 @@ All nexus operations are tier 2 (cross-project coordination) except `reconcile` 
 | mutate | `share.push` | Push to sharing remote | 2 | -- | No |
 | mutate | `share.pull` | Pull from sharing remote | 2 | -- | No |
 
-### 6.10 sticky (5 operations)
+### 6.10 sticky (6 operations)
 
 All sticky operations are tier 0 (quick capture). Sticky notes are lightweight capture entries that can be converted to tasks or memory.
 
@@ -419,22 +456,23 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 | mutate | `add` | Create new sticky note | 0 | `content` | No |
 | mutate | `convert` | Convert sticky to task or memory | 0 | `stickyId`, `targetType` | No |
 | mutate | `archive` | Archive sticky note | 0 | `stickyId` | No |
+| mutate | `purge` | sticky.purge (mutate) — permanently delete sticky notes | 0 | `stickyId` | Yes |
 
 ### Summary Counts
 
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
-| tasks | 15 | 13 | 28 |
+| tasks | 17 | 15 | 32 |
 | session | 11 | 8 | 19 |
 | memory | 12 | 6 | 18 |
-| check | 10 | 2 | 12 |
-| pipeline | 10 | 14 | 24 |
-| orchestrate | 9 | 6 | 15 |
+| check | 17 | 2 | 19 |
+| pipeline | 14 | 23 | 37 |
+| orchestrate | 11 | 8 | 19 |
 | tools | 21 | 11 | 32 |
-| admin | 19 | 15 | 34 |
+| admin | 23 | 20 | 43 |
 | nexus | 17 | 14 | 31 |
-| sticky | 2 | 3 | 5 |
-| **Total** | **126** | **92** | **218** |
+| sticky | 2 | 4 | 6 |
+| **Total** | **145** | **111** | **256** |
 
 ---
 
@@ -442,19 +480,19 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 
 Operations are organized into 3 tiers. Agents SHOULD start at tier 0 and escalate only when needed:
 
-### Tier 0 -- Core (135 operations)
+### Tier 0 -- Core (149 operations)
 
 Available to all agents from session start. Covers 65% of typical workflows.
 
 **Domains**: tasks, session, check, pipeline, orchestrate, tools, admin, sticky
 
-### Tier 1 -- Extended (37 operations)
+### Tier 1 -- Extended (51 operations)
 
 Memory, manifest, and advanced query operations. Agents escalate here when they need cognitive memory or research artifact access.
 
 **Domains**: memory plus extended operations across pipeline, session, admin, and tools
 
-### Tier 2 -- Full System (44 operations)
+### Tier 2 -- Full System (56 operations)
 
 Cross-project coordination, advanced tooling, and administrative functions. Used by orchestrator agents and system administrators.
 

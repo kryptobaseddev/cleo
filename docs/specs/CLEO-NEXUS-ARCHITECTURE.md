@@ -230,7 +230,51 @@ NEXUS exposes 17 query and 14 mutate operations through the MCP gateway (31 tota
 
 ---
 
-## 7. Logging and Audit Model
+---
+
+## 7. Cross-Project Discovery (Graph-RAG)
+
+The `nexus.discover` operation implements Graph-RAG (Graph Retrieval-Augmented Generation) for finding related tasks across registered projects. Discovery uses multiple similarity methods combined with hierarchical proximity scoring.
+
+### Discovery Methods
+
+| Method | Algorithm | Score Range | Description |
+|--------|-----------|-------------|-------------|
+| `labels` | Jaccard similarity | 0.0-1.0 | Matches tasks by shared label overlap |
+| `description` | Tokenized Jaccard | 0.0-1.0 | Keyword extraction from title + description |
+| `files` | File path overlap | 0.0-1.0 | Matches tasks referencing same files |
+| `hierarchy` | Fixed boosts | 0.08-0.15 | Siblings (0.15) and cousins (0.08) |
+| `auto` | Weighted combination | 0.0-1.0 | Combines all methods with hierarchy boosts |
+
+### Auto Mode Scoring
+
+The default `auto` method combines results from all discovery methods:
+
+1. **Base Scores**: Highest score per task from labels/description/files
+2. **Hierarchy Boost**: Adds sibling (0.15) or cousin (0.08) proximity bonus
+3. **Cap**: Final score capped at 1.0
+4. **Sort**: Results sorted by score descending
+
+### Example Output
+
+```json
+{
+  "results": [
+    {
+      "project": "backend-api",
+      "taskId": "T042",
+      "title": "Implement auth middleware",
+      "score": 0.85,
+      "type": "labels",
+      "reason": "3 shared label(s): auth, security, middleware"
+    }
+  ]
+}
+```
+
+---
+
+## 8. Logging and Audit Model
 
 ### 7.1 Operational Logging
 
@@ -260,9 +304,9 @@ Audit failures MUST NOT interrupt primary operations. The `writeNexusAudit()` fu
 
 ---
 
-## 8. Migration Plan
+## 9. Migration Plan
 
-### 8.1 Legacy JSON Migration
+### 9.1 Legacy JSON Migration
 
 For projects using the legacy `~/.cleo/projects-registry.json` backend, NEXUS automatically migrates on first initialization:
 
@@ -273,7 +317,7 @@ For projects using the legacy `~/.cleo/projects-registry.json` backend, NEXUS au
 5. Renames `projects-registry.json` to `projects-registry.json.migrated`.
 6. Logs migration count via Pino.
 
-### 8.2 Rollback
+### 9.2 Rollback
 
 The `.migrated` file is retained for recovery. To roll back:
 
@@ -283,9 +327,9 @@ The `.migrated` file is retained for recovery. To roll back:
 
 ---
 
-## 9. Failure and Recovery Semantics
+## 10. Failure and Recovery Semantics
 
-### 9.1 Exit Codes
+### 10.1 Exit Codes
 
 NEXUS operations use exit codes 70-79:
 
@@ -302,21 +346,21 @@ NEXUS operations use exit codes 70-79:
 | 78 | NEXUS_GRAPH_ERROR | Dependency graph construction failed |
 | 79 | NEXUS_RESERVED | Reserved for future use |
 
-### 9.2 Conflict Policy
+### 10.2 Conflict Policy
 
 Identity conflicts exit with code 75 (`NEXUS_REGISTRY_CORRUPT`). This occurs when `nexusReconcile()` detects that the current path's `projectHash` is already registered to a different `projectId`. Manual resolution: run `nexus.unregister` for the conflicting entry, then `nexus.register` for the current project.
 
-### 9.3 Orphan Detection
+### 10.3 Orphan Detection
 
 `nexus.orphans` scans all cross-project dependency references and returns entries where the referenced project is not in the registry. Each orphan entry includes a `reason` field explaining why the reference is broken.
 
-### 9.4 Database Recovery
+### 10.4 Database Recovery
 
 If `~/.cleo/nexus.db` is corrupt or missing, `nexusInit()` recreates it from the Drizzle schema and runs `migrateJsonToSqlite()` if the legacy JSON backup (`.migrated` or original) exists. The migration is idempotent: it checks for an empty `project_registry` before attempting import.
 
 ---
 
-## 10. Portability Guarantees
+## 11. Portability Guarantees
 
 | Data | Location | Portable? | Notes |
 |---|---|---|---|
@@ -336,7 +380,10 @@ Projects SHOULD call `nexus.reconcile` after moving to a new path to update the 
 - [CLEO-OPERATION-CONSTITUTION.md](CLEO-OPERATION-CONSTITUTION.md) -- Full operation listing across all domains
 - [VERB-STANDARDS.md](VERB-STANDARDS.md) -- Canonical verb definitions
 - [CLEO-BRAIN-SPECIFICATION.md](CLEO-BRAIN-SPECIFICATION.md) -- Related storage pattern (brain.db)
+- [CLEO-SYSTEM-FLOW-ATLAS.md](../concepts/CLEO-SYSTEM-FLOW-ATLAS.md) -- Workshop vocabulary and system architecture
+- [CLEO-VISION.md](../concepts/CLEO-VISION.md) -- Workshop language documentation
 - Task T5372 -- Implementation task for this specification
 - Task T5365 -- nexus.db schema definition (nexus-schema.ts)
 - Task T5366 -- Core registry operations (registry.ts)
 - Task T5368 -- Reconciliation protocol (nexusReconcile)
+- Task T4529 -- Graph-RAG discovery algorithms (src/core/tasks/graph-rag.ts)

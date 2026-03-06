@@ -1,7 +1,7 @@
 # CLEO Metrics and Validation System Specification
 
 **Version**: 1.0.0
-**Status**: ACTIVE (Bash implementation references — concepts valid, code paths will be ported to TypeScript during V2 conversion)
+**Status**: ACTIVE
 **Created**: 2026-02-01
 **Last Updated**: 2026-02-14
 
@@ -52,7 +52,7 @@ This specification documents how these claims are **measured and proven**.
 │                              ▼                                      │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │                   VALUE DASHBOARD                             │  │
-│  │  cleo metrics value                                          │  │
+│  │  cleo compliance value                                       │  │
 │  │  ├── Token savings %                                         │  │
 │  │  ├── Violations caught                                       │  │
 │  │  ├── Skill composition stats                                 │  │
@@ -62,16 +62,15 @@ This specification documents how these claims are **measured and proven**.
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 Library Files
+### 1.2 Core Modules
 
-| Library | Purpose | Key Functions |
+| Module | Purpose | Key Functions |
 |---------|---------|---------------|
-| `lib/otel-integration.sh` | Capture actual Claude Code tokens | `get_session_tokens`, `compare_sessions` |
-| `lib/token-estimation.sh` | Fallback estimation when OTel unavailable | `estimate_tokens`, `track_file_read` |
-| `lib/manifest-validation.sh` | Real manifest entry validation | `validate_and_log`, `find_manifest_entry` |
-| `lib/protocol-validation.sh` | Protocol-specific validators | `validate_*_protocol` (9 validators) |
-| `lib/protocol-validation-common.sh` | Shared validation functions | `check_status_valid`, `check_key_findings_count` |
-| `lib/skill-dispatch.sh` | Skill selection and composition | `skill_prepare_spawn_multi` |
+| `src/core/metrics/otel-integration.ts` | Capture actual Claude Code tokens | `getSessionTokens`, `compareSessions` |
+| `src/core/metrics/token-estimation.ts` | Fallback estimation when OTel unavailable | `estimateTokens`, `trackFileRead` |
+| `src/core/compliance/index.ts` | Real manifest entry validation | `validateAndLog`, `validateManifestEntry` |
+| `src/core/compliance/store.ts` | Metrics storage and retrieval | `logComplianceMetric`, `getComplianceMetrics` |
+| `src/core/skills/dispatch.ts` | Skill selection and composition | `prepareSkillSpawns` |
 
 ---
 
@@ -117,62 +116,65 @@ export OTEL_METRICS_EXPORTER=prometheus
 
 #### Using OTel Data
 
-```bash
-source lib/otel-integration.sh
+```typescript
+import { getSessionTokens, compareSessions } from '../core/metrics/otel-integration.js';
 
-# Get current session token counts
-get_session_tokens
+// Get current session token counts
+const sessionData = await getSessionTokens();
 
-# Output:
-# {
-#   "tokens": {
-#     "input": 45230,
-#     "output": 12450,
-#     "cache_read": 8000,
-#     "total": 57680,
-#     "effective": 49680
-#   }
-# }
+// Output:
+// {
+//   "tokens": {
+//     "input": 45230,
+//     "output": 12450,
+//     "cache_read": 8000,
+//     "total": 57680,
+//     "effective": 49680
+//   }
+// }
 
-# Compare two sessions
-compare_sessions "with_subagents" "direct_implementation"
+// Compare two sessions
+const diff = await compareSessions("with_subagents", "direct_implementation");
 ```
 
 ### 2.2 Estimation Fallback
 
 When OTel isn't available, use estimation:
 
-```bash
-source lib/token-estimation.sh
+```typescript
+import { estimateTokens, trackFileRead, TokenSession } from '../core/metrics/token-estimation.js';
 
-# Estimate tokens from text (~4 chars/token)
-estimate_tokens "Hello world"  # Returns: 3
+// Estimate tokens from text (~4 chars/token)
+const tokens = estimateTokens("Hello world");  // Returns: 3
 
-# Track file reads
-track_file_read "output.md" "full_file" "T1234"
+// Track file reads
+trackFileRead("output.md", "full_file", "T1234");
 
-# Session tracking
-start_token_session "session_123"
-# ... do work ...
-end_token_session  # Returns summary with savings
+// Session tracking
+const session = new TokenSession("session_123");
+session.start();
+// ... do work ...
+const summary = session.end();  // Returns summary with savings
 ```
 
 ### 2.3 Proving Token Savings
 
 The manifest system saves tokens by reading summaries instead of full files:
 
-```bash
-# Compare manifest vs full file approach
-compare_manifest_vs_full 10  # 10 manifest entries read
+```typescript
+import { compareManifestVsFull } from '../core/metrics/aggregation.js';
 
-# Output:
-# {
-#   "manifest_entries_read": 10,
-#   "manifest_tokens": 2000,
-#   "full_file_equivalent": 20000,
-#   "tokens_saved": 18000,
-#   "savings_percent": 90
-# }
+// Compare manifest vs full file approach
+const comparison = await compareManifestVsFull(10);  // 10 manifest entries read
+
+// Output:
+// {
+//   "manifest_entries_read": 10,
+//   "manifest_tokens": 2000,
+//   "full_file_equivalent": 20000,
+//   "tokens_saved": 18000,
+//   "savings_percent": 90
+// }
 ```
 
 ---
@@ -199,22 +201,23 @@ CLEO has 9 protocol validators:
 
 Validation happens at task completion using actual subagent output:
 
-```bash
-source lib/manifest-validation.sh
+```typescript
+import { validateManifestEntry, validateAndLog } from '../core/compliance/index.js';
+import { researchManifestStore } from '../core/research/store.js';
 
-# Find manifest entry for a task
-entry=$(find_manifest_entry "T1234")
+// Find manifest entry for a task
+const entry = await researchManifestStore.getEntryByTaskId("T1234");
 
-# Validate the actual entry
-result=$(validate_manifest_entry "T1234" "$entry")
-# {
-#   "valid": true,
-#   "score": 95,
-#   "violations": [{"requirement": "RSCH-002", "severity": "warning", ...}]
-# }
+// Validate the actual entry
+const result = await validateManifestEntry("T1234", entry);
+// {
+//   "valid": true,
+//   "score": 95,
+//   "violations": [{"requirement": "RSCH-002", "severity": "warning", ...}]
+// }
 
-# Validate AND log to compliance metrics
-validate_and_log "T1234"
+// Validate AND log to compliance metrics
+await validateAndLog("T1234");
 ```
 
 ### 3.3 Compliance Logging
@@ -260,29 +263,29 @@ Skills are loaded with different detail levels based on priority:
 
 ### 4.2 Composing Multiple Skills
 
-```bash
-source lib/skill-dispatch.sh
+```typescript
+import { prepareSkillSpawns } from '../core/skills/dispatch.js';
 
-# Compose multiple skills for a task
-result=$(skill_prepare_spawn_multi "T1234" \
-  "ct-task-executor" \    # Primary (full mode)
-  "drizzle-orm" \         # Secondary (progressive)
-  "svelte5-sveltekit"     # Secondary (progressive)
-)
+// Compose multiple skills for a task
+const result = await prepareSkillSpawns("T1234", [
+  "ct-task-executor",    // Primary (full mode)
+  "drizzle-orm",         // Secondary (progressive)
+  "svelte5-sveltekit"    // Secondary (progressive)
+]);
 
-# Output:
-# {
-#   "composition": {
-#     "skillCount": 3,
-#     "primarySkill": "ct-task-executor",
-#     "skills": [
-#       {"skill": "ct-task-executor", "tier": 2, "mode": "full", "tokens": 3179},
-#       {"skill": "drizzle-orm", "tier": 2, "mode": "progressive", "tokens": 200},
-#       {"skill": "svelte5-sveltekit", "tier": 2, "mode": "progressive", "tokens": 180}
-#     ],
-#     "totalEstimatedTokens": 3559
-#   }
-# }
+// Output:
+// {
+//   "composition": {
+//     "skillCount": 3,
+//     "primarySkill": "ct-task-executor",
+//     "skills": [
+//       {"skill": "ct-task-executor", "tier": 2, "mode": "full", "tokens": 3179},
+//       {"skill": "drizzle-orm", "tier": 2, "mode": "progressive", "tokens": 200},
+//       {"skill": "svelte5-sveltekit", "tier": 2, "mode": "progressive", "tokens": 180}
+//     ],
+//     "totalEstimatedTokens": 3559
+//   }
+// }
 ```
 
 ### 4.3 Token Savings from Progressive Loading
@@ -297,7 +300,7 @@ If all were full: ~9500 tokens
 
 ## Part 5: Metrics Dashboard
 
-### 5.1 Command: `cleo metrics value`
+### 5.1 Command: `cleo compliance value`
 
 ```
 === CLEO Value Metrics ===
@@ -329,7 +332,7 @@ SKILL COMPOSITION:
 
 ### 5.2 Dashboard Implementation
 
-Location: `scripts/metrics.sh` (subcommand: `value`)
+Location: `src/cli/commands/compliance.ts` (subcommand: `value`)
 
 ---
 
@@ -355,20 +358,21 @@ To prove CLEO's value, run identical tasks with two approaches:
 
 ### 6.3 Running A/B Tests
 
-```bash
-# Session A: With CLEO
-source lib/otel-integration.sh
-record_session_start "with_cleo"
-# ... implement feature using subagents ...
-record_session_end "with_cleo"
+```typescript
+import { recordSessionStart, recordSessionEnd, compareSessions } from '../core/metrics/ab-test.js';
 
-# Session B: Baseline
-record_session_start "baseline"
-# ... implement same feature directly ...
-record_session_end "baseline"
+// Session A: With CLEO
+await recordSessionStart("with_cleo");
+// ... implement feature using subagents ...
+await recordSessionEnd("with_cleo");
 
-# Compare
-compare_sessions "with_cleo" "baseline"
+// Session B: Baseline
+await recordSessionStart("baseline");
+// ... implement same feature directly ...
+await recordSessionEnd("baseline");
+
+// Compare
+const results = await compareSessions("with_cleo", "baseline");
 ```
 
 ---
@@ -407,7 +411,7 @@ export CLEO_VALIDATION_MODE=strict  # strict|advisory|off
 
 ### 8.1 No Token Data
 
-**Symptom**: `get_session_tokens` returns all zeros
+**Symptom**: `getSessionTokens` returns all zeros
 
 **Causes**:
 1. OTel not enabled: `export CLAUDE_CODE_ENABLE_TELEMETRY=1`
@@ -438,9 +442,9 @@ tail -5 .cleo/metrics/COMPLIANCE.jsonl | jq '._context.validation_score'
 3. Function not exported
 
 **Check**:
-```bash
-source lib/skill-dispatch.sh
-skill_get_metadata "skill-name"
+```typescript
+import { getSkillMetadata } from '../core/skills/discovery.js';
+const meta = await getSkillMetadata("skill-name");
 ```
 
 ---
@@ -453,12 +457,12 @@ skill_get_metadata "skill-name"
 - [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCSD-IVTR protocols
 - [PROTOCOL-STACK-SPEC.md](PROTOCOL-STACK-SPEC.md) - 7 conditional protocols
 
-### 9.2 Library Documentation
+### 9.2 Core Module Documentation
 
-- `lib/otel-integration.sh` - OpenTelemetry integration
-- `lib/token-estimation.sh` - Token estimation fallback
-- `lib/manifest-validation.sh` - Real manifest validation
-- `lib/skill-dispatch.sh` - Multi-skill composition
+- `src/core/metrics/otel-integration.ts` - OpenTelemetry integration
+- `src/core/metrics/token-estimation.ts` - Token estimation fallback
+- `src/core/compliance/index.ts` - Real manifest validation
+- `src/core/skills/dispatch.ts` - Multi-skill composition
 
 ### 9.3 Task References
 

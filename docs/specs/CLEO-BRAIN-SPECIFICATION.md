@@ -1606,7 +1606,7 @@ All 5 dimensions MUST meet certification criteria:
 - **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical product contract and invariants
 - **docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md**: Phase definitions and timeline
 - **docs/specs/MCP-SERVER-SPECIFICATION.md**: MCP architecture (prepares for Agent enhancements)
-- **docs/specs/CLEO-NEXUS-SPEC.md**: Network dimension architecture
+- **docs/specs/CLEO-NEXUS-SPECIFICATION.md**: Network dimension architecture
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCASD-IVTR lifecycle
 - **docs/specs/CLEO-SYSTEM-FLOW-ATLAS.md**: Canonical Information Flow diagram
 

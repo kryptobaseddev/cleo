@@ -107,6 +107,7 @@ Sticky notes do NOT support `update`, `delete`, or `restore`. Use `convert` to p
 | `timeline` | — | Chronological context retrieval (3-layer step 2) | Enforced |
 | `plan` | — | Composite multi-query planning view | Enforced |
 | `convert` | `transform`, `promote` (type change) | Change entity type | Enforced |
+| `purge` | `hard-delete`, `destroy` | Permanently delete and remove from history/archive | Enforced |
 | `compute` | `calculate`, `derive`, `eval` | Compute derived values | Reserved |
 | `schedule` | `defer`, `queue` | Schedule deferred execution | Reserved |
 | `cancel` | `abort`, `kill` | Cancel task (soft terminal state — reversible via restore) | Enforced |
