@@ -478,6 +478,9 @@ function classifyObservationType(text: string): BrainObservationType {
   return 'discovery';
 }
 
+/** Monotonic counter to prevent ID collisions within the same millisecond. */
+let observeSeq = 0;
+
 /**
  * Save an observation to the BRAIN observations table.
  * Replaces the external claude-mem save_observation pattern.
@@ -523,7 +526,7 @@ export async function observeBrain(
     }
   }
 
-  const id = `O-${Date.now().toString(36)}`;
+  const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
 
   const row = await accessor.addObservation({
