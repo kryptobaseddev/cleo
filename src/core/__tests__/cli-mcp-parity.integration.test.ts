@@ -188,7 +188,7 @@ vi.mock('../../core/memory/engine-compat.js', () => ({
 }));
 
 // --- pipeline manifest mock (moved from memory domain in T5241) ---
-vi.mock('../../core/memory/pipeline-manifest-compat.js', () => ({
+vi.mock('../../core/memory/pipeline-manifest-sqlite.js', () => ({
   pipelineManifestShow: vi.fn(),
   pipelineManifestList: vi.fn(),
   pipelineManifestFind: vi.fn(),

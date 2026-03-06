@@ -38,7 +38,7 @@ vi.mock('../../../core/phases/index.js', () => ({
   deletePhase: vi.fn(),
 }));
 
-vi.mock('../../../core/memory/pipeline-manifest-compat.js', () => ({
+vi.mock('../../../core/memory/pipeline-manifest-sqlite.js', () => ({
   pipelineManifestShow: vi.fn(),
   pipelineManifestList: vi.fn(),
   pipelineManifestFind: vi.fn(),

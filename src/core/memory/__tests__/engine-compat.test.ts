@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -29,7 +29,7 @@ import {
   pipelineManifestSuperseded,
   pipelineManifestCompact,
   pipelineManifestValidate,
-} from '../pipeline-manifest-compat.js';
+} from '../pipeline-manifest-sqlite.js';
 
 const SAMPLE_ENTRIES = [
   { id: 'T001-research', file: 'out/T001.md', title: 'First Research', date: '2026-01-15', status: 'completed', agent_type: 'research', topics: ['mcp', 'engine'], key_findings: ['finding1', 'finding2', 'finding3'], actionable: true, linked_tasks: ['T001'], needs_followup: [] },
@@ -78,104 +78,115 @@ describe('Memory Engine Compat', () => {
   });
 });
 
-describe('Pipeline Manifest Compat (moved from memory domain)', () => {
+describe('Pipeline Manifest SQLite (moved from memory domain)', () => {
   let testRoot: string;
-  let manifestDir: string;
-  let manifestPath: string;
 
-  function writeManifest(entries: any[]): void {
-    mkdirSync(manifestDir, { recursive: true });
-    const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-    writeFileSync(manifestPath, content, 'utf-8');
+  async function seedEntries(): Promise<void> {
+    for (const entry of SAMPLE_ENTRIES) {
+      await pipelineManifestAppend(entry as any, testRoot);
+    }
   }
 
   beforeEach(() => {
     testRoot = mkdtempSync(join(tmpdir(), 'cleo-engine-compat-manifest-'));
-    manifestDir = join(testRoot, '.cleo', 'agent-outputs');
-    manifestPath = join(manifestDir, 'MANIFEST.jsonl');
-    writeManifest(SAMPLE_ENTRIES);
+    mkdirSync(join(testRoot, '.cleo'), { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    try {
+      const { resetDbState } = await import('../../../store/sqlite.js');
+      resetDbState();
+    } catch { /* ignore */ }
     if (existsSync(testRoot)) {
       rmSync(testRoot, { recursive: true, force: true });
     }
   });
 
   describe('pipelineManifestList', () => {
-    it('should list all entries', () => {
-      const result = pipelineManifestList({}, testRoot);
+    it('should list all entries', async () => {
+      await seedEntries();
+      const result = await pipelineManifestList({}, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(3);
     });
 
-    it('should filter by status', () => {
-      const result = pipelineManifestList({ status: 'completed' }, testRoot);
+    it('should filter by status', async () => {
+      await seedEntries();
+      const result = await pipelineManifestList({ status: 'completed' }, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
 
-    it('should filter by topic', () => {
-      const result = pipelineManifestList({ topic: 'engine' }, testRoot);
+    it('should filter by topic', async () => {
+      await seedEntries();
+      const result = await pipelineManifestList({ topic: 'engine' }, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(2);
     });
 
-    it('should filter by type', () => {
-      const result = pipelineManifestList({ type: 'research' }, testRoot);
+    it('should filter by type', async () => {
+      await seedEntries();
+      const result = await pipelineManifestList({ type: 'research' }, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
 
-    it('should apply limit', () => {
-      const result = pipelineManifestList({ limit: 2 }, testRoot);
+    it('should apply limit', async () => {
+      await seedEntries();
+      const result = await pipelineManifestList({ limit: 2 }, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(2);
     });
   });
 
   describe('pipelineManifestFind', () => {
-    it('should search by title', () => {
-      const result = pipelineManifestFind('Research', {}, testRoot);
+    it('should search by title', async () => {
+      await seedEntries();
+      const result = await pipelineManifestFind('Research', {}, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBeGreaterThan(0);
     });
 
-    it('should search by topic', () => {
-      const result = pipelineManifestFind('mcp', {}, testRoot);
+    it('should search by topic', async () => {
+      await seedEntries();
+      const result = await pipelineManifestFind('mcp', {}, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBeGreaterThan(0);
     });
 
-    it('should return error for empty query', () => {
-      const result = pipelineManifestFind('', {}, testRoot);
+    it('should return error for empty query', async () => {
+      const result = await pipelineManifestFind('', {}, testRoot);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
 
-    it('should apply confidence threshold', () => {
-      const result = pipelineManifestFind('Research', { confidence: 0.5 }, testRoot);
+    it('should apply confidence threshold', async () => {
+      await seedEntries();
+      const result = await pipelineManifestFind('Research', { confidence: 0.5 }, testRoot);
       expect(result.success).toBe(true);
     });
   });
 
   describe('pipelineManifestPending', () => {
-    it('should return partial and blocked entries', () => {
-      const result = pipelineManifestPending(undefined, testRoot);
+    it('should return partial and blocked entries', async () => {
+      await seedEntries();
+      const result = await pipelineManifestPending(undefined, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(2);
     });
 
-    it('should filter by epicId', () => {
-      const result = pipelineManifestPending('T002', testRoot);
+    it('should filter by epicId', async () => {
+      await seedEntries();
+      const result = await pipelineManifestPending('T002', testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
   });
 
   describe('pipelineManifestStats', () => {
-    it('should compute stats', () => {
-      const result = pipelineManifestStats(undefined, testRoot);
+    it('should compute stats', async () => {
+      await seedEntries();
+      const result = await pipelineManifestStats(undefined, testRoot);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.total).toBe(3);
@@ -184,8 +195,9 @@ describe('Pipeline Manifest Compat (moved from memory domain)', () => {
       expect(data.actionable).toBe(2);
     });
 
-    it('should filter by epicId', () => {
-      const result = pipelineManifestStats('T001', testRoot);
+    it('should filter by epicId', async () => {
+      await seedEntries();
+      const result = await pipelineManifestStats('T001', testRoot);
       expect(result.success).toBe(true);
       const data = result.data as any;
       expect(data.total).toBe(2);
@@ -193,27 +205,29 @@ describe('Pipeline Manifest Compat (moved from memory domain)', () => {
   });
 
   describe('pipelineManifestLink', () => {
-    it('should link task to research entry', () => {
-      const result = pipelineManifestLink('T999', 'T001-research', undefined, testRoot);
+    it('should link task to research entry', async () => {
+      await seedEntries();
+      const result = await pipelineManifestLink('T999', 'T001-research', undefined, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).linked).toBe(true);
     });
 
-    it('should handle already linked', () => {
-      const result = pipelineManifestLink('T001', 'T001-research', undefined, testRoot);
+    it('should handle already linked', async () => {
+      await seedEntries();
+      const result = await pipelineManifestLink('T001', 'T001-research', undefined, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).alreadyLinked).toBe(true);
     });
 
-    it('should return error for missing entry', () => {
-      const result = pipelineManifestLink('T999', 'T999-missing', undefined, testRoot);
+    it('should return error for missing entry', async () => {
+      const result = await pipelineManifestLink('T999', 'T999-missing', undefined, testRoot);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_NOT_FOUND');
     });
   });
 
   describe('pipelineManifestAppend', () => {
-    it('should append valid entry', () => {
+    it('should append valid entry', async () => {
       const newEntry = {
         id: 'T004-new',
         file: 'out/T004.md',
@@ -223,82 +237,90 @@ describe('Pipeline Manifest Compat (moved from memory domain)', () => {
         agent_type: 'research',
         topics: ['test'],
         actionable: true,
+        key_findings: [],
+        linked_tasks: [],
+        needs_followup: [],
       };
-      const result = pipelineManifestAppend(newEntry, testRoot);
+      const result = await pipelineManifestAppend(newEntry, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).appended).toBe(true);
     });
 
-    it('should reject invalid entry', () => {
-      const result = pipelineManifestAppend({} as any, testRoot);
+    it('should reject invalid entry', async () => {
+      const result = await pipelineManifestAppend({} as any, testRoot);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_VALIDATION_FAILED');
     });
   });
 
   describe('pipelineManifestArchive', () => {
-    it('should archive entries before date', () => {
-      const result = pipelineManifestArchive('2026-02-01', testRoot);
+    it('should archive entries before date', async () => {
+      await seedEntries();
+      const result = await pipelineManifestArchive('2026-02-01', testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).archived).toBe(1);
       expect((result.data as any).remaining).toBe(2);
     });
 
-    it('should return 0 when no entries match', () => {
-      const result = pipelineManifestArchive('2020-01-01', testRoot);
+    it('should return 0 when no entries match', async () => {
+      await seedEntries();
+      const result = await pipelineManifestArchive('2020-01-01', testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).archived).toBe(0);
     });
   });
 
   describe('pipelineManifestContradictions', () => {
-    it('should return empty array when no contradictions', () => {
-      const result = pipelineManifestContradictions(testRoot);
+    it('should return empty array when no contradictions', async () => {
+      await seedEntries();
+      const result = await pipelineManifestContradictions(testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).contradictions).toBeDefined();
     });
   });
 
   describe('pipelineManifestSuperseded', () => {
-    it('should return empty array when no superseded entries', () => {
-      const result = pipelineManifestSuperseded(testRoot);
+    it('should return empty array when no superseded entries', async () => {
+      await seedEntries();
+      const result = await pipelineManifestSuperseded(testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).superseded).toBeDefined();
     });
   });
 
   describe('pipelineManifestCompact', () => {
-    it('should compact manifest successfully', () => {
-      const result = pipelineManifestCompact(testRoot);
+    it('should compact manifest successfully', async () => {
+      await seedEntries();
+      const result = await pipelineManifestCompact(testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).compacted).toBe(true);
       expect((result.data as any).remainingEntries).toBe(3);
     });
 
-    it('should handle non-existent manifest', () => {
-      rmSync(manifestPath, { force: true });
-      const result = pipelineManifestCompact(testRoot);
+    it('should handle empty table', async () => {
+      const result = await pipelineManifestCompact(testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).compacted).toBe(false);
     });
   });
 
   describe('pipelineManifestValidate', () => {
-    it('should validate entries for task', () => {
-      const result = pipelineManifestValidate('T001', testRoot);
+    it('should validate entries for task', async () => {
+      await seedEntries();
+      const result = await pipelineManifestValidate('T001', testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).taskId).toBe('T001');
       expect((result.data as any).entriesFound).toBeGreaterThan(0);
     });
 
-    it('should return error for empty taskId', () => {
-      const result = pipelineManifestValidate('', testRoot);
+    it('should return error for empty taskId', async () => {
+      const result = await pipelineManifestValidate('', testRoot);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
     });
 
-    it('should handle task with no entries', () => {
-      const result = pipelineManifestValidate('T999', testRoot);
+    it('should handle task with no entries', async () => {
+      const result = await pipelineManifestValidate('T999', testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).entriesFound).toBe(0);
       expect((result.data as any).valid).toBe(true);
@@ -306,14 +328,16 @@ describe('Pipeline Manifest Compat (moved from memory domain)', () => {
   });
 
   describe('pipelineManifestRead', () => {
-    it('should read all entries without filter', () => {
-      const result = pipelineManifestRead(undefined, testRoot);
+    it('should read all entries without filter', async () => {
+      await seedEntries();
+      const result = await pipelineManifestRead(undefined, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(3);
     });
 
-    it('should apply filter', () => {
-      const result = pipelineManifestRead({ status: 'completed' }, testRoot);
+    it('should apply filter', async () => {
+      await seedEntries();
+      const result = await pipelineManifestRead({ status: 'completed' }, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(1);
     });
