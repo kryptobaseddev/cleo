@@ -13,49 +13,71 @@ enforcement: strict
 
 # CLEO Agent Protocol
 
-**Version**: 1.0.0
+**Version**: 2.0.0
 **Type**: Agent Reference
-**Audience**: LLM agents operating CLEO CLI
+**Audience**: LLM agents operating CLEO via MCP gateway (primary) or CLI (fallback)
 
 ---
 
-## Commands
+## Operations (MCP-First)
 
-| Command | Purpose | Output Key |
-|---------|---------|------------|
-| ct find "query" | Search tasks | .tasks[].id |
-| ct find --id 142 | ID search | .tasks[].id |
-| ct show T### | Task details | .task |
-| ct add "Title" | Create task | .task.id |
-| ct add "Title" --parent T### | Create subtask | .task.id |
-| ct done T### | Complete task | .completedAt |
-| ct update T### --status active | Update status | .task |
-| ct start T### | Set active task | .task |
-| ct current | Current active task | .task |
-| ct next | Suggest task | .recommendation.taskId |
-| ct session list | List sessions | .sessions[] |
-| ct session start --scope epic:T### --auto-focus --name "..." | Start session | .session.id |
-| ct session end --note "..." | End session | .session |
-| ct session resume ID | Resume session | .session |
-| ct session status | Current session | .session |
-| ct dash | Project overview | .summary |
-| ct context | Context usage | .context |
-| ct archive | Archive done tasks | .archived[] |
-| ct exists T### | Check existence | .exists |
-| ct list --parent T### | Children only | .tasks[] |
+MCP gateway is the **primary** interface. CLI (`ct`/`cleo`) is for human use and debugging only — all operations are available via MCP since both surfaces share the same `src/core/` business logic.
+
+### Query Operations (read-only state)
+
+| MCP Operation | Purpose | Key Output Field |
+|---|---|---|
+| `query tasks.find {query: "..."}` | Search tasks | `.data.results[].id` |
+| `query tasks.show {id: "T###"}` | Task details | `.data.task` |
+| `query tasks.current {}` | Active task | `.data.task` |
+| `query tasks.next {}` | Next suggested task | `.data.recommendation.taskId` |
+| `query tasks.list {parentId: "T###"}` | Children of parent | `.data.tasks[]` |
+| `query session.status {}` | Current session | `.data.session` |
+| `query session.list {}` | All sessions | `.data.sessions[]` |
+| `query session.handoff.show {}` | Resume context from last session | `.data.handoff` |
+| `query admin.dash {}` | Project overview | `.data.summary` |
+| `query check.context {}` | Context usage | `.data.context` |
+
+### Mutate Operations (state changes)
+
+| MCP Operation | Purpose | Key Output Field |
+|---|---|---|
+| `mutate tasks.add {title: "...", description: "..."}` | Create task | `.data.task.id` |
+| `mutate tasks.add {title: "...", parentId: "T###"}` | Create subtask | `.data.task.id` |
+| `mutate tasks.update {id: "T###", status: "active"}` | Update task | `.data.task` |
+| `mutate tasks.complete {id: "T###"}` | Complete task | `.data.completedAt` |
+| `mutate tasks.start {id: "T###"}` | Set active task | `.data.task` |
+| `mutate tasks.archive {}` | Archive done tasks | `.data.archived[]` |
+| `mutate session.start {scope: "epic:T###", name: "..."}` | Start session | `.data.session.id` |
+| `mutate session.end {note: "..."}` | End session | `.data.session` |
+| `mutate session.resume {id: "..."}` | Resume session | `.data.session` |
+
+### CLI Equivalents (fallback only)
+
+| CLI | MCP Equivalent |
+|-----|----------------|
+| `ct find "query"` | `query tasks.find` |
+| `ct show T###` | `query tasks.show` |
+| `ct add "Title"` | `mutate tasks.add` |
+| `ct done T###` | `mutate tasks.complete` |
+| `ct start T###` | `mutate tasks.start` |
+| `ct current` | `query tasks.current` |
+| `ct next` | `query tasks.next` |
+| `ct dash` | `query admin.dash` |
+| `ct session start/end/resume/status` | `mutate/query session.*` |
 
 ## Session Sequence
 
-1. `ct session list` - Check existing sessions
-2. `ct session start --scope epic:T### --auto-focus --name "Name"` OR `ct session resume ID`
-3. `ct start T###` - Set working task
+1. `query session.status {}` — check for existing session; resume if found
+2. `mutate session.start {scope: "epic:T###", name: "Name"}` OR `mutate session.resume {id: "..."}`
+3. `mutate tasks.start {id: "T###"}` — set working task
 4. Execute work on active task
-5. `ct complete T###` - Mark done
-6. `ct start T###` - Next task (or `ct next`)
-7. `ct archive` - Clean up done tasks
-8. `ct session end --note "Progress summary"` - ALWAYS end
+5. `mutate tasks.complete {id: "T###"}` — mark done
+6. `query tasks.next {}` — get next task, or `mutate tasks.start` on known task
+7. `mutate tasks.archive {}` — clean up done tasks (when appropriate)
+8. `mutate session.end {note: "Progress summary"}` — ALWAYS end session
 
-**CRITICAL**: Session start requires BOTH `--scope` AND `--auto-focus` (or `--focus T###`)
+**CRITICAL**: Session start requires `scope` (e.g. `"epic:T###"`) and a descriptive `name`.
 
 ## Exit Codes
 
