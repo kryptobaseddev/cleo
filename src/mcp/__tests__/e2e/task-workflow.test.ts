@@ -14,15 +14,14 @@
  * @task T2937
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import {
-  setupE2ETest,
-  cleanupE2ETest,
-  getE2EContext,
-  extractTaskId,
-  verifyResponseFormat,
-} from './setup.js';
+import { afterAll,beforeAll,describe,expect,it } from 'vitest';
 import type { IntegrationTestContext } from '../integration-setup.js';
+import {
+  cleanupE2ETest,
+  extractTaskId,
+  setupE2ETest,
+  verifyResponseFormat
+} from './setup.js';
 
 describe('E2E: Task Management Workflow', () => {
   let context: IntegrationTestContext;

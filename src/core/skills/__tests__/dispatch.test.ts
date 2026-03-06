@@ -3,9 +3,9 @@
  * @task T4522
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe,expect,it } from 'vitest';
 import type { Task } from '../../../types/task.js';
-import { autoDispatch, dispatchExplicit, getProtocolForDispatch, prepareSpawnContext } from '../dispatch.js';
+import { autoDispatch,getProtocolForDispatch,prepareSpawnContext } from '../dispatch.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

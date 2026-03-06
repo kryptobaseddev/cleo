@@ -4,28 +4,27 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe,expect,it } from 'vitest';
 import {
-  validateTitle,
-  validateDescription,
-  validateNote,
-  validateBlockedBy,
-  validateSessionNote,
-  validateCancelReason,
-  validateStatusTransition,
-  isValidStatus,
-  checkTimestampSanity,
-  isMetadataOnlyUpdate,
-  normalizeLabels,
   checkIdUniqueness,
-  validateTask,
-  validateNoCircularDeps,
-  validateSingleActivePhase,
-  validateCurrentPhaseConsistency,
-  validatePhaseTimestamps,
-  validateAll,
-  sanitizeFilePath,
+  checkTimestampSanity,
   FIELD_LIMITS,
+  isMetadataOnlyUpdate,
+  isValidStatus,
+  normalizeLabels,
+  sanitizeFilePath,
+  validateAll,
+  validateBlockedBy,
+  validateCancelReason,
+  validateCurrentPhaseConsistency,
+  validateDescription,
+  validateNoCircularDeps,
+  validateNote,
+  validateSessionNote,
+  validateSingleActivePhase,
+  validateStatusTransition,
+  validateTask,
+  validateTitle
 } from '../engine.js';
 
 // ============================================================================

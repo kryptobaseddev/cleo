@@ -15,7 +15,7 @@
  * @task T5099
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe,expect,it } from 'vitest';
 
 import {
   type EngineResult,
@@ -25,12 +25,12 @@ import {
 
 import {
   OPERATIONS,
-  resolve,
-  getByDomain,
   getActiveDomains,
+  getByDomain,
+  resolve,
 } from '../../dispatch/registry.js';
 
-import { CANONICAL_DOMAINS, type CanonicalDomain } from '../../dispatch/types.js';
+import { type CanonicalDomain } from '../../dispatch/types.js';
 
 // ===========================================================================
 // Test Group 1: EngineResult shape contracts

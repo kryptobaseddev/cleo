@@ -5,46 +5,167 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [Unreleased] — 2026.3.13-beta.2
+## [2026.3.14] - 2026-03-06
+
+This is a major stable release promoting the full `2026.3.13-beta` cycle to `@latest`. It covers 51 commits
+across 10 feature themes: Warp/BRAIN evolution, Sticky Notes domain, Zero-Legacy compliance closure,
+Unified Audit Logging, CLI-to-Dispatch migration progress, Sharing→NEXUS restructure, Memory domain
+clean break, MCP tool naming standardization, Storage hardening, and hierarchy limit removal.
+
+### Warp + BRAIN Progress Update (T5373)
+
+The largest single-commit feature in this cycle:
+
+- **Warp protocol chains** — Unyielding structural chains that hold Tapestries together; synthesis of composable workflow shape and LOOM quality gates (T5407)
+- **BRAIN Phases 1-2** — Already shipped in prior releases (native `brain.db`, observation storage, 3-layer retrieval API, and FTS5-backed retrieval flow)
+- **BRAIN Phase 3** — Scaffolding landed in this cycle (`sqlite-vec` extension loading and PageIndex graph tables), but semantic/vector intelligence remains gated
+- **BRAIN Phases 4-5** — Planned and not shipped in this stable release
+
+#### Universal Hook Infrastructure (T5237)
+
+A full event-driven hook system wired throughout CLEO's lifecycle. Hooks are best-effort (failures are
+logged, not propagated), priority-ordered, and dispatched in parallel via `Promise.allSettled`. All eight
+hooks feed observations into BRAIN automatically.
+
+| Hook Event | CLEO Internal Event | What It Captures | Brain Auto-Observe |
+|------------|--------------------|-----------------|--------------------|
+| `onSessionStart` | `session.start` | Session name, scope, and agent identity at session open | Yes — `discovery` type |
+| `onSessionEnd` | `session.end` | Session duration and list of tasks completed | Yes — `change` type |
+| `onToolStart` | `task.start` | Task ID and title when work begins on a task | Yes — `change` type |
+| `onToolComplete` | `task.complete` | Task ID, title, and final status (`done`/`archived`/`cancelled`) | Yes — `change` type |
+| `onFileChange` | `file.change` | File path, change type (`write`/`create`/`delete`), and size; 5-second dedup prevents noise from rapid successive writes | Yes — `change` type |
+| `onError` | `system.error` | Error code, message, domain, operation, and gateway; infinite-loop guard prevents `onError → observeBrain → onError` cycles | Yes — `discovery` type |
+| `onPromptSubmit` | `prompt.submit` | Gateway, domain, operation, and source agent when a prompt hits a gateway | Opt-in only (`CLEO_BRAIN_CAPTURE_MCP=true`) |
+| `onResponseComplete` | `response.complete` | Gateway, domain, operation, success/failure, duration (ms), and error code | Opt-in only (`CLEO_BRAIN_CAPTURE_MCP=true`) |
+
+**Infrastructure details:**
+- `src/core/hooks/registry.ts` — Singleton `HookRegistry` with `register()`, `dispatch()`, `setConfig()`, `listHandlers()` APIs
+- `src/core/hooks/types.ts` — Typed payload interfaces per event; `CLEO_TO_CAAMP_HOOK_MAP` maps internal events to CAAMP event names
+- `src/core/hooks/provider-hooks.ts` — Provider capability discovery: `getHookCapableProviders(event)`, `getSharedHookEvents(providerIds[])`
+- All five handler modules auto-register on import — no manual wiring required
+- Per-event and global enable/disable via `hooks.setConfig()`
+- `CLEO_BRAIN_CAPTURE_MCP=true` env var opts into MCP prompt/response capture (off by default — too noisy for normal operation)
+
+### Sticky Notes Domain (T5267-T5275, T5261, T5363)
+
+Complete sticky notes system shipped as a first-class MCP domain:
+
+- **Storage migration** — `sticky_notes` moved from tasks.db schema to brain.db `brain_sticky_notes` (T5267)
+- **Full MCP domain** — `sticky.add`, `sticky.find`, `sticky.show`, `sticky.pin`, `sticky.archive`, `sticky.list` (T5267-T5275)
+- **Permanent deletion** — `sticky.archive.purge` operation for hard-delete of archived stickies (T5363)
+- **Canon synthesis workflows** — Cross-session context capture and sticky-to-memory promotion (T5261)
+
+### Sharing → NEXUS Restructure (T5276)
+
+- All `sharing.*` operations fully restructured under `nexus.share.*`
+- NEXUS analysis queries exposed: cross-project analytics, dependency graphs, activity summaries (T5348)
+- Orchestrate handoff composite op added: `orchestrate.handoff` for clean agent-to-agent handoff (T5347)
 
 ### Zero-Legacy Compliance Closure (T5244)
 
-**Registry & Dispatch**
-- Removed 5 backward-compat alias operations: `admin.config.get`, `tasks.reopen`, `tools.issue.create.{bug,feature,help}` (T5245)
-- Registry now contains 207 canonical operations (was 212)
+Hard cutover away from all legacy interfaces — backward-compat shims fully removed:
 
-**MCP Gateways**
-- Non-canonical domain names now return `E_INVALID_DOMAIN` (T5246)
-- Removed legacy domain types: sharing, validate, lifecycle, release, system, issues, skills, providers
+- **Registry & Dispatch** — Removed 5 backward-compat alias ops: `admin.config.get`, `tasks.reopen`,
+  `tools.issue.create.{bug,feature,help}` (T5245). Registry: 256 canonical operations (was 212 pre-refactor)
+- **MCP Gateways** — Non-canonical domain names now return `E_INVALID_DOMAIN` (T5246).
+  Removed legacy domain types: `sharing`, `validate`, `lifecycle`, `release`, `system`, `issues`, `skills`, `providers`
+- **CLI** — Removed legacy CLI aliases: `restore --reopen/--unarchive/--uncancel`, `find --search`,
+  `memory-brain recall --search` (T5249)
+- **Parity Gate CI** — `tests/integration/parity-gate.test.ts` — 7 tests that enforce canonical domain/op counts
+  as a hard CI gate (T5251)
 
-**CLI**
-- Removed legacy CLI aliases: `restore --alias reopen/unarchive/uncancel`, `find --alias search`, `memory-brain recall --alias search` (T5249)
+### Unified Audit Logging (T5318, T5317)
 
-**Documentation**
-- CLEO-OPERATION-CONSTITUTION.md: +7 verbs (check/verify/validate/timeline/convert/unlink/compute), +6 operations (T5250)
-- VERB-STANDARDS.md: `convert` verb added, enforced verb count 36 to 37 (T5250)
-- Constitution, AGENTS.md, CLEO-VISION.md, schemas updated to 207 operation count
+- **Unified audit log architecture** — Single structured logger replaces scattered JSONL fallbacks (T5318)
+- **Startup instrumentation** — Server startup events, project hash, and bootstrap state recorded on init (T5284)
+- **JSONL fallbacks removed** — `todo-log.jsonl` / `tasks-log.jsonl` runtime paths decommissioned;
+  runtime now uses SQLite audit log + structured logger exclusively (T5317)
+- **Logs cleanup** — `logs.cleanup` wired to lifecycle prune operation (T5339)
+- **Health checks** — `audit_log` table checks added to doctor --comprehensive (T5338)
+- **MCP startup errors** — Startup errors now route through the structured logger (T5336)
 
-**CI/Testing**
-- Added parity gate: `tests/integration/parity-gate.test.ts` -- 7 tests enforce canonical domain/op counts (T5251)
-- Fixed 24 pre-existing test failures (todo.json to SQLite fixture migration across nexus, release, engine-compat tests)
-- Added regression coverage for session hook behavior when brain schema tables are unavailable, and made session hook writes best-effort for missing brain tables in test/bootstrap environments (T5306)
-- Stabilized memory/validation compat suites by isolating fixture roots per test run to prevent cross-test SQLite state leakage (T5307)
-- Fixed `release-push-guard` 51-second hang
-- Full suite: 3868 tests, 0 failures, ~151s
+### CLI-to-Dispatch Migration Progress (T5323)
 
-**Storage**
-- Moved `sticky_notes` from tasks.db schema to brain.db `brain_sticky_notes` -- never physically existed in tasks.db (T5267)
-- Removed runtime legacy JSON task paths (T5284)
-- Removed dead todo migration script (T5303)
-- Removed runtime audit-log JSONL fallbacks (`todo-log.jsonl` / `tasks-log.jsonl`) in upgrade, system log queries, and task history; runtime now uses SQLite audit log + structured logger path only (T5317/T5304/T5305)
-- Decommissioned active runtime imports of legacy migration preflight paths; CLI/core/system now use canonical `core/system/storage-preflight` and package root exports canonical system migration/preflight APIs (T5305)
+- Dispatch migration progressed with targeted command coverage and test hardening
+- `cancel` and `unlink` were wired through dispatch (previously missing)
+- Verb standards were audited and aligned to `docs/specs/VERB-STANDARDS.md`
+- Remaining migration scope is tracked in open T5323 child phases for next cycle
 
-**Breaking changes**
-- MCP clients using `admin.config.get` must migrate to `admin.config.show`
-- MCP clients using `tasks.reopen` must migrate to `tasks.restore`
-- MCP clients using `tools.issue.create.*` must migrate to `tools.issue.add.*`
-- MCP clients using `sharing.*` operations must migrate to `nexus.share.*` (T5276, prior release)
+### Memory Domain Clean Break (T5241)
+
+- `search` verb eliminated — `find` is canonical everywhere in memory domain
+- All legacy `brain.*` operation aliases removed from registry
+- `memory.*` naming finalized: `memory.find`, `memory.timeline`, `memory.fetch`, `memory.observe`
+- Clean break from all pre-cutover operation names
+
+### MCP Tool Naming Standardization (T5507)
+
+- `cleo_query` / `cleo_mutate` renamed to `query` / `mutate` throughout all source, docs, tests, and configs
+- Backward-compat normalization layer in `src/dispatch/adapters/mcp.ts` accepts both forms during transition
+- All 10 canonical MCP domain names enforced at gateway level
+
+### Storage & Migration Hardening
+
+- **drizzle-brain in npm package** — `drizzle-brain/` migrations now correctly included in published package (T5319)
+- **Legacy JSON task paths removed** — All `tasks.json` runtime read/write paths eliminated (T5284)
+- **Legacy migration imports decommissioned** — CLI/core/system use `core/system/storage-preflight` (T5305)
+- **Dead migration script removed** — `dev/archived/todo-migration.ts` deleted (T5303)
+- **21 test files migrated** — All `tasks.json` fixture usage replaced with `tasks.db` helpers
+- **Upgrade path decoupled** — Runtime migration path delinked from legacy preflight (T5305)
+
+### Hierarchy: maxActiveSiblings Limit Removed (T5413)
+
+- The default 32 sibling limit has been removed — no artificial cap on concurrent sibling tasks
+- Projects requiring a limit can configure `maxActiveSiblings` explicitly in `.cleo/config.json`
+
+### Build System
+
+- **Centralized build config** — `src/config/build-config.ts` provides single source of truth for build metadata
+- **Package issue templates** — GitHub issue templates added for bug reports and feature requests
+
+### Bug Fixes
+
+- Resolve stale test assertions and SQLite regression in inject-generate (T5298)
+- Eliminate critical tasks.json legacy references across upgrade, doctor, and system commands (T5293-T5297)
+- Stabilize hooks and SQLite fixtures in test suite (T5317)
+- Migrate release engine tests from tasks.json to SQLite (T5251)
+- Include drizzle-brain migrations in npm package (T5319)
+- Stabilize CI test performance and parity gate timing (T5311)
+- Wire logs cleanup to prune lifecycle correctly (T5339)
+- Add audit_log health checks to comprehensive doctor (T5338)
+- Pass projectHash correctly to logger initialization (T5335)
+- Reconcile tasks.json checks in upgrade path (T5299)
+- Remove marker debt and add active gate enforcement (T5320-T5322)
+- Drop unused logOperation path arg (T4460)
+
+### Documentation
+
+- CLEO-OPERATION-CONSTITUTION.md: +7 verbs (check/verify/validate/timeline/convert/unlink/compute), +6 ops (T5250)
+- VERB-STANDARDS.md: `convert` verb added, verb count enforced at 37 (T5250)
+- Nexus ops table synced to current implementation (T5350)
+- Tessera ops canonicalized in framework docs (T5346)
+- ADR-019 amendment link corrected (T5340)
+- Cleanup matrix added, dead script refs retired (T5317)
+- MCP gateway names updated: `cleo_query`/`cleo_mutate` → `query`/`mutate` throughout (T5361, T5507)
+
+### Breaking Changes
+
+> Clients on `2026.3.13-beta.1` (@beta) must migrate before upgrading to `@latest`.
+
+| Old | New | Since |
+|-----|-----|-------|
+| MCP tool `cleo_query` | `query` | T5507 |
+| MCP tool `cleo_mutate` | `mutate` | T5507 |
+| `admin.config.get` | `admin.config.show` | T5245 |
+| `tasks.reopen` | `tasks.restore` | T5245 |
+| `tools.issue.create.*` | `tools.issue.add.*` | T5245 |
+| `sharing.*` | `nexus.share.*` | T5276 |
+| Non-canonical domain names | Returns `E_INVALID_DOMAIN` | T5246 |
+| `restore --reopen/--unarchive/--uncancel` CLI flags | Use `restore` directly | T5249 |
+| `find --search` CLI alias | Use `find` | T5249 |
+| tasks.json runtime paths | SQLite-only via tasks.db | T5284 |
+| JSONL audit log fallbacks | Structured logger + SQLite | T5317 |
+| 32 maxActiveSiblings default | No default (unlimited) | T5413 |
 
 ---
 

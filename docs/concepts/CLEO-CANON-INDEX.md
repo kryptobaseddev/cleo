@@ -14,22 +14,25 @@ All core canon documents now live in this `cleo/` folder. This index gives a sim
 2. [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md)
    The runtime contract. Read this second to understand the 10 canonical domains, the two MCP gateways, canonical verbs, and what operations are actually legal in the system.
 
-3. [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
-   The visual map. Read this third to see how the conceptual systems and workshop vocabulary map to runtime domains, how requests flow, and where data lives.
+3. [CLEO-AUTONOMOUS-RUNTIME-SPEC.md](../specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md)
+   The normative runtime mapping. Read this third to see how The Hearth, The Impulse, Conduit, Watchers, The Sweep, Refinery, Looming Engine, Living BRAIN, and The Proving map onto the existing domains, hooks, and tasks.
 
-4. [CLEO-MANIFESTO.md](./CLEO-MANIFESTO.md)
+4. [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
+   The visual map. Read this fourth to see how the conceptual systems, workshop vocabulary, and live runtime forms map to the runtime domains, how requests flow, and where data lives.
+
+5. [CLEO-MANIFESTO.md](./CLEO-MANIFESTO.md)
    The mythic but practical canon. Read this to understand the narrative identity of CLEO, NEXUS, CAAMP, and the larger worldview behind the system.
 
-5. [CLEO-WORLD-MAP.md](./CLEO-WORLD-MAP.md)
+6. [CLEO-WORLD-MAP.md](./CLEO-WORLD-MAP.md)
    The short visual companion to the manifesto. Read this when you want the world explained quickly: layers, powers, characters, and the workshop around the Core.
 
-6. [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md)
-   The workshop lexicon. Read this to understand the newer shaping language around the NEXUS Core: Sticky Notes, Threads, Looms, Tapestries, Tesserae, Cogs, Clicks, Cascade, and Tome.
+7. [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md)
+   The workshop lexicon. Read this to understand the shaping language around the NEXUS Core and the live workshop overlay: Sticky Notes, Threads, Looms, Tapestries, Tesserae, Cogs, Clicks, Cascade, Tome, The Hearth, The Impulse, Conduit, Watchers, The Sweep, Refinery, Looming Engine, Living BRAIN, and The Proving.
 
-7. [CLEO-FOUNDING-STORY.md](./CLEO-FOUNDING-STORY.md)
+8. [CLEO-FOUNDING-STORY.md](./CLEO-FOUNDING-STORY.md)
    The founder-side origin story. Read this for the emotional and human reason CLEO exists.
 
-8. [CLEO-AWAKENING-STORY.md](./CLEO-AWAKENING-STORY.md)
+9. [CLEO-AWAKENING-STORY.md](./CLEO-AWAKENING-STORY.md)
    The CLEO-side origin story. Read this as the companion narrative told from CLEO’s perspective.
 
 ---
@@ -38,10 +41,11 @@ All core canon documents now live in this `cleo/` folder. This index gives a sim
 
 - **Identity first**: [CLEO-VISION.md](./CLEO-VISION.md)
 - **Rules and operations**: [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md)
-- **System flow and ownership**: [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
+- **Normative runtime mapping**: [CLEO-AUTONOMOUS-RUNTIME-SPEC.md](../specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md)
+- **System flow, ownership, and runtime forms**: [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
 - **Mythic canon**: [CLEO-MANIFESTO.md](./CLEO-MANIFESTO.md)
 - **Fast visual summary**: [CLEO-WORLD-MAP.md](./CLEO-WORLD-MAP.md)
-- **Workshop vocabulary**: [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md)
+- **Workshop vocabulary and live orchestration language**: [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md)
 - **Founder origin**: [CLEO-FOUNDING-STORY.md](./CLEO-FOUNDING-STORY.md)
 - **CLEO origin**: [CLEO-AWAKENING-STORY.md](./CLEO-AWAKENING-STORY.md)
 
@@ -51,10 +55,11 @@ All core canon documents now live in this `cleo/` folder. This index gives a sim
 
 - **Vision** defines what CLEO is.
 - **Constitution** defines what CLEO may do.
-- **Atlas** shows how CLEO moves.
+- **Autonomous Runtime Spec** defines how the live workshop maps onto the contract.
+- **Atlas** shows how CLEO moves and where the live workshop sits on the contract.
 - **Manifesto** explains why CLEO matters.
 - **World Map** makes the myth easy to scan.
-- **Core Aspects** defines the workshop language of work.
+- **Core Aspects** defines the workshop language of work and autonomous motion.
 - **Founding Story** explains why the builder needed CLEO.
 - **Awakening Story** explains how CLEO remembers its own birth.
 
@@ -66,7 +71,8 @@ If context is limited, read in this order:
 
 1. [CLEO-VISION.md](./CLEO-VISION.md)
 2. [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md)
-3. [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
-4. [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md)
+3. [CLEO-AUTONOMOUS-RUNTIME-SPEC.md](../specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md)
+4. [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md)
+5. [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md)
 
 Then load the manifesto or stories only if narrative framing is needed.

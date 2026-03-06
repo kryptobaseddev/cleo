@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { resolveTier, PROJECTIONS, type MviTier } from '../projections.js';
+import { describe,expect,it } from 'vitest';
 import { applyProjection } from '../../middleware/projection.js';
+import { PROJECTIONS,resolveTier } from '../projections.js';
 
 describe('resolveTier', () => {
   it('should default to standard when no params', () => {

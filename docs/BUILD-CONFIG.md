@@ -43,7 +43,7 @@ import { BUILD_CONFIG } from '../config/build-config.js';
 
 // Access repository info
 const repo = BUILD_CONFIG.repository.fullName; // "kryptobaseddev/cleo"
-const version = BUILD_CONFIG.version; // "2026.3.13-beta.1"
+const version = BUILD_CONFIG.version; // "2026.3.14"
 
 // Access template paths
 const issueTemplatesDir = BUILD_CONFIG.templates.issueTemplatesDir;

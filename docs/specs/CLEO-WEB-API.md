@@ -1,12 +1,14 @@
 # CLEO Web API Specification
 
 **Version**: 2.0.0
-**Status**: Canonical Specification
-**Date**: 2026-02-27
+**Status**: Implementation Specification
+**Date**: 2026-03-06
 **Epic**: T4284 (CLEO Nexus Command Center WebUI)
-**Supersedes**: CLEO-WEB-API-SPEC v1.0.0 (complete rewrite based on challenge findings)
+**Base Specification**: [CLEO-API.md](./CLEO-API.md)
 **Vision**: [docs/concepts/CLEO-VISION.md](../concepts/CLEO-VISION.md)
 **UI Spec**: [CLEO-WEB-DASHBOARD-UI.md](../mintlify/specs/CLEO-WEB-DASHBOARD-UI.md)
+
+> ⚠️ **IMPLEMENTATION STATUS**: This specification defines the target architecture. The actual Fastify HTTP server implementation is tracked in EPIC T5430 (see [Implementation Epic](#implementation-epic-t5430)).
 
 ---
 
@@ -1147,3 +1149,189 @@ src/web/
 - **Challenge: tRPC vs Alternatives** (`.cleo/research/challenge-trpc-vs-alternatives.md`): `/dispatch` pattern recommendation, comparison matrix, generated client analysis
 - **Challenge: Frontend Framework** (`.cleo/research/challenge-frontend-framework.md`): Svelte 5 recommendation, D3 integration strategy, SvelteKit rejection
 - **Challenge: Real-Time Strategy** (`.cleo/research/challenge-realtime-strategy.md`): Smart polling recommendation, file watching rejection, SQLite WAL analysis
+
+---
+
+## Implementation Epic: T5430 (CLEO Web Server)
+
+### Status: Planning Phase
+
+This specification defines the target architecture for the CLEO Web HTTP server. Implementation is tracked under EPIC **T5430**.
+
+### Technology Stack Requirements
+
+#### Core Framework
+- **Fastify**: ^5.8.0 (minimum)
+- **@fastify/type-provider-typebox**: For TypeScript type integration
+- **@fastify/sensible**: HTTP-friendly error handling
+
+#### Required Plugins
+```typescript
+// Core plugins
+await server.register(require('@fastify/cors'), { /* localhost only */ });
+await server.register(require('@fastify/compress'));
+await server.register(require('@fastify/sensible'));
+
+// Type providers
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+
+const server = fastify({
+  logger: true,
+}).withTypeProvider<TypeBoxTypeProvider>();
+```
+
+#### Development Dependencies
+- `@types/node`: Node.js 20+ types
+- `fastify-tsconfig`: TypeScript configuration
+- `tsx`: TypeScript execution for development
+
+### Implementation Phases
+
+#### Phase 1: Core Server (T5431)
+**Status**: 🔴 Not Started
+
+- [ ] Fastify 5.8.x setup with TypeBox type provider
+- [ ] `@fastify/sensible` integration
+- [ ] Dynamic port selection (port 0 with fallback)
+- [ ] Portfile management (`.cleo/web-server.port`)
+- [ ] PID file management (`.cleo/web-server.pid`)
+- [ ] Health/readiness endpoints (`/health`, `/ready`)
+- [ ] Graceful shutdown handling
+- [ ] Localhost-only binding enforcement
+
+**Deliverables:**
+- `src/web/server/server.ts` - Fastify instance setup
+- `src/web/server/port-manager.ts` - Port lifecycle
+- `src/web/server/index.ts` - Entry point
+- `src/cli/commands/web.ts` - CLI commands
+
+#### Phase 2: Dispatch Routes (T5432)
+**Status**: 🔴 Not Started
+
+- [ ] `POST /api/query` - Read operations endpoint
+- [ ] `POST /api/mutate` - Write operations endpoint
+- [ ] Request validation with Zod schemas
+- [ ] Response translation (LAFS headers + body)
+- [ ] Error handling with sensible plugin
+- [ ] `GET /api/poll` - ETag-based change detection
+- [ ] ETag computation from database fingerprint
+
+**Deliverables:**
+- `src/web/server/routes/dispatch.ts`
+- `src/web/server/routes/health.ts`
+- `src/web/server/routes/poll.ts`
+- `src/web/server/lib/response.ts`
+- `src/web/server/lib/etag.ts`
+- `src/web/server/lib/exit-code-map.ts`
+
+#### Phase 3: Static Assets (T5433)
+**Status**: 🔴 Not Started
+
+- [ ] Static file serving for built SPA
+- [ ] SPA routing (client-side router support)
+- [ ] Asset caching headers
+
+**Deliverables:**
+- `src/web/server/routes/static.ts`
+
+#### Phase 4: Future Research (T5434)
+**Status**: 📋 Planning Required
+
+Research topics for post-MVP:
+
+**WebSocket Support:**
+- `@fastify/websocket` plugin evaluation
+- Use case: Real-time collaboration
+- Alternative: SSE (Server-Sent Events)
+
+**HTTP/2:**
+- Native Node.js HTTP/2 support
+- Requirements: SSL/TLS (not localhost)
+- Priority: Low (localhost HTTP/1.1 sufficient)
+
+**Webhooks:**
+- Outbound webhook system
+- Use case: CI/CD integration, notifications
+- Design: Async queue + retry logic
+
+**SSE (Server-Sent Events):**
+- Alternative to WebSocket for server→client push
+- Use case: Activity feed, real-time updates
+- Plugin: `@fastify/sse-v2`
+
+**Decision Required:**
+Consensus protocol (RCASD) should evaluate:
+1. Do we need real-time features for MVP?
+2. WebSocket vs SSE trade-offs
+3. HTTP/2 necessity for local development
+4. Webhook priority vs polling
+
+### Package.json Updates
+
+```json
+{
+  "dependencies": {
+    "fastify": "^5.8.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/compress": "^8.0.0",
+    "@fastify/sensible": "^6.0.0",
+    "@fastify/type-provider-typebox": "^5.0.0",
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0"
+  }
+}
+```
+
+### Directory Structure
+
+```
+src/web/
+├── server/                    # Fastify HTTP server
+│   ├── index.ts              # Entry point (startServer)
+│   ├── server.ts             # Fastify setup with TypeBox
+│   ├── port-manager.ts       # Port + portfile lifecycle
+│   ├── routes/
+│   │   ├── dispatch.ts       # POST /api/query, /api/mutate
+│   │   ├── health.ts         # GET /health, GET /ready
+│   │   ├── poll.ts           # GET /api/poll (ETag)
+│   │   └── static.ts         # SPA static files
+│   └── lib/
+│       ├── response.ts       # LAFS response formatting
+│       ├── etag.ts           # ETag computation
+│       └── exit-code-map.ts  # CLEO → HTTP status
+├── client/                   # Svelte 5 SPA (Phase 2+)
+│   ├── App.svelte
+│   ├── routes/
+│   └── components/
+└── codegen/
+    └── generate-client.ts    # Registry → TypeScript client
+```
+
+### Acceptance Criteria
+
+- [ ] Server starts in < 2 seconds
+- [ ] Query p95 latency < 50ms
+- [ ] Port published to portfile < 1 second after startup
+- [ ] All 152 operations accessible via HTTP
+- [ ] LAFS compliance on every response
+- [ ] Localhost-only binding (127.0.0.1)
+- [ ] Type-safe routes with TypeBox
+- [ ] Sensible error handling
+
+### Related Tasks
+
+- T4284: WebUI Epic (parent)
+- T5430: Web Server Epic (this work)
+- T5431: Core Server Phase 1
+- T5432: Dispatch Routes Phase 2
+- T5433: Static Assets Phase 3
+- T5434: Future Research Phase 4
+
+---
+
+**Last Updated**: 2026-03-06
+**Specification Version**: 2.0.0
+**Implementation Epic**: T5430

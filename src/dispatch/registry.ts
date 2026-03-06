@@ -1,7 +1,7 @@
 /**
  * Unified CQRS Dispatch Layer -- Operation Registry
  *
- * Single source of truth for all 247 operations (140 query + 107 mutate) mapped
+ * Single source of truth for all 256 operations (145 query + 111 mutate) mapped
  * to 10 canonical domains. Canonical domains only -- no legacy alias support.
  *
  * @epic T4820

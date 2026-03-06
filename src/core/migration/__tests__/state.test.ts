@@ -5,26 +5,25 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync,mkdirSync,mkdtempSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import {
-  createMigrationState,
-  updateMigrationState,
-  updateMigrationPhase,
-  updateMigrationProgress,
   addMigrationError,
   addMigrationWarning,
-  loadMigrationState,
-  isMigrationInProgress,
   canResumeMigration,
-  completeMigration,
-  failMigration,
   clearMigrationState,
+  completeMigration,
+  createMigrationState,
+  failMigration,
   getMigrationSummary,
-  verifySourceIntegrity,
-  type MigrationState,
+  isMigrationInProgress,
+  loadMigrationState,
+  updateMigrationPhase,
+  updateMigrationProgress,
+  updateMigrationState,
+  verifySourceIntegrity
 } from '../state.js';
 
 describe('migration state tracking', () => {

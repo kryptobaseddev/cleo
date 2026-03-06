@@ -4,8 +4,8 @@
 **Status**: Canonical Specification  
 **Date**: 2026-03-05  
 **Epic**: T4284 (CLEO Nexus Command Center WebUI), T4820 (BRAIN Network / NEXUS)  
-**Supersedes**: NEXUS-SPEC.md (operations reference)  
-**Related**: CLEO-WEB-API-SPEC.md (HTTP adapter), LAFS Protocol v1.0.0  
+**Base Specification**: [CLEO-API.md](./CLEO-API.md)  
+**Related**: CLEO-WEB-API.md (HTTP adapter), LAFS Protocol v1.0.0  
 
 ---
 

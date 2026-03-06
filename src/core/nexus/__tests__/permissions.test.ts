@@ -4,24 +4,23 @@
  * @epic T4540
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import {
-  permissionLevel,
-  getPermission,
-  checkPermission,
-  requirePermission,
-  checkPermissionDetail,
-  canRead,
-  canWrite,
-  canExecute,
-} from '../permissions.js';
-import { nexusRegister, nexusInit } from '../registry.js';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
 import { resetDbState } from '../../../store/sqlite.js';
-import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import {
+  canExecute,
+  canRead,
+  canWrite,
+  checkPermission,
+  checkPermissionDetail,
+  permissionLevel,
+  requirePermission
+} from '../permissions.js';
+import { nexusRegister } from '../registry.js';
 
 let testDir: string;
 let projectDir: string;

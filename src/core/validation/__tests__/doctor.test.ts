@@ -4,32 +4,31 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm,writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import {
-  isTempProject,
-  categorizeProjects,
-  getProjectCategoryName,
-  formatProjectHealthSummary,
-  getProjectGuidance,
-  getUserJourneyStage,
-  getJourneyGuidance,
-} from '../doctor/utils.js';
-import {
+  calculateHealthStatus,
   checkCliInstallation,
   checkCliVersion,
   checkDocsAccessibility,
-  calculateHealthStatus,
 } from '../doctor/checks.js';
 import {
-  initCacheFile,
-  loadCache,
-  getCacheFilePath,
-  clearEntireCache,
   CACHE_VERSION,
+  clearEntireCache,
+  initCacheFile,
+  loadCache
 } from '../doctor/project-cache.js';
+import {
+  categorizeProjects,
+  formatProjectHealthSummary,
+  getJourneyGuidance,
+  getProjectCategoryName,
+  getProjectGuidance,
+  getUserJourneyStage,
+  isTempProject,
+} from '../doctor/utils.js';
 
 // ============================================================================
 // Doctor Utils

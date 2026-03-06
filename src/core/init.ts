@@ -277,13 +277,19 @@ export async function initNexusRegistration(
     const { nexusReconcile } = await import('./nexus/registry.js');
     const result = await nexusReconcile(projectRoot);
     if (result.status === 'auto_registered') {
-      created.push('NEXUS registration');
+      created.push('NEXUS registration (auto-registered new project)');
     } else if (result.status === 'path_updated') {
-      created.push(`NEXUS reconciled (path updated: ${result.oldPath} → ${result.newPath})`);
+      created.push(`NEXUS registration (path updated: ${result.oldPath} → ${result.newPath})`);
+    } else if (result.status === 'ok') {
+      created.push('NEXUS registration (project verified and active)');
     }
   } catch (err) {
     const errStr = String(err);
-    if (!errStr.includes('already registered') && !errStr.includes('NEXUS_PROJECT_EXISTS')) {
+    if (errStr.includes('NEXUS_PROJECT_EXISTS')) {
+      warnings.push('NEXUS registration: Project already registered');
+    } else if (errStr.includes('NEXUS_REGISTRY_CORRUPT')) {
+      warnings.push(`NEXUS registration: Identity conflict - ${err instanceof Error ? err.message : errStr}. Run 'cleo nexus unregister' and re-register.`);
+    } else {
       warnings.push(`NEXUS registration: ${err instanceof Error ? err.message : errStr}`);
     }
   }

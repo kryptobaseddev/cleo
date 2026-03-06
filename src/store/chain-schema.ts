@@ -41,7 +41,7 @@ export const warpChains = sqliteTable('warp_chains', {
 /** Runtime chain instances bound to epics. */
 export const warpChainInstances = sqliteTable('warp_chain_instances', {
   id: text('id').primaryKey(),
-  chainId: text('chain_id').notNull(),
+  chainId: text('chain_id').notNull().references(() => warpChains.id),
   epicId: text('epic_id').notNull(),
   variables: text('variables'),     // JSON
   stageToTask: text('stage_to_task'), // JSON

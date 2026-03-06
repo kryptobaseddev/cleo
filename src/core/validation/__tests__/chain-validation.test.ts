@@ -48,6 +48,31 @@ function makeLinearChain(ids: string[]): WarpChain {
   };
 }
 
+function makeForkJoinChain(): WarpChain {
+  const stageIds = ['start', 'fork-left', 'fork-right', 'join', 'finish'];
+  const stages = stageIds.map((id) => makeStage(id));
+
+  return {
+    id: 'fork-join-chain',
+    name: 'Fork Join Chain',
+    version: '1.0.0',
+    description: 'A fork-join test chain',
+    shape: {
+      stages,
+      links: [
+        { from: 'start', to: 'fork-left', type: 'fork' },
+        { from: 'start', to: 'fork-right', type: 'fork' },
+        { from: 'fork-left', to: 'join', type: 'linear' },
+        { from: 'fork-right', to: 'join', type: 'linear' },
+        { from: 'join', to: 'finish', type: 'linear' },
+      ],
+      entryPoint: 'start',
+      exitPoints: ['finish'],
+    },
+    gates: [],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -109,6 +134,21 @@ describe('validateChainShape', () => {
 
     const errors = validateChainShape(chain.shape);
     expect(errors.some((e) => e.includes('entryPoint') && e.includes('nonexistent'))).toBe(true);
+  });
+
+  it('valid fork-join chain passes shape validation', () => {
+    const chain = makeForkJoinChain();
+
+    const errors = validateChainShape(chain.shape);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('malformed fork-join chain reports join-link errors', () => {
+    const chain = makeForkJoinChain();
+    chain.shape.links.push({ from: 'missing-branch', to: 'join', type: 'linear' });
+
+    const errors = validateChainShape(chain.shape);
+    expect(errors.some((e) => e.includes('missing-branch') && e.includes('does not reference'))).toBe(true);
   });
 });
 
@@ -189,5 +229,14 @@ describe('validateChain', () => {
     expect(result.wellFormed).toBe(false);
     expect(result.gateSatisfiable).toBe(false);
     expect(result.errors.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('valid fork-join chain returns clean validation', () => {
+    const chain = makeForkJoinChain();
+    const result = validateChain(chain);
+
+    expect(result.wellFormed).toBe(true);
+    expect(result.gateSatisfiable).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 });

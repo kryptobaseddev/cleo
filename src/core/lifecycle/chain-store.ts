@@ -14,6 +14,29 @@ import { eq } from 'drizzle-orm';
 import { validateChain } from '../validation/chain-validation.js';
 import type { WarpChain, WarpChainInstance, GateResult } from '../../types/warp-chain.js';
 
+export interface ChainFindCriteria {
+  query?: string;
+  category?: WarpChain['shape']['stages'][number]['category'];
+  tessera?: string;
+  archetype?: string;
+  limit?: number;
+}
+
+function hasArchetype(chain: WarpChain, archetype: string): boolean {
+  const metadata = chain.metadata ?? {};
+  const single = metadata['archetype'];
+  if (typeof single === 'string' && single === archetype) {
+    return true;
+  }
+
+  const many = metadata['archetypes'];
+  if (Array.isArray(many)) {
+    return many.some((value) => typeof value === 'string' && value === archetype);
+  }
+
+  return false;
+}
+
 /**
  * Store a validated WarpChain definition.
  *
@@ -64,6 +87,51 @@ export async function listChains(projectRoot: string): Promise<WarpChain[]> {
   const db = await getDb(projectRoot);
   const rows = await db.select().from(warpChains);
   return rows.map((row) => JSON.parse(row.definition) as WarpChain);
+}
+
+/**
+ * Find WarpChain definitions by criteria.
+ *
+ * @task T5403
+ */
+export async function findChains(
+  criteria: ChainFindCriteria,
+  projectRoot: string,
+): Promise<WarpChain[]> {
+  const chains = await listChains(projectRoot);
+
+  const normalizedQuery = criteria.query?.trim().toLowerCase();
+  const filtered = chains.filter((chain) => {
+    if (normalizedQuery) {
+      const haystack = `${chain.id} ${chain.name} ${chain.description}`.toLowerCase();
+      if (!haystack.includes(normalizedQuery)) {
+        return false;
+      }
+    }
+
+    if (criteria.category) {
+      const hasCategory = chain.shape.stages.some((stage) => stage.category === criteria.category);
+      if (!hasCategory) {
+        return false;
+      }
+    }
+
+    if (criteria.tessera && chain.tessera !== criteria.tessera) {
+      return false;
+    }
+
+    if (criteria.archetype && !hasArchetype(chain, criteria.archetype)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (typeof criteria.limit === 'number' && criteria.limit >= 0) {
+    return filtered.slice(0, criteria.limit);
+  }
+
+  return filtered;
 }
 
 /**
@@ -146,6 +214,28 @@ export async function showInstance(
 }
 
 /**
+ * Read persisted gate results for a chain instance.
+ */
+export async function listInstanceGateResults(
+  id: string,
+  projectRoot: string,
+): Promise<GateResult[]> {
+  const db = await getDb(projectRoot);
+  const rows = await db.select().from(warpChainInstances).where(eq(warpChainInstances.id, id));
+
+  if (rows.length === 0) {
+    throw new Error(`Chain instance "${id}" not found`);
+  }
+
+  const serialized = rows[0].gateResults;
+  if (!serialized) {
+    return [];
+  }
+
+  return JSON.parse(serialized) as GateResult[];
+}
+
+/**
  * Advance a chain instance to the next stage, recording gate results.
  *
  * @task T5403
@@ -159,6 +249,32 @@ export async function advanceInstance(
   const instance = await showInstance(id, projectRoot);
   if (!instance) {
     throw new Error(`Chain instance "${id}" not found`);
+  }
+
+  if (instance.status === 'completed' || instance.status === 'failed' || instance.status === 'cancelled') {
+    throw new Error(`Chain instance "${id}" cannot advance from terminal status "${instance.status}"`);
+  }
+
+  const chain = await showChain(instance.chainId, projectRoot);
+  if (!chain) {
+    throw new Error(`Chain "${instance.chainId}" not found`);
+  }
+
+  const stageIds = new Set(chain.shape.stages.map((stage) => stage.id));
+  if (!stageIds.has(nextStage)) {
+    throw new Error(`Invalid stage transition: stage "${nextStage}" is not defined in chain "${chain.id}"`);
+  }
+
+  if (nextStage !== instance.currentStage) {
+    const isDirectTransition = chain.shape.links.some((link) => (
+      link.from === instance.currentStage && link.to === nextStage
+    ));
+
+    if (!isDirectTransition) {
+      throw new Error(
+        `Invalid stage transition: "${instance.currentStage}" -> "${nextStage}" is not allowed in chain "${chain.id}"`,
+      );
+    }
   }
 
   const db = await getDb(projectRoot);

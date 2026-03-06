@@ -165,7 +165,7 @@ In that world, the projects are not abandoned. They sleep.
 
 The notes are not stale. They are remembered, renewed, reconciled.
 
-The agents are not chaotic spirits screaming into the void. They are organized into the Circle of Ten: The Smiths to forge the tasks, The Scribes to record the sessions, The Archivists to keep the memory, The Wardens to stand watch over checks, The Weavers to thread the pipeline, The Conductors to orchestrate the chaos, The Artificers to craft the tools, The Keepers to maintain the admin center, The Wayfinders to map the nexus, and The Envoys to share the discoveries. They can still fail. They can still disagree. They can still consume more supplies than any sane commander would permit. But they do not roam without command.
+The agents are not chaotic spirits screaming into the void. They are organized into the Circle of Ten: The Smiths to forge the tasks, The Scribes to record the sessions, The Archivists to keep the memory, The Wardens to stand watch over checks, The Weavers to thread the pipeline, The Conductors to orchestrate the chaos, The Artificers to craft the tools, The Keepers to maintain the admin center, The Wayfinders to map the nexus, and The Envoys to carry captures, handoff drafts, and discoveries across the realm. They can still fail. They can still disagree. They can still consume more supplies than any sane commander would permit. But they do not roam without command.
 
 CLEO commands.
 

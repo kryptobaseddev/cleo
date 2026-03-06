@@ -5,9 +5,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildDefaultChain, DEFAULT_CHAIN_ID } from '../default-chain.js';
+import {
+  buildDefaultChain,
+  DEFAULT_CHAIN_ID,
+  DEFAULT_PROTOCOL_STAGE_MAP,
+} from '../default-chain.js';
 import { PIPELINE_STAGES, STAGE_PREREQUISITES } from '../stages.js';
 import { VERIFICATION_GATE_ORDER } from '../../validation/verification.js';
+import { PROTOCOL_TYPES } from '../../orchestration/protocol-validators.js';
 import { validateChain } from '../../validation/chain-validation.js';
 
 describe('buildDefaultChain', () => {
@@ -60,6 +65,28 @@ describe('buildDefaultChain', () => {
           g.check.gateName === gateName,
       );
       expect(match, `Missing exit gate for verification gate "${gateName}"`).toBeDefined();
+    }
+  });
+
+  it('every protocol type is represented as a protocol_valid gate', () => {
+    const protocolGates = chain.gates.filter((g) => g.check.type === 'protocol_valid');
+
+    for (const protocolType of PROTOCOL_TYPES) {
+      const match = protocolGates.find(
+        (g) => g.check.type === 'protocol_valid' && g.check.protocolType === protocolType,
+      );
+      expect(match, `Missing protocol gate for protocol "${protocolType}"`).toBeDefined();
+      expect(match?.stageId).toBe(DEFAULT_PROTOCOL_STAGE_MAP[protocolType]);
+    }
+  });
+
+  it('orders protocol_valid gates by pipeline stage sequence', () => {
+    const protocolGates = chain.gates.filter((g) => g.check.type === 'protocol_valid');
+    const stageOrder = new Map<string, number>(PIPELINE_STAGES.map((stage, index) => [stage, index]));
+    const protocolStageIndexes = protocolGates.map((gate) => stageOrder.get(gate.stageId) ?? -1);
+
+    for (let i = 1; i < protocolStageIndexes.length; i++) {
+      expect(protocolStageIndexes[i]).toBeGreaterThanOrEqual(protocolStageIndexes[i - 1]);
     }
   });
 

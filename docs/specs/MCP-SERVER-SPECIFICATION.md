@@ -20,18 +20,18 @@ Implementation operation counts and live operation matrices MUST be sourced from
 - `src/mcp/gateways/query.ts`
 - `src/mcp/gateways/mutate.ts`
 
-As of 2026-02-27, implementation counts are:
+As of 2026-03-06, implementation counts are:
 
-- `query`: 97 (across 10 canonical domains)
-- `mutate`: 80 (across 10 canonical domains)
-- Total: 177
+- `query`: 145 (across 10 canonical domains)
+- `mutate`: 111 (across 10 canonical domains)
+- Total: 256
 
-> **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries are the canonical count for deployed operations. Legacy domain aliases (research, lifecycle, validate, release, system, issues, skills, providers, sharing) still route to canonical domains.
+> **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries are the canonical count for deployed operations. Legacy domain aliases (research, lifecycle, validate, release, system, issues, skills, providers, sharing) still route to canonical domains; `sharing` resolves into `nexus.share.*`, while `sticky` is the tenth canonical domain.
 
 ### 1.1 Design Goals
 
 1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 80+ tools (~32,500 tokens) = 94% reduction
-2. **Full Capability Access**: All 177 operations accessible through domain routing across 10 canonical domains
+2. **Full Capability Access**: All 256 operations accessible through domain routing across 10 canonical domains
 3. **Safety by Design**: Read operations cannot mutate state
 4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
@@ -44,7 +44,7 @@ As of 2026-02-27, implementation counts are:
 │                                                                                  │
 │   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
 │   │         query              │    │         mutate             │    │
-│   │      (97 Read Operations)       │    │      (80 Write Operations)      │    │
+│   │      (145 Read Operations)      │    │     (111 Write Operations)      │    │
 │   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
 └────────────────────┼──────────────────────────────────────┼──────────────────────┘
                      │                                      │
@@ -127,7 +127,7 @@ As of 2026-02-27, implementation counts are:
 }
 ```
 
-#### 2.1.2 Operations by Domain (97 Total)
+#### 2.1.2 Selected Operations by Domain
 
 ##### tasks (12 operations)
 
@@ -248,13 +248,12 @@ As of 2026-02-27, implementation counts are:
 | `verify`       | Validate skill frontmatter | `skillId`  | Validation result       |
 | `dependencies` | Skill dependency tree      | `skillId`  | Dependency graph        |
 
-##### sticky (4 operations)
+##### sticky (2 operations)
 
-| Operation       | Description                   | Parameters    | Returns          |
-| --------------- | ----------------------------- | ------------- | ---------------- |
-| `list`          | List all registered providers | -             | Provider array   |
-| `detect`        | Detect installed providers    | -             | Detection result |
-| `inject.status` | Check injection status        | `providerId?` | Injection status |
+| Operation | Description | Parameters | Returns |
+| --------- | ----------- | ---------- | ------- |
+| `list`    | List sticky notes | `status?`, `limit?` | Sticky note array |
+| `show`    | Show sticky note details | `stickyId` | Sticky note object |
 
 ---
 
@@ -309,7 +308,7 @@ As of 2026-02-27, implementation counts are:
 }
 ```
 
-#### 2.2.2 Operations by Domain (80 Total)
+#### 2.2.2 Selected Operations by Domain
 
 ##### tasks (14 operations)
 
@@ -1086,8 +1085,8 @@ const startup = await mutate({
 
 // 2. Check lifecycle prerequisites
 const lifecycle = await query({
-  domain: "lifecycle",
-  operation: "validate",
+  domain: "pipeline",
+  operation: "stage.validate",
   params: { taskId: "T2405", targetStage: "implementation" },
 });
 

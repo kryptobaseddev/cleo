@@ -11,9 +11,9 @@
 
 | Document | Purpose |
 |----------|---------|
-| **[CLEO-NEXUS-API.md](./CLEO-NEXUS-API.md)** | Complete NEXUS API reference with examples |
-| **[CLEO-WEB-API.md](./CLEO-WEB-API.md)** | HTTP adapter & Web UI specification |
-| **[CLEO-MCP-API.md](./CLEO-MCP-API.md)** | MCP server integration guide |
+| **[CLEO-API.md](./CLEO-API.md)** | **Master API specification** - Core API definitions |
+| **[CLEO-NEXUS-API.md](./CLEO-NEXUS-API.md)** | Cross-project API (builds on CLEO-API) |
+| **[CLEO-WEB-API.md](./CLEO-WEB-API.md)** | HTTP adapter & Fastify implementation spec |
 | **[CLEO-SDK-GUIDE.md](./CLEO-SDK-GUIDE.md)** | Client SDK usage & integration |
 | **[CLEO-ARCHITECTURE.md](./CLEO-ARCHITECTURE.md)** | System architecture & data flow |
 
@@ -150,8 +150,6 @@
 │  │  │  • nexus_audit_log (cross-project ops)      │   │  │
 │  │  │  • nexus_schema_meta (versioning)           │   │  │
 │  │  └─────────────────────────────────────────────┘   │  │
-│  │                                                     │  │
-│  │  projects-registry.json (legacy, migrated)         │  │
 │  └─────────────────────────────────────────────────────┘  │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
@@ -417,16 +415,17 @@ Result: All GitHub bugs automatically in CLEO
 
 | Domain | Query | Mutate | Total | Purpose |
 |--------|-------|--------|-------|---------|
-| **tasks** | 13 | 13 | 26 | Task management |
-| **session** | 10 | 7 | 17 | Session lifecycle |
+| **tasks** | 17 | 15 | 32 | Task management |
+| **session** | 11 | 8 | 19 | Session lifecycle |
 | **memory** | 12 | 6 | 18 | BRAIN storage |
-| **nexus** | 13 | 11 | 24 | Cross-project |
-| **pipeline** | 5 | 12 | 17 | RCASD lifecycle |
-| **orchestrate** | 10 | 6 | 16 | Multi-agent |
-| **tools** | 16 | 11 | 27 | Skills & issues |
-| **admin** | 14+ | 12 | 26+ | System mgmt |
-| **check** | 10 | 2 | 12 | Validation |
-| **TOTAL** | **103+** | **80** | **183+** | |
+| **check** | 17 | 2 | 19 | Validation |
+| **pipeline** | 14 | 23 | 37 | RCASD lifecycle |
+| **orchestrate** | 11 | 8 | 19 | Multi-agent |
+| **tools** | 21 | 11 | 32 | Skills & issues |
+| **admin** | 23 | 20 | 43 | System mgmt |
+| **nexus** | 17 | 14 | 31 | Cross-project |
+| **sticky** | 2 | 4 | 6 | Quick capture |
+| **TOTAL** | **145** | **111** | **256** | |
 
 ### 4.2 NEXUS Operations Detail
 
@@ -514,9 +513,9 @@ No authentication required for MVP
 
 | Document | Lines | Purpose | Audience |
 |----------|-------|---------|----------|
-| **CLEO-NEXUS-API.md** | ~1,630 | Complete NEXUS API with examples | Developers integrating NEXUS |
-| **CLEO-WEB-API.md** | ~1,150 | HTTP adapter, transport layer | Web developers |
-| **CLEO-MCP-API.md** | ~800 | MCP server integration | AI/agent developers |
+| **CLEO-API.md** | ~300 | Master API specification | All developers |
+| **CLEO-NEXUS-API.md** | ~1,630 | Cross-project API (NEXUS domain) | Multi-project developers |
+| **CLEO-WEB-API.md** | ~1,200 | HTTP/Fastify implementation spec | Web developers |
 | **CLEO-SDK-GUIDE.md** | ~600 | Client SDK usage | Application developers |
 
 ### 6.2 Architecture & Design

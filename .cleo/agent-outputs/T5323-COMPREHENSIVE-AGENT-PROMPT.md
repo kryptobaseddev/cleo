@@ -24,7 +24,7 @@ Take CLI commands that currently call `src/core/` directly and rewrite them to u
 - Registry.ts has all required operations
 - Domain handlers implemented
 - Tests pass
-- Zero TODO comments
+- Zero action-marker comments
 
 ---
 
@@ -65,9 +65,9 @@ if (!response.success) handleRawError(response, {command: 'add'});
 
 ## 🔴 SACRED CONSTRAINTS (ZERO TOLERANCE)
 
-### 1. NO TODO COMMENTS
+### 1. NO ACTION-MARKER COMMENTS
 **Rule**: Every task must be 100% complete  
-**Enforcement**: If you can't finish something, document it in MANIFEST.jsonl with `needs_followup`, don't leave TODOs in code
+**Enforcement**: If you can't finish something, document it in MANIFEST.jsonl with `needs_followup`, don't leave unfinished action markers in code
 
 ### 2. NO CODE GRAVEYARDS
 **Rule**: Never comment out code to pass checks  
@@ -277,7 +277,7 @@ Per Command:
 - [ ] Uses `dispatchFromCli()` or `dispatchRaw()`
 - [ ] Error handling via `handleRawError()`
 - [ ] All imports used (no dead code)
-- [ ] No TODO comments
+- [ ] No action-marker comments
 - [ ] No commented-out code
 - [ ] Output format identical to pre-migration
 - [ ] TypeScript compiles (`npx tsc --noEmit`)
@@ -318,9 +318,9 @@ const response = await dispatchRaw('query', 'domain', 'operation', params);
 cliOutput(response.data);
 ```
 
-### ❌ WRONG: TODO Comment
+### ❌ WRONG: Unfinished Action Marker Comment
 ```typescript
-// TODO: Implement error handling
+// Pending implementation note: implement error handling
 ```
 
 ### ✅ RIGHT: Complete Implementation or Document Blocker
@@ -403,7 +403,7 @@ When you finish, these must be true:
 - [ ] TypeScript compiles without errors
 - [ ] Commands work identically to before
 - [ ] MANIFEST.jsonl has your entry
-- [ ] No TODO comments anywhere
+- [ ] No action-marker comments anywhere
 - [ ] All imports are used
 
 ---

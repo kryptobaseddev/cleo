@@ -29,8 +29,9 @@ This roadmap reflects current implementation reality from `docs/concepts/CLEO-VI
 ### Pending Critical Gaps
 
 - **T5145**: Full claude-mem retirement automation (hooks + injection replacement) is not complete.
-- **T5158/T5159**: Embedding generation and vector similarity pipeline not complete.
+- **T5158/T5159**: Embedding generation and vector similarity pipeline not complete; these remain Living BRAIN substrate tasks, not the autonomous runtime epic.
 - **T5161**: PageIndex traversal/query API not complete.
+- **T5519 / T5573 / T5574 / T5575**: Autonomous runtime foundation remains pending. The canon is now defined in `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`, but Agent-Runtime Core, The Impulse, and Watchers are not implemented yet.
 
 ---
 
@@ -82,7 +83,7 @@ This roadmap reflects current implementation reality from `docs/concepts/CLEO-VI
 
 ### Track A - BRAIN Completion (near-term)
 
-- Complete vector pipeline (`T5158`, `T5159`) on top of shipped sqlite-vec loading.
+- Complete vector pipeline (`T5158`, `T5159`) on top of shipped sqlite-vec loading as Living BRAIN substrate work.
 - Complete PageIndex query/traversal API (`T5161`) on top of shipped graph tables.
 - Complete reasoning and session integration (`T5153` children).
 
@@ -95,6 +96,12 @@ This roadmap reflects current implementation reality from `docs/concepts/CLEO-VI
 
 - Evolve from JSON-backed registry toward dedicated `nexus.db` target architecture.
 - Expand cross-project retrieval quality and federated memory workflows.
+
+### Track D - Autonomous Runtime
+
+- Build the autonomous runtime foundation (`T5519`, `T5573`, `T5574`, `T5575`) per `docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`.
+- Deliver the runtime stations (`T5520`-`T5529`) with canon-aligned roles, hooks, and domain mappings.
+- Keep `T5158`/`T5159` scoped to Living BRAIN retrieval substrate rather than treating them as the runtime epic.
 
 ## Verification Policy
 

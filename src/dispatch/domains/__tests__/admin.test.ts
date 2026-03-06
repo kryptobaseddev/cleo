@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach,describe,expect,it,vi } from 'vitest';
 
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
@@ -41,28 +41,27 @@ vi.mock('../../registry.js', () => ({
   ],
 }));
 
-import { AdminHandler } from '../admin.js';
 import {
-  systemDash,
-  systemStats,
-  systemLog,
-  systemContext,
-  systemRuntime,
-  systemSequence,
-  systemSequenceRepair,
-  systemHealth,
-  systemInjectGenerate,
-  systemBackup,
-  systemRestore,
-  systemMigrate,
-  systemCleanup,
-  systemSync,
-  systemSafestop,
-  configGet,
   configSet,
   getVersion,
   initProject,
+  systemBackup,
+  systemCleanup,
+  systemContext,
+  systemDash,
+  systemHealth,
+  systemInjectGenerate,
+  systemLog,
+  systemMigrate,
+  systemRestore,
+  systemRuntime,
+  systemSafestop,
+  systemSequence,
+  systemSequenceRepair,
+  systemStats,
+  systemSync
 } from '../../lib/engine.js';
+import { AdminHandler } from '../admin.js';
 
 describe('AdminHandler', () => {
   let handler: AdminHandler;

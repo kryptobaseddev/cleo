@@ -95,6 +95,21 @@ Sticky Note  ->  Thread  ->  Loom  ->  Tapestry  ->  Cascade  ->  Tome
 
 This is the workshop language of NEXUS: the way the realm speaks about work once it becomes craft instead of clutter.
 
+The live workshop also has named runtime forms:
+
+| Form | Type | Runtime Meaning |
+|------|------|-----------------|
+| **The Hearth** | surface | The terminal-facing workshop surface where sessions, roles, and tools stay close at hand |
+| **The Circle of Ten** | role overlay | The role overlay mapped 1:1 to the ten canonical domains |
+| **The Impulse** | motion | The self-propelling motion that advances ready work through Warp-bound chains |
+| **Conduit** | relay path | Agent relay using LAFS envelopes and A2A delegation only; `sticky` is not the live relay lane |
+| **Watchers** | patrols | Long-running Cascades that patrol continuity, gates, and system health |
+| **The Sweep** | quality loop | Quality patrol in motion |
+| **Refinery** | convergence gate | Convergence gate where parallel changes are proven fit to join |
+| **Looming Engine** | decomposition service | Tessera-driven decomposition into Looms, Threads, and routes |
+| **Living BRAIN** | memory overlay | Active neural memory pathways built on durable recall |
+| **The Proving** | validation ground | End-to-end validation of artifacts, provenance, and outcomes |
+
 ---
 
 ## 5. The Circle of Ten
@@ -116,7 +131,7 @@ This is the workshop language of NEXUS: the way the realm speaks about work once
                  |                                       |
                  |                                       |
         +--------+--------+                     +--------+--------+
-        |   orchestrate   |                     |     sharing     |
+        |   orchestrate   |                     |     sticky      |
         |  The Conductors |                     |    The Envoys   |
         +--------+--------+                     +--------+--------+
                  |                                       |
@@ -143,6 +158,8 @@ This is the workshop language of NEXUS: the way the realm speaks about work once
                             +-----------------+
 ```
 
+The Envoys keep the provisional edge of the realm: capture, draft handoff, and promotion. Live A2A relay belongs to Conduit. Cross-project share operations still travel through `nexus.share.*`; they do not create an eleventh house.
+
 ---
 
 ## 6. Request Journey
@@ -151,19 +168,24 @@ This is the workshop language of NEXUS: the way the realm speaks about work once
 Developer intent
     |
     v
-Agent or tool invocation
+The Hearth
+    |
+    v
+Conduit when agents must relay work
     |
     v
 CLEO dispatch and policy
     |
+    +--> The Impulse advances ready work through Warp-bound chains
     +--> CAAMP-backed tool/provider provisioning when capability is needed
     +--> tasks/session/check for active execution and guardrails
-    +--> pipeline for lifecycle placement and artifact lineage
-    +--> memory for durable recall and extracted learnings
-    +--> nexus/sharing for cross-project reach
+    +--> pipeline for lifecycle placement, Watchers, The Sweep, and Refinery
+    +--> Looming Engine expands Tesserae into Looms and Threads
+    +--> Living BRAIN preserves durable recall and extracted learnings
+    +--> nexus and `nexus.share.*` extend cross-project reach
     |
     v
-LAFS-shaped result with preserved context and fewer heroic guesses
+The Proving returns a LAFS-shaped result with preserved context and fewer heroic guesses
 ```
 
 ---

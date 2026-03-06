@@ -34,7 +34,7 @@ NON_NEGOTIABLES:
 - LOOM (Logical Order of Operations Methodology) is the lifecycle pipeline — encompassing RCASD-IVTR+C
 - BRAIN is the memory system
 - NEXUS is the cross-project connective layer
-- Workshop vocabulary such as Thread, Tapestry, Tessera, Cogs, Cascade, Tome, and Sticky Notes is conceptual language layered on top of the existing systems and domains; it MUST NOT be treated as a replacement for the canonical four systems or 10 domains
+- Workshop vocabulary such as Thread, Tapestry, Tessera, Cogs, Cascade, Tome, Sticky Notes, The Hearth, The Impulse, Conduit, Watchers, The Sweep, Refinery, Looming Engine, Living BRAIN, and The Proving is conceptual language layered on top of the existing systems and domains; it MUST NOT be treated as a replacement for the canonical four systems or 10 domains
 
 CANONICAL_IDENTITY:
 CLEO is a vendor-neutral Brain and Memory system for AI software
@@ -154,11 +154,10 @@ CLEO's 10 canonical domains map directly to cognitive functions — each domain 
 | **check** | Immune System | Validation, quality — catches problems before they spread. The check domain identifies issues, validates compliance, and ensures work quality before problems propagate. |
 | **pipeline** | Executive Pipeline | RCASD-IVTR+C — the structured process of deciding and doing. The pipeline domain governs the LOOM lifecycle stages with gate enforcement and stage management. |
 | **orchestrate** | Executive Function | Multi-agent coordination — how the brain delegates work. Orchestrate handles wave planning, agent spawning, and coordination of parallel workstreams. |
-| **tools** | Capabilities | Skills, providers — learned abilities. The tools domain manages the capabilities CLEO can invoke: skills, provider integrations, and issue tracking.
-</Info> |
+| **tools** | Capabilities | Skills, providers — learned abilities. The tools domain manages the capabilities CLEO can invoke: skills, provider integrations, and issue tracking. |
 | **admin** | Autonomic System | Background infrastructure — breathing, heartbeat, backups. Admin handles the unconscious operations: configuration, backups, migrations, and system health. |
-| **nexus** | Hive Network | Cross-project intelligence — connecting brains. Nexus enables knowledge sharing and federated queries across registered CLEO projects. |
-| **sharing** | Social Memory | What gets shared with others. The sharing domain manages allowlists and sync status for cross-project collaboration. |
+| **nexus** | Hive Network | Cross-project intelligence — connecting brains. Nexus enables knowledge sharing and federated queries across registered CLEO projects. Share operations (remotes, push/pull, snapshots) live under the `nexus.share.*` sub-namespace. |
+| **sticky** | Scratch Pad | Ephemeral capture before formal encoding. The sticky domain provides lightweight quick-capture notes that exist before formal task or memory creation. |
 
 This metaphor isn't decorative — it reflects the architectural design where tasks form neural networks via dependencies and hierarchy, orchestration mirrors executive function, and the pipeline serves as the executive pathway for moving work from conception to completion.
 
@@ -308,14 +307,25 @@ CLEO also uses a non-normative workshop language to make work more intuitive to 
 
 - **Sticky Note**: ephemeral project-wide capture before formal binding
 - **Thread**: a concrete task-level strand of work
+- **Warp**: the vertical, structural protocol chains that hold the Tapestry together under quality gates
 - **Loom**: an epic-scale frame that holds related Threads under lifecycle discipline
 - **Tapestry**: a composed body of work made from multiple Looms
 - **Tessera**: a reusable composition pattern that can generate Tapestries with different inputs
 - **Cogs**: discrete callable capabilities; small tool-level mechanisms
 - **Cascade**: a Tapestry in live gated motion across execution thresholds
 - **Tome**: living readable canon rendered from durable memory and system state
+- **The Hearth**: the terminal-facing workshop surface where active sessions, roles, and tools gather
+- **The Circle of Ten**: the role overlay mapped 1:1 onto the ten canonical domains
+- **The Impulse**: the self-propelling motion that advances ready work through governed chains
+- **Conduit**: agent-to-agent relay using LAFS envelopes and A2A delegation only
+- **Watchers**: long-running Cascades that patrol health, continuity, and gate state
+- **The Sweep**: the quality-patrol form of Cascade
+- **Refinery**: the convergence and merge gate inside live Cascade motion
+- **Looming Engine**: Tessera-driven decomposition into Looms, Threads, and execution paths
+- **Living BRAIN**: active neural memory pathways built on durable observations, patterns, and retrieval
+- **The Proving**: end-to-end validation of artifacts, gates, provenance, and outcomes
 
-These terms help describe how work feels and flows. They do not create new canonical systems or domains.
+These terms help describe how work feels and flows. They do not create new canonical systems or domains, replace LAFS, or authorize custom protocols.
 
 ---
 

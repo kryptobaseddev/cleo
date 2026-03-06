@@ -16,6 +16,7 @@ import type { TaskRecord } from './task-engine.js';
 import type { Task } from '../../types/task.js';
 import type { BrainState } from '../../types/operations/orchestrate.js';
 import type { CLEOSpawnAdapter, CLEOSpawnContext } from '../../types/spawn.js';
+import type { Provider } from '@cleocode/caamp';
 
 // Core module imports
 import {
@@ -431,11 +432,17 @@ export async function orchestrateSpawnSelectProvider(
   }
 
   try {
-    const { spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
-    const { getProvidersBySpawnCapability, providerSupportsById } = await import('@cleocode/caamp');
+    const { initializeDefaultAdapters, spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
+    const {
+      getAllProviders,
+      getProvidersBySpawnCapability,
+      providerSupportsById,
+    } = await import('@cleocode/caamp');
+
+    await initializeDefaultAdapters();
 
     // Get providers matching all required capabilities
-    let matchingProviders: Array<{ id: string }> = [];
+    let matchingProviders: Provider[] = [];
 
     if (capabilities.length === 1) {
       // Single capability - use direct filter
@@ -443,19 +450,15 @@ export async function orchestrateSpawnSelectProvider(
     } else {
       // Multiple capabilities - find intersection
       const providerSets = capabilities.map(cap =>
-        new Set(getProvidersBySpawnCapability(cap).map((p: { id: string }) => p.id))
+        new Set(getProvidersBySpawnCapability(cap).map((p: Provider) => p.id))
       );
 
       // Find intersection of all provider IDs
       const allProviders = await spawnRegistry.listSpawnCapable();
       const intersection = allProviders
         .filter(adapter => providerSets.every(set => set.has(adapter.providerId)))
-        .map(adapter => {
-          const { getAllProviders } = require('@cleocode/caamp');
-          const providers = getAllProviders();
-          return providers.find((p: { id: string }) => p.id === adapter.providerId);
-        })
-        .filter(Boolean);
+        .map(adapter => getAllProviders().find((p: Provider) => p.id === adapter.providerId))
+        .filter((provider): provider is Provider => provider !== undefined);
 
       matchingProviders = intersection;
     }
@@ -530,7 +533,8 @@ export async function orchestrateSpawnExecute(
 
   try {
     // Get spawn registry
-    const { spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
+    const { initializeDefaultAdapters, spawnRegistry } = await import('../../core/spawn/adapter-registry.js');
+    await initializeDefaultAdapters();
 
     // Find adapter
     let adapter: CLEOSpawnAdapter | undefined;
@@ -607,6 +611,7 @@ export async function orchestrateSpawnExecute(
       options: {
         prompt: spawnContext.prompt,
       },
+      workingDirectory: cwd,
       tokenResolution: {
         resolved: [],
         unresolved: spawnContext.tokenResolution.unresolvedTokens,

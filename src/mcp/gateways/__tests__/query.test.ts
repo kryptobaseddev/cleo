@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateQueryParams,
+  handleQueryRequest,
   registerQueryTool,
   getQueryOperationCount,
   isQueryOperation,
@@ -21,6 +22,14 @@ import {
   QUERY_OPERATIONS,
   type QueryRequest,
 } from '../query.js';
+import { resolve } from '../../../dispatch/registry.js';
+
+const ADVANCED_MEMORY_QUERY_OPS = [
+  'pattern.find',
+  'pattern.stats',
+  'learning.find',
+  'learning.stats',
+] as const;
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
@@ -91,6 +100,54 @@ describe('Query Gateway', () => {
         domain: 'tasks',
         operation: 'list',
         params: { status: 'pending' },
+      };
+      const result = validateQueryParams(request);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should accept memory pattern.find operation', () => {
+      const request: QueryRequest = {
+        domain: 'memory',
+        operation: 'pattern.find',
+        params: { query: 'retry' },
+      };
+      const result = validateQueryParams(request);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should accept check chain.validate for fork-join payload', () => {
+      const request: QueryRequest = {
+        domain: 'check',
+        operation: 'chain.validate',
+        params: {
+          chain: {
+            id: 'fork-join-chain',
+            name: 'Fork Join Chain',
+            version: '1.0.0',
+            description: 'Fork-join chain fixture',
+            shape: {
+              stages: [
+                { id: 'start', name: 'start', category: 'custom', skippable: false },
+                { id: 'left', name: 'left', category: 'custom', skippable: false },
+                { id: 'right', name: 'right', category: 'custom', skippable: false },
+                { id: 'join', name: 'join', category: 'custom', skippable: false },
+                { id: 'finish', name: 'finish', category: 'custom', skippable: false },
+              ],
+              links: [
+                { from: 'start', to: 'left', type: 'fork' },
+                { from: 'start', to: 'right', type: 'fork' },
+                { from: 'left', to: 'join', type: 'linear' },
+                { from: 'right', to: 'join', type: 'linear' },
+                { from: 'join', to: 'finish', type: 'linear' },
+              ],
+              entryPoint: 'start',
+              exitPoints: ['finish'],
+            },
+            gates: [],
+          },
+        },
       };
       const result = validateQueryParams(request);
       expect(result.valid).toBe(true);
@@ -305,6 +362,10 @@ describe('Query Gateway', () => {
       expect(orchOps).toContain('waves');
     });
 
+    it('should support tessera.show operation', () => {
+      expect(orchOps).toContain('tessera.show');
+    });
+
   });
 
   describe('Memory Domain Operations', () => {
@@ -334,8 +395,53 @@ describe('Query Gateway', () => {
       expect(memoryOps).toContain('decision.find');
     });
 
+    it('should support contradictions operation', () => {
+      expect(memoryOps).toContain('contradictions');
+    });
+
+    it('should support superseded operation', () => {
+      expect(memoryOps).toContain('superseded');
+    });
+
+    it('should support pattern.find operation', () => {
+      expect(memoryOps).toContain('pattern.find');
+    });
+
+    it('should support pattern.stats operation', () => {
+      expect(memoryOps).toContain('pattern.stats');
+    });
+
+    it('should support learning.find operation', () => {
+      expect(memoryOps).toContain('learning.find');
+    });
+
+    it('should support learning.stats operation', () => {
+      expect(memoryOps).toContain('learning.stats');
+    });
+
     it('should not contain manifest.read (moved to pipeline)', () => {
       expect(memoryOps).not.toContain('manifest.read');
+    });
+
+    it('should keep advanced memory query ops in MCP-dispatch parity lock', async () => {
+      for (const operation of ADVANCED_MEMORY_QUERY_OPS) {
+        expect(memoryOps).toContain(operation);
+
+        const validation = validateQueryParams({
+          domain: 'memory',
+          operation,
+        });
+        expect(validation.valid).toBe(true);
+
+        const gatewayResult = await handleQueryRequest({
+          domain: 'memory',
+          operation,
+        });
+        expect(gatewayResult.success).toBe(true);
+
+        const dispatchOp = resolve('query', 'memory', operation);
+        expect(dispatchOp, `Missing dispatch op for query memory.${operation}`).toBeDefined();
+      }
     });
   });
 
@@ -381,6 +487,10 @@ describe('Query Gateway', () => {
     it('should support manifest.stats operation', () => {
       expect(pipelineOps).toContain('manifest.stats');
     });
+
+    it('should support chain.list operation', () => {
+      expect(pipelineOps).toContain('chain.list');
+    });
   });
 
   describe('Check Domain Operations', () => {
@@ -424,6 +534,10 @@ describe('Query Gateway', () => {
 
     it('should support coherence.check operation', () => {
       expect(checkOps).toContain('coherence.check');
+    });
+
+    it('should support gate.verify operation', () => {
+      expect(checkOps).toContain('gate.verify');
     });
   });
 

@@ -38,6 +38,7 @@ import {
 } from '../lib/engine.js';
 
 import { validateChain } from '../../core/validation/chain-validation.js';
+import { listInstanceGateResults, showChain, showInstance } from '../../core/lifecycle/chain-store.js';
 import type { WarpChain } from '../../types/warp-chain.js';
 
 // ---------------------------------------------------------------------------
@@ -223,6 +224,68 @@ export class CheckHandler implements DomainHandler {
           );
         }
 
+        case 'chain.gate': {
+          const instanceId = params?.instanceId as string;
+          const gateId = params?.gateId as string | undefined;
+
+          if (!instanceId) {
+            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'instanceId is required', startTime);
+          }
+
+          const instance = await showInstance(instanceId, this.projectRoot);
+          if (!instance) {
+            return this.errorResponse('query', 'check', operation, 'E_NOT_FOUND', `Chain instance "${instanceId}" not found`, startTime);
+          }
+
+          const chain = await showChain(instance.chainId, this.projectRoot);
+          if (!chain) {
+            return this.errorResponse('query', 'check', operation, 'E_NOT_FOUND', `Chain "${instance.chainId}" not found`, startTime);
+          }
+
+          const gateResults = await listInstanceGateResults(instanceId, this.projectRoot);
+
+          if (gateId) {
+            const gateExists = chain.gates.some((gate) => gate.id === gateId);
+            const matches = gateResults.filter((result) => result.gateId === gateId);
+            const latest = matches[matches.length - 1];
+
+            return this.wrapEngineResult({
+              success: gateExists,
+              data: {
+                instanceId,
+                gateId,
+                gateExists,
+                evaluations: matches.length,
+                latest: latest ?? null,
+                passed: latest ? latest.passed : null,
+              },
+            }, 'query', 'check', operation, startTime);
+          }
+
+          const summary = gateResults.reduce(
+            (acc, result) => {
+              if (result.passed) {
+                acc.passed += 1;
+              } else {
+                acc.failed += 1;
+              }
+              return acc;
+            },
+            { passed: 0, failed: 0 },
+          );
+
+          return this.wrapEngineResult({
+            success: true,
+            data: {
+              instanceId,
+              chainId: instance.chainId,
+              totalDefinedGates: chain.gates.length,
+              totalEvaluations: gateResults.length,
+              ...summary,
+            },
+          }, 'query', 'check', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'check', operation, startTime);
       }
@@ -288,7 +351,7 @@ export class CheckHandler implements DomainHandler {
         // T5327: Protocol validation operations
         'protocol.consensus', 'protocol.contribution', 'protocol.decomposition',
         'protocol.implementation', 'protocol.specification', 'gate.verify',
-        'chain.validate',
+        'chain.validate', 'chain.gate',
       ],
       mutate: ['compliance.record', 'test.run'],
     };

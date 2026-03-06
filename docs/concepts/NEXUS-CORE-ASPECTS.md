@@ -4,7 +4,7 @@
 
 NEXUS is the Core, but "core" is too cold a word unless you understand what kind of center it is.
 
-It is not merely the middle of the system. It is the hearth, the axle, the central chamber where motion becomes coordinated instead of accidental. In the world of CLEO, everything that matters eventually passes through NEXUS because NEXUS is the place where scattered effort is given relationship. It is the round table, the engine room, the loom hall, the library threshold, the gear bench, the river gate. It is where loose work stops behaving like weather and starts behaving like craft.
+It is not merely the middle of the system. It is the axle, the central chamber where motion becomes coordinated instead of accidental. In the world of CLEO, everything that matters eventually passes through NEXUS because NEXUS is the place where scattered effort is given relationship. It is the round table, the engine room, the loom hall, the library threshold, the gear bench, the river gate. It is where loose work stops behaving like weather and starts behaving like craft.
 
 Around that Core, five great aspects do the actual shaping: **Loom**, **Tessera**, **Cogs**, **Cascade**, and **Tome**.
 
@@ -128,6 +128,45 @@ Task Notes keep local context close to the Thread.
 BRAIN Observations preserve what should outlive the moment.
 Tome then makes the durable parts readable when the time comes to return.
 
+The workshop also needs names for what happens when the realm is live, staffed, and in motion.
+
+These names are not one flat class of "stations." They are different kinds of runtime form, and the canon only stays clean if those kinds stay distinct.
+
+**The Hearth** is the runtime surface. It is the terminal-facing workshop seat where the Circle gathers, where sessions stay visible, where tools are close at hand, and where work can be taken up without pretending that the terminal itself is the whole system. The Hearth is not a domain. It is the active surface built from `session`, `orchestrate`, and `tools`.
+
+**The Circle of Ten** is the role overlay of the canonical domains:
+
+- **The Smiths** keep the house of `tasks`
+- **The Weavers** keep the house of `pipeline`
+- **The Conductors** keep the house of `orchestrate`
+- **The Artificers** keep the house of `tools`
+- **The Archivists** keep the house of `memory`
+- **The Scribes** keep the house of `session`
+- **The Wardens** keep the house of `check`
+- **The Wayfinders** keep the house of `nexus`
+- **The Envoys** keep the house of `sticky`
+- **The Keepers** keep the house of `admin`
+
+**The Impulse** is runtime motion. It is what notices ready work, picks it up without waiting for ceremony, and advances it through governed chains. It is motion under discipline, not ad-hoc restlessness.
+
+**Conduit** is the runtime relay path. It speaks through LAFS envelopes and A2A delegation only. No private side channel earns canon status. Conduit lives through `orchestrate`, `session`, and `nexus`. `sticky` may hold drafted or promoted handoff material, but it is not the live relay lane.
+
+**Watchers** are runtime patrols. They are not a rival class of hidden daemon kingdoms. They are long-running Cascades through the `pipeline`, aided by `orchestrate`, `check`, and `admin`, and they exist to patrol health, continuity, retries, and gate state while the work remains live.
+
+**The Sweep** is the quality patrol form of Cascade. It is the repeated review-fix-review motion that keeps defects, regressions, and rotten assumptions from taking root.
+
+**Refinery** is the convergence gate within that same live motion: the place where branches, patches, and parallel outcomes are proven fit to join and advance.
+
+**Looming Engine** is the decomposition service. It is Tessera-driven decomposition that turns reusable pattern cards into Looms, Threads, and executable routes without abandoning the Warp that holds quality and sequence together.
+
+**Living BRAIN** is the memory overlay in active circulation. It is not merely the vault below the city, but the neural pathwaying that emerges from observation, similarity, reinforcement, contradiction, and decay. It keeps memory from becoming a museum.
+
+**The Proving** is the validation ground of the runtime. Gates, artifacts, provenance, specifications, and outcomes all arrive here to be tested against reality rather than optimism.
+
+If a thing cannot be shown to have a distinct runtime responsibility, it has not earned a canon name yet. Canon exists to clarify the machinery, not to perfume it.
+
+These names do not introduce new domains, transports, or private protocols. They are the live workshop overlay on the same four great systems and the same ten canonical domains.
+
 Once the language is seen this way, the ten domains stop feeling like admin tables and start feeling like houses in the same city.
 
 The `tasks` domain is the house of Threads. It is where loose work first becomes graspable and where the smallest strands are tracked, bound, and advanced.
@@ -142,11 +181,13 @@ The `memory` domain is the deep archive beneath Tome. It keeps the durable subst
 
 The `session` domain is the lit worktable. It holds the immediate context, the open tools, the present focus, and the notes that only matter while the hands are still warm.
 
+The `sticky` domain is the courier shelf of the Envoys. It catches fast notes, draft handoffs, and provisional captures before they are promoted into a Thread, Session Note, Task Note, or BRAIN Observation. It is not the live agent-to-agent message path.
+
 The `check` domain is the gatehouse. It does not weave, turn, or compose. It judges whether the thing may pass.
 
 The `nexus` domain is the star road itself, carrying Looms, Tapestries, Tesserae, and Tome-worthy knowledge across project boundaries without losing origin.
 
-Sharing behavior lives under `nexus.share.*` operations. It is the public shelf and caravan route, where useful patterns, entries, and mechanisms become available beyond their place of birth.
+Cross-project relay behavior lives under `nexus.share.*` operations. It is the public shelf and caravan route, where useful patterns, entries, and mechanisms become available beyond their place of birth.
 
 The `admin` domain is the hearthkeeper’s office, unseen until something goes wrong, and therefore more important than most people realize.
 

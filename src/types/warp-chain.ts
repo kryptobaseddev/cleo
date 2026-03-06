@@ -1,9 +1,9 @@
 /**
  * WarpChain Type System
  *
- * Defines the complete type system for WarpChain workflow definitions,
- * combining MEOW (shape/topology) and LOOM (gates/quality) concepts
- * into a unified chain model.
+ * Defines the complete type system for WarpChain workflow definitions.
+ * Warp is the unyielding protocol chain: the synthesis of composable workflow
+ * shape (topology) and LOOM quality gates into a unified chain model.
  *
  * @task T5407
  */
@@ -12,7 +12,7 @@ import type { GateName } from '../core/validation/verification.js';
 import type { ProtocolType } from '../core/orchestration/protocol-validators.js';
 
 // =============================================================================
-// CHAIN SHAPE (MEOW topology)
+// CHAIN SHAPE (Warp topology)
 // =============================================================================
 
 /**

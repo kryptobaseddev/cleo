@@ -283,35 +283,35 @@ Issue types: `create_bug`, `create_feature`, `create_help`
 | **tasks**   | `exists`      | Check task exists           | `taskId`                   |
 | **tasks**   | `tree`        | Hierarchical view           | `taskId`                   |
 | **tasks**   | `next`        | Suggested next task         | -                          |
-| **tasks**   | `deps`        | Dependency graph            | `taskId`                   |
+| **tasks**   | `depends`     | Dependency graph            | `taskId`                   |
 | **tasks**   | `blockers`    | What's blocking             | `taskId`                   |
 | **session** | `status`      | Current session             | -                          |
 | **session** | `list`        | All sessions                | -                          |
-| **session** | `focus.get`   | Current focus               | -                          |
-| **system**  | `dash`        | Project dashboard           | -                          |
-| **system**  | `version`     | CLEO version                | -                          |
-| **system**  | `doctor`      | Health check                | -                          |
-| **issues**  | `diagnostics` | System info for bug reports | -                          |
+| **tasks**   | `current`     | Current focus               | -                          |
+| **admin**   | `dash`        | Project dashboard           | -                          |
+| **admin**   | `version`     | CLEO version                | -                          |
+| **admin**   | `doctor`      | Health check                | -                          |
+| **tools**   | `issue.diagnostics` | System info for bug reports | -                    |
 
 ## Mutate Operations Reference
 
 | Domain      | Operation        | Purpose            | Required params        |
 | ----------- | ---------------- | ------------------ | ---------------------- |
-| **tasks**   | `create`         | New task           | `title`, `description` |
+| **tasks**   | `add`            | New task           | `title`, `description` |
 | **tasks**   | `update`         | Modify task        | `taskId` + fields      |
 | **tasks**   | `complete`       | Mark done          | `taskId`               |
 | **tasks**   | `delete`         | Remove task        | `taskId`               |
-| **tasks**   | `archive`        | Archive done tasks | -                      |
+| **tasks**   | `archive`        | Archive task       | `taskId`               |
 | **session** | `start`          | Begin session      | `scope`, `name`        |
-| **session** | `end`            | End session        | `note`                 |
-| **session** | `tasks.start`    | Set active task    | `taskId`               |
-| **session** | `tasks.stop`     | Clear focus        | -                      |
-| **issues**  | `create_bug`     | File bug report    | `title`, `body`        |
-| **issues**  | `create_feature` | Request feature    | `title`, `body`        |
-| **issues**  | `create_help`    | Ask question       | `title`, `body`        |
+| **session** | `end`            | End session        | `notes?`               |
+| **tasks**   | `start`          | Set active task    | `taskId`               |
+| **tasks**   | `stop`           | Clear focus        | `taskId`               |
+| **tools**   | `issue.add.bug`     | File bug report    | `title`, `body`     |
+| **tools**   | `issue.add.feature` | Request feature    | `title`, `body`     |
+| **tools**   | `issue.add.help`    | Ask question       | `title`, `body`     |
 
 <Note>
-  For the complete list of all 10 domains and 177 operations (97 query + 80
+  For the complete list of all 10 domains and 256 operations (145 query + 111
   mutate), see the [MCP Server Specification](../specs/MCP-SERVER-SPECIFICATION)
   or inspect the source of truth: `src/mcp/gateways/query.ts` and
   `src/mcp/gateways/mutate.ts`.

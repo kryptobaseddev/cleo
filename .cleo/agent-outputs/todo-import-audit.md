@@ -1,4 +1,4 @@
-# TODO/Import/TypeScript Audit Report
+# Action-Marker/Import/TypeScript Audit Report
 
 **Agent**: import-validator
 **Date**: 2026-03-04
@@ -6,27 +6,27 @@
 
 ---
 
-## 1. TODO/FIXME/HACK Verification
+## 1. Action-Marker/FIXME/HACK Verification
 
-**Wave 1 claim**: ZERO TODO comments in src/
+**Wave 1 claim**: ZERO action-marker comments in src/
 
 **Verification result**: PARTIALLY CONFIRMED
 
 | Pattern | src/ count | tests/ count | Details |
 |---------|-----------|-------------|---------|
-| TODO | 0 | 0 | -- |
+| Action marker | 0 | 0 | -- |
 | FIXME | 0 | 0 | -- |
 | HACK | 0 | 0 | -- |
 | XXX | 1 | 0 | See below |
 | TEMP | 0 | 0 | -- |
 
 **One match found**:
-- `src/core/sticky/id.ts:15` -- Contains `SN-XXX` in a JSDoc comment describing the sticky note ID pattern. This is **not** a TODO marker; it is documenting the `SN-XXX` naming format (e.g., `SN-001`). **FALSE POSITIVE -- no action needed.**
+- `src/core/sticky/id.ts:15` -- Contains `SN-XXX` in a JSDoc comment describing the sticky note ID pattern. This is **not** an action marker; it is documenting the `SN-XXX` naming format (e.g., `SN-001`). **FALSE POSITIVE -- no action needed.**
 
 **Additional lowercase check** (`// todo`, `// fixme`, `// hack`):
-- `src/core/migration/validate.ts:208` -- Contains `// todo.json status`. This is a **section comment** describing the `todo.json` validation block below it, NOT a TODO marker. **FALSE POSITIVE -- no action needed.**
+- `src/core/migration/validate.ts:208` -- Contains `// todo.json status`. This is a **section comment** describing the `todo.json` validation block below it, NOT an action marker. **FALSE POSITIVE -- no action needed.**
 
-**Verdict**: Wave 1 claim CONFIRMED. Zero actionable TODO/FIXME/HACK comments exist in src/ or tests/.
+**Verdict**: Wave 1 claim CONFIRMED. Zero actionable action-marker/FIXME/HACK comments exist in src/ or tests/.
 
 ---
 
@@ -127,8 +127,8 @@ NEXUS is a **fully implemented domain handler** (660 lines) with:
 
 | Check | Status |
 |-------|--------|
-| TODO/FIXME/HACK in src/ | CLEAN (0 actionable) |
-| TODO/FIXME/HACK in tests/ | CLEAN (0 found) |
+| Action-marker/FIXME/HACK in src/ | CLEAN (0 actionable) |
+| Action-marker/FIXME/HACK in tests/ | CLEAN (0 found) |
 | Underscore imports | All legitimate (14 _error.js, 10 _meta.js) |
 | Unused imports | None detected |
 | TypeScript compilation | CLEAN (0 errors) |

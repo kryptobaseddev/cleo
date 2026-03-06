@@ -1,6 +1,6 @@
 # Task State Audit: T5373 and Children T5374-T5412
 
-- Audit timestamp (UTC): 2026-03-05T22:44:53Z
+- Audit timestamp (UTC): 2026-03-05T22:45:58Z
 - Source command: `cleo show <TASK_ID> --json` for each audited ID
 - Claim validated: `T5373 pending while children T5374-T5412 are done`
 
@@ -8,7 +8,7 @@
 
 | ID | Title | Status | Expected by Claim | Match |
 |---|---|---|---|---|
-| T5373 | EPIC: Surpass the legacy pattern - Full System Implementation | done | pending | NO |
+| T5373 | EPIC: Surpass Gas Town - Full System Implementation | done | pending | NO |
 | T5374 | WS-A1: Fix task-hooks.ts missing brain schema error guards | pending | done | NO |
 | T5375 | WS-A2: Add task-hooks handler test coverage | pending | done | NO |
 | T5376 | WS-A3: Add 4 missing hook payload types to types.ts | pending | done | NO |
@@ -53,47 +53,48 @@
 
 Claim is **not accurate**. 40 discrepancy(s) found.
 
-Children not in `done` status:
+Tasks that do not match the claim:
 
-- T5374 (`pending`): WS-A1: Fix task-hooks.ts missing brain schema error guards
-- T5375 (`pending`): WS-A2: Add task-hooks handler test coverage
-- T5376 (`pending`): WS-A3: Add 4 missing hook payload types to types.ts
-- T5377 (`pending`): WS-A4: Implement onError hook dispatch and handler
-- T5378 (`pending`): WS-A5: Add error-hooks test coverage
-- T5379 (`pending`): WS-A6: Implement onFileChange hook dispatch and handler
-- T5380 (`pending`): WS-A7: Add file-hooks test coverage
-- T5381 (`pending`): WS-A8: Implement onPromptSubmit + onResponseComplete dispatch and handler
-- T5382 (`pending`): WS-A9: Add mcp-hooks test coverage
-- T5383 (`pending`): WS-B1: PageIndex accessor CRUD methods
-- T5384 (`pending`): WS-B2a: PageIndex accessor test coverage
-- T5385 (`pending`): WS-B2b: PageIndex MCP domain wiring
-- T5386 (`pending`): WS-B3: Embedding model selection and embedText() function
-- T5387 (`pending`): WS-B4: Embedding population pipeline
-- T5388 (`pending`): WS-B5: Vector similarity search
-- T5389 (`pending`): WS-B6: Hybrid search merge
-- T5390 (`pending`): WS-B7: reason.why causal trace implementation
-- T5391 (`pending`): WS-B8: reason.similar implementation
-- T5392 (`pending`): WS-B9: Memory-session bridge
-- T5393 (`pending`): WS-B10: MCP wiring for reasoning ops
-- T5394 (`pending`): WS-B11: Temporal decay implementation
-- T5395 (`pending`): WS-B12: Memory consolidation
-- T5396 (`pending`): WS-B13: claude-mem migration CLI wiring
-- T5397 (`pending`): WS-B14: BRAIN spec and docs updates
-- T5398 (`pending`): WS-B15: E2E brain lifecycle tests
-- T5399 (`pending`): WS-C2: Build default RCASD-IVTR+C WarpChain
-- T5400 (`pending`): WS-C3: Default chain test coverage
-- T5401 (`pending`): WS-C4: Chain validation engine
-- T5402 (`pending`): WS-C5: Chain validation test coverage
-- T5403 (`pending`): WS-C6: Chain storage (Drizzle schema + CRUD)
-- T5404 (`pending`): WS-C7: Chain storage test coverage
-- T5405 (`pending`): WS-C8: MCP operations wiring for WarpChain
-- T5406 (`pending`): WS-C9: Chain composition operators
-- T5407 (`pending`): WS-C1: Define WarpChain type system
-- T5408 (`pending`): WS-D1: Tessera type definitions and template format
-- T5409 (`pending`): WS-D2: Tessera instantiation engine
-- T5410 (`pending`): WS-D3: Tessera engine test coverage
-- T5411 (`pending`): WS-D4: Orchestrate domain integration for Tessera
-- T5412 (`pending`): WS-D5: Warp workflow E2E test
+- T5373 (`done`, expected `pending`): EPIC: Surpass Gas Town - Full System Implementation
+- T5374 (`pending`, expected `done`): WS-A1: Fix task-hooks.ts missing brain schema error guards
+- T5375 (`pending`, expected `done`): WS-A2: Add task-hooks handler test coverage
+- T5376 (`pending`, expected `done`): WS-A3: Add 4 missing hook payload types to types.ts
+- T5377 (`pending`, expected `done`): WS-A4: Implement onError hook dispatch and handler
+- T5378 (`pending`, expected `done`): WS-A5: Add error-hooks test coverage
+- T5379 (`pending`, expected `done`): WS-A6: Implement onFileChange hook dispatch and handler
+- T5380 (`pending`, expected `done`): WS-A7: Add file-hooks test coverage
+- T5381 (`pending`, expected `done`): WS-A8: Implement onPromptSubmit + onResponseComplete dispatch and handler
+- T5382 (`pending`, expected `done`): WS-A9: Add mcp-hooks test coverage
+- T5383 (`pending`, expected `done`): WS-B1: PageIndex accessor CRUD methods
+- T5384 (`pending`, expected `done`): WS-B2a: PageIndex accessor test coverage
+- T5385 (`pending`, expected `done`): WS-B2b: PageIndex MCP domain wiring
+- T5386 (`pending`, expected `done`): WS-B3: Embedding model selection and embedText() function
+- T5387 (`pending`, expected `done`): WS-B4: Embedding population pipeline
+- T5388 (`pending`, expected `done`): WS-B5: Vector similarity search
+- T5389 (`pending`, expected `done`): WS-B6: Hybrid search merge
+- T5390 (`pending`, expected `done`): WS-B7: reason.why causal trace implementation
+- T5391 (`pending`, expected `done`): WS-B8: reason.similar implementation
+- T5392 (`pending`, expected `done`): WS-B9: Memory-session bridge
+- T5393 (`pending`, expected `done`): WS-B10: MCP wiring for reasoning ops
+- T5394 (`pending`, expected `done`): WS-B11: Temporal decay implementation
+- T5395 (`pending`, expected `done`): WS-B12: Memory consolidation
+- T5396 (`pending`, expected `done`): WS-B13: claude-mem migration CLI wiring
+- T5397 (`pending`, expected `done`): WS-B14: BRAIN spec and docs updates
+- T5398 (`pending`, expected `done`): WS-B15: E2E brain lifecycle tests
+- T5399 (`pending`, expected `done`): WS-C2: Build default RCASD-IVTR+C WarpChain
+- T5400 (`pending`, expected `done`): WS-C3: Default chain test coverage
+- T5401 (`pending`, expected `done`): WS-C4: Chain validation engine
+- T5402 (`pending`, expected `done`): WS-C5: Chain validation test coverage
+- T5403 (`pending`, expected `done`): WS-C6: Chain storage (Drizzle schema + CRUD)
+- T5404 (`pending`, expected `done`): WS-C7: Chain storage test coverage
+- T5405 (`pending`, expected `done`): WS-C8: MCP operations wiring for WarpChain
+- T5406 (`pending`, expected `done`): WS-C9: Chain composition operators
+- T5407 (`pending`, expected `done`): WS-C1: Define WarpChain type system
+- T5408 (`pending`, expected `done`): WS-D1: Tessera type definitions and template format
+- T5409 (`pending`, expected `done`): WS-D2: Tessera instantiation engine
+- T5410 (`pending`, expected `done`): WS-D3: Tessera engine test coverage
+- T5411 (`pending`, expected `done`): WS-D4: Orchestrate domain integration for Tessera
+- T5412 (`pending`, expected `done`): WS-D5: Warp workflow E2E test
 
 ## Blocker Check
 
@@ -102,6 +103,6 @@ Children not in `done` status:
 
 ## Conclusion
 
-- `T5373` is `done` (claim portion false).
+- `T5373` current status: `done`.
 - Children done count: 0/39.
-- At least one child is not done (in fact, 39 child task(s) are not done).
+- Claim verdict: INACCURATE.

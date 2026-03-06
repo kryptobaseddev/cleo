@@ -16,6 +16,7 @@
  */
 
 import { existsSync, mkdirSync, copyFileSync, unlinkSync, renameSync } from 'node:fs';
+// underscore-import: node:sqlite type alias is required for createRequire interop.
 // Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
 // Use createRequire as the runtime loader; keep type-only import for annotations.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';

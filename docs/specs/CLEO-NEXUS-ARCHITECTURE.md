@@ -15,7 +15,7 @@ The registry lives at `~/.cleo/nexus.db` (SQLite) and is accessible from any CLE
 
 NEXUS operates on a portability model where each project's `.cleo/` directory travels with the project (containing `project-info.json` with a stable UUID), while the global registry at `~/.cleo/nexus.db` stores machine-specific path mappings. When a project moves to a new filesystem location, the reconciliation protocol detects the path change and updates the global registry without losing the project's identity or audit history.
 
-NEXUS enables three primary capabilities: (1) unified task querying across project boundaries using `project:taskId` syntax, (2) cross-project dependency graph construction for critical path and blocker analysis, and (3) orphan detection for broken cross-project references. These capabilities are exposed through 31 MCP operations organized into core registry operations and sharing/collaboration operations.
+NEXUS enables three primary capabilities: (1) unified task querying across project boundaries using `project:taskId` syntax, (2) cross-project dependency graph construction for critical path and blocker analysis, and (3) orphan detection for broken cross-project references. These capabilities are exposed through 31 MCP operations organized into core registry operations and `nexus.share.*` relay operations.
 
 The relationship between NEXUS and other CLEO databases is complementary: `tasks.db` stores per-project task state (portable), `brain.db` stores cognitive memory (portable), and `nexus.db` stores the global project index (machine-specific). NEXUS reads from project-local `tasks.db` files during sync operations but never writes to them.
 

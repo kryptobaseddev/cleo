@@ -99,7 +99,7 @@ CLEO is composed of four interdependent systems:
 | State | What It Means |
 |------|----------------|
 | **Shipped** | TypeScript CLI + MCP server, SQLite storage (`tasks.db` + `brain.db`), atomic operations, four-layer anti-hallucination, RCASD-IVTR+C lifecycle gates, session management, 3-layer BRAIN retrieval (`memory find/timeline/fetch`), BRAIN observe writes, NEXUS dispatch domain wiring (12 operations), LAFS envelopes |
-| **In Progress / Planned** | Embedding generation + vector similarity pipeline (`T5158`/`T5159`), PageIndex traversal/query API (`T5161`), reasoning/session integration (`T5153`), `nexus.db` migration from JSON registry, full claude-mem automation retirement hooks (`T5145`) |
+| **In Progress / Planned** | Autonomous runtime foundation and runtime forms (`T5519`, `T5520`-`T5529`, `T5573`-`T5575`) for The Hearth, The Impulse, Watchers, Conduit, Looming Engine, The Sweep, Refinery, Living BRAIN, and The Proving; Living BRAIN embedding/vector substrate (`T5158`/`T5159`); PageIndex traversal/query API (`T5161`); reasoning/session integration (`T5153`); `nexus.db` migration from JSON registry; full claude-mem automation retirement hooks (`T5145`) |
 
 ### MCP Server
 
@@ -162,15 +162,17 @@ mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes": "Do
 mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", "dryRun": true}
 ```
 
-10 canonical domains, 201 operations (112 query + 89 mutate) across tasks, sessions, memory, check, pipeline, orchestration, tools, admin, nexus, and sharing. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+10 canonical domains, 256 operations (145 query + 111 mutate) across `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, and `sticky`. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
 
 ### Source of Truth Hierarchy
 
 1. [`docs/concepts/CLEO-VISION.md`](docs/concepts/CLEO-VISION.md) - immutable product vision
 2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
-3. [`README.md`](README.md) - operational public contract
-4. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
-5. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
+3. [`docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`](docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md) - normative mapping for The Hearth through The Proving across existing domains and hooks
+4. [`docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md`](docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md) - concrete TypeScript vs Rust ownership and IPC boundaries for the autonomous runtime
+5. [`README.md`](README.md) - operational public contract
+6. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
+7. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
 
 ---
 

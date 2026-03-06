@@ -951,7 +951,7 @@ export function createManifestEntry(taskId: string, overrides?: any): any {
  */
 export function verifyResponseFormat(
   response: any,
-  _expectedGateway: 'cleo_query' | 'cleo_mutate',
+  _expectedGateway: 'query' | 'mutate',
   _expectedDomain: string,
   _expectedOperation: string
 ): void {

@@ -130,6 +130,10 @@ type HookEvent =
   | "onResponseComplete";
 ```
 
+**CLEO extension**: CLEO's hook registry also supports internal coordination events for autonomous runtime features:
+`onWorkAvailable`, `onAgentSpawn`, `onAgentComplete`, `onCascadeStart`, and `onPatrol`.
+These are CLEO-local signals and are intentionally not returned by CAAMP provider capability discovery.
+
 ### 4.2 CLEO Lifecycle Event Mapping
 
 | CLEO Event | CAAMP HookEvent | Trigger |

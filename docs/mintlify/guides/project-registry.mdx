@@ -9,6 +9,8 @@ description: "Hybrid registry architecture for tracking projects with global and
 **Status**: Active
 **Epic**: T2180
 
+> **Note**: As of 2026.3, the global registry has migrated from `~/.cleo/projects-registry.json` to `~/.cleo/nexus.db` (SQLite). Legacy JSON files are automatically migrated on first use. See the CLEO NEXUS Specification for current architecture.
+
 ## Overview
 
 CLEO uses a **hybrid registry architecture** to track projects efficiently while keeping detailed metadata local. This two-tier design balances system-wide discoverability with project-local autonomy.
@@ -19,7 +21,7 @@ CLEO uses a **hybrid registry architecture** to track projects efficiently while
 
 ```
 Global Registry                     Per-Project Info
-~/.cleo/projects-registry.json      .cleo/project-info.json
+~/.cleo/nexus.db (SQLite)           .cleo/project-info.json
 ┌─────────────────────────┐         ┌─────────────────────────┐
 │ Minimal project data    │◄───────►│ Detailed project data   │
 │ - hash                  │         │ - schema versions       │
@@ -44,7 +46,9 @@ Global Registry                     Per-Project Info
 
 ### Global Registry
 
-**Location**: `~/.cleo/projects-registry.json`
+**Location**: `~/.cleo/nexus.db` (SQLite)
+
+> **Legacy path**: `~/.cleo/projects-registry.json` was used prior to 2026.3. Existing JSON files are automatically migrated to `nexus.db` on first use.
 
 **Purpose**: System-wide project discovery and minimal health tracking
 

@@ -255,27 +255,24 @@ describe('mutate Gateway Integration', () => {
       );
 
       const result = await context.executor.execute({
-        domain: 'session',
-        operation: 'focus',
-        args: ['set', taskId],
+        domain: 'tasks',
+        operation: 'start',
+        args: [taskId],
         flags: { json: true },
         sessionId: context.sessionId,
       });
 
-      // Focus may succeed or return data about the focused task
       expect(result.success || result.exitCode === 0).toBe(true);
     });
 
     it('should clear focus', async () => {
       const result = await context.executor.execute({
-        domain: 'session',
-        operation: 'focus',
-        args: ['clear'],
+        domain: 'tasks',
+        operation: 'stop',
         flags: { json: true },
         sessionId: context.sessionId,
       });
 
-      // Clear focus may succeed or indicate nothing was focused
       expect(result.success || result.exitCode === 0).toBe(true);
     });
 

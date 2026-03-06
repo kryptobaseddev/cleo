@@ -31,6 +31,11 @@ const DEFAULT_HOOK_CONFIG: HookConfig = {
     'onError': true,
     'onPromptSubmit': true,
     'onResponseComplete': true,
+    'onWorkAvailable': true,
+    'onAgentSpawn': true,
+    'onAgentComplete': true,
+    'onCascadeStart': true,
+    'onPatrol': true,
   } as Record<HookEvent, boolean>,
 };
 

@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { initLogger, closeLogger, getLogger, getLogDir } from '../logger.js';
+import { join } from 'node:path';
+import { afterEach,describe,expect,it } from 'vitest';
+import { closeLogger,getLogDir,getLogger,initLogger } from '../logger.js';
 
 describe('initLogger', () => {
   let tempDir: string;

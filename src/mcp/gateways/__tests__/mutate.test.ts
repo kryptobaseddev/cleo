@@ -20,7 +20,7 @@ import {
 } from '../mutate.js';
 import { resolve } from '../../../dispatch/registry.js';
 
-const ADVANCED_MEMORY_MUTATE_OPS = ['graph.add', 'graph.remove'] as const;
+const ADVANCED_MEMORY_MUTATE_OPS = ['pattern.store', 'learning.store'] as const;
 
 describe('MUTATE_OPERATIONS', () => {
   it('should derive total operations dynamically from registry', () => {
@@ -52,9 +52,9 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.tasks.length).toBe(15);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(8);
-    expect(MUTATE_OPERATIONS.memory.length).toBe(8);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(6);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
-    expect(MUTATE_OPERATIONS.pipeline.length).toBe(25);
+    expect(MUTATE_OPERATIONS.pipeline.length).toBe(23);
     expect(MUTATE_OPERATIONS.admin.length).toBe(20);
     expect(MUTATE_OPERATIONS.tools.length).toBe(11);
     expect(MUTATE_OPERATIONS.nexus.length).toBe(14);  // Includes share.* operations
@@ -361,39 +361,38 @@ describe('validateMutateParams', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('should accept chain.gate.pass with required params', () => {
+    it('should accept stage.gate.pass with required params', () => {
       const request: MutateRequest = {
         domain: 'pipeline',
-        operation: 'chain.gate.pass',
-        params: { instanceId: 'wci-1', gateId: 'gate-1' },
+        operation: 'stage.gate.pass',
+        params: { taskId: 'T1234', gateName: 'quality-gate' },
       };
 
       const result = validateMutateParams(request);
       expect(result.valid).toBe(true);
     });
 
-    it('should reject chain.gate.fail without required params', () => {
+    it('should reject stage.gate.fail without required params', () => {
       const request: MutateRequest = {
         domain: 'pipeline',
-        operation: 'chain.gate.fail',
-        params: { instanceId: 'wci-1' },
+        operation: 'stage.gate.fail',
+        params: { taskId: 'T1234' },
       };
 
       const result = validateMutateParams(request);
       expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('instanceId and gateId');
+      expect(result.error?.error?.message).toContain('taskId and gateName');
     });
   });
 
   describe('memory domain advanced operation validation', () => {
-    it('should accept graph.add as a valid memory operation', () => {
+    it('should accept pattern.store as a valid memory operation', () => {
       const request: MutateRequest = {
         domain: 'memory',
-        operation: 'graph.add',
+        operation: 'pattern.store',
         params: {
-          nodeId: 'n1',
-          nodeType: 'task',
-          label: 'demo',
+          pattern: 'retry failed webhook once',
+          context: 'webhook processing',
         },
       };
 
@@ -465,9 +464,9 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('tasks')).toBe(15);
     expect(getMutateOperationCount('session')).toBe(8);
     expect(getMutateOperationCount('orchestrate')).toBe(8);
-    expect(getMutateOperationCount('memory')).toBe(8);
+    expect(getMutateOperationCount('memory')).toBe(6);
     expect(getMutateOperationCount('check')).toBe(2);
-    expect(getMutateOperationCount('pipeline')).toBe(25);
+    expect(getMutateOperationCount('pipeline')).toBe(23);
     expect(getMutateOperationCount('admin')).toBe(20);
     expect(getMutateOperationCount('tools')).toBe(11);
     expect(getMutateOperationCount('sticky')).toBe(4);
@@ -484,7 +483,7 @@ describe('isMutateOperation', () => {
     expect(isMutateOperation('tasks', 'add')).toBe(true);
     expect(isMutateOperation('session', 'start')).toBe(true);
     expect(isMutateOperation('orchestrate', 'spawn')).toBe(true);
-    expect(isMutateOperation('memory', 'graph.add')).toBe(true);
+    expect(isMutateOperation('memory', 'pattern.store')).toBe(true);
   });
 
   it('should reject invalid operations', () => {

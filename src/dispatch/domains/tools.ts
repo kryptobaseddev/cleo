@@ -653,7 +653,7 @@ export class ToolsHandler implements DomainHandler {
             'Missing required parameter: event (HookEvent)', startTime);
         }
         const { queryHookProviders } = await import('../engines/hooks-engine.js');
-        const result = await queryHookProviders(event as import('@cleocode/caamp').HookEvent);
+        const result = await queryHookProviders(event as import('../../core/hooks/types.js').HookEvent);
         return this.wrapEngineResult(result, 'query', 'provider.hooks', startTime);
       }
 

@@ -4,29 +4,26 @@
  * @epic T4454
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe,expect,it } from 'vitest';
 import {
-  initVerification,
-  isValidGateName,
-  isValidAgentName,
-  getGateOrder,
-  getGateIndex,
-  getDownstreamGates,
-  computePassed,
-  setVerificationPassed,
-  updateGate,
-  resetDownstreamGates,
-  incrementRound,
-  logFailure,
-  checkAllGatesPassed,
-  isVerificationComplete,
-  getVerificationStatus,
-  shouldRequireVerification,
-  getMissingGates,
-  getGateSummary,
-  checkCircularValidation,
   allEpicChildrenVerified,
-  allSiblingsVerified,
+  checkCircularValidation,
+  computePassed,
+  getDownstreamGates,
+  getGateIndex,
+  getGateOrder,
+  getMissingGates,
+  getVerificationStatus,
+  incrementRound,
+  initVerification,
+  isValidAgentName,
+  isValidGateName,
+  isVerificationComplete,
+  logFailure,
+  resetDownstreamGates,
+  setVerificationPassed,
+  shouldRequireVerification,
+  updateGate
 } from '../verification.js';
 
 // ============================================================================

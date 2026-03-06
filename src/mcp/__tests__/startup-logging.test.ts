@@ -7,11 +7,11 @@
  * @task T5310
  */
 
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { initLogger, closeLogger, getLogger } from '../../core/logger.js';
+import { join } from 'node:path';
+import { afterEach,describe,expect,it,vi } from 'vitest';
+import { closeLogger,getLogger,initLogger } from '../../core/logger.js';
 
 describe('MCP startup logging (T5310)', () => {
   let tempDir: string;

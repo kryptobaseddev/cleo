@@ -53,7 +53,7 @@ Ask your AI agent to check the CLEO version:
 
 ```typescript
 await query({
-  domain: "system",
+  domain: "admin",
   operation: "version"
 });
 ```
@@ -121,21 +121,23 @@ await query({
 });
 ```
 
-**Domains**: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sharing`
+**Domains**: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`
+
+Share operations remain part of `nexus` via the `nexus.share.*` sub-namespace.
 
 **Common operations**:
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
 | `tasks` | `find` | Search tasks by query string |
-| `tasks` | `get` | Get full task details by ID |
+| `tasks` | `show` | Show full task details by ID |
 | `tasks` | `list` | List tasks with filters |
 | `tasks` | `tree` | View task hierarchy |
 | `session` | `status` | Current session info |
 | `session` | `list` | All sessions |
-| `system` | `version` | CLEO version |
-| `system` | `dash` | Project overview dashboard |
-| `lifecycle` | `check` | Validate lifecycle gates |
+| `admin` | `version` | CLEO version |
+| `admin` | `dash` | Project overview dashboard |
+| `check` | `task` | Validate a task before advancing work |
 
 ### mutate -- Write Operations
 
@@ -149,19 +151,21 @@ await mutate({
 });
 ```
 
-**Domains**: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sharing`
+**Domains**: `tasks`, `session`, `memory`, `check`, `pipeline`, `orchestrate`, `tools`, `admin`, `nexus`, `sticky`
+
+Share operations remain part of `nexus` via the `nexus.share.*` sub-namespace.
 
 **Common operations**:
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
-| `tasks` | `create` | Create a new task |
+| `tasks` | `add` | Create a new task |
 | `tasks` | `update` | Update task fields |
 | `tasks` | `complete` | Mark task as done |
 | `session` | `start` | Start a work session |
 | `session` | `end` | End current session |
-| `session` | `tasks.start` | Set active task |
-| `orchestrate` | `startup` | Initialize orchestration for an epic |
+| `tasks` | `start` | Set the active task and begin work |
+| `orchestrate` | `start` | Initialize orchestration for an epic |
 | `orchestrate` | `spawn` | Generate a spawn prompt for a task |
 
 ## Common Workflows
@@ -176,17 +180,17 @@ const results = await query({
   params: { query: "authentication" }
 });
 
-// 2. Get full details for a specific task
+// 2. Show full details for a specific task
 const task = await query({
   domain: "tasks",
-  operation: "get",
+  operation: "show",
   params: { taskId: "T042" }
 });
 
 // 3. Create a new task
 await mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "Add JWT token refresh",
     description: "Implement automatic token refresh before expiry",
@@ -227,8 +231,8 @@ await mutate({
 
 // 3. Set focus on a specific task
 await mutate({
-  domain: "session",
-  operation: "tasks.start",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T105" }
 });
 
@@ -245,20 +249,20 @@ await mutate({
 ```typescript
 // Project dashboard
 await query({
-  domain: "system",
+  domain: "admin",
   operation: "dash"
 });
 
 // Run diagnostics
 await query({
-  domain: "system",
+  domain: "admin",
   operation: "doctor"
 });
 
-// Check lifecycle status for a task
+// Validate a task before advancing work
 await query({
-  domain: "lifecycle",
-  operation: "status",
+  domain: "check",
+  operation: "task",
   params: { taskId: "T100" }
 });
 ```
@@ -270,7 +274,7 @@ All responses follow a consistent structure. Check `success` before using the da
 ```typescript
 const result = await mutate({
   domain: "tasks",
-  operation: "create",
+  operation: "add",
   params: {
     title: "New task",
     description: "Task description"
@@ -337,8 +341,8 @@ Check which stages are missing:
 
 ```typescript
 await query({
-  domain: "lifecycle",
-  operation: "status",
+  domain: "pipeline",
+  operation: "stage.status",
   params: { taskId: "T100" }
 });
 ```
@@ -347,8 +351,8 @@ Then complete or skip the missing stages:
 
 ```typescript
 await mutate({
-  domain: "lifecycle",
-  operation: "progress",
+  domain: "pipeline",
+  operation: "stage.record",
   params: {
     taskId: "T100",
     stage: "research",
@@ -361,7 +365,7 @@ await mutate({
 
 <CardGroup cols={2}>
   <Card title="MCP Server Specification" icon="book" href="/developer/specifications/MCP-SERVER">
-    Full technical specification with all 177 operations
+    Full technical specification with all 256 operations
   </Card>
   <Card title="MCP Gateway Design" icon="arrows-split-up-and-left" href="/developer/specifications/MCP-GATEWAY">
     Architecture details of the CQRS gateway pattern

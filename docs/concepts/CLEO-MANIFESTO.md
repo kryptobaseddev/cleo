@@ -279,6 +279,8 @@ This workshop vocabulary does not replace the four great systems.
 
 It gives the realm a human language for how work is caught, shaped, moved, and remembered inside them.
 
+The live workshop also has named runtime forms. **The Hearth** is the terminal-facing workbench where the Circle gathers. **The Impulse** is the self-propelling motion that advances ready work. **Conduit** is the relay path between agents, and it speaks only in LAFS envelopes with A2A delegation. **Watchers** are long-running Cascades through the pipeline, not a rival kingdom of custom daemons. **The Sweep** is quality patrol in motion. **Refinery** is the convergence gate where parallel changes are proven fit to join. **Looming Engine** turns Tesserae into Looms and Threads. **Living BRAIN** is memory in active circulation. **The Proving** is the realm's proving ground for validation, provenance, and outcome.
+
 ---
 
 ## VII. The Circle of Ten
@@ -296,7 +298,7 @@ CLEO’s runtime is governed by ten canonical domains. In myth, they are the ten
 | `tools` | The Artificers | Manage skills, providers, issues, and the CAAMP catalog |
 | `admin` | The Keepers | Maintain config, backup, migration, and systemic health |
 | `nexus` | The Wayfinders | Govern cross-project graphs, registries, and routefinding |
-| `sharing` | The Envoys | Handle sync, remotes, snapshots, and collaboration |
+| `sticky` | The Envoys | Carry quick captures and draft handoffs until they are formally bound; live agent relay belongs to Conduit |
 
 Treat them as story if you need memory.
 

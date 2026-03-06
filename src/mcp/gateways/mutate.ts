@@ -825,6 +825,44 @@ function validateReleaseParams(
 }
 
 /**
+ * Validate pipeline chain.* sub-operation parameters
+ */
+function validateChainParams(
+  operation: string,
+  params?: Record<string, unknown>
+): { valid: boolean; error?: DomainResponse } {
+  switch (operation) {
+    case 'gate.pass':
+    case 'gate.fail':
+      if (!params?.instanceId || !params?.gateId) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'mutate',
+              domain: 'pipeline',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameters: instanceId and gateId',
+              fix: 'Provide instanceId and gateId parameters',
+            },
+          },
+        };
+      }
+      break;
+  }
+
+  return { valid: true };
+}
+
+/**
  * Validate admin domain parameters
  */
 function validateAdminParams(
@@ -997,6 +1035,11 @@ function validatePipelineParams(
   if (operation.startsWith('release.')) {
     const releaseOp = operation.slice('release.'.length);
     return validateReleaseParams(releaseOp, params);
+  }
+  // Chain operations
+  if (operation.startsWith('chain.')) {
+    const chainOp = operation.slice('chain.'.length);
+    return validateChainParams(chainOp, params);
   }
   return { valid: true };
 }

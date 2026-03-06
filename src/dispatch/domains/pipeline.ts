@@ -65,8 +65,10 @@ import {
 import {
   showChain,
   listChains,
+  findChains,
   addChain,
   createInstance,
+  showInstance,
   advanceInstance,
 } from '../../core/lifecycle/chain-store.js';
 
@@ -168,7 +170,7 @@ export class PipelineHandler implements DomainHandler {
         'manifest.show', 'manifest.list', 'manifest.find',
         'manifest.pending', 'manifest.stats',
         'phase.show', 'phase.list',
-        'chain.show', 'chain.list',
+        'chain.show', 'chain.list', 'chain.find',
       ],
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
@@ -180,6 +182,7 @@ export class PipelineHandler implements DomainHandler {
         'phase.set', 'phase.start', 'phase.complete',
         'phase.advance', 'phase.rename', 'phase.delete',
         'chain.add', 'chain.instantiate', 'chain.advance',
+        'chain.gate.pass', 'chain.gate.fail',
       ],
     };
   }
@@ -636,6 +639,17 @@ export class PipelineHandler implements DomainHandler {
         return this.wrapEngineResult({ success: true, data: chains }, 'query', 'chain.list', startTime);
       }
 
+      case 'find': {
+        const chains = await findChains({
+          query: params?.query as string | undefined,
+          category: params?.category as WarpChain['shape']['stages'][number]['category'] | undefined,
+          tessera: params?.tessera as string | undefined,
+          archetype: params?.archetype as string | undefined,
+          limit: params?.limit as number | undefined,
+        }, this.projectRoot);
+        return this.wrapEngineResult({ success: true, data: chains }, 'query', 'chain.find', startTime);
+      }
+
       default:
         return this.errorResponse('query', `chain.${sub}`, 'E_INVALID_OPERATION',
           `Unknown chain query: ${sub}`, startTime);
@@ -669,12 +683,31 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'chain.instantiate', 'E_INVALID_INPUT',
             'chainId and epicId are required', startTime);
         }
-        const instance = await createInstance({
-          chainId,
-          epicId,
-          variables: params?.variables as Record<string, unknown> | undefined,
-          stageToTask: params?.stageToTask as Record<string, string> | undefined,
-        }, this.projectRoot);
+        let instance;
+        try {
+          instance = await createInstance({
+            chainId,
+            epicId,
+            variables: params?.variables as Record<string, unknown> | undefined,
+            stageToTask: params?.stageToTask as Record<string, string> | undefined,
+          }, this.projectRoot);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (
+            message.includes(`Chain "${chainId}" not found`)
+            || message.includes('FOREIGN KEY constraint failed')
+            || message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
+          ) {
+            return this.errorResponse(
+              'mutate',
+              'chain.instantiate',
+              'E_NOT_FOUND',
+              `Chain "${chainId}" not found`,
+              startTime,
+            );
+          }
+          throw error;
+        }
         return this.wrapEngineResult({ success: true, data: instance }, 'mutate', 'chain.instantiate', startTime);
       }
 
@@ -688,6 +721,64 @@ export class PipelineHandler implements DomainHandler {
         const gateResults = (params?.gateResults ?? []) as GateResult[];
         const updated = await advanceInstance(instanceId, nextStage, gateResults, this.projectRoot);
         return this.wrapEngineResult({ success: true, data: updated }, 'mutate', 'chain.advance', startTime);
+      }
+
+      case 'gate.pass': {
+        const instanceId = params?.instanceId as string;
+        const gateId = params?.gateId as string;
+        if (!instanceId || !gateId) {
+          return this.errorResponse('mutate', 'chain.gate.pass', 'E_INVALID_INPUT',
+            'instanceId and gateId are required', startTime);
+        }
+
+        const instance = await showInstance(instanceId, this.projectRoot);
+        if (!instance) {
+          return this.errorResponse('mutate', 'chain.gate.pass', 'E_NOT_FOUND',
+            `Chain instance "${instanceId}" not found`, startTime);
+        }
+
+        const gateResult: GateResult = {
+          gateId,
+          passed: true,
+          forced: (params?.forced as boolean | undefined) ?? false,
+          message: params?.message as string | undefined,
+          evaluatedAt: new Date().toISOString(),
+        };
+
+        const updated = await advanceInstance(instanceId, instance.currentStage, [gateResult], this.projectRoot);
+        return this.wrapEngineResult({
+          success: true,
+          data: { instance: updated, gateResult },
+        }, 'mutate', 'chain.gate.pass', startTime);
+      }
+
+      case 'gate.fail': {
+        const instanceId = params?.instanceId as string;
+        const gateId = params?.gateId as string;
+        if (!instanceId || !gateId) {
+          return this.errorResponse('mutate', 'chain.gate.fail', 'E_INVALID_INPUT',
+            'instanceId and gateId are required', startTime);
+        }
+
+        const instance = await showInstance(instanceId, this.projectRoot);
+        if (!instance) {
+          return this.errorResponse('mutate', 'chain.gate.fail', 'E_NOT_FOUND',
+            `Chain instance "${instanceId}" not found`, startTime);
+        }
+
+        const gateResult: GateResult = {
+          gateId,
+          passed: false,
+          forced: (params?.forced as boolean | undefined) ?? false,
+          message: params?.message as string | undefined,
+          evaluatedAt: new Date().toISOString(),
+        };
+
+        const updated = await advanceInstance(instanceId, instance.currentStage, [gateResult], this.projectRoot);
+        return this.wrapEngineResult({
+          success: true,
+          data: { instance: updated, gateResult },
+        }, 'mutate', 'chain.gate.fail', startTime);
       }
 
       default:

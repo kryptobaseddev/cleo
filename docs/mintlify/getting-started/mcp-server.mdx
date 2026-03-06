@@ -20,7 +20,7 @@ The MCP Server exposes **two gateway tools** using a CQRS (Command Query Respons
 This 2-tool design uses ~1,800 tokens of context -- a **94% reduction** compared to exposing each operation as a separate tool.
 
 <Info>
-The MCP Server covers **177 operations** (97 query + 80 mutate) across 10 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, and sharing.
+The MCP Server covers **256 operations** (145 query + 111 mutate) across 10 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, and sticky. Cross-project share operations live under `nexus.share.*`.
 </Info>
 
 ## Install in One Command
@@ -72,7 +72,7 @@ After installing, ask your AI agent to run a version check:
 
 ```typescript
 await query({
-  domain: "system",
+  domain: "admin",
   operation: "version"
 });
 ```
@@ -93,8 +93,8 @@ await query({
 
 // Set focus on a task
 await mutate({
-  domain: "session",
-  operation: "tasks.start",
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T042" }
 });
 

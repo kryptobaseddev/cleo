@@ -28,7 +28,7 @@ NON_NEGOTIABLES:
 - LOOM (Logical Order of Operations Methodology) is the lifecycle pipeline — encompassing RCASD-IVTR+C
 - BRAIN is the memory system
 - NEXUS is the cross-project connective layer
-- Workshop vocabulary such as Thread, Tapestry, Tessera, Cogs, Cascade, Tome, and Sticky Notes is conceptual language layered on top of the existing systems and domains; it MUST NOT be treated as a replacement for the canonical four systems or 10 domains
+- Workshop vocabulary such as Thread, Tapestry, Tessera, Cogs, Cascade, Tome, Sticky Notes, The Hearth, The Impulse, Conduit, Watchers, The Sweep, Refinery, Looming Engine, Living BRAIN, and The Proving is conceptual language layered on top of the existing systems and domains; it MUST NOT be treated as a replacement for the canonical four systems or 10 domains
 
 CANONICAL_IDENTITY:
 CLEO is a vendor-neutral Brain and Memory system for AI software
@@ -218,7 +218,7 @@ The `isLatest` flag will track which version of a fact is current, enabling temp
 
 ### Current State vs Target
 
-**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 207 MCP operations (118 query + 89 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG
+**Shipped**: `brain.db` (5 core cognitive tables: decisions, patterns, learnings, observations, memory_links), FTS5 full-text search, 3-layer retrieval (memory find / timeline / fetch), memory observe, 256 MCP operations (145 query + 111 mutate), 5,122 observations migrated from claude-mem, ADR cognitive search, session handoffs, contradiction detection, vectorless RAG
 
 **In Progress**: SQLite-vec integration (T5157), NEXUS MCP wiring (nexus-wirer), PageIndex graph tables (T5160)
 
@@ -285,7 +285,7 @@ Within LOOM, work units form a structural hierarchy defined by the workshop:
 
 | Element | Workshop Analog | Meaning |
 |---------|--------------|---------|
-| **Tasks** | The Hearth | Atomic units of work |
+| **Tasks** | Thread | Atomic units of work |
 | **Dependencies** | The Axle | Directional connections between tasks |
 | **Hierarchy** | Tension | Proximity strengthens relevance (parent-child relationships) |
 
@@ -304,8 +304,18 @@ CLEO also uses a non-normative workshop language to make work more intuitive to 
 - **Cogs**: discrete callable capabilities; small tool-level mechanisms
 - **Cascade**: a Tapestry in live gated motion across execution thresholds
 - **Tome**: living readable canon rendered from durable memory and system state
+- **The Hearth**: the terminal-facing workshop surface where active sessions, roles, and tools gather
+- **The Circle of Ten**: the role overlay mapped 1:1 onto the ten canonical domains
+- **The Impulse**: the self-propelling motion that advances ready work through governed chains
+- **Conduit**: agent-to-agent relay using LAFS envelopes and A2A delegation only
+- **Watchers**: long-running Cascades that patrol health, continuity, and gate state
+- **The Sweep**: the quality-patrol form of Cascade
+- **Refinery**: the convergence and merge gate inside live Cascade motion
+- **Looming Engine**: Tessera-driven decomposition into Looms, Threads, and execution paths
+- **Living BRAIN**: active neural memory pathways built on durable observations, patterns, and retrieval
+- **The Proving**: end-to-end validation of artifacts, gates, provenance, and outcomes
 
-These terms help describe how work feels and flows. They do not create new canonical systems or domains.
+These terms help describe how work feels and flows. They do not create new canonical systems or domains, replace LAFS, or authorize custom protocols.
 
 ### Naming Contract: Warp, Loomed Tesserae, Loomed Tapestries
 
@@ -523,7 +533,7 @@ This contract enables **reliable, repeatable AI-assisted development** regardles
 
 CLEO uses a shared-core architecture where both MCP and CLI are thin wrappers around `src/core/`:
 
-- **MCP (Primary)**: 2 tools (`query`, `mutate`), 207 operations across 10 domains -- the agent interface
+- **MCP (Primary)**: 2 tools (`query`, `mutate`), 256 operations across 10 domains -- the agent interface
 - **CLI (Backup)**: 86 commands via Commander.js — the human interface
 - **src/core/ (Canonical)**: All business logic. Both MCP and CLI delegate here
 - **Adapters (Optional)**: Tool-specific UX optimizations without changing core semantics

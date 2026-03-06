@@ -8,13 +8,157 @@
  * @task T5409
  */
 
-import type { TesseraTemplate, TesseraInstantiationInput } from '../../types/tessera.js';
+import type {
+  TesseraTemplate,
+  TesseraInstantiationInput,
+  TesseraVariable,
+} from '../../types/tessera.js';
 import type { WarpChain, WarpChainInstance } from '../../types/warp-chain.js';
 import { buildDefaultChain } from './default-chain.js';
 import { validateChain } from '../validation/chain-validation.js';
 import { addChain, showChain, createInstance } from './chain-store.js';
 
 const DEFAULT_TESSERA_ID = 'tessera-rcasd';
+const TASK_ID_PATTERN = /^T\d+$/;
+const PLACEHOLDER_EXACT = /^\{\{\s*([A-Za-z0-9_]+)\s*\}\}$/;
+const PLACEHOLDER_GLOBAL = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g;
+
+function valueType(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  if (Array.isArray(value)) {
+    return 'array';
+  }
+  return typeof value;
+}
+
+function hasOwn(obj: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function validateVariableType(name: string, varDef: TesseraVariable, value: unknown): void {
+  switch (varDef.type) {
+    case 'string': {
+      if (typeof value !== 'string') {
+        throw new Error(`Invalid variable type for "${name}": expected string, got ${valueType(value)}`);
+      }
+      return;
+    }
+
+    case 'number': {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new Error(`Invalid variable type for "${name}": expected finite number, got ${valueType(value)}`);
+      }
+      return;
+    }
+
+    case 'boolean': {
+      if (typeof value !== 'boolean') {
+        throw new Error(`Invalid variable type for "${name}": expected boolean, got ${valueType(value)}`);
+      }
+      return;
+    }
+
+    case 'taskId':
+    case 'epicId': {
+      if (typeof value !== 'string') {
+        throw new Error(`Invalid variable type for "${name}": expected ${varDef.type}, got ${valueType(value)}`);
+      }
+      if (!TASK_ID_PATTERN.test(value)) {
+        throw new Error(`Invalid variable format for "${name}": expected ${varDef.type} like "T1234", got "${value}"`);
+      }
+      return;
+    }
+
+    default: {
+      throw new Error(`Unsupported variable type for "${name}": ${String(varDef.type)}`);
+    }
+  }
+}
+
+function substituteTemplateValue(
+  value: unknown,
+  variables: Record<string, unknown>,
+  path: string,
+): unknown {
+  if (typeof value === 'string') {
+    const exact = value.match(PLACEHOLDER_EXACT);
+    if (exact) {
+      const variableName = exact[1];
+      if (!hasOwn(variables, variableName)) {
+        throw new Error(`Unknown template variable "${variableName}" at ${path}`);
+      }
+      return variables[variableName];
+    }
+
+    return value.replace(PLACEHOLDER_GLOBAL, (_full, variableName: string) => {
+      if (!hasOwn(variables, variableName)) {
+        throw new Error(`Unknown template variable "${variableName}" at ${path}`);
+      }
+      return String(variables[variableName]);
+    });
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => substituteTemplateValue(entry, variables, `${path}[${index}]`));
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value)) {
+      out[key] = substituteTemplateValue(nested, variables, `${path}.${key}`);
+    }
+    return out;
+  }
+
+  return value;
+}
+
+function resolveVariables(
+  template: TesseraTemplate,
+  inputVariables: Record<string, unknown>,
+): Record<string, unknown> {
+  const variableKeys = Object.keys(template.variables).sort();
+  const allowedVariables = new Set(variableKeys);
+
+  for (const key of Object.keys(inputVariables).sort()) {
+    if (!allowedVariables.has(key)) {
+      throw new Error(
+        `Unknown variable: ${key}. Allowed variables: ${variableKeys.join(', ')}`,
+      );
+    }
+  }
+
+  const resolvedVariables: Record<string, unknown> = {};
+
+  for (const key of variableKeys) {
+    const varDef = template.variables[key];
+    const hasInput = hasOwn(inputVariables, key);
+    const inputValue = hasInput ? inputVariables[key] : undefined;
+
+    if (inputValue === undefined) {
+      if (varDef.required) {
+        throw new Error(`Missing required variable: ${key}`);
+      }
+
+      if (hasOwn(template.defaultValues, key)) {
+        const defaultValue = template.defaultValues[key];
+        validateVariableType(key, varDef, defaultValue);
+        resolvedVariables[key] = defaultValue;
+      } else if (varDef.default !== undefined) {
+        validateVariableType(key, varDef, varDef.default);
+        resolvedVariables[key] = varDef.default;
+      }
+      continue;
+    }
+
+    validateVariableType(key, varDef, inputValue);
+    resolvedVariables[key] = inputValue;
+  }
+
+  return resolvedVariables;
+}
 
 /**
  * Build the default RCASD Tessera template.
@@ -92,21 +236,15 @@ export async function instantiateTessera(
   input: TesseraInstantiationInput,
   projectRoot: string,
 ): Promise<WarpChainInstance> {
-  // 1. Validate required variables
-  for (const [key, varDef] of Object.entries(template.variables)) {
-    if (varDef.required && !(key in input.variables) && input.variables[key] === undefined) {
-      throw new Error(`Missing required variable: ${key}`);
-    }
-  }
+  // 1. Resolve and validate input variables
+  const inputVariables =
+    input.variables && typeof input.variables === 'object'
+      ? input.variables
+      : {};
+  const resolvedVariables = resolveVariables(template, inputVariables);
 
-  // 2. Apply defaults for missing optional variables
-  const resolvedVariables: Record<string, unknown> = { ...template.defaultValues };
-  for (const [key, value] of Object.entries(input.variables)) {
-    resolvedVariables[key] = value;
-  }
-
-  // 3. Construct concrete WarpChain from template
-  const chain: WarpChain = {
+  // 2. Build chain from template with deep substitution
+  const chainSeed: WarpChain = {
     id: template.id,
     name: template.name,
     version: template.version,
@@ -114,22 +252,28 @@ export async function instantiateTessera(
     shape: template.shape,
     gates: template.gates,
     tessera: template.id,
-    metadata: { variables: resolvedVariables },
+    metadata: template.metadata,
+  };
+  const substituted = substituteTemplateValue(chainSeed, resolvedVariables, 'chain');
+  const chain = substituted as WarpChain;
+  chain.metadata = {
+    ...(chain.metadata ?? {}),
+    variables: resolvedVariables,
   };
 
-  // 4. Validate the chain
+  // 3. Validate the chain
   const validation = validateChain(chain);
   if (validation.errors.length > 0) {
     throw new Error(`Tessera chain validation failed: ${validation.errors.join('; ')}`);
   }
 
-  // 5. Store chain if not already stored, then create instance
+  // 4. Store chain if not already stored, then create instance
   const existing = await showChain(chain.id, projectRoot);
   if (!existing) {
     await addChain(chain, projectRoot);
   }
 
-  // 6. Create and return instance
+  // 5. Create and return instance
   return createInstance(
     {
       chainId: chain.id,

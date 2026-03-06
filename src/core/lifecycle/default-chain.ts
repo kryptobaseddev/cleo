@@ -11,9 +11,31 @@ import type { WarpChain, WarpStage, WarpLink, GateContract } from '../../types/w
 import { PIPELINE_STAGES, STAGE_DEFINITIONS, STAGE_PREREQUISITES } from './stages.js';
 import { VERIFICATION_GATE_ORDER } from '../validation/verification.js';
 import type { GateName } from '../validation/verification.js';
+import { PROTOCOL_TYPES } from '../orchestration/protocol-validators.js';
+import type { ProtocolType } from '../orchestration/protocol-validators.js';
 import type { Stage } from './stages.js';
 
 export const DEFAULT_CHAIN_ID = 'rcasd-ivtrc';
+
+/**
+ * Stage mapping for protocol validation gates in the default chain.
+ *
+ * `contribution` is cross-cutting and is validated at implementation.
+ * `artifact-publish` and `provenance` are validated at release.
+ *
+ * @task T5419
+ */
+export const DEFAULT_PROTOCOL_STAGE_MAP: Record<ProtocolType, Stage> = {
+  research: 'research',
+  consensus: 'consensus',
+  specification: 'specification',
+  decomposition: 'decomposition',
+  implementation: 'implementation',
+  contribution: 'implementation',
+  release: 'release',
+  'artifact-publish': 'release',
+  provenance: 'release',
+};
 
 /**
  * Map a pipeline stage name to the WarpStage category union.
@@ -105,6 +127,26 @@ export function buildDefaultChain(): WarpChain {
         stageId: stage,
         position: 'before',
         check: { type: 'stage_complete', stageId: prereq },
+        severity: 'blocking',
+        canForce: false,
+      });
+    }
+  }
+
+  for (const stage of PIPELINE_STAGES) {
+    for (const protocolType of PROTOCOL_TYPES) {
+      if (DEFAULT_PROTOCOL_STAGE_MAP[protocolType] !== stage) {
+        continue;
+      }
+
+      gateCounter++;
+      gates.push({
+        id: `gate-protocol-${gateCounter}`,
+        name: `${protocolType} protocol validation`,
+        type: 'exit',
+        stageId: stage,
+        position: 'after',
+        check: { type: 'protocol_valid', protocolType },
         severity: 'blocking',
         canForce: false,
       });

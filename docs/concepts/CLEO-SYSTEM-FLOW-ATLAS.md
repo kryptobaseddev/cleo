@@ -27,7 +27,7 @@ CLEO's architecture is organized around four conceptual systems. These systems a
 |--------|-------------------|-------------------|---------|
 | **BRAIN** | memory | tasks, session | Cognitive memory -- observations, decisions, patterns, learnings |
 | **LOOM** | pipeline | check, orchestrate | Lifecycle management (RCSD stages), artifact ledger, release orchestration |
-| **NEXUS** | nexus | admin | Cross-project coordination, registry, dependency graph, sharing |
+| **NEXUS** | nexus | admin | Cross-project coordination, registry, dependency graph, and `nexus.share.*` relay operations |
 | **LAFS** | (cross-cutting) | all domains | Progressive disclosure protocol, field selection, envelope verbosity |
 
 ### Workshop Vocabulary Mapping
@@ -45,6 +45,25 @@ The realm also uses a secondary workshop language for how work is shaped. This l
 | **Cogs** | tools | Discrete callable capabilities and integrations |
 | **Cascade** | pipeline, orchestrate, check | A Tapestry moving through live gates and thresholds |
 | **Tome** | memory, nexus | Living readable canon rendered from durable system knowledge |
+
+### Autonomous Workshop Overlay
+
+The live workshop also has named runtime forms for autonomous motion. These names remain overlays on the same ten canonical domains, but they are not all the same kind of thing:
+
+| Term | Runtime Type | Primary Domain(s) | Meaning |
+|------|--------------|-------------------|---------|
+| **The Hearth** | surface | session, orchestrate, tools | Terminal-facing workshop surface where active sessions, roles, and capabilities gather |
+| **The Circle of Ten** | role overlay | all domains | Role overlay mapped 1:1 to the canonical domains: Smiths, Weavers, Conductors, Artificers, Archivists, Scribes, Wardens, Wayfinders, Envoys, Keepers |
+| **The Impulse** | motion | orchestrate, pipeline, tasks | Self-propelling motion that advances ready work through governed chains |
+| **Conduit** | relay path | orchestrate, session, nexus | Agent relay path using LAFS envelopes and A2A delegation only. `sticky` may hold drafted handoff material, but it is not the live relay lane |
+| **Watchers** | patrols | pipeline, orchestrate, check, admin | Long-running Cascades that patrol health, continuity, and gate state |
+| **The Sweep** | quality loop | check, pipeline, orchestrate | Quality patrol loop expressed as review, repair, and re-verification |
+| **Refinery** | convergence gate | pipeline, check, orchestrate | Convergence gate where changes are proven ready to join and advance |
+| **Looming Engine** | decomposition service | pipeline, tasks, orchestrate, tools | Tessera-driven decomposition into Looms, Threads, and executable work paths |
+| **Living BRAIN** | memory overlay | memory, session, nexus | Active neural-memory overlay on durable observations, patterns, and retrieval |
+| **The Proving** | validation ground | check, pipeline | End-to-end validation of artifacts, gates, provenance, and outcomes |
+
+Zero custom protocols remain canon. Conduit speaks through LAFS envelopes and A2A delegation, and Watchers are long-running Cascades through the pipeline rather than separate daemon domains.
 
 ### System-to-Domain Mapping Detail
 
@@ -159,6 +178,8 @@ tasks.db  brain.db  MANIFEST  sessions/  config.json
 8. **Store**: Core writes to data store using atomic operations.
 9. **Respond**: `DispatchResponse` is constructed and returned through the chain.
 
+In autonomous operation, the same path may be entered from The Hearth, advanced by The Impulse, and revisited by Watchers and The Sweep. The runtime path does not change the contract.
+
 ---
 
 ## 4. Domain Interaction Graph
@@ -233,7 +254,7 @@ Domains interact with each other through core business logic, not directly. The 
 | `MANIFEST.jsonl` | pipeline | JSONL | `.cleo/MANIFEST.jsonl` | Research artifact ledger (append-only) |
 | `sessions/` | session | JSON files | `.cleo/sessions/` | Session lifecycle state, handoff data |
 | `config.json` | admin | JSON | `.cleo/config.json` | Project configuration |
-| `nexus.db` | nexus | SQLite | `~/.cleo/nexus.db` | Cross-project registry (global), sharing state |
+| `nexus.db` | nexus | SQLite | `~/.cleo/nexus.db` | Cross-project registry (global), relay and share state |
 | `.cleo/skills/` | tools | YAML/JSON | `.cleo/skills/` | Skill definitions and configuration |
 | `brain_sticky_notes` | sticky | SQLite table | `.cleo/brain.db` | Quick capture sticky notes (active/converted/archived) |
 | `.cleo/metrics/` | check | JSONL | `.cleo/metrics/` | Compliance data, grades, telemetry |
