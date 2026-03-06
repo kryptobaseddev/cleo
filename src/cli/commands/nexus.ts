@@ -171,4 +171,16 @@ export function registerNexusCommand(program: Command): void {
         await dispatchFromCli('mutate', 'nexus', 'sync.all', {}, { command: 'nexus' });
       }
     });
+
+  // ── nexus reconcile ──────────────────────────────────────────────────
+
+  nexus
+    .command('reconcile')
+    .description('Reconcile current project with NEXUS registry (auto-register if new, update path if moved)')
+    .option('--path <path>', 'Project path (default: current directory)')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli('mutate', 'nexus', 'reconcile', {
+        projectRoot: opts['path'] as string | undefined,
+      }, { command: 'nexus' });
+    });
 }
