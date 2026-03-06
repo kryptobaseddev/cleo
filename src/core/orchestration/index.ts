@@ -4,11 +4,9 @@
  * @epic T4454
  */
 
-import { readJsonRequired } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath } from '../paths.js';
+import type { Task } from '../../types/task.js';
 import { getExecutionWaves } from '../phases/deps.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
@@ -61,12 +59,10 @@ export interface AnalysisResult {
  */
 export async function startOrchestration(
   epicId: string,
-  cwd?: string,
+  _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<OrchestratorSession> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const data = await accessor!.loadTaskFile();
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {
@@ -97,9 +93,7 @@ export async function startOrchestration(
  * @task T4466
  */
 export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<AnalysisResult> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const data = await accessor!.loadTaskFile();
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {
@@ -139,10 +133,8 @@ export async function analyzeEpic(epicId: string, cwd?: string, accessor?: DataA
  * Get parallel-safe ready tasks for an epic.
  * @task T4466
  */
-export async function getReadyTasks(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<TaskReadiness[]> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+export async function getReadyTasks(epicId: string, _cwd?: string, accessor?: DataAccessor): Promise<TaskReadiness[]> {
+  const data = await accessor!.loadTaskFile();
   const childTasks = data.tasks.filter(t => t.parentId === epicId);
   const completedIds = new Set(
     data.tasks.filter(t => t.status === 'done').map(t => t.id),
@@ -182,10 +174,8 @@ export async function getNextTask(epicId: string, cwd?: string, accessor?: DataA
  * Prepare a spawn context for a subagent.
  * @task T4466
  */
-export async function prepareSpawn(taskId: string, cwd?: string, accessor?: DataAccessor): Promise<SpawnContext> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+export async function prepareSpawn(taskId: string, _cwd?: string, accessor?: DataAccessor): Promise<SpawnContext> {
+  const data = await accessor!.loadTaskFile();
   const task = data.tasks.find(t => t.id === taskId);
 
   if (!task) {
@@ -234,7 +224,7 @@ export async function validateSpawnOutput(
  * Get orchestrator context summary.
  * @task T4466
  */
-export async function getOrchestratorContext(epicId: string, cwd?: string, accessor?: DataAccessor): Promise<{
+export async function getOrchestratorContext(epicId: string, _cwd?: string, accessor?: DataAccessor): Promise<{
   epicId: string;
   epicTitle: string;
   totalTasks: number;
@@ -244,9 +234,7 @@ export async function getOrchestratorContext(epicId: string, cwd?: string, acces
   pending: number;
   completionPercent: number;
 }> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const data = await accessor!.loadTaskFile();
   const epic = data.tasks.find(t => t.id === epicId);
 
   if (!epic) {

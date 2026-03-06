@@ -4,11 +4,10 @@
  * @epic T4454
  */
 
-import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js';
+import { computeChecksum } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { PhaseStatus, PhaseTransition, TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
@@ -89,10 +88,8 @@ export interface DeletePhaseResult {
  * List all phases with status summaries.
  * @task T4464
  */
-export async function listPhases(cwd?: string, accessor?: DataAccessor): Promise<ListPhasesResult> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+export async function listPhases(_cwd?: string, accessor?: DataAccessor): Promise<ListPhasesResult> {
+  const data = await accessor!.loadTaskFile();
   const phases = data.project?.phases ?? {};
   const currentPhase = data.project?.currentPhase ?? null;
 
@@ -124,10 +121,8 @@ export async function listPhases(cwd?: string, accessor?: DataAccessor): Promise
  * Show the current phase details.
  * @task T4464
  */
-export async function showPhase(slug?: string, cwd?: string, accessor?: DataAccessor): Promise<ShowPhaseResult> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+export async function showPhase(slug?: string, _cwd?: string, accessor?: DataAccessor): Promise<ShowPhaseResult> {
+  const data = await accessor!.loadTaskFile();
   const targetSlug = slug ?? data.project?.currentPhase ?? null;
 
   if (!targetSlug) {
@@ -158,11 +153,8 @@ export async function showPhase(slug?: string, cwd?: string, accessor?: DataAcce
  * Set the current project phase.
  * @task T4464
  */
-export async function setPhase(options: SetPhaseOptions, cwd?: string, accessor?: DataAccessor): Promise<SetPhaseResult> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+export async function setPhase(options: SetPhaseOptions, _cwd?: string, accessor?: DataAccessor): Promise<SetPhaseResult> {
+  const data = await accessor!.loadTaskFile();
   const phases = data.project?.phases ?? {};
 
   // Validate phase exists
@@ -223,11 +215,7 @@ export async function setPhase(options: SetPhaseOptions, cwd?: string, accessor?
     addPhaseHistoryEntry(data, options.slug, 'rollback', oldPhase, `Rollback from ${oldPhase}`);
   }
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
-  }
+  await accessor!.saveTaskFile(data);
   await logOperation('phase_set', options.slug, {
     previousPhase: oldPhase,
     isRollback,
@@ -249,11 +237,8 @@ export async function setPhase(options: SetPhaseOptions, cwd?: string, accessor?
  * Start a phase (pending -> active).
  * @task T4464
  */
-export async function startPhase(slug: string, cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; startedAt: string }> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+export async function startPhase(slug: string, _cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; startedAt: string }> {
+  const data = await accessor!.loadTaskFile();
   const phase = data.project?.phases?.[slug];
 
   if (!phase) {
@@ -275,11 +260,7 @@ export async function startPhase(slug: string, cwd?: string, accessor?: DataAcce
 
   addPhaseHistoryEntry(data, slug, 'started', null, 'Phase started');
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
-  }
+  await accessor!.saveTaskFile(data);
   await logOperation('phase_started', slug, {}, accessor);
 
   return { phase: slug, startedAt: now };
@@ -289,11 +270,8 @@ export async function startPhase(slug: string, cwd?: string, accessor?: DataAcce
  * Complete a phase (active -> completed).
  * @task T4464
  */
-export async function completePhase(slug: string, cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; completedAt: string }> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+export async function completePhase(slug: string, _cwd?: string, accessor?: DataAccessor): Promise<{ phase: string; completedAt: string }> {
+  const data = await accessor!.loadTaskFile();
   const phase = data.project?.phases?.[slug];
 
   if (!phase) {
@@ -324,11 +302,7 @@ export async function completePhase(slug: string, cwd?: string, accessor?: DataA
 
   addPhaseHistoryEntry(data, slug, 'completed', null, 'Phase completed');
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
-  }
+  await accessor!.saveTaskFile(data);
   await logOperation('phase_completed', slug, {}, accessor);
 
   return { phase: slug, completedAt: now };
@@ -338,11 +312,8 @@ export async function completePhase(slug: string, cwd?: string, accessor?: DataA
  * Advance to the next phase.
  * @task T4464
  */
-export async function advancePhase(force: boolean = false, cwd?: string, accessor?: DataAccessor): Promise<AdvancePhaseResult> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+export async function advancePhase(force: boolean = false, _cwd?: string, accessor?: DataAccessor): Promise<AdvancePhaseResult> {
+  const data = await accessor!.loadTaskFile();
   const currentSlug = data.project?.currentPhase ?? null;
 
   if (!currentSlug) {
@@ -412,11 +383,7 @@ export async function advancePhase(force: boolean = false, cwd?: string, accesso
   addPhaseHistoryEntry(data, currentSlug, 'completed', null, 'Phase completed via advance');
   addPhaseHistoryEntry(data, nextSlug, 'started', currentSlug, `Phase started via advance from ${currentSlug}`);
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
-  }
+  await accessor!.saveTaskFile(data);
 
   return {
     previousPhase: currentSlug,
@@ -429,11 +396,8 @@ export async function advancePhase(force: boolean = false, cwd?: string, accesso
  * Rename a phase and update all task references.
  * @task T4464
  */
-export async function renamePhase(oldName: string, newName: string, cwd?: string, accessor?: DataAccessor): Promise<RenamePhaseResult> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+export async function renamePhase(oldName: string, newName: string, _cwd?: string, accessor?: DataAccessor): Promise<RenamePhaseResult> {
+  const data = await accessor!.loadTaskFile();
   const phases = data.project?.phases ?? {};
 
   if (!phases[oldName]) {
@@ -474,11 +438,7 @@ export async function renamePhase(oldName: string, newName: string, cwd?: string
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
-  }
+  await accessor!.saveTaskFile(data);
 
   return { oldName, newName, tasksUpdated, currentPhaseUpdated };
 }
@@ -490,13 +450,10 @@ export async function renamePhase(oldName: string, newName: string, cwd?: string
 export async function deletePhase(
   slug: string,
   options: { reassignTo?: string; force?: boolean } = {},
-  cwd?: string,
+  _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<DeletePhaseResult> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const data = await accessor!.loadTaskFile();
   const phases = data.project?.phases ?? {};
 
   if (!phases[slug]) {
@@ -546,11 +503,7 @@ export async function deletePhase(
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
-  }
+  await accessor!.saveTaskFile(data);
 
   return {
     deletedPhase: slug,

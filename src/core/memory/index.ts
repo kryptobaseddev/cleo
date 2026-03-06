@@ -4,12 +4,11 @@
  * @epic T4454
  */
 
-import { readJsonRequired, saveJson, appendJsonl, readJson } from '../../store/json.js';
+import { saveJson, appendJsonl, readJson } from '../../store/json.js';
 import { safeReadFile, atomicWrite } from '../../store/atomic.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir, getCleoDirAbsolute, getManifestPath as getCentralManifestPath, getManifestArchivePath, getProjectRoot } from '../paths.js';
+import { getBackupDir, getCleoDirAbsolute, getManifestPath as getCentralManifestPath, getManifestArchivePath, getProjectRoot } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
@@ -96,9 +95,7 @@ async function readResearch(cwd?: string): Promise<{ entries: ResearchEntry[] }>
  * @task T4465
  */
 export async function addResearch(options: AddResearchOptions, cwd?: string, accessor?: DataAccessor): Promise<ResearchEntry> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const data = await accessor!.loadTaskFile();
 
   // Validate task exists
   const task = data.tasks.find(t => t.id === options.taskId);
@@ -194,9 +191,7 @@ export async function linkResearch(
   }
 
   // Validate task exists
-  const taskData = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(getTaskPath(cwd));
+  const taskData = await accessor!.loadTaskFile();
   const task = taskData.tasks.find(t => t.id === taskId);
   if (!task) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);

@@ -40,6 +40,7 @@ import {
 
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../../store/brain-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { getProjectRoot } from '../paths.js';
@@ -948,8 +949,9 @@ export async function memoryReasonWhy(
 
   try {
     const root = resolveRoot(projectRoot);
+    const taskAccessor = await getAccessor(root);
     const { reasonWhy } = await import('./brain-reasoning.js');
-    const result = await reasonWhy(params.taskId, root);
+    const result = await reasonWhy(params.taskId, root, taskAccessor);
     return { success: true, data: result };
   } catch (error) {
     return { success: false, error: { code: 'E_REASON_WHY', message: error instanceof Error ? error.message : String(error) } };
