@@ -95,7 +95,12 @@ describe('verifyBackup', () => {
       // Ignore if module not loaded
     }
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+      try { await rm(tempDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   });
 
   it('verifies identical files as valid', async () => {

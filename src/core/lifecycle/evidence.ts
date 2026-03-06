@@ -167,7 +167,7 @@ export async function linkProvenance(
   cwd?: string,
 ): Promise<EvidenceRecord> {
   const cleoDir = getCleoDirAbsolute(cwd);
-  const relativeUri = relative(cleoDir, filePath);
+  const relativeUri = relative(cleoDir, filePath).replaceAll('\\', '/');
   const description = basename(filePath);
 
   return recordEvidence(epicId, stage, relativeUri, 'file', {

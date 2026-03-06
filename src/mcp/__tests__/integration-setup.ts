@@ -116,6 +116,12 @@ class CLIExecutor {
    */
   private escapeArg(arg: string | number | boolean): string {
     const str = String(arg);
+    if (process.platform === 'win32') {
+      // PowerShell: use double quotes, escape internal double quotes
+      const escaped = str.replace(/"/g, '\\"');
+      return `"${escaped}"`;
+    }
+    // Unix: use single quotes, escape internal single quotes
     const escaped = str.replace(/'/g, "'\\''");
     return `'${escaped}'`;
   }

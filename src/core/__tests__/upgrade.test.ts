@@ -23,7 +23,7 @@ describe('checkStorageMigration', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   it('detects JSON data with no config (v1→v2 upgrade)', () => {
@@ -133,7 +133,12 @@ describe('runUpgrade locking (T4723)', () => {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
     } catch { /* module may not be loaded */ }
-    rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   });
 
   it('should succeed when no concurrent migration', async () => {
@@ -280,7 +285,12 @@ describe('runUpgrade structural parity', () => {
       const { closeAllDatabases } = await import('../../store/sqlite.js');
       await closeAllDatabases();
     } catch { /* module may not be loaded */ }
-    rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   });
 
   it('creates missing config.json during upgrade', async () => {
