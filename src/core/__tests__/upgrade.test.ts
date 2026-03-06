@@ -127,7 +127,12 @@ describe('runUpgrade locking (T4723)', () => {
     mkdirSync(cleoDir, { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Close SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeDb } = await import('../../store/sqlite.js');
+      closeDb();
+    } catch { /* module may not be loaded */ }
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -269,7 +274,12 @@ describe('runUpgrade structural parity', () => {
     mkdirSync(cleoDir, { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Close SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeDb } = await import('../../store/sqlite.js');
+      closeDb();
+    } catch { /* module may not be loaded */ }
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

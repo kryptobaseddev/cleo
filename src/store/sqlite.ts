@@ -24,7 +24,7 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync };
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -241,11 +241,11 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
               stdio: 'pipe',
             });
             // If we get here, the file IS tracked — that's dangerous
-            const basename = fileToCheck.split('/').pop();
+            const basename = fileToCheck.split(/[\\/]/).pop();
             log.warn(
               { path: fileToCheck },
               `${basename} is tracked by project git — this risks data loss on branch switch. ` +
-              `Run: git rm --cached ${fileToCheck.replace(gitCwd + '/', '')} (see ADR-013, T5188)`,
+              `Run: git rm --cached ${fileToCheck.replace(gitCwd + sep, '')} (see ADR-013, T5188)`,
             );
           } catch {
             // Exit code 1 = not tracked = good

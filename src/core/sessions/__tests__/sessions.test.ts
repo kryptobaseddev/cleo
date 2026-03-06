@@ -44,6 +44,11 @@ describe('Session lifecycle', () => {
   });
 
   afterEach(async () => {
+    // Close SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* module may not be loaded */ }
     await rm(tempDir, { recursive: true, force: true });
   });
 

@@ -38,6 +38,11 @@ describe('stage.record provenance integration', () => {
   });
 
   afterEach(async () => {
+    // Close SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* module may not be loaded */ }
     delete process.env['CLEO_DIR'];
     await rm(testDir, { recursive: true, force: true });
     vi.restoreAllMocks();

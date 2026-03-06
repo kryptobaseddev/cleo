@@ -190,6 +190,11 @@ describe('RCSD Pipeline Integration', () => {
   });
 
   afterEach(async () => {
+    // Close SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeDb } = await import('../../../store/sqlite.js');
+      closeDb();
+    } catch { /* module may not be loaded */ }
     delete process.env['CLEO_DIR'];
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
     await rm(testDir, { recursive: true, force: true });
