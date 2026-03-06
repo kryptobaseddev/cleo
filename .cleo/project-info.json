@@ -2,56 +2,24 @@
   "$schema": "./schemas/project-info.schema.json",
   "schemaVersion": "1.0.0",
   "projectHash": "85f1cc25bb9f",
-  "name": "claude-todo",
-  "registeredAt": "2026-01-22T16:49:07Z",
-  "lastUpdated": "2026-02-16T17:26:32Z",
-  "cleoVersion": "0.90.3",
+  "cleoVersion": "2026.3.11",
+  "lastUpdated": "2026-03-04T05:14:11.376Z",
   "schemas": {
-    "todo": {
-      "version": "2.10.0",
-      "lastMigrated": "2026-02-11T20:32:35Z"
-    },
-    "config": {
-      "version": "2.10.0",
-      "lastMigrated": "2026-02-11T20:32:35Z"
-    },
-    "archive": {
-      "version": "2.4.0",
-      "lastMigrated": "2026-02-11T20:32:35Z"
-    },
-    "log": {
-      "version": "2.4.0",
-      "lastMigrated": "2026-02-11T20:32:35Z"
-    }
+    "config": "2.10.0",
+    "sqlite": "2.0.0"
   },
   "injection": {
-    "CLAUDE.md": {
-      "status": "current",
-      "lastUpdated": "2026-02-11T20:32:35Z"
-    },
-    "AGENTS.md": {
-      "status": "current",
-      "lastUpdated": "2026-02-11T20:32:35Z"
-    },
-    "GEMINI.md": {
-      "status": "current",
-      "lastUpdated": "2026-02-11T20:32:35Z"
-    }
+    "CLAUDE.md": null,
+    "AGENTS.md": null,
+    "GEMINI.md": null
   },
   "health": {
-    "status": "error",
-    "lastCheck": "2026-02-16T17:26:32Z",
-    "issues": [
-      {
-        "severity": "error",
-        "code": "VALIDATION_FAILED",
-        "message": "Validation: [ERROR] 8 done task(s) missing completedAt"
-      }
-    ],
-    "history": []
+    "status": "unknown",
+    "lastCheck": null,
+    "issues": []
   },
   "features": {
-    "multiSession": true,
+    "multiSession": false,
     "verification": false,
     "contextAlerts": false
   }

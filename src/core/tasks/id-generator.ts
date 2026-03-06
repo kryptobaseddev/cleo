@@ -2,11 +2,10 @@
  * Task ID Generator
  *
  * Generates unique task IDs in the T#### format used by CLEO.
- * Ensures uniqueness across both todo.json and todo-archive.json.
+ * Ensures uniqueness across active and archived tasks.
  */
 
-import { readJsonFile } from '../../store/file-utils.js';
-import { join } from 'path';
+import { getAccessor } from '../../store/data-accessor.js';
 
 /**
  * Task ID pattern: T followed by 3+ digits
@@ -22,31 +21,23 @@ function extractNumber(id: string): number {
 }
 
 /**
- * Collect all existing task IDs from todo.json and archive
+ * Collect all existing task IDs from task data and archive.
  */
-export function collectAllIds(projectRoot: string): Set<string> {
+export async function collectAllIds(projectRoot: string): Promise<Set<string>> {
   const ids = new Set<string>();
+  const accessor = await getAccessor(projectRoot);
 
-  // Read todo.json
-  const taskPath = join(projectRoot, '.cleo', 'todo.json');
-  const taskData = readJsonFile<{ tasks?: Array<{ id: string }> }>(taskPath);
-  if (taskData?.tasks) {
-    for (const task of taskData.tasks) {
-      if (task.id) ids.add(task.id);
-    }
+  const taskData = await accessor.loadTaskFile();
+  for (const task of taskData.tasks ?? []) {
+    if (task.id) ids.add(task.id);
   }
 
-  // Read archive
-  const archivePath = join(projectRoot, '.cleo', 'todo-archive.json');
-  const archiveData = readJsonFile<{
-    archivedTasks?: Array<{ id: string }>;
-  }>(archivePath);
+  const archiveData = await accessor.loadArchive();
   if (archiveData?.archivedTasks) {
     for (const task of archiveData.archivedTasks) {
       if (task.id) ids.add(task.id);
     }
   }
-
   return ids;
 }
 
@@ -67,7 +58,7 @@ export function findHighestId(existingIds: Set<string>): number {
 /**
  * Generate the next available task ID.
  *
- * Finds the highest existing ID number across todo.json and archive,
+ * Finds the highest existing ID number across active and archived tasks,
  * then returns the next sequential ID.
  *
  * @deprecated Use {@link import('../sequence/index.js').allocateNextTaskId} for
@@ -76,8 +67,8 @@ export function findHighestId(existingIds: Set<string>): number {
  * @param projectRoot - Project root directory
  * @returns New unique task ID (e.g., "T4321")
  */
-export function generateNextId(projectRoot: string): string {
-  const existingIds = collectAllIds(projectRoot);
+export async function generateNextId(projectRoot: string): Promise<string> {
+  const existingIds = await collectAllIds(projectRoot);
   const highest = findHighestId(existingIds);
   const next = highest + 1;
 

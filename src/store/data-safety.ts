@@ -435,7 +435,7 @@ export async function runDataIntegrityCheck(cwd?: string): Promise<{
     issues.push(`Sequence check failed: ${String(err)}`);
   }
 
-  // 2. Check for ghost entries (would need to compare todo-log with database)
+  // 2. Check for ghost entries (would need to compare structured audit log with database)
   // This is a complex check that would require loading the entire log
   // For now, we skip this but document it as needed
 

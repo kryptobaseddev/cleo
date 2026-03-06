@@ -1,27 +1,22 @@
 /**
- * cleo_mutate Gateway - Write Operations
+ * mutate Gateway - Write Operations
  *
  * Handles all state-modifying operations with strict validation,
  * audit logging, and rollback support.
  *
  * Canonical domains (10): tasks, session, memory, check, pipeline,
- *   orchestrate, tools, admin, nexus, sharing
- * Legacy aliases (backward compat): research, lifecycle, validate,
- *   release, system, issues, skills, providers
- *
- * The dispatch adapter (src/dispatch/adapters/mcp.ts) resolves legacy
- * domain names to canonical names before routing.
+ * orchestrate, tools, admin, nexus, sticky
  *
  * @task T2929
  */
 
-import { deriveGatewayMatrix } from '../../dispatch/registry.js';
+import { deriveGatewayMatrix, getByGateway } from '../../dispatch/registry.js';
 
 /**
  * Request from MCP gateway (inline — replaces legacy router.ts import)
  */
 export interface DomainRequest {
-  gateway: 'cleo_query' | 'cleo_mutate';
+  gateway: 'query' | 'mutate';
   domain: string;
   operation: string;
   params?: Record<string, unknown>;
@@ -53,19 +48,14 @@ export interface DomainResponse {
 }
 
 /**
- * All accepted domain names for cleo_mutate.
+ * All accepted domain names for mutate.
  *
- * Includes both canonical dispatch names and legacy MCP names
- * for backward compatibility. The dispatch adapter resolves
- * legacy names to canonical names at routing time.
+ * Canonical dispatch names only.
  */
 type MutateDomain =
   // Canonical domains
   | 'tasks' | 'session' | 'memory' | 'check' | 'pipeline'
-  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sharing'
-  // Legacy aliases (backward compat)
-  | 'research' | 'lifecycle' | 'validate' | 'release'
-  | 'system' | 'issues' | 'skills' | 'providers';
+  | 'orchestrate' | 'tools' | 'admin' | 'nexus' | 'sticky';
 
 /**
  * Mutate request interface
@@ -85,7 +75,7 @@ export type MutateResponse = DomainResponse;
  * Mutate operation matrix - all write operations by domain.
  *
  * DERIVED from the dispatch registry — single source of truth.
- * Contains both canonical domains and legacy alias domains.
+ * Contains canonical domains.
  *
  * Reference: MCP-SERVER-SPECIFICATION.md Section 2.2.2
  */
@@ -99,27 +89,31 @@ if (actualMutateCount < 1) {
   console.error('Warning: Mutate operation registry is empty.');
 }
 
-/**
- * Idempotent operations that may return success for already-completed actions
- * These operations use exit codes 100+ to signal "already done" vs "just completed"
- */
-const IDEMPOTENT_OPERATIONS: Record<string, string[]> = {
-  tasks: ['complete', 'archive'],
-  session: ['end', 'gc'],
-  lifecycle: ['record', 'skip', 'gate.pass'],
-  validate: ['compliance.record'],
-  release: ['tag', 'push'],
-  system: ['init', 'migrate', 'cleanup'],
-};
+function buildOperationFlagMatrix(
+  predicate: (operation: { domain: string; operation: string; idempotent: boolean; sessionRequired: boolean }) => boolean,
+): Record<string, string[]> {
+  const matrix: Record<string, string[]> = {};
+  for (const op of getByGateway('mutate')) {
+    if (!predicate(op)) {
+      continue;
+    }
+    if (!matrix[op.domain]) {
+      matrix[op.domain] = [];
+    }
+    matrix[op.domain]!.push(op.operation);
+  }
+  return matrix;
+}
 
 /**
- * Operations that require session binding
+ * Idempotent operations derived from registry metadata.
  */
-const SESSION_REQUIRED_OPERATIONS: Record<string, string[]> = {
-  tasks: ['add', 'update', 'complete'],
-  session: ['start'],
-  orchestrate: ['start', 'spawn'],
-};
+const IDEMPOTENT_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(op => op.idempotent);
+
+/**
+ * Session-required operations derived from registry metadata.
+ */
+const SESSION_REQUIRED_OPERATIONS: Record<string, string[]> = buildOperationFlagMatrix(op => op.sessionRequired);
 
 /**
  * Validate mutate request parameters
@@ -136,7 +130,7 @@ export function validateMutateParams(request: MutateRequest): {
       valid: false,
       error: {
         _meta: {
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           domain,
           operation,
           version: '1.0.0',
@@ -165,7 +159,7 @@ export function validateMutateParams(request: MutateRequest): {
       valid: false,
       error: {
         _meta: {
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           domain,
           operation,
           version: '1.0.0',
@@ -176,11 +170,11 @@ export function validateMutateParams(request: MutateRequest): {
         error: {
           code: 'E_INVALID_OPERATION',
           exitCode: 2,
-          message: `Operation '${operation}' not supported for cleo_mutate in domain '${domain}'`,
+          message: `Operation '${operation}' not supported for mutate in domain '${domain}'`,
           fix: `Use one of: ${validOps.join(', ')}`,
           alternatives: validOps.map((op) => ({
             action: `Use ${op}`,
-            command: `cleo_mutate ${domain} ${op}`,
+            command: `mutate ${domain} ${op}`,
           })),
         },
       },
@@ -207,8 +201,7 @@ function validateOperationParams(
   valid: boolean;
   error?: DomainResponse;
 } {
-  // Domain-specific parameter validation
-  // Handles both canonical domain names and legacy aliases
+  // Domain-specific parameter validation (canonical domains only)
   switch (domain) {
     case 'tasks':
       return validateTasksParams(operation, params);
@@ -216,23 +209,14 @@ function validateOperationParams(
       return validateSessionParams(operation, params);
     case 'orchestrate':
       return validateOrchestrateParams(operation, params);
-    case 'research':
     case 'memory':
-      return validateResearchParams(operation, params);
-    case 'lifecycle':
-      return validateLifecycleParams(operation, params);
-    case 'validate':
+      return validateMemoryParams(operation, params);
     case 'check':
-      return validateValidateParams(operation, params);
-    case 'release':
-      return validateReleaseParams(operation, params);
+      return validateCheckParams(operation, params);
     case 'pipeline':
       return validatePipelineParams(operation, params);
-    case 'system':
     case 'admin':
-      return validateSystemParams(operation, params);
-    case 'skills':
-      return validateSkillsParams(operation, params);
+      return validateAdminParams(operation, params);
     case 'tools':
       return validateToolsParams(operation, params);
     default:
@@ -254,7 +238,7 @@ function validateTasksParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'tasks',
               operation,
               version: '1.0.0',
@@ -276,7 +260,7 @@ function validateTasksParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'tasks',
               operation,
               version: '1.0.0',
@@ -302,14 +286,13 @@ function validateTasksParams(
     case 'reparent':
     case 'promote':
     case 'reorder':
-    case 'reopen':
     case 'start':
       if (!params?.taskId) {
         return {
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'tasks',
               operation,
               version: '1.0.0',
@@ -336,7 +319,7 @@ function validateTasksParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'tasks',
               operation,
               version: '1.0.0',
@@ -374,7 +357,7 @@ function validateSessionParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'session',
               operation,
               version: '1.0.0',
@@ -399,7 +382,7 @@ function validateSessionParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'session',
               operation,
               version: '1.0.0',
@@ -424,7 +407,7 @@ function validateSessionParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'session',
               operation,
               version: '1.0.0',
@@ -449,7 +432,7 @@ function validateSessionParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'session',
               operation,
               version: '1.0.0',
@@ -486,7 +469,7 @@ function validateOrchestrateParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'orchestrate',
               operation,
               version: '1.0.0',
@@ -512,7 +495,7 @@ function validateOrchestrateParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'orchestrate',
               operation,
               version: '1.0.0',
@@ -531,6 +514,31 @@ function validateOrchestrateParams(
       }
       break;
 
+    case 'handoff':
+      if (!params?.taskId || !params?.protocolType) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'mutate',
+              domain: 'orchestrate',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameters: taskId and protocolType',
+              fix: 'Provide both taskId and protocolType parameters',
+            },
+          },
+        };
+      }
+      break;
+
     case 'parallel.start':
     case 'parallel.end':
       if (!params?.epicId || params?.wave === undefined) {
@@ -538,7 +546,7 @@ function validateOrchestrateParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
+              gateway: 'mutate',
               domain: 'orchestrate',
               operation,
               version: '1.0.0',
@@ -562,9 +570,9 @@ function validateOrchestrateParams(
 }
 
 /**
- * Validate research domain parameters
+ * Validate memory domain parameters
  */
-function validateResearchParams(
+function validateMemoryParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -575,8 +583,8 @@ function validateResearchParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'research',
+              gateway: 'mutate',
+              domain: 'memory',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -600,8 +608,8 @@ function validateResearchParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'research',
+              gateway: 'mutate',
+              domain: 'memory',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -625,8 +633,8 @@ function validateResearchParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'research',
+              gateway: 'mutate',
+              domain: 'memory',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -649,9 +657,9 @@ function validateResearchParams(
 }
 
 /**
- * Validate lifecycle domain parameters
+ * Validate pipeline stage.* sub-operation parameters
  */
-function validateLifecycleParams(
+function validateStageParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -662,8 +670,8 @@ function validateLifecycleParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'lifecycle',
+              gateway: 'mutate',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -688,8 +696,8 @@ function validateLifecycleParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'lifecycle',
+              gateway: 'mutate',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -714,8 +722,8 @@ function validateLifecycleParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'lifecycle',
+              gateway: 'mutate',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -738,9 +746,9 @@ function validateLifecycleParams(
 }
 
 /**
- * Validate validate domain parameters
+ * Validate check domain parameters
  */
-function validateValidateParams(
+function validateCheckParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -751,8 +759,8 @@ function validateValidateParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'validate',
+              gateway: 'mutate',
+              domain: 'check',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -775,7 +783,7 @@ function validateValidateParams(
 }
 
 /**
- * Validate release domain parameters
+ * Validate pipeline release.* sub-operation parameters
  */
 function validateReleaseParams(
   operation: string,
@@ -793,8 +801,8 @@ function validateReleaseParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'release',
+              gateway: 'mutate',
+              domain: 'pipeline',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -817,9 +825,47 @@ function validateReleaseParams(
 }
 
 /**
- * Validate system domain parameters
+ * Validate pipeline chain.* sub-operation parameters
  */
-function validateSystemParams(
+function validateChainParams(
+  operation: string,
+  params?: Record<string, unknown>
+): { valid: boolean; error?: DomainResponse } {
+  switch (operation) {
+    case 'gate.pass':
+    case 'gate.fail':
+      if (!params?.instanceId || !params?.gateId) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'mutate',
+              domain: 'pipeline',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameters: instanceId and gateId',
+              fix: 'Provide instanceId and gateId parameters',
+            },
+          },
+        };
+      }
+      break;
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validate admin domain parameters
+ */
+function validateAdminParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -830,8 +876,8 @@ function validateSystemParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'system',
+              gateway: 'mutate',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -855,8 +901,8 @@ function validateSystemParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'system',
+              gateway: 'mutate',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -880,8 +926,8 @@ function validateSystemParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'system',
+              gateway: 'mutate',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -905,8 +951,8 @@ function validateSystemParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'system',
+              gateway: 'mutate',
+              domain: 'admin',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -930,9 +976,9 @@ function validateSystemParams(
 }
 
 /**
- * Validate skills domain parameters
+ * Validate tools skill.* sub-operation parameters
  */
-function validateSkillsParams(
+function validateSkillSubParams(
   operation: string,
   params?: Record<string, unknown>
 ): { valid: boolean; error?: DomainResponse } {
@@ -947,8 +993,8 @@ function validateSkillsParams(
           valid: false,
           error: {
             _meta: {
-              gateway: 'cleo_mutate',
-              domain: 'skills',
+              gateway: 'mutate',
+              domain: 'tools',
               operation,
               version: '1.0.0',
               timestamp: new Date().toISOString(),
@@ -983,12 +1029,17 @@ function validatePipelineParams(
   // Stage operations (lifecycle alias)
   if (operation.startsWith('stage.')) {
     const stageOp = operation.slice('stage.'.length);
-    return validateLifecycleParams(stageOp, params);
+    return validateStageParams(stageOp, params);
   }
   // Release operations
   if (operation.startsWith('release.')) {
     const releaseOp = operation.slice('release.'.length);
     return validateReleaseParams(releaseOp, params);
+  }
+  // Chain operations
+  if (operation.startsWith('chain.')) {
+    const chainOp = operation.slice('chain.'.length);
+    return validateChainParams(chainOp, params);
   }
   return { valid: true };
 }
@@ -1006,22 +1057,22 @@ function validateToolsParams(
   // Skill operations
   if (operation.startsWith('skill.')) {
     const skillOp = operation.slice('skill.'.length);
-    return validateSkillsParams(skillOp, params);
+    return validateSkillSubParams(skillOp, params);
   }
   // Issue and provider operations pass through without extra validation
   return { valid: true };
 }
 
 /**
- * Register cleo_mutate tool with MCP server
+ * Register mutate tool with MCP server
  *
  * Returns tool definition for ListToolsRequestSchema handler
  */
 export function registerMutateTool() {
   return {
-    name: 'cleo_mutate',
+    name: 'mutate',
     description:
-      'CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation. Use cleo_query with domain "admin", operation "help" first to discover available operations.',
+      'CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation. Use query with domain "admin", operation "help" first to discover available operations.',
     inputSchema: {
       type: 'object',
       required: ['domain', 'operation'],
@@ -1033,7 +1084,7 @@ export function registerMutateTool() {
         },
         operation: {
           type: 'string',
-          description: 'Domain-specific write operation. Call cleo_query admin.help to see the full operation matrix. Common: tasks.add, tasks.update, tasks.complete, session.start, session.end',
+          description: 'Domain-specific write operation. Call query admin.help to see the full operation matrix. Common: tasks.add, tasks.update, tasks.complete, session.start, session.end',
         },
         params: {
           type: 'object',
@@ -1046,7 +1097,7 @@ export function registerMutateTool() {
 }
 
 /**
- * Handle cleo_mutate request
+ * Handle mutate request
  *
  * Validates parameters, logs to audit trail, routes to domain handler,
  * and handles idempotency
@@ -1067,7 +1118,7 @@ export async function handleMutateRequest(
 
   // Build domain request
   const domainRequest: DomainRequest = {
-    gateway: 'cleo_mutate',
+    gateway: 'mutate',
     domain: request.domain,
     operation: request.operation,
     params: request.params,
@@ -1075,7 +1126,7 @@ export async function handleMutateRequest(
 
   const response: MutateResponse = {
     _meta: {
-      gateway: 'cleo_mutate',
+      gateway: 'mutate',
       domain: request.domain,
       operation: request.operation,
       version: '1.0.0',

@@ -1,18 +1,12 @@
 /**
  * CLI implementation command - implementation protocol validation.
+ * Routes through dispatch layer to check.protocol.implementation.
  * @task T4537
  * @epic T4454
  */
 
-// CLI-only: protocol validation is separate from pipeline.stage.record lifecycle
 import { Command } from 'commander';
-import {
-  validateImplementationTask,
-  checkImplementationManifest,
-} from '../../core/validation/protocols/implementation.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the implementation command group.
@@ -28,18 +22,11 @@ export function registerImplementationCommand(program: Command): void {
     .description('Validate implementation protocol compliance for task')
     .option('--strict', 'Exit with error code on violations')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await validateImplementationTask(taskId, {
-          strict: opts['strict'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'implementation' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.implementation', {
+        mode: 'task',
+        taskId,
+        strict: opts['strict'] as boolean | undefined,
+      }, { command: 'implementation' });
     });
 
   implementation
@@ -47,17 +34,10 @@ export function registerImplementationCommand(program: Command): void {
     .description('Validate manifest entry directly')
     .option('--strict', 'Exit with error code on violations')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await checkImplementationManifest(manifestFile, {
-          strict: opts['strict'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'implementation' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.implementation', {
+        mode: 'manifest',
+        manifestFile,
+        strict: opts['strict'] as boolean | undefined,
+      }, { command: 'implementation' });
     });
 }

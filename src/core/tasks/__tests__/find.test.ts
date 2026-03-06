@@ -5,11 +5,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { findTasks, fuzzyScore } from '../find.js';
-import type { TodoFile } from '../../../types/task.js';
+import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../../store/data-accessor.js';
 
 describe('fuzzyScore', () => {
   it('returns 100 for exact match', () => {
@@ -30,81 +28,64 @@ describe('fuzzyScore', () => {
 });
 
 describe('findTasks', () => {
-  let tempDir: string;
-  let cleoDir: string;
-
-  const makeTodoFile = (tasks: TodoFile['tasks']): TodoFile => ({
-    version: '2.10.0',
-    project: { name: 'test', phases: {} },
-    lastUpdated: new Date().toISOString(),
-    _meta: {
-      schemaVersion: '2.10.0',
-      checksum: '0000000000000000',
-      configVersion: '1.0.0',
-    },
-    tasks,
-  });
+  let env: TestDbEnv;
+  let accessor: DataAccessor;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-test-'));
-    cleoDir = join(tempDir, '.cleo');
-    await mkdir(cleoDir, { recursive: true });
+    env = await createTestDb();
+    accessor = env.accessor;
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await env.cleanup();
   });
 
   it('requires query or id', async () => {
-    const data = makeTodoFile([]);
-    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
+    await seedTasks(accessor, []);
 
-    await expect(findTasks({}, tempDir)).rejects.toThrow('query or --id is required');
+    await expect(findTasks({}, env.tempDir, accessor)).rejects.toThrow('query or --id is required');
   });
 
   it('finds tasks by fuzzy query', async () => {
-    const data = makeTodoFile([
+    await seedTasks(accessor, [
       { id: 'T001', title: 'Implement authentication', status: 'pending', priority: 'high', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Fix database query', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T003', title: 'Update docs', status: 'pending', priority: 'low', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
-    const result = await findTasks({ query: 'auth' }, tempDir);
+    const result = await findTasks({ query: 'auth' }, env.tempDir, accessor);
     expect(result.results.length).toBeGreaterThan(0);
     expect(result.results[0]!.id).toBe('T001');
     expect(result.searchType).toBe('fuzzy');
   });
 
   it('finds tasks by ID prefix', async () => {
-    const data = makeTodoFile([
+    await seedTasks(accessor, [
       { id: 'T001', title: 'Task 1', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T010', title: 'Task 10', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T100', title: 'Task 100', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
-    const result = await findTasks({ id: 'T01' }, tempDir);
+    const result = await findTasks({ id: 'T01' }, env.tempDir, accessor);
     expect(result.results).toHaveLength(1); // T010 starts with T01
     expect(result.results[0]!.id).toBe('T010');
     expect(result.searchType).toBe('id');
   });
 
   it('finds tasks by exact title', async () => {
-    const data = makeTodoFile([
+    await seedTasks(accessor, [
       { id: 'T001', title: 'Exact Match', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Not Exact Match', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
-    const result = await findTasks({ query: 'Exact Match', exact: true }, tempDir);
+    const result = await findTasks({ query: 'Exact Match', exact: true }, env.tempDir, accessor);
     expect(result.results).toHaveLength(1);
     expect(result.results[0]!.id).toBe('T001');
     expect(result.searchType).toBe('exact');
   });
 
   it('returns minimal fields only', async () => {
-    const data = makeTodoFile([
+    await seedTasks(accessor, [
       {
         id: 'T001',
         title: 'Task with lots of data',
@@ -116,9 +97,8 @@ describe('findTasks', () => {
         createdAt: new Date().toISOString(),
       },
     ]);
-    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
-    const result = await findTasks({ query: 'lots' }, tempDir);
+    const result = await findTasks({ query: 'lots' }, env.tempDir, accessor);
     const found = result.results[0]!;
     expect(found.id).toBe('T001');
     expect(found.title).toBeDefined();
@@ -131,13 +111,12 @@ describe('findTasks', () => {
   });
 
   it('filters by status', async () => {
-    const data = makeTodoFile([
+    await seedTasks(accessor, [
       { id: 'T001', title: 'Done task', status: 'done', priority: 'medium', createdAt: new Date().toISOString() },
       { id: 'T002', title: 'Pending task', status: 'pending', priority: 'medium', createdAt: new Date().toISOString() },
     ]);
-    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(data));
 
-    const result = await findTasks({ query: 'task', status: 'pending' }, tempDir);
+    const result = await findTasks({ query: 'task', status: 'pending' }, env.tempDir, accessor);
     expect(result.results).toHaveLength(1);
     expect(result.results[0]!.id).toBe('T002');
   });

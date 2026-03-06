@@ -33,6 +33,7 @@ export {
   taskReparent,
   taskPromote,
   taskReopen,
+  taskCancel,
   taskComplexityEstimate,
   taskDepends,
   taskDepsOverview,
@@ -56,6 +57,7 @@ export {
   taskCurrentGet,
   taskStart,
   taskStop,
+  taskWorkHistory,
   sessionStart,
   sessionEnd,
   sessionResume,
@@ -105,6 +107,7 @@ export {
   systemCompliance,
   systemBackup,
   systemRestore,
+  backupRestore,
   systemMigrate,
   systemCleanup,
   systemAudit,
@@ -179,6 +182,13 @@ export {
   validateCoherenceCheck,
   validateTestRun,
   validateBatchValidate,
+  // T5327: Protocol validation operations
+  validateProtocolConsensus,
+  validateProtocolContribution,
+  validateProtocolDecomposition,
+  validateProtocolImplementation,
+  validateProtocolSpecification,
+  validateGateVerify,
 } from '../engines/validate-engine.js';
 
 // Orchestrate engine
@@ -191,6 +201,8 @@ export {
   orchestrateContext,
   orchestrateValidate,
   orchestrateSpawn,
+  orchestrateHandoff,
+  orchestrateSpawnExecute,
   orchestrateStartup,
   orchestrateBootstrap,
   orchestrateCriticalPath,
@@ -201,26 +213,42 @@ export {
   orchestrateSkillInject,
 } from '../engines/orchestrate-engine.js';
 
-// Memory engine (formerly research-engine)
+// Memory engine — brain.db cognitive memory (T5241 cutover)
 export {
-  memoryShow as researchShow,
-  memoryList as researchList,
-  memoryQuery as researchQuery,
-  memoryPending as researchPending,
-  memoryStats as researchStats,
-  memoryManifestRead as researchManifestRead,
-  memoryLink as researchLink,
-  memoryManifestAppend as researchManifestAppend,
-  memoryManifestArchive as researchManifestArchive,
-  memoryContradictions as researchContradictions,
-  memorySuperseded as researchSuperseded,
-  memoryInject as researchInject,
-  memoryCompact as researchCompact,
-  memoryValidate as researchValidateOp,
+  memoryShow,
+  memoryBrainStats,
+  memoryDecisionFind,
+  memoryDecisionStore,
+  memoryFind,
+  memoryTimeline,
+  memoryFetch,
+  memoryObserve,
+  memoryPatternStore,
+  memoryPatternFind,
+  memoryPatternStats,
+  memoryLearningStore,
+  memoryLearningFind,
+  memoryLearningStats,
+} from '../../core/memory/engine-compat.js';
+
+// Pipeline manifest functions (moved from memory domain in T5241)
+export {
+  pipelineManifestShow,
+  pipelineManifestList,
+  pipelineManifestFind,
+  pipelineManifestPending,
+  pipelineManifestStats,
+  pipelineManifestAppend,
+  pipelineManifestArchive,
   readManifestEntries,
   filterEntries as filterManifestEntries,
   type ManifestEntry as ResearchManifestEntry,
-} from '../../core/memory/engine-compat.js';
+} from '../../core/memory/pipeline-manifest-compat.js';
+
+// Session context injection (moved from memory domain in T5241)
+export {
+  sessionContextInject,
+} from '../../core/sessions/context-inject.js';
 
 // Release engine
 export {

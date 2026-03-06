@@ -392,7 +392,7 @@ export async function validateLayer3Referential(
   }
 
   // Task existence validation (for update/complete/delete operations)
-  if (['update', 'complete', 'delete', 'archive', 'reopen'].includes(context.operation)) {
+  if (['update', 'complete', 'delete', 'archive'].includes(context.operation)) {
     const taskId = context.params?.taskId as string | undefined;
     if (!taskId) {
       violations.push({

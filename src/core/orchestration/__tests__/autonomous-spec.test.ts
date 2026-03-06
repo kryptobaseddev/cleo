@@ -7,14 +7,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
   startOrchestration,
   analyzeEpic,
   getReadyTasks,
-  getNextTask,
   prepareSpawn,
   validateSpawnOutput,
   getOrchestratorContext,
@@ -22,33 +18,23 @@ import {
   resolveTokens,
 } from '../index.js';
 import type { Task } from '../../../types/task.js';
+import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../../store/data-accessor.js';
 
-let testDir: string;
-let cleoDir: string;
-
-const makeTodoFile = (tasks: Task[]) => ({
-  version: '2.10.0',
-  project: { name: 'Test', phases: {} },
-  lastUpdated: '2026-01-01T00:00:00Z',
-  _meta: { schemaVersion: '2.10.0', specVersion: '0.1.0', checksum: 'abc123', configVersion: '2.0.0' },
-  tasks,
-});
+let env: TestDbEnv;
+let accessor: DataAccessor;
 
 beforeEach(async () => {
-  testDir = await mkdtemp(join(tmpdir(), 'cleo-auto-'));
-  cleoDir = join(testDir, '.cleo');
-  await mkdir(cleoDir, { recursive: true });
-  await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
-  process.env['CLEO_DIR'] = cleoDir;
+  env = await createTestDb();
+  accessor = env.accessor;
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_DIR'];
-  await rm(testDir, { recursive: true, force: true });
+  await env.cleanup();
 });
 
-async function writeTodo(tasks: Task[]) {
-  await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile(tasks)));
+async function writeTodo(tasks: Array<Partial<Task> & { id: string }>) {
+  await seedTasks(accessor, tasks);
 }
 
 // ============================================================
@@ -57,20 +43,17 @@ async function writeTodo(tasks: Task[]) {
 
 describe('AUTO-001: Orchestrator coordinates, does not implement', () => {
   it('startOrchestration returns session metadata, not code', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Task', status: 'pending', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const session = await startOrchestration('T001');
-    // Returns coordination data, not implementation
+    const session = await startOrchestration('T001', env.tempDir, accessor);
     expect(session).toHaveProperty('epicId');
     expect(session).toHaveProperty('status');
     expect(session).toHaveProperty('currentWave');
     expect(session).toHaveProperty('completedTasks');
     expect(session).toHaveProperty('spawnedAgents');
-    // No code, no file content
     expect(session).not.toHaveProperty('code');
     expect(session).not.toHaveProperty('implementation');
   });
@@ -82,13 +65,12 @@ describe('AUTO-001: Orchestrator coordinates, does not implement', () => {
 
 describe('AUTO-002: All work delegated via spawn', () => {
   it('prepareSpawn generates spawn context for delegation', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Implement feature', status: 'pending', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const spawn = await prepareSpawn('T002');
+    const spawn = await prepareSpawn('T002', env.tempDir, accessor);
     expect(spawn.taskId).toBe('T002');
     expect(spawn.protocol).toBeDefined();
     expect(spawn.prompt).toBeDefined();
@@ -102,16 +84,14 @@ describe('AUTO-002: All work delegated via spawn', () => {
 
 describe('AUTO-003: Manifest-only reads', () => {
   it('getOrchestratorContext returns summary counts only', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Task A', status: 'done', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T003', title: 'Task B', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T004', title: 'Task C', status: 'blocked', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const ctx = await getOrchestratorContext('T001');
-    // Returns aggregate counts, not full task details
+    const ctx = await getOrchestratorContext('T001', env.tempDir, accessor);
     expect(ctx).toHaveProperty('completed');
     expect(ctx).toHaveProperty('inProgress');
     expect(ctx).toHaveProperty('blocked');
@@ -128,38 +108,33 @@ describe('AUTO-003: Manifest-only reads', () => {
 
 describe('AUTO-004: Wave-order spawning', () => {
   it('analyzeEpic returns ordered waves', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Foundation', status: 'done', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T003', title: 'Build on foundation', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T002'], createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T004', title: 'Independent task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T005', title: 'Final task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T003', 'T004'], createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const analysis = await analyzeEpic('T001');
+    const analysis = await analyzeEpic('T001', env.tempDir, accessor);
     expect(analysis.waves.length).toBeGreaterThan(0);
 
-    // Waves should be numbered sequentially
     for (let i = 0; i < analysis.waves.length; i++) {
       expect(analysis.waves[i]!.wave).toBe(i + 1);
     }
   });
 
   it('getReadyTasks only returns tasks with all deps met', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Task A', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T003', title: 'Task B', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T002'], createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const ready = await getReadyTasks('T001');
+    const ready = await getReadyTasks('T001', env.tempDir, accessor);
     const readyIds = ready.filter(r => r.ready).map(r => r.taskId);
 
-    // T002 has no deps - should be ready
     expect(readyIds).toContain('T002');
-    // T003 depends on T002 (pending) - should NOT be ready
     expect(readyIds).not.toContain('T003');
   });
 });
@@ -170,56 +145,48 @@ describe('AUTO-004: Wave-order spawning', () => {
 
 describe('AUTO-005: Context budget compliance', () => {
   it('spawn prompt is reasonably sized', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', description: 'A moderate description', createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const spawn = await prepareSpawn('T002');
-    // Prompt should be under 10K tokens (~40K chars as rough estimate)
+    const spawn = await prepareSpawn('T002', env.tempDir, accessor);
     expect(spawn.prompt.length).toBeLessThan(40000);
   });
 
   it('orchestrator context summary is compact', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       ...Array.from({ length: 20 }, (_, i) => ({
         id: `T${100 + i}`,
         title: `Task ${i}`,
-        status: i < 10 ? 'done' : 'pending',
+        status: (i < 10 ? 'done' : 'pending') as 'done' | 'pending',
         priority: 'medium' as const,
         type: 'task' as const,
         parentId: 'T001',
         createdAt: '2026-01-01T00:00:00Z',
       })),
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const ctx = await getOrchestratorContext('T001');
+    const ctx = await getOrchestratorContext('T001', env.tempDir, accessor);
     const ctxStr = JSON.stringify(ctx);
-    // Context summary should be very compact
     expect(ctxStr.length).toBeLessThan(500);
   });
 });
 
 // ============================================================
-// AUTO-006: Max 3 files per agent scope
-// (Validated by spawn - subagent receives bounded scope)
+// AUTO-006: Scoped spawn per task
 // ============================================================
 
 describe('AUTO-006: Scoped spawn per task', () => {
   it('spawn context is scoped to a single task', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const spawn = await prepareSpawn('T002');
-    // Spawn is for exactly one task
+    const spawn = await prepareSpawn('T002', env.tempDir, accessor);
     expect(spawn.taskId).toBe('T002');
-    // Prompt references the specific task
     expect(spawn.prompt).toContain('T002');
   });
 });
@@ -280,14 +247,12 @@ describe('CONT-001: Token resolution', () => {
   });
 
   it('prepareSpawn checks token resolution', async () => {
-    const tasks: Task[] = [
+    await writeTodo([
       { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
       { id: 'T002', title: 'Task', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
-    ];
-    await writeTodo(tasks);
+    ]);
 
-    const spawn = await prepareSpawn('T002');
-    // Built prompts should be fully resolved (no {{TOKEN}} patterns remain)
+    const spawn = await prepareSpawn('T002', env.tempDir, accessor);
     expect(spawn.tokenResolution.fullyResolved).toBe(true);
     expect(spawn.tokenResolution.unresolvedTokens).toHaveLength(0);
   });

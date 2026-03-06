@@ -38,6 +38,11 @@ describe('stage.record provenance integration', () => {
   });
 
   afterEach(async () => {
+    // Close ALL SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* module may not be loaded */ }
     delete process.env['CLEO_DIR'];
     await rm(testDir, { recursive: true, force: true });
     vi.restoreAllMocks();
@@ -68,7 +73,7 @@ describe('stage.record provenance integration', () => {
       .all();
 
     expect(stageRows.length).toBe(1);
-    expect(stageRows[0]?.outputFile).toBe('.cleo/rcasd/T9001/research/T9001-research.md');
+    expect(stageRows[0]?.outputFile?.replaceAll('\\', '/')).toBe('.cleo/rcasd/T9001/research/T9001-research.md');
 
     const provenance = JSON.parse(stageRows[0]?.provenanceChainJson ?? '{}') as Record<string, unknown>;
     expect(provenance['stage']).toBe('research');

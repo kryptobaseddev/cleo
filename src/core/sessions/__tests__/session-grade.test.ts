@@ -86,9 +86,9 @@ describe('gradeSession', () => {
     it('scores 100/100 for all-perfect entries', async () => {
       mocks.queryAudit.mockResolvedValue([
         entry({ domain: 'session', operation: 'list', timestamp: ts(0) }),
-        entry({ domain: 'admin', operation: 'help', timestamp: ts(100), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
-        entry({ domain: 'tasks', operation: 'find', timestamp: ts(200), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
-        entry({ domain: 'tasks', operation: 'show', timestamp: ts(300), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
+        entry({ domain: 'admin', operation: 'help', timestamp: ts(100), metadata: { source: 'mcp', gateway: 'query' } }),
+        entry({ domain: 'tasks', operation: 'find', timestamp: ts(200), metadata: { source: 'mcp', gateway: 'query' } }),
+        entry({ domain: 'tasks', operation: 'show', timestamp: ts(300), metadata: { source: 'mcp', gateway: 'query' } }),
         entry({ domain: 'tasks', operation: 'exists', timestamp: ts(400) }),
         entry({
           domain: 'tasks',
@@ -635,13 +635,13 @@ describe('gradeSession', () => {
       expect(result.dimensions.disclosureUse.score).toBe(10);
     });
 
-    it('awards +10 for cleo_query gateway usage', async () => {
+    it('awards +10 for query gateway usage', async () => {
       mocks.queryAudit.mockResolvedValue([
         entry({
           domain: 'tasks',
           operation: 'find',
           timestamp: ts(0),
-          metadata: { source: 'mcp', gateway: 'cleo_query' },
+          metadata: { source: 'mcp', gateway: 'query' },
         }),
       ]);
 
@@ -649,18 +649,18 @@ describe('gradeSession', () => {
 
       expect(result.dimensions.disclosureUse.score).toBe(10);
       expect(result.dimensions.disclosureUse.evidence).toEqual(
-        expect.arrayContaining([expect.stringMatching(/cleo_query.*used/)]),
+        expect.arrayContaining([expect.stringMatching(/query.*used/)]),
       );
     });
 
-    it('awards 20pts for both help + cleo_query', async () => {
+    it('awards 20pts for both help + query', async () => {
       mocks.queryAudit.mockResolvedValue([
         entry({ domain: 'admin', operation: 'help', timestamp: ts(0) }),
         entry({
           domain: 'tasks',
           operation: 'find',
           timestamp: ts(100),
-          metadata: { source: 'mcp', gateway: 'cleo_query' },
+          metadata: { source: 'mcp', gateway: 'query' },
         }),
       ]);
 
@@ -689,7 +689,7 @@ describe('gradeSession', () => {
       const result = await gradeSession('s5-nomcp', tempDir);
 
       expect(result.flags).toContain(
-        'No MCP query calls (prefer cleo_query over CLI for programmatic access)',
+        'No MCP query calls (prefer query over CLI for programmatic access)',
       );
     });
   });

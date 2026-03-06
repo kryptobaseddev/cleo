@@ -5,7 +5,7 @@
  * - Title and description both required and different
  * - No future timestamps
  * - No duplicate task descriptions
- * - Unique IDs across todo.json AND todo-archive.json
+ * - Unique IDs across active and archived task data
  * - Valid status transitions
  * - Hierarchy constraints (configurable max depth, configurable max siblings; 0 = unlimited)
  */

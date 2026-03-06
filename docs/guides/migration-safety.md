@@ -338,7 +338,7 @@ Lock configuration (set programmatically):
 
 ## Related Documentation
 
-- [CLEO Vision: Deterministic Safety](../concepts/vision.md) — Pillar 4 definition
+- [CLEO Vision: Deterministic Safety](../concepts/CLEO-VISION.md) — Pillar 4 definition
 - [Data Integrity Specification](../specs/CLEO-DATA-INTEGRITY-SPEC.md) — Git checkpoint isolation and VACUUM INTO backups
 - [Backup System: SQLite Migration Guide](../mintlify/guides/backup-sqlite-migration.md) — Backup tier architecture
 - [Troubleshooting Guide](../mintlify/guides/troubleshooting.md) — General CLEO troubleshooting

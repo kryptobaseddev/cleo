@@ -20,7 +20,7 @@ export function registerResearchCommand(program: Command): void {
     .option('--findings <findings>', 'Comma-separated findings')
     .option('--sources <sources>', 'Comma-separated sources')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'memory', 'inject', {
+      await dispatchFromCli('mutate', 'session', 'context.inject', {
         taskId: opts['task'],
         topic: opts['topic'],
         findings: opts['findings'] ? (opts['findings'] as string).split(',').map(s => s.trim()) : undefined,
@@ -42,7 +42,7 @@ export function registerResearchCommand(program: Command): void {
     .option('-s, --status <status>', 'Filter by status')
     .option('-l, --limit <n>', 'Limit results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'memory', 'list', {
+      await dispatchFromCli('query', 'pipeline', 'manifest.list', {
         taskId: opts['task'], status: opts['status'], limit: opts['limit'],
       }, { command: 'research' });
     });
@@ -51,7 +51,7 @@ export function registerResearchCommand(program: Command): void {
     .command('pending')
     .description('List pending research entries')
     .action(async () => {
-      await dispatchFromCli('query', 'memory', 'pending', {}, { command: 'research' });
+      await dispatchFromCli('query', 'pipeline', 'manifest.pending', {}, { command: 'research' });
     });
 
   research
@@ -70,7 +70,7 @@ export function registerResearchCommand(program: Command): void {
     .option('--sources <sources>', 'Comma-separated sources')
     .option('-s, --status <status>', 'Set status')
     .action(async (id: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'memory', 'inject', {
+      await dispatchFromCli('mutate', 'session', 'context.inject', {
         entryId: id,
         action: 'update',
         findings: opts['findings'] ? (opts['findings'] as string).split(',').map(s => s.trim()) : undefined,
@@ -97,7 +97,7 @@ export function registerResearchCommand(program: Command): void {
     .command('archive')
     .description('Archive completed research entries')
     .action(async () => {
-      await dispatchFromCli('mutate', 'memory', 'manifest.archive', {}, { command: 'research' });
+      await dispatchFromCli('mutate', 'pipeline', 'manifest.archive', {}, { command: 'research' });
     });
 
   research
@@ -109,7 +109,7 @@ export function registerResearchCommand(program: Command): void {
     .option('-t, --task <taskId>', 'Filter by linked task')
     .option('-l, --limit <n>', 'Limit results')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'memory', 'manifest.read', {
+      await dispatchFromCli('query', 'pipeline', 'manifest.list', {
         status: opts['status'],
         agentType: opts['agentType'],
         topic: opts['topic'],

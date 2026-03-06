@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
+// underscore-import: node:sqlite type alias is required for createRequire interop.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { ensureFts5Tables, rebuildFts5Index } from './brain-search.js';

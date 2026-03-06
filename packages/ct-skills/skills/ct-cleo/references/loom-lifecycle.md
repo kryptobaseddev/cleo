@@ -2,7 +2,7 @@
 
 **LOOM** (Logical Order of Operations Methodology) is the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. This document details the lifecycle stages and gate enforcement.
 
-See `docs/concepts/vision.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
+See `docs/concepts/CLEO-VISION.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
 
 ## Pipeline Stages
 

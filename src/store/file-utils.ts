@@ -98,75 +98,6 @@ export function readJsonFile<T = unknown>(filePath: string): T | null {
 }
 
 /**
- * Read log entries from a hybrid JSON/JSONL file (synchronous).
- * Handles legacy JSON `{ "entries": [...] }`, pure JSONL, and
- * hybrid format (JSON object followed by JSONL lines).
- * @task T4622
- */
-export function readLogFileEntries(filePath: string): Record<string, unknown>[] {
-  let content: string;
-  try {
-    content = readFileSync(filePath, 'utf-8').trim();
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw error;
-  }
-  if (!content) return [];
-
-  // Fast path: try as single JSON
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)) {
-      return parsed.entries;
-    }
-    return [parsed];
-  } catch {
-    // Hybrid format
-  }
-
-  const entries: Record<string, unknown>[] = [];
-
-  if (content.startsWith('{')) {
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    let jsonEnd = -1;
-    for (let i = 0; i < content.length; i++) {
-      const ch = content[i]!;
-      if (escaped) { escaped = false; continue; }
-      if (ch === '\\' && inString) { escaped = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
-      if (inString) continue;
-      if (ch === '{') depth++;
-      else if (ch === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
-    }
-    if (jsonEnd > 0) {
-      try {
-        const initial = JSON.parse(content.substring(0, jsonEnd));
-        if (initial && Array.isArray(initial.entries)) entries.push(...initial.entries);
-      } catch { /* skip corrupted initial JSON */ }
-      const remainder = content.substring(jsonEnd).trim();
-      if (remainder) {
-        for (const line of remainder.split('\n')) {
-          const l = line.trim();
-          if (!l || !l.startsWith('{')) continue;
-          try { entries.push(JSON.parse(l)); } catch { /* skip */ }
-        }
-      }
-    }
-  } else {
-    for (const line of content.split('\n')) {
-      const l = line.trim();
-      if (!l || !l.startsWith('{')) continue;
-      try { entries.push(JSON.parse(l)); } catch { /* skip */ }
-    }
-  }
-
-  return entries;
-}
-
-/**
  * Get the path to a CLEO data file within a project root.
  *
  * @param projectRoot - Root directory of the project
@@ -202,11 +133,8 @@ const LOCK_OPTIONS: lockfile.LockOptions = {
  * Always acquire locks in this order.
  */
 const LOCK_ORDER: Record<string, number> = {
-  'todo.json': 1,
-  'sessions.json': 2,
-  'todo-archive.json': 3,
-  'todo-log.jsonl': 4,
-  'config.json': 5,
+  'tasks.db': 1,
+  'config.json': 2,
 };
 
 function getLockPriority(filePath: string): number {
@@ -287,7 +215,7 @@ export async function withFileLock<R>(
 /**
  * Acquire locks on multiple files in correct order.
  * Used for operations that need to modify multiple files atomically
- * (e.g., moving a task from todo.json to archive).
+ * (e.g., coordinated updates across task data and config).
  *
  * @param filePaths - Files to lock
  * @param operation - Function to execute while locks are held
@@ -334,7 +262,7 @@ export async function withMultiLock<T>(
  */
 export function isProjectInitialized(projectRoot: string): boolean {
   const cleoDir = join(projectRoot, '.cleo');
-  return existsSync(cleoDir) && existsSync(join(cleoDir, 'todo.json'));
+  return existsSync(cleoDir) && existsSync(join(cleoDir, 'tasks.db'));
 }
 
 /**

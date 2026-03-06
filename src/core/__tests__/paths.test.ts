@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -84,7 +84,7 @@ describe('getCleoDirAbsolute', () => {
   it('resolves relative path against cwd', () => {
     delete process.env['CLEO_DIR'];
     const result = getCleoDirAbsolute('/my/project');
-    expect(result).toBe('/my/project/.cleo');
+    expect(result).toBe(resolve('/my/project', '.cleo'));
   });
 
   it('returns absolute CLEO_DIR as-is', () => {
@@ -107,7 +107,7 @@ describe('getProjectRoot', () => {
   it('returns parent of .cleo directory', () => {
     delete process.env['CLEO_DIR'];
     const result = getProjectRoot('/my/project');
-    expect(result).toBe('/my/project');
+    expect(result).toBe(resolve('/my/project'));
   });
 });
 
@@ -130,7 +130,7 @@ describe('resolveProjectPath', () => {
   it('resolves relative paths against project root', () => {
     delete process.env['CLEO_DIR'];
     const result = resolveProjectPath('src/index.ts', '/my/project');
-    expect(result).toBe('/my/project/src/index.ts');
+    expect(result).toBe(resolve('/my/project', 'src', 'index.ts'));
   });
 
   it('expands tilde to home directory', () => {
@@ -153,17 +153,17 @@ describe('path helper functions', () => {
 
   it('getTodoPath returns correct path', () => {
     delete process.env['CLEO_DIR'];
-    expect(getTaskPath('/my/project')).toBe('/my/project/.cleo/tasks.json');
+    expect(getTaskPath('/my/project')).toBe(join(resolve('/my/project'), '.cleo', 'tasks.db'));
   });
 
   it('getConfigPath returns correct path', () => {
     delete process.env['CLEO_DIR'];
-    expect(getConfigPath('/my/project')).toBe('/my/project/.cleo/config.json');
+    expect(getConfigPath('/my/project')).toBe(join(resolve('/my/project'), '.cleo', 'config.json'));
   });
 
   it('getBackupDir returns correct path', () => {
     delete process.env['CLEO_DIR'];
-    expect(getBackupDir('/my/project')).toBe('/my/project/.cleo/backups/operational');
+    expect(getBackupDir('/my/project')).toBe(join(resolve('/my/project'), '.cleo', 'backups', 'operational'));
   });
 
   it('getGlobalConfigPath returns correct path', () => {

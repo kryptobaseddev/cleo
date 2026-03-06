@@ -4,9 +4,7 @@
  * @epic T4454
  */
 
-import { readJsonRequired } from '../../store/json.js';
-import type { Task, TaskStatus, TaskPriority, TaskType, TaskFile } from '../../types/task.js';
-import { getTaskPath } from '../paths.js';
+import type { Task, TaskStatus, TaskPriority, TaskType } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Compact task representation — minimal fields for MCP list responses. */
@@ -61,10 +59,8 @@ export interface ListTasksResult {
  * @task T4460
  */
 export async function listTasks(options: ListTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ListTasksResult> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const dataAccessor = accessor ?? await (await import('../../store/data-accessor.js')).getAccessor(cwd);
+  const data = await dataAccessor.loadTaskFile();
 
   let filtered = data.tasks;
 

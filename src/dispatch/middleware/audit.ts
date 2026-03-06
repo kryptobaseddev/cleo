@@ -14,10 +14,24 @@
  */
 
 import { getLogger } from '../../core/logger.js';
+import { getProjectInfoSync } from '../../core/project-info.js';
 import { getConfig } from '../lib/config.js';
 import type { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../types.js';
 
 const log = getLogger('audit');
+
+/** Cached project hash — read once from project-info.json (immutable at runtime). */
+let cachedProjectHash: string | null | undefined;
+function resolveProjectHash(): string | null {
+  if (cachedProjectHash !== undefined) return cachedProjectHash;
+  try {
+    const info = getProjectInfoSync();
+    cachedProjectHash = info?.projectHash ?? null;
+  } catch {
+    cachedProjectHash = null;
+  }
+  return cachedProjectHash;
+}
 
 /**
  * Audit entry interface.
@@ -38,7 +52,7 @@ export interface AuditEntry {
     taskId?: string;
     userId?: string;
     source: 'mcp' | 'cli';
-    gateway?: 'cleo_mutate' | 'cleo_query';
+    gateway?: 'mutate' | 'query';
   };
   error?: string;
 }
@@ -100,6 +114,8 @@ async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<voi
       source: entry.metadata.source,
       gateway: entry.metadata.gateway ?? null,
       errorMessage: entry.error ?? null,
+      // Project correlation (T5337)
+      projectHash: resolveProjectHash(),
     }).run();
   } catch (err) {
     log.warn({ err }, 'Failed to write audit entry to SQLite');
@@ -145,7 +161,7 @@ export function createAudit(): Middleware {
       metadata: {
         taskId: (req.params?.taskId as string) || (req.params?.parent as string),
         source: req.source as 'mcp' | 'cli',
-        gateway: req.gateway as 'cleo_mutate' | 'cleo_query',
+        gateway: req.gateway as 'mutate' | 'query',
       },
       error: response.error?.message,
     };
@@ -233,7 +249,7 @@ export async function queryAudit(options?: {
       metadata: {
         taskId: row.taskId !== 'system' && row.taskId !== 'unknown' ? row.taskId : undefined,
         source: (row.source as 'mcp' | 'cli') ?? 'mcp',
-        gateway: row.gateway as 'cleo_mutate' | 'cleo_query' | undefined,
+        gateway: row.gateway as 'mutate' | 'query' | undefined,
       },
       error: row.errorMessage ?? undefined,
     }));

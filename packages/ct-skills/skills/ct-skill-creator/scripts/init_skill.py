@@ -17,18 +17,18 @@ from pathlib import Path
 
 SKILL_TEMPLATE = """---
 name: {skill_name}
-description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
+description: [Required: complete and informative explanation of what this skill does and when to use it. Include concrete trigger scenarios, file types, or task patterns.]
 ---
 
 # {skill_title}
 
 ## Overview
 
-[TODO: 1-2 sentences explaining what this skill enables]
+[Required: 1-2 sentences explaining what this skill enables]
 
 ## Structuring This Skill
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+[Choose the structure that best fits this skill's purpose. Common patterns:
 
 **1. Workflow-Based** (best for sequential processes)
 - Works well when there are clear step-by-step procedures
@@ -52,11 +52,11 @@ description: [TODO: Complete and informative explanation of what the skill does 
 
 Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
 
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
+Delete this entire "Structuring This Skill" section when done - it is guidance only.]
 
-## [TODO: Replace with the first main section based on chosen structure]
+## [Replace with the first main section based on chosen structure]
 
-[TODO: Add content here. See examples in existing skills:
+[Add content here. See examples in existing skills:
 - Code samples for technical skills
 - Decision trees for complex workflows
 - Concrete examples with realistic user requests
@@ -116,7 +116,7 @@ Example real scripts from other skills:
 
 def main():
     print("This is an example script for {skill_name}")
-    # TODO: Add actual script logic here
+    # Add actual script logic here before production use.
     # This could be data processing, file conversion, API calls, etc.
 
 if __name__ == "__main__":
@@ -220,7 +220,9 @@ def init_skill(skill_name, path):
 
     # Create SKILL.md from template
     skill_title = title_case_skill_name(skill_name)
-    skill_content = SKILL_TEMPLATE.format(skill_name=skill_name, skill_title=skill_title)
+    skill_content = SKILL_TEMPLATE.format(
+        skill_name=skill_name, skill_title=skill_title
+    )
 
     skill_md_path = skill_dir / "SKILL.md"
     try:
@@ -260,8 +262,12 @@ def init_skill(skill_name, path):
     # Print next steps
     print(f"\n✅ Skill '{skill_name}' initialized successfully at {skill_dir}")
     print("\nNext steps:")
-    print("1. Edit SKILL.md to complete the TODO items and update the description")
-    print("2. Customize or delete the example files in scripts/, references/, and assets/")
+    print(
+        "1. Edit SKILL.md to complete all required placeholder text and update the description"
+    )
+    print(
+        "2. Customize or delete the example files in scripts/, references/, and assets/"
+    )
     print("3. Run the validator when ready to check the skill structure")
 
     return skill_dir

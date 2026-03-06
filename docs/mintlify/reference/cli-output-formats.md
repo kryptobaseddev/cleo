@@ -307,7 +307,7 @@ cleo export -f tsv --no-header | sort -t$'\t' -k4
 **Use Cases**:
 ```bash
 # Export to README
-cleo list -f markdown > TODO.md
+cleo list -f markdown > TASKS.md
 
 # GitHub issue template
 cleo list -s pending -f markdown | gh issue create --title "Sprint Tasks" --body-file -

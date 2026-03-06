@@ -1,18 +1,12 @@
 /**
  * CLI decomposition command - decomposition protocol validation.
+ * Routes through dispatch layer to check.protocol.decomposition.
  * @task T4537
  * @epic T4454
  */
 
-// CLI-only: protocol validation is separate from pipeline.stage.record lifecycle
 import { Command } from 'commander';
-import {
-  validateDecompositionTask,
-  checkDecompositionManifest,
-} from '../../core/validation/protocols/decomposition.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the decomposition command group.
@@ -29,19 +23,12 @@ export function registerDecompositionCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--epic <id>', 'Specify parent epic ID')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await validateDecompositionTask(taskId, {
-          strict: opts['strict'] as boolean | undefined,
-          epicId: opts['epic'] as string | undefined,
-        });
-        cliOutput(result, { command: 'decomposition' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.decomposition', {
+        mode: 'task',
+        taskId,
+        strict: opts['strict'] as boolean | undefined,
+        epicId: opts['epic'] as string | undefined,
+      }, { command: 'decomposition' });
     });
 
   decomposition
@@ -50,18 +37,11 @@ export function registerDecompositionCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--epic <id>', 'Specify parent epic ID')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await checkDecompositionManifest(manifestFile, {
-          strict: opts['strict'] as boolean | undefined,
-          epicId: opts['epic'] as string | undefined,
-        });
-        cliOutput(result, { command: 'decomposition' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.decomposition', {
+        mode: 'manifest',
+        manifestFile,
+        strict: opts['strict'] as boolean | undefined,
+        epicId: opts['epic'] as string | undefined,
+      }, { command: 'decomposition' });
     });
 }

@@ -18,7 +18,7 @@ import { cliOutput } from '../renderers/index.js';
 import { CleoError } from '../../core/errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getCleoHome } from '../../core/paths.js';
-import { checkStorageMigration } from '../../core/migration/preflight.js';
+import { checkStorageMigration } from '../../core/system/storage-preflight.js';
 import { runUpgrade } from '../../core/upgrade.js';
 import { getRuntimeDiagnostics } from '../../core/system/runtime.js';
 import { readFile } from 'node:fs/promises';
@@ -27,10 +27,11 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createSelfUpdateProgress } from '../progress.js';
+import { BUILD_CONFIG } from '../../config/build-config.js';
 
 const execAsync = promisify(execFile);
 
-const GITHUB_REPO = 'kryptobaseddev/cleo';
+const GITHUB_REPO = BUILD_CONFIG.repository.fullName;
 
 async function getCurrentVersion(): Promise<string> {
   const cleoHome = getCleoHome();

@@ -6,7 +6,7 @@
 
 import { readJsonRequired, readJson, saveJson, computeChecksum } from '../../store/json.js';
 import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getArchivePath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getArchivePath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
@@ -37,13 +37,12 @@ export interface ArchiveTasksResult {
 
 /**
  * Archive completed (and optionally cancelled) tasks.
- * Moves them from todo.json to todo-archive.json.
+ * Moves them from active task data to archive.
  * @task T4461
  */
 export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: string, accessor?: DataAccessor): Promise<ArchiveTasksResult> {
   const taskPath = getTaskPath(cwd);
   const archivePath = getArchivePath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -134,7 +133,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
     archiveData.archivedTasks.push(t);
   }
 
-  // Update todo.json
+  // Update active task data
   data.tasks = remainingTasks;
   data._meta.checksum = computeChecksum(remainingTasks);
   data.lastUpdated = now;
@@ -165,7 +164,7 @@ export async function archiveTasks(options: ArchiveTasksOptions = {}, cwd?: stri
   } else {
     await saveJson(taskPath, data, { backupDir });
     await saveJson(archivePath, archiveData, { backupDir });
-    await logOperation(logPath, 'tasks_archived', archived.join(','), {
+    await logOperation('tasks_archived', archived.join(','), {
       count: archived.length,
       ids: archived,
     });

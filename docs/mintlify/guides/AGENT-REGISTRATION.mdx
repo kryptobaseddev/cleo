@@ -129,20 +129,22 @@ CLEO implements a provider-agnostic registration pattern:
 
 ### OpenCode Pattern
 
-**File**: `.opencode/agents.yaml`
+**File**: `.opencode/agent/cleo-subagent.md`
 
-```yaml
-agents:
-  cleo-subagent:
-    description: CLEO task executor
-    protocol: .cleo/agents/subagent/base-protocol.md
-    capabilities:
-      - file_read
-      - file_write
-      - shell_exec
-    constraints:
-      max_tokens: 100000
-      timeout: 600
+```markdown
+---
+description: "CLEO task executor"
+mode: subagent
+hidden: true
+---
+
+# CLEO Subagent
+
+Load the shared CLEO base protocol and execute the provided spawn prompt.
+```
+
+```bash
+opencode run --agent cleo-subagent "Execute task T2403"
 ```
 
 ### Generic MCP Pattern

@@ -19,16 +19,16 @@ See `docs/specs/CLEO-GRADE-SPEC.md` for the full rubric specification.
 
 1. Start a grade-enabled session:
    ```
-   cleo_mutate session start { "scope": "global", "name": "s1-test", "grade": true }
+   mutate session start { "scope": "global", "name": "s1-test", "grade": true }
    ```
 
 ### Expected Operations (in order)
 
-1. `cleo_query session list` -- check existing sessions (must come before any task op)
-2. `cleo_query admin dash` -- project overview
-3. `cleo_query tasks find { "status": "active" }` -- discover tasks
-4. `cleo_query tasks show { "taskId": "T1234" }` -- inspect a specific task
-5. `cleo_mutate session end` -- end session cleanly
+1. `query session list` -- check existing sessions (must come before any task op)
+2. `query admin dash` -- project overview
+3. `query tasks find { "status": "active" }` -- discover tasks
+4. `query tasks show { "taskId": "T1234" }` -- inspect a specific task
+5. `mutate session end` -- end session cleanly
 
 ### Scoring Targets
 
@@ -36,7 +36,7 @@ See `docs/specs/CLEO-GRADE-SPEC.md` for the full rubric specification.
 |-----------|---------------|-----|
 | S1 Session Discipline | 20/20 | session.list before task ops (+10), session.end present (+10) |
 | S2 Discovery Efficiency | 20/20 | find used exclusively (+15), show used (+5) |
-| S5 Progressive Disclosure | 10/20 | cleo_query gateway used (+10), no help/skill calls (+0) |
+| S5 Progressive Disclosure | 10/20 | query gateway used (+10), no help/skill calls (+0) |
 
 ### Pass Criteria
 
@@ -47,8 +47,8 @@ See `docs/specs/CLEO-GRADE-SPEC.md` for the full rubric specification.
 ### Anti-pattern (Failing)
 
 ```
-cleo_query tasks find { "status": "active" }    # task op before session.list!
-cleo_query session list                          # too late
+query tasks find { "status": "active" }    # task op before session.list!
+query session list                          # too late
 # (no session.end)
 ```
 
@@ -64,17 +64,17 @@ Expected S1 score: 0 (session.list after task ops, no session.end).
 
 1. Start a grade-enabled session:
    ```
-   cleo_mutate session start { "scope": "global", "name": "s2-test", "grade": true }
+   mutate session start { "scope": "global", "name": "s2-test", "grade": true }
    ```
 2. Ensure a known parent task exists (e.g., `T100`).
 
 ### Expected Operations
 
-1. `cleo_query session list` -- session discipline
-2. `cleo_query tasks exists { "taskId": "T100" }` -- verify parent before subtask
-3. `cleo_mutate tasks add { "title": "Implement auth", "description": "Add JWT authentication to API endpoints", "parent": "T100" }` -- subtask with description + parent check
-4. `cleo_mutate tasks add { "title": "Write tests", "description": "Unit tests for auth module" }` -- standalone task with description
-5. `cleo_mutate session end`
+1. `query session list` -- session discipline
+2. `query tasks exists { "taskId": "T100" }` -- verify parent before subtask
+3. `mutate tasks add { "title": "Implement auth", "description": "Add JWT authentication to API endpoints", "parent": "T100" }` -- subtask with description + parent check
+4. `mutate tasks add { "title": "Write tests", "description": "Unit tests for auth module" }` -- standalone task with description
+5. `mutate session end`
 
 ### Scoring Targets
 
@@ -92,8 +92,8 @@ Expected S1 score: 0 (session.list after task ops, no session.end).
 ### Anti-pattern (Failing)
 
 ```
-cleo_mutate tasks add { "title": "Implement auth", "parent": "T100" }  # no description, no exists check
-cleo_mutate tasks add { "title": "Write tests" }                       # no description
+mutate tasks add { "title": "Implement auth", "parent": "T100" }  # no description, no exists check
+mutate tasks add { "title": "Write tests" }                       # no description
 ```
 
 Expected S3 score: 7 (20 - 5 - 5 - 3 = 7).
@@ -108,17 +108,17 @@ Expected S3 score: 7 (20 - 5 - 5 - 3 = 7).
 
 1. Start a grade-enabled session:
    ```
-   cleo_mutate session start { "scope": "global", "name": "s3-test", "grade": true }
+   mutate session start { "scope": "global", "name": "s3-test", "grade": true }
    ```
 2. Ensure task `T99999` does NOT exist.
 
 ### Expected Operations
 
-1. `cleo_query session list`
-2. `cleo_query tasks show { "taskId": "T99999" }` -- triggers E_NOT_FOUND (exit code 4)
-3. `cleo_query tasks find { "query": "T99999" }` -- recovery lookup within 4 entries
-4. `cleo_mutate tasks add { "title": "New feature", "description": "Implement the feature that was not found" }` -- create once
-5. `cleo_mutate session end`
+1. `query session list`
+2. `query tasks show { "taskId": "T99999" }` -- triggers E_NOT_FOUND (exit code 4)
+3. `query tasks find { "query": "T99999" }` -- recovery lookup within 4 entries
+4. `mutate tasks add { "title": "New feature", "description": "Implement the feature that was not found" }` -- create once
+5. `mutate session end`
 
 ### Scoring Targets
 
@@ -137,8 +137,8 @@ Expected S3 score: 7 (20 - 5 - 5 - 3 = 7).
 ### Anti-pattern (Failing -- unrecovered error)
 
 ```
-cleo_query tasks show { "taskId": "T99999" }     # E_NOT_FOUND
-cleo_mutate tasks add { "title": "Something else", "description": "Unrelated" }  # no recovery lookup
+query tasks show { "taskId": "T99999" }     # E_NOT_FOUND
+mutate tasks add { "title": "Something else", "description": "Unrelated" }  # no recovery lookup
 ```
 
 Expected S4 deduction: -5 (unrecovered E_NOT_FOUND).
@@ -146,8 +146,8 @@ Expected S4 deduction: -5 (unrecovered E_NOT_FOUND).
 ### Anti-pattern (Failing -- duplicate creates)
 
 ```
-cleo_mutate tasks add { "title": "New feature", "description": "First attempt" }
-cleo_mutate tasks add { "title": "New feature", "description": "Second attempt" }  # duplicate title
+mutate tasks add { "title": "New feature", "description": "First attempt" }
+mutate tasks add { "title": "New feature", "description": "Second attempt" }  # duplicate title
 ```
 
 Expected S4 deduction: -5 (1 duplicate detected).
@@ -163,21 +163,21 @@ Expected S4 deduction: -5 (1 duplicate detected).
 1. Ensure a clean environment with known tasks.
 2. Start a grade-enabled session:
    ```
-   cleo_mutate session start { "scope": "global", "name": "s4-test", "grade": true }
+   mutate session start { "scope": "global", "name": "s4-test", "grade": true }
    ```
 
 ### Expected Operations (in order)
 
-1. `cleo_query session list` -- check existing sessions
-2. `cleo_query admin help` -- progressive disclosure
-3. `cleo_query admin dash` -- project overview
-4. `cleo_query tasks find { "status": "pending" }` -- discovery via find (not list)
-5. `cleo_query tasks show { "taskId": "T200" }` -- inspect chosen task
-6. `cleo_mutate tasks update { "taskId": "T200", "status": "active" }` -- begin work
+1. `query session list` -- check existing sessions
+2. `query admin help` -- progressive disclosure
+3. `query admin dash` -- project overview
+4. `query tasks find { "status": "pending" }` -- discovery via find (not list)
+5. `query tasks show { "taskId": "T200" }` -- inspect chosen task
+6. `mutate tasks update { "taskId": "T200", "status": "active" }` -- begin work
 7. *(agent does actual code work here)*
-8. `cleo_mutate tasks complete { "taskId": "T200" }` -- mark done
-9. `cleo_query tasks find { "status": "pending" }` -- check for next task
-10. `cleo_mutate session end { "note": "Completed T200" }` -- clean end
+8. `mutate tasks complete { "taskId": "T200" }` -- mark done
+9. `query tasks find { "status": "pending" }` -- check for next task
+10. `mutate session end { "note": "Completed T200" }` -- clean end
 
 ### Scoring Targets
 
@@ -187,7 +187,7 @@ Expected S4 deduction: -5 (1 duplicate detected).
 | S2 Discovery Efficiency | 20/20 | find:list ratio 100% (+15), show used (+5) |
 | S3 Task Hygiene | 20/20 | No adds without descriptions, no subtask violations |
 | S4 Error Protocol | 20/20 | No errors, no duplicates |
-| S5 Progressive Disclosure | 20/20 | admin.help used (+10), cleo_query gateway (+10) |
+| S5 Progressive Disclosure | 20/20 | admin.help used (+10), query gateway (+10) |
 
 ### Pass Criteria
 
@@ -217,23 +217,23 @@ This scenario represents the "gold standard" agent workflow. All dimensions scor
 
 1. Start a grade-enabled session:
    ```
-   cleo_mutate session start { "scope": "epic:T500", "name": "s5-test", "grade": true }
+   mutate session start { "scope": "epic:T500", "name": "s5-test", "grade": true }
    ```
 2. Ensure epic T500 exists with subtasks.
 
 ### Expected Operations
 
-1. `cleo_query session list` -- session discipline
-2. `cleo_query admin help` -- tier 0 progressive disclosure
-3. `cleo_query tasks find { "parent": "T500" }` -- discover epic subtasks
-4. `cleo_query tasks show { "taskId": "T501" }` -- inspect specific subtask
-5. `cleo_query session context.drift` -- check context drift
-6. `cleo_query session decision.log { "taskId": "T501" }` -- review past decisions
-7. `cleo_mutate session record.decision { "taskId": "T501", "decision": "Use adapter pattern", "rationale": "Decouples provider logic" }` -- record a decision
-8. `cleo_mutate tasks update { "taskId": "T501", "status": "active" }` -- begin work
-9. `cleo_mutate tasks complete { "taskId": "T501" }` -- mark done
-10. `cleo_query tasks find { "parent": "T500", "status": "pending" }` -- next subtask
-11. `cleo_mutate session end`
+1. `query session list` -- session discipline
+2. `query admin help` -- tier 0 progressive disclosure
+3. `query tasks find { "parent": "T500" }` -- discover epic subtasks
+4. `query tasks show { "taskId": "T501" }` -- inspect specific subtask
+5. `query session context.drift` -- check context drift
+6. `query session decision.log { "taskId": "T501" }` -- review past decisions
+7. `mutate session record.decision { "taskId": "T501", "decision": "Use adapter pattern", "rationale": "Decouples provider logic" }` -- record a decision
+8. `mutate tasks update { "taskId": "T501", "status": "active" }` -- begin work
+9. `mutate tasks complete { "taskId": "T501" }` -- mark done
+10. `query tasks find { "parent": "T500", "status": "pending" }` -- next subtask
+11. `mutate session end`
 
 ### Scoring Targets
 
@@ -243,7 +243,7 @@ This scenario represents the "gold standard" agent workflow. All dimensions scor
 | S2 Discovery Efficiency | 20/20 | find used exclusively, show used |
 | S3 Task Hygiene | 20/20 | No task creation (only updates/completions) |
 | S4 Error Protocol | 20/20 | No errors |
-| S5 Progressive Disclosure | 20/20 | admin.help used (+10), cleo_query gateway (+10) |
+| S5 Progressive Disclosure | 20/20 | admin.help used (+10), query gateway (+10) |
 
 ### Pass Criteria
 
@@ -290,10 +290,10 @@ cleo grade <session-id>
 ### Via MCP
 
 ```
-cleo_mutate session start { "scope": "global", "name": "test-scenario", "grade": true }
+mutate session start { "scope": "global", "name": "test-scenario", "grade": true }
 # ... execute scenario operations ...
-cleo_mutate session end
-cleo_query admin grade { "sessionId": "<session-id>" }
+mutate session end
+query admin grade { "sessionId": "<session-id>" }
 ```
 
 ### Reviewing History
@@ -303,5 +303,5 @@ cleo grade --list                    # CLI: list all grades
 ```
 
 ```
-cleo_query admin grade.list          # MCP: list all grades
+query admin grade.list          # MCP: list all grades
 ```

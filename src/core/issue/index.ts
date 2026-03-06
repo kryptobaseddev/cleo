@@ -22,7 +22,6 @@ export {
 export {
   buildIssueBody,
   checkGhCli,
-  createGhIssue,
-  createIssue,
+  addIssue,
 } from './create.js';
-export type { CreateIssueParams, CreateIssueResult } from './create.js';
+export type { AddIssueParams, AddIssueResult } from './create.js';

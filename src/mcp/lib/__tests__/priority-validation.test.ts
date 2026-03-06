@@ -23,7 +23,7 @@ describe('MCP Priority Validation (T4572)', () => {
           const context: OperationContext = {
             domain: 'tasks',
             operation: 'add',
-            gateway: 'cleo_mutate',
+            gateway: 'mutate',
             params: { priority },
           };
 
@@ -43,7 +43,7 @@ describe('MCP Priority Validation (T4572)', () => {
           const context: OperationContext = {
             domain: 'tasks',
             operation: 'add',
-            gateway: 'cleo_mutate',
+            gateway: 'mutate',
             params: { priority },
           };
 
@@ -63,7 +63,7 @@ describe('MCP Priority Validation (T4572)', () => {
           const context: OperationContext = {
             domain: 'tasks',
             operation: 'add',
-            gateway: 'cleo_mutate',
+            gateway: 'mutate',
             params: { priority },
           };
 
@@ -81,7 +81,7 @@ describe('MCP Priority Validation (T4572)', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'add',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: { priority: 15 },
         };
 
@@ -94,7 +94,7 @@ describe('MCP Priority Validation (T4572)', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'add',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: { priority: 0 },
         };
 
@@ -107,7 +107,7 @@ describe('MCP Priority Validation (T4572)', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'add',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: { priority: 'urgent' },
         };
 
@@ -120,7 +120,7 @@ describe('MCP Priority Validation (T4572)', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'add',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: { priority: true },
         };
 
@@ -133,7 +133,7 @@ describe('MCP Priority Validation (T4572)', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'add',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: { priority: -1 },
         };
 
@@ -148,7 +148,7 @@ describe('MCP Priority Validation (T4572)', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'add',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: {
             title: 'Valid Task Title',
             description: 'Valid task description with sufficient length',
@@ -165,7 +165,7 @@ describe('MCP Priority Validation (T4572)', () => {
         const context: OperationContext = {
           domain: 'tasks',
           operation: 'add',
-          gateway: 'cleo_mutate',
+          gateway: 'mutate',
           params: {
             title: 'Valid Task Title',
             description: 'Valid task description with sufficient length',

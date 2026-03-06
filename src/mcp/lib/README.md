@@ -104,7 +104,7 @@ import { DomainRouter } from './lib/router.js';
 
 const router = new DomainRouter();
 const response = await router.routeOperation({
-  gateway: 'cleo_query',
+  gateway: 'query',
   domain: 'tasks',
   operation: 'get',
   params: { taskId: 'T001' }

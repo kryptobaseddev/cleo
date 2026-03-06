@@ -244,9 +244,9 @@
     },
     {
       "name": "loom",
-      "description": "LOOM (Logical Order of Operations Methodology) - the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. LOOM encompasses the full lifecycle methodology that transforms raw ideas into delivered artifacts, from Research through Release with the Contribution protocol (+C) running across all stages. References docs/concepts/vision.md for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.",
+      "description": "LOOM (Logical Order of Operations Methodology) - the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. LOOM encompasses the full lifecycle methodology that transforms raw ideas into delivered artifacts, from Research through Release with the Contribution protocol (+C) running across all stages. References docs/concepts/CLEO-VISION.md for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.",
       "version": "1.0.0",
-      "path": "docs/concepts/vision.md",
+      "path": "docs/concepts/CLEO-VISION.md",
       "references": [".cleo/adrs/ADR-007-domain-consolidation.md", ".cleo/adrs/ADR-009-BRAIN-cognitive-architecture.md"],
       "core": false,
       "category": "core",
@@ -258,7 +258,7 @@
       "license": "MIT",
       "metadata": {
         "concepts": ["LOOM", "RCASD-IVTR+C", "lifecycle pipeline", "neural hierarchy", "brain metaphor"],
-        "domains": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sharing"]
+        "domains": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sticky"]
       }
     }
   ]

@@ -1,15 +1,14 @@
 /**
- * Tests for NEXUS registry module.
- * @task T4574
+ * Tests for NEXUS registry module (SQLite backend).
+ * @task T5366
  * @epic T4540
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  generateProjectHash,
   nexusInit,
   nexusRegister,
   nexusUnregister,
@@ -19,8 +18,25 @@ import {
   nexusSync,
   nexusSyncAll,
   readRegistry,
-  getRegistryPath,
+  resetNexusDbState,
 } from '../registry.js';
+import { generateProjectHash } from '../hash.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { resetDbState } from '../../../store/sqlite.js';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+
+/** Create a test project with tasks in SQLite (tasks.db). */
+async function createTestProjectDb(
+  dir: string,
+  tasks: Array<{ id: string; title: string; status: string; description?: string; labels?: string[]; depends?: string[]; priority?: string }>,
+): Promise<void> {
+  await mkdir(join(dir, '.cleo'), { recursive: true });
+  resetDbState();
+  const accessor = await createSqliteDataAccessor(dir);
+  await seedTasks(accessor, tasks);
+  await accessor.close();
+  resetDbState();
+}
 
 let testDir: string;
 let registryDir: string;
@@ -34,23 +50,20 @@ beforeEach(async () => {
   // Create fake CLEO home
   await mkdir(registryDir, { recursive: true });
 
-  // Create a fake project with .cleo/todo.json
-  await mkdir(join(projectDir, '.cleo'), { recursive: true });
-  await writeFile(
-    join(projectDir, '.cleo', 'todo.json'),
-    JSON.stringify({
-      tasks: [
-        { id: 'T001', title: 'Test task', status: 'pending', labels: ['auth', 'api'] },
-        { id: 'T002', title: 'Another task', status: 'done', labels: ['api'] },
-      ],
-    }),
-  );
+  // Create a fake project with tasks.db
+  await createTestProjectDb(projectDir, [
+    { id: 'T001', title: 'Test task', status: 'pending', labels: ['auth', 'api'], description: 'Test task description' },
+    { id: 'T002', title: 'Another task', status: 'done', labels: ['api'], description: 'Another task description' },
+  ]);
 
-  // Point env vars to test dirs
+  // Point env vars to test dirs — CLEO_HOME controls nexus.db location
   process.env['CLEO_HOME'] = registryDir;
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
   process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
   process.env['NEXUS_REGISTRY_FILE'] = join(registryDir, 'projects-registry.json');
+
+  // Reset nexus.db singleton so each test gets a fresh database
+  resetNexusDbState();
 });
 
 afterEach(async () => {
@@ -58,6 +71,8 @@ afterEach(async () => {
   delete process.env['NEXUS_HOME'];
   delete process.env['NEXUS_CACHE_DIR'];
   delete process.env['NEXUS_REGISTRY_FILE'];
+  resetNexusDbState();
+  resetDbState();
   await rm(testDir, { recursive: true, force: true });
 });
 
@@ -81,7 +96,7 @@ describe('generateProjectHash', () => {
 });
 
 describe('nexusInit', () => {
-  it('creates the NEXUS directories and registry file', async () => {
+  it('creates the NEXUS directories and initializes nexus.db', async () => {
     await nexusInit();
 
     const registry = await readRegistry();
@@ -127,22 +142,24 @@ describe('nexusRegister', () => {
     ).rejects.toThrow(/already registered/);
   });
 
-  it('throws if path has no .cleo/todo.json', async () => {
+  it('registers empty project when directory has no pre-existing tasks.db', async () => {
     const emptyDir = join(testDir, 'empty');
     await mkdir(emptyDir, { recursive: true });
 
-    await expect(
-      nexusRegister(emptyDir, 'empty', 'read'),
-    ).rejects.toThrow(/missing .cleo\/todo.json/i);
+    // SQLite accessor auto-creates tasks.db, so registration succeeds with zero tasks
+    const hash = await nexusRegister(emptyDir, 'empty', 'read');
+    expect(hash).toMatch(/^[a-f0-9]{12}$/);
+    const project = await nexusGetProject('empty');
+    expect(project).not.toBeNull();
+    expect(project!.taskCount).toBe(0);
   });
 
   it('throws on name conflict', async () => {
     await nexusRegister(projectDir, 'test-proj', 'read');
 
-    // Create a second project with different path
+    // Create a second project with different path (SQLite auto-creates tasks.db)
     const secondDir = join(testDir, 'second-project');
     await mkdir(join(secondDir, '.cleo'), { recursive: true });
-    await writeFile(join(secondDir, '.cleo', 'todo.json'), '{"tasks":[]}');
 
     await expect(
       nexusRegister(secondDir, 'test-proj', 'read'),
@@ -232,17 +249,12 @@ describe('nexusSync', () => {
   it('updates task count and labels', async () => {
     await nexusRegister(projectDir, 'test-proj', 'read');
 
-    // Add a task
-    await writeFile(
-      join(projectDir, '.cleo', 'todo.json'),
-      JSON.stringify({
-        tasks: [
-          { id: 'T001', title: 'Task 1', status: 'pending', labels: ['new-label'] },
-          { id: 'T002', title: 'Task 2', status: 'done', labels: ['new-label'] },
-          { id: 'T003', title: 'Task 3', status: 'active', labels: [] },
-        ],
-      }),
-    );
+    // Update project with new tasks via SQLite
+    await createTestProjectDb(projectDir, [
+      { id: 'T001', title: 'Task 1', status: 'pending', labels: ['new-label'], description: 'First task' },
+      { id: 'T002', title: 'Task 2', status: 'done', labels: ['new-label'], description: 'Second task' },
+      { id: 'T003', title: 'Task 3', status: 'active', labels: [], description: 'Third task' },
+    ]);
 
     await nexusSync('test-proj');
 

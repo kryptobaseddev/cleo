@@ -16,6 +16,7 @@
  */
 
 import { existsSync, mkdirSync, copyFileSync, unlinkSync, renameSync } from 'node:fs';
+// underscore-import: node:sqlite type alias is required for createRequire interop.
 // Vitest/Vite cannot resolve `node:sqlite` as an ESM import (strips `node:` prefix).
 // Use createRequire as the runtime loader; keep type-only import for annotations.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
@@ -23,7 +24,7 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as { DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync };
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -240,11 +241,11 @@ export async function getDb(cwd?: string): Promise<SqliteRemoteDatabase<typeof s
               stdio: 'pipe',
             });
             // If we get here, the file IS tracked — that's dangerous
-            const basename = fileToCheck.split('/').pop();
+            const basename = fileToCheck.split(/[\\/]/).pop();
             log.warn(
               { path: fileToCheck },
               `${basename} is tracked by project git — this risks data loss on branch switch. ` +
-              `Run: git rm --cached ${fileToCheck.replace(gitCwd + '/', '')} (see ADR-013, T5188)`,
+              `Run: git rm --cached ${fileToCheck.replace(gitCwd + sep, '')} (see ADR-013, T5188)`,
             );
           } catch {
             // Exit code 1 = not tracked = good
@@ -473,3 +474,29 @@ export function getNativeDb(): DatabaseSync | null {
  */
 export { schema };
 export type { SqliteRemoteDatabase };
+
+/**
+ * Close ALL database singletons (tasks.db, brain.db, nexus.db).
+ *
+ * Must be called before deleting temp directories on Windows, where
+ * SQLite holds exclusive file handles on .db, .db-wal, and .db-shm files.
+ * Safe to call even if some databases were never opened.
+ *
+ * @task T5508
+ */
+export async function closeAllDatabases(): Promise<void> {
+  // Close tasks.db
+  closeDb();
+
+  // Close brain.db (dynamic import to avoid circular deps)
+  try {
+    const { closeBrainDb } = await import('./brain-sqlite.js');
+    closeBrainDb();
+  } catch { /* module may not be loaded */ }
+
+  // Close nexus.db (dynamic import to avoid circular deps)
+  try {
+    const { closeNexusDb } = await import('./nexus-sqlite.js');
+    closeNexusDb();
+  } catch { /* module may not be loaded */ }
+}

@@ -14,6 +14,7 @@ import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
+// underscore-import: node:sqlite type alias is required for createRequire interop.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 
 // Runtime-load node:sqlite

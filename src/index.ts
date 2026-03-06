@@ -90,11 +90,22 @@ export {
 } from './core/release/index.js';
 export type { ShipReleaseResult } from './core/release/index.js';
 
-// Migration
+// System migration status + storage preflight
+export { getMigrationStatus as getSystemMigrationStatus } from './core/system/migrate.js';
+export type { MigrateResult, MigrateResult as SystemMigrateResult } from './core/system/migrate.js';
+export { checkStorageMigration } from './core/system/storage-preflight.js';
+export type { PreflightResult } from './core/system/storage-preflight.js';
+
+// Migration compatibility exports (package-root API)
 export {
   detectVersion,
   compareSemver,
   getMigrationStatus,
   runMigration,
   runAllMigrations,
+} from './core/migration/index.js';
+export type {
+  SchemaVersion,
+  MigrationResult,
+  MigrationStatus,
 } from './core/migration/index.js';

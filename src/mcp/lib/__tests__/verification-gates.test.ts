@@ -35,7 +35,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Task Title',
           description: 'This is a valid task description with sufficient length',
@@ -52,7 +52,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'INVALID123',
           title: 'Updated Title',
@@ -70,7 +70,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Hi',
           description: 'Valid description',
@@ -86,7 +86,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           status: 'invalid_status',
@@ -102,7 +102,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Title',
           description: 'Valid description',
@@ -121,7 +121,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Same Content',
           description: 'Same Content',
@@ -140,7 +140,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           title: 'Task Title',
@@ -160,7 +160,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'session',
         operation: 'start',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           scope: 'invalid_scope',
         },
@@ -175,7 +175,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
         },
@@ -196,7 +196,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Title',
           description: 'Valid description',
@@ -216,7 +216,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Title',
           description: 'Valid description',
@@ -235,7 +235,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Updated Title',
         },
@@ -254,7 +254,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Title',
           description: 'Valid description',
@@ -269,7 +269,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           manifestEntry: {
@@ -292,7 +292,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'complete',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           taskId: 'T1234',
           manifestEntry: {
@@ -320,7 +320,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Task Title',
           description: 'Valid description with sufficient length',
@@ -338,7 +338,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Hi', // Too short - fails layer 1
           description: 'Same as title', // Would fail layer 2 if reached
@@ -355,7 +355,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Title',
           description: 'Valid description',
@@ -375,7 +375,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Hi',
           description: 'Valid description',
@@ -390,7 +390,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Valid Title',
           description: 'Valid Title', // Same as title
@@ -405,7 +405,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'update',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
         params: {
           title: 'Updated Title',
         },
@@ -421,7 +421,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'add',
-        gateway: 'cleo_mutate',
+        gateway: 'mutate',
       };
       expect(VerificationGate.requiresValidation(context)).toBe(true);
     });
@@ -430,7 +430,7 @@ describe('VerificationGate', () => {
       const context: OperationContext = {
         domain: 'tasks',
         operation: 'show',
-        gateway: 'cleo_query',
+        gateway: 'query',
       };
       expect(VerificationGate.requiresValidation(context)).toBe(false);
     });

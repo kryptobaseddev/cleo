@@ -209,14 +209,14 @@ describe('Golden Parity: LAFS Envelope Structure (T4697)', () => {
 
   describe('Gateway meta shape', () => {
     it('gateway meta matches expected fields', () => {
-      const meta = createGatewayMeta('cleo_query', 'tasks', 'list', Date.now());
+      const meta = createGatewayMeta('query', 'tasks', 'list', Date.now());
       expect(meta.specVersion).toBe('1.2.3');
       expect(meta.schemaVersion).toBe('2026.2.1');
       expect(meta.transport).toBe('sdk');
       expect(meta.strict).toBe(true);
       expect(meta.mvi).toBe('standard');
       expect(meta.contextVersion).toBe(1);
-      expect(meta.gateway).toBe('cleo_query');
+      expect(meta.gateway).toBe('query');
       expect(meta.domain).toBe('tasks');
       expect(meta.operation).toBe('list');
       expect(typeof meta.duration_ms).toBe('number');

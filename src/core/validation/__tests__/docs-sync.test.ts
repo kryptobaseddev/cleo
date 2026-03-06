@@ -4,18 +4,17 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import {
-  getScriptCommands,
-  getIndexScripts,
-  getIndexCommands,
   checkCommandsSync,
-  checkWrapperSync,
   detectDrift,
-  shouldRunDriftDetection,
+  getIndexCommands,
+  getIndexScripts,
+  getScriptCommands,
+  shouldRunDriftDetection
 } from '../docs-sync.js';
 
 // ============================================================================

@@ -6,34 +6,38 @@
  * @epic T4545
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Command } from 'commander';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { registerNexusCommand } from '../nexus.js';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import {
-  nexusInit,
-  nexusRegister,
-  nexusList,
   nexusGetProject,
+  nexusInit,
+  nexusList,
+  nexusRegister,
 } from '../../../core/nexus/index.js';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { resetDbState, closeAllDatabases } from '../../../store/sqlite.js';
+import { registerNexusCommand } from '../nexus.js';
 
 let testDir: string;
 let registryDir: string;
 let projectDirA: string;
 let projectDirB: string;
 
-/** Create a test project with tasks. */
+/** Create a test project with tasks in SQLite (tasks.db). */
 async function createTestProject(
   dir: string,
   tasks: Array<{ id: string; title: string; status: string; description?: string; labels?: string[]; depends?: string[]; priority?: string }>,
 ): Promise<void> {
   await mkdir(join(dir, '.cleo'), { recursive: true });
-  await writeFile(
-    join(dir, '.cleo', 'todo.json'),
-    JSON.stringify({ tasks }),
-  );
+  resetDbState();
+  const accessor = await createSqliteDataAccessor(dir);
+  await seedTasks(accessor, tasks);
+  await accessor.close();
+  resetDbState();
 }
 
 beforeEach(async () => {
@@ -73,6 +77,7 @@ afterEach(async () => {
   delete process.env['NEXUS_REGISTRY_FILE'];
   delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
   delete process.env['NEXUS_CURRENT_PROJECT'];
+  await closeAllDatabases();
   await rm(testDir, { recursive: true, force: true });
 });
 
@@ -202,10 +207,10 @@ describe('nexus sync (core integration)', () => {
 
     // Modify project tasks
     await createTestProject(projectDirA, [
-      { id: 'T001', title: 'Auth module', status: 'done', labels: ['auth', 'api'] },
-      { id: 'T002', title: 'Database setup', status: 'done', labels: ['db'] },
-      { id: 'T003', title: 'API endpoints', status: 'done', labels: ['api'] },
-      { id: 'T004', title: 'New task', status: 'pending', labels: ['new'] },
+      { id: 'T001', title: 'Auth module', status: 'done', labels: ['auth', 'api'], description: 'Implement JWT authentication' },
+      { id: 'T002', title: 'Database setup', status: 'done', labels: ['db'], description: 'Set up PostgreSQL database' },
+      { id: 'T003', title: 'API endpoints', status: 'done', labels: ['api'], description: 'REST API endpoints' },
+      { id: 'T004', title: 'New task', status: 'pending', labels: ['new'], description: 'A brand new feature task' },
     ]);
 
     const { nexusSync } = await import('../../../core/nexus/index.js');

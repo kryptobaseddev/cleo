@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -16,6 +16,9 @@ import {
   getProjectFromQuery,
 } from '../query.js';
 import { nexusRegister } from '../registry.js';
+import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
+import { resetDbState, closeAllDatabases } from '../../../store/sqlite.js';
+import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 
 let testDir: string;
 let projectDir: string;
@@ -27,29 +30,32 @@ beforeEach(async () => {
 
   await mkdir(registryDir, { recursive: true });
   await mkdir(join(projectDir, '.cleo'), { recursive: true });
-  await writeFile(
-    join(projectDir, '.cleo', 'todo.json'),
-    JSON.stringify({
-      tasks: [
-        {
-          id: 'T001',
-          title: 'Auth module',
-          status: 'active',
-          priority: 'high',
-          createdAt: '2026-01-01T00:00:00Z',
-          labels: ['auth'],
-        },
-        {
-          id: 'T002',
-          title: 'API endpoint',
-          status: 'pending',
-          priority: 'medium',
-          createdAt: '2026-01-02T00:00:00Z',
-          depends: ['T001'],
-        },
-      ],
-    }),
-  );
+
+  // Create tasks.db with test data
+  resetDbState();
+  const accessor = await createSqliteDataAccessor(projectDir);
+  await seedTasks(accessor, [
+    {
+      id: 'T001',
+      title: 'Auth module',
+      description: 'Implement authentication module',
+      status: 'active',
+      priority: 'high',
+      createdAt: '2026-01-01T00:00:00Z',
+      labels: ['auth'],
+    },
+    {
+      id: 'T002',
+      title: 'API endpoint',
+      description: 'Build API endpoint handler',
+      status: 'pending',
+      priority: 'medium',
+      createdAt: '2026-01-02T00:00:00Z',
+      depends: ['T001'],
+    },
+  ]);
+  await accessor.close();
+  resetDbState();
 
   process.env['CLEO_HOME'] = registryDir;
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
@@ -64,6 +70,7 @@ afterEach(async () => {
   delete process.env['NEXUS_CACHE_DIR'];
   delete process.env['NEXUS_REGISTRY_FILE'];
   delete process.env['NEXUS_CURRENT_PROJECT'];
+  await closeAllDatabases();
   await rm(testDir, { recursive: true, force: true });
 });
 

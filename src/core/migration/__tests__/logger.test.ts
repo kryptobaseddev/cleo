@@ -2,16 +2,16 @@
  * Tests for migration logger (@task T4727)
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync,mkdirSync,readFileSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import {
   MigrationLogger,
   createMigrationLogger,
-  readMigrationLog,
-  logFileExists,
   getLatestMigrationLog,
+  logFileExists,
+  readMigrationLog,
   type MigrationLogEntry,
 } from '../logger.js';
 

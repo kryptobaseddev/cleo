@@ -13,6 +13,7 @@ Thank you for your interest in contributing to CLEO! This guide is written for c
 - [Making Changes](#making-changes)
 - [Testing](#testing)
 - [Submitting a Pull Request](#submitting-a-pull-request)
+- [Protected Branch Process](#protected-branch-process)
 - [Code Style](#code-style)
 - [Architecture Guidelines](#architecture-guidelines)
 - [Getting Help](#getting-help)
@@ -67,7 +68,7 @@ Many CLEO contributors use AI coding agents to help with their work. Here's how 
 2. Run tests before submitting: `npm test`
 3. Run type-check: `npm run build:check`
 4. Fill out the PR template completely - it has a section for AI agent disclosure
-5. Use conventional commit messages: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
+5. Use commit format with task reference: `<type>: <summary> (T####)`
 
 ### What Your Agent Should Know
 
@@ -206,11 +207,11 @@ When a new month starts, the patch resets to `1`. Version bumps are managed via 
 
 ### Branch Naming
 
-Create a feature branch from `main`:
+Create a feature branch from `develop` (normal flow):
 
 ```bash
-git checkout main
-git pull upstream main
+git checkout develop
+git pull upstream develop
 git checkout -b feature/your-feature-name
 ```
 
@@ -243,7 +244,7 @@ Types:
 
 Example:
 ```
-feat: Add multi-label filtering to list command
+feat: add multi-label filtering to list command (T1234)
 
 Supports comma-separated labels with AND logic:
   cleo list --labels "bug,priority-high"
@@ -317,7 +318,7 @@ npm run build:check
 
 1. Tests pass: `npm test`
 2. Type-check passes: `npm run build:check`
-3. Branch is up to date with `main`
+3. Branch is up to date with `develop` (or `main` for hotfixes)
 4. Commit messages follow conventions
 
 ### Creating the PR
@@ -342,6 +343,7 @@ npm run build:check
 - [ ] Documentation updated (if applicable)
 - [ ] Commit messages use conventional format
 - [ ] No merge conflicts with `main`
+- [ ] No merge conflicts with target branch
 - [ ] PR template filled out completely
 - [ ] Contributor agrees to BSL 1.1 license terms
 
@@ -350,6 +352,35 @@ npm run build:check
 1. Maintainers will review your PR
 2. Address any feedback with new commits (don't force-push during review)
 3. Once approved, a maintainer will merge
+
+## Protected Branch Process
+
+CLEO now enforces strict branch protection on both `develop` and `main`.
+
+Required policy:
+
+1. **No direct pushes** to `develop` or `main` (including owners/admins).
+2. **All changes go through PRs** with at least 1 approving review.
+3. **Required checks must pass** before merge:
+   - `TypeScript Build & Test (ubuntu-latest, 24)`
+   - `TypeScript Build & Test (macos-latest, 24)`
+   - `TypeScript Build & Test (windows-latest, 24)`
+   - `Validate JSON Files`
+   - `npm Install Test`
+4. **Stale approvals are dismissed** after new commits.
+5. **Last push must be approved by someone else** (`require_last_push_approval=true`).
+6. **Conversations must be resolved** before merge.
+
+Release process policy:
+
+1. Merge to `develop` through PR with all checks green.
+2. Cut beta tags/releases from validated `develop` commit state.
+3. Merge `develop` to `main` via PR for production release.
+4. Cut stable tags/releases from validated `main` commit state.
+
+Hotfix exception:
+
+- `fix/*` branches may target `main` directly, but still require PR + required checks + review.
 
 ## Code Style
 

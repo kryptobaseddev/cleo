@@ -16,7 +16,7 @@ This is not a provider-specific problem. It affects **any** multi-agent workflow
 - Agent C checks out `feature/T5200` and Agent A's uncommitted changes are now on the wrong branch
 - Subagents spawned by an orchestrator collide with the parent agent's working tree
 
-**CLEO must own the solution.** Per the [CLEO Vision](../docs/concepts/vision.md), CLEO is provider-neutral. The isolation layer cannot depend on any specific coding tool's worktree implementation. CLEO manages the workspace lifecycle through its own MCP operations and CLI commands, making isolation available to any agent that speaks [LAFS](https://github.com/kryptobaseddev/lafs-protocol).
+**CLEO must own the solution.** Per the [CLEO Vision](../docs/concepts/CLEO-VISION.md), CLEO is provider-neutral. The isolation layer cannot depend on any specific coding tool's worktree implementation. CLEO manages the workspace lifecycle through its own MCP operations and CLI commands, making isolation available to any agent that speaks [LAFS](https://github.com/kryptobaseddev/lafs-protocol).
 
 ---
 
@@ -108,7 +108,7 @@ project-root/
     epic-T5200/
 ```
 
-**Why `.cleo-workspaces/` and not `.cleo/workspaces/`:** The `.cleo/` directory is the [portable brain](../docs/concepts/vision.md) -- "Move the `.cleo/` directory, and the entire brain moves with it." Worktrees contain full project source code (potentially gigabytes). Putting them inside `.cleo/` would break the portability contract. A sibling directory keeps the brain lightweight and portable while keeping worktrees discoverable.
+**Why `.cleo-workspaces/` and not `.cleo/workspaces/`:** The `.cleo/` directory is the [portable brain](../docs/concepts/CLEO-VISION.md) -- "Move the `.cleo/` directory, and the entire brain moves with it." Worktrees contain full project source code (potentially gigabytes). Putting them inside `.cleo/` would break the portability contract. A sibling directory keeps the brain lightweight and portable while keeping worktrees discoverable.
 
 **Why not `.claude/worktrees/`:** CLEO is provider-neutral. Using a provider-specific namespace would create an implicit dependency. `.cleo-workspaces/` is CLEO's own namespace, managed by CLEO's operations, usable by any agent.
 
@@ -655,6 +655,6 @@ CLEO Workspaces fill a gap that no existing tool addresses: **provider-neutral, 
 - [Perforce Client Spec Documentation](https://help.perforce.com/helix-core/server-apps/cmdref/current/Content/P4Guide/configuration.workspace.html) -- Perforce workspace (client spec) architecture for multi-workspace isolation
 
 ### CLEO Internal References
-- [CLEO Vision Charter](../docs/concepts/vision.md) -- Provider-neutral identity, portable brain contract, architectural constraints
+- [CLEO Vision Charter](../docs/concepts/CLEO-VISION.md) -- Provider-neutral identity, portable brain contract, architectural constraints
 - [LAFS Protocol (GitHub)](https://github.com/kryptobaseddev/lafs-protocol) -- Agent communication contract that enables provider-neutral workspace operations
 - [`src/core/paths.ts`](../src/core/paths.ts) -- CLEO path resolution: `CLEO_ROOT` env var support (line 83), `getProjectRoot()` algorithm

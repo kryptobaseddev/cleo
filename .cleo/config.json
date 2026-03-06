@@ -1,107 +1,25 @@
 {
-  "_meta": {
-    "schemaVersion": "2.10.0",
-    "createdAt": "2026-01-28T01:43:00Z",
-    "updatedAt": "2026-01-28T01:43:00Z",
-    "version": "2.10.0"
-  },
-  "project": {
-    "name": "cleo",
-    "currentPhase": "core"
-  },
-  "multiSession": {
-    "enabled": true,
-    "maxConcurrentSessions": 10,
-    "maxActiveTasksPerScope": 1,
-    "scopeValidation": "strict",
-    "enforcement": "none"
-  },
-  "retention": {
-    "autoEndActiveAfterDays": 7,
-    "sessionTimeoutWarningHours": 72
-  },
-  "session": {
-    "enforcement": "advisory",
-    "maxConcurrent": 15
-  },
   "version": "2.10.0",
-  "release": {
-    "gates": [
-      {
-        "name": "typecheck",
-        "command": "npx tsc --noEmit"
-      },
-      {
-        "name": "tests",
-        "command": "npx vitest run"
-      }
-    ],
-    "versionBump": {
-      "enabled": true,
-      "files": [
-        {
-          "path": "VERSION",
-          "strategy": "plain",
-          "description": "Source of truth version file"
-        },
-        {
-          "path": "package.json",
-          "strategy": "json",
-          "jsonPath": ".version",
-          "description": "Root package.json version"
-        },
-        {
-          "path": "README.md",
-          "strategy": "sed",
-          "sedPattern": "s|version-[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+-|version-{{VERSION}}-|g",
-          "sedMatch": "version-[0-9]",
-          "optional": true,
-          "description": "README version badge"
-        },
-        {
-          "path": "plugin/plugin.json",
-          "strategy": "json",
-          "jsonPath": ".version",
-          "optional": true,
-          "description": "Plugin manifest version"
-        }
-      ],
-      "postValidate": "./dev/validate-version.sh"
-    },
-    "push": {
-      "enabled": false,
-      "remote": "origin",
-      "requireCleanTree": true,
-      "allowedBranches": [
-        "main",
-        "master"
-      ]
-    },
-    "changelog": {
-      "enabled": true,
-      "autoGenerate": false,
-      "source": "CHANGELOG.md",
-      "outputs": [
-        {
-          "platform": "mintlify",
-          "enabled": true,
-          "path": "docs/changelog/overview.mdx"
-        }
-      ]
-    }
+  "output": {
+    "defaultFormat": "json",
+    "showColor": true,
+    "showUnicode": true,
+    "dateFormat": "relative"
   },
-  "test": {
-    "integration": {
-      "value": true
-    }
-  },
-  "sessionEnforcement": {
-    "mode": "advisory"
+  "backup": {
+    "maxOperationalBackups": 10,
+    "maxSafetyBackups": 5
   },
   "hierarchy": {
-    "maxSiblings": 0
+    "maxDepth": 3,
+    "maxSiblings": 0,
+    "maxActiveSiblings": 0
   },
-  "storage": {
-    "engine": "sqlite"
+  "session": {
+    "autoStart": false,
+    "multiSession": false
+  },
+  "lifecycle": {
+    "mode": "strict"
   }
 }

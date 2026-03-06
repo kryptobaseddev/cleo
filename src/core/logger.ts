@@ -41,11 +41,17 @@ function bytesToSizeString(bytes: number): string {
  * Uses pino-roll for automatic size+daily rotation with built-in retention.
  * No custom rotation code needed.
  *
- * @param cleoDir - Absolute path to .cleo directory
- * @param config  - Logging configuration from CleoConfig.logging
+ * @param cleoDir      - Absolute path to .cleo directory
+ * @param config       - Logging configuration from CleoConfig.logging
+ * @param projectHash  - Stable project identity token bound to every log entry.
+ *                        Optional for backward compatibility; warns if absent.
  * @returns The root pino logger instance
  */
-export function initLogger(cleoDir: string, config: LoggerConfig): pino.Logger {
+export function initLogger(
+  cleoDir: string,
+  config: LoggerConfig,
+  projectHash?: string,
+): pino.Logger {
   const dest = join(cleoDir, config.filePath);
   currentLogDir = dirname(dest);
 
@@ -70,9 +76,17 @@ export function initLogger(cleoDir: string, config: LoggerConfig): pino.Logger {
     },
   });
 
+  // Build base object: projectHash appears in every log entry when provided.
+  // Pino merges base with pid/hostname by default; we add projectHash alongside.
+  const base: Record<string, unknown> = {};
+  if (projectHash) {
+    base.projectHash = projectHash;
+  }
+
   rootLogger = pino(
     {
       level: config.level,
+      base,
       formatters: {
         level: (label: string) => ({ level: label.toUpperCase() }),
       },
@@ -80,6 +94,13 @@ export function initLogger(cleoDir: string, config: LoggerConfig): pino.Logger {
     },
     transport,
   );
+
+  // Warn after logger is initialized so the message goes to the log file
+  if (!projectHash) {
+    getLogger('engine').warn(
+      'projectHash not provided to initLogger; audit correlation will be incomplete',
+    );
+  }
 
   return rootLogger;
 }

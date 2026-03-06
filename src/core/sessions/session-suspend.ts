@@ -57,7 +57,7 @@ export async function suspendSession(
     session.notes.push(reason);
   }
 
-  // Clear active session in todo.json if this was the active one
+  // Clear active session in task data if this was the active one
   if (current._meta?.activeSession === sessionId) {
     current._meta.activeSession = null;
     current._meta.generation = (current._meta.generation || 0) + 1;

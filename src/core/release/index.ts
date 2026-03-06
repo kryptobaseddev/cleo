@@ -9,7 +9,7 @@ import { atomicWrite } from '../../store/atomic.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Release, TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir, getLogPath, getProjectRoot } from '../paths.js';
+import { getTaskPath, getBackupDir, getProjectRoot } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -123,7 +123,7 @@ export async function createRelease(options: CreateReleaseOptions, cwd?: string,
   } else {
     await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
   }
-  await logOperation(getLogPath(cwd), 'release_created', version, {
+  await logOperation('release_created', version, {
     tasks: taskIds,
   }, accessor);
 
@@ -398,7 +398,7 @@ function performGitOperations(
       'CHANGELOG.md',
       'package.json',
       'README.md',
-      '.cleo/todo.json',
+      '.cleo/tasks.db',
       '.cleo/config.json',
     ].filter(f => existsSync(join(projectRoot, f)));
 

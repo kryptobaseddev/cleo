@@ -6,7 +6,7 @@
   * [Quick Start](getting-started/quickstart.mdx)
   * [Installation](getting-started/installation.mdx)
 * [MCP Server](getting-started/mcp-setup.mdx)
-* [Core Concepts](concepts/vision.mdx)
+* [Core Concepts](concepts/CLEO-VISION.mdx)
   * [Cognitive Architecture](concepts/cognitive-architecture.mdx)
   * [Task Hierarchy](concepts/task-hierarchy.mdx)
   * [Sessions Concept](concepts/sessions.mdx)

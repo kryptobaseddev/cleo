@@ -10,7 +10,7 @@
  * @task T5156
  * @epic T5150
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach,describe,expect,it,vi } from 'vitest';
 
 // Mock dependencies so we don't hit the filesystem
 vi.mock('node:fs', () => ({
@@ -29,10 +29,10 @@ vi.mock('../../discovery.js', () => ({
   mapSkillName: vi.fn(() => ({ canonical: 'task-executor', mapped: true })),
 }));
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync,readFileSync } from 'node:fs';
 import { findSkill } from '../../discovery.js';
-import { injectProtocol, orchestratorSpawnSkill, filterProtocolByTier } from '../../injection/subagent.js';
-import { buildPrompt, spawn, spawnBatch } from '../spawn.js';
+import { injectProtocol,orchestratorSpawnSkill } from '../../injection/subagent.js';
+import { buildPrompt,spawn,spawnBatch } from '../spawn.js';
 
 const TIERED_PROTOCOL = `# Protocol
 <!-- TIER:minimal -->
