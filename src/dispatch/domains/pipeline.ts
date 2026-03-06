@@ -17,6 +17,7 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 import {
   lifecycleStatus,
@@ -60,7 +61,7 @@ import {
   pipelineManifestStats,
   pipelineManifestAppend,
   pipelineManifestArchive,
-} from '../../core/memory/pipeline-manifest-compat.js';
+} from '../../core/memory/pipeline-manifest-sqlite.js';
 
 import {
   showChain,
@@ -103,7 +104,7 @@ export class PipelineHandler implements DomainHandler {
 
       // Manifest sub-domain
       if (operation.startsWith('manifest.')) {
-        return this.queryManifest(operation.slice('manifest.'.length), params, startTime);
+        return await this.queryManifest(operation.slice('manifest.'.length), params, startTime);
       }
 
       // Phase sub-domain
@@ -142,7 +143,7 @@ export class PipelineHandler implements DomainHandler {
 
       // Manifest sub-domain
       if (operation.startsWith('manifest.')) {
-        return this.mutateManifest(operation.slice('manifest.'.length), params, startTime);
+        return await this.mutateManifest(operation.slice('manifest.'.length), params, startTime);
       }
 
       // Phase sub-domain
@@ -427,22 +428,22 @@ export class PipelineHandler implements DomainHandler {
   // Manifest queries
   // -----------------------------------------------------------------------
 
-  private queryManifest(
+  private async queryManifest(
     sub: string,
     params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
     switch (sub) {
       case 'show': {
         const entryId = params?.entryId as string;
         if (!entryId) {
           return this.errorResponse('query', 'manifest.show', 'E_INVALID_INPUT', 'entryId is required', startTime);
         }
-        const result = pipelineManifestShow(entryId, this.projectRoot);
+        const result = await pipelineManifestShow(entryId, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'manifest.show', startTime);
       }
       case 'list': {
-        const result = pipelineManifestList(
+        const result = await pipelineManifestList(
           (params ?? {}) as Parameters<typeof pipelineManifestList>[0],
           this.projectRoot,
         );
@@ -453,7 +454,7 @@ export class PipelineHandler implements DomainHandler {
         if (!query) {
           return this.errorResponse('query', 'manifest.find', 'E_INVALID_INPUT', 'query is required', startTime);
         }
-        const result = pipelineManifestFind(
+        const result = await pipelineManifestFind(
           query,
           { confidence: params?.confidence as number | undefined, limit: params?.limit as number | undefined },
           this.projectRoot,
@@ -461,11 +462,11 @@ export class PipelineHandler implements DomainHandler {
         return this.wrapEngineResult(result, 'query', 'manifest.find', startTime);
       }
       case 'pending': {
-        const result = pipelineManifestPending(params?.epicId as string | undefined, this.projectRoot);
+        const result = await pipelineManifestPending(params?.epicId as string | undefined, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'manifest.pending', startTime);
       }
       case 'stats': {
-        const result = pipelineManifestStats(params?.epicId as string | undefined, this.projectRoot);
+        const result = await pipelineManifestStats(params?.epicId as string | undefined, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'manifest.stats', startTime);
       }
       default:
@@ -482,12 +483,14 @@ export class PipelineHandler implements DomainHandler {
     switch (sub) {
       case 'show': {
         const phaseId = params?.phaseId as string | undefined;
-        const result = await showPhase(this.projectRoot, phaseId);
+        const showAccessor = await getAccessor(this.projectRoot);
+        const result = await showPhase(this.projectRoot, phaseId, showAccessor);
         return this.wrapEngineResult(result, 'query', 'phase.show', startTime);
       }
 
       case 'list': {
-        const result = await listPhases(this.projectRoot);
+        const listAccessor = await getAccessor(this.projectRoot);
+        const result = await listPhases(this.projectRoot, listAccessor);
         return this.wrapEngineResult(result, 'query', 'phase.list', startTime);
       }
 
@@ -501,18 +504,18 @@ export class PipelineHandler implements DomainHandler {
   // Manifest mutations
   // -----------------------------------------------------------------------
 
-  private mutateManifest(
+  private async mutateManifest(
     sub: string,
     params: Record<string, unknown> | undefined,
     startTime: number,
-  ): DispatchResponse {
+  ): Promise<DispatchResponse> {
     switch (sub) {
       case 'append': {
         const entry = params?.entry as Parameters<typeof pipelineManifestAppend>[0];
         if (!entry) {
           return this.errorResponse('mutate', 'manifest.append', 'E_INVALID_INPUT', 'entry is required', startTime);
         }
-        const result = pipelineManifestAppend(entry, this.projectRoot);
+        const result = await pipelineManifestAppend(entry, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'manifest.append', startTime);
       }
       case 'archive': {
@@ -520,7 +523,7 @@ export class PipelineHandler implements DomainHandler {
         if (!beforeDate) {
           return this.errorResponse('mutate', 'manifest.archive', 'E_INVALID_INPUT', 'beforeDate is required (ISO-8601: YYYY-MM-DD)', startTime);
         }
-        const result = pipelineManifestArchive(beforeDate, this.projectRoot);
+        const result = await pipelineManifestArchive(beforeDate, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'manifest.archive', startTime);
       }
       default:
@@ -545,12 +548,13 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'phase.set', 'E_INVALID_INPUT',
             'phaseId is required', startTime);
         }
+        const setAccessor = await getAccessor(this.projectRoot);
         const data = await setPhase({
           slug: phaseId,
           rollback: params?.rollback as boolean | undefined,
           force: params?.force as boolean | undefined,
           dryRun: params?.dryRun as boolean | undefined,
-        }, this.projectRoot);
+        }, this.projectRoot, setAccessor);
         return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.set', startTime);
       }
 
@@ -560,7 +564,8 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'phase.start', 'E_INVALID_INPUT',
             'phaseId is required', startTime);
         }
-        const data = await startPhase(phaseId, this.projectRoot);
+        const startAccessor = await getAccessor(this.projectRoot);
+        const data = await startPhase(phaseId, this.projectRoot, startAccessor);
         return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.start', startTime);
       }
 
@@ -570,13 +575,15 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'phase.complete', 'E_INVALID_INPUT',
             'phaseId is required', startTime);
         }
-        const data = await completePhase(phaseId, this.projectRoot);
+        const completeAccessor = await getAccessor(this.projectRoot);
+        const data = await completePhase(phaseId, this.projectRoot, completeAccessor);
         return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.complete', startTime);
       }
 
       case 'advance': {
         const force = params?.force as boolean | undefined;
-        const data = await advancePhase(force, this.projectRoot);
+        const advanceAccessor = await getAccessor(this.projectRoot);
+        const data = await advancePhase(force, this.projectRoot, advanceAccessor);
         return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.advance', startTime);
       }
 
@@ -587,7 +594,8 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'phase.rename', 'E_INVALID_INPUT',
             'oldName and newName are required', startTime);
         }
-        const data = await renamePhase(oldName, newName, this.projectRoot);
+        const renameAccessor = await getAccessor(this.projectRoot);
+        const data = await renamePhase(oldName, newName, this.projectRoot, renameAccessor);
         return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.rename', startTime);
       }
 
@@ -597,10 +605,11 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'phase.delete', 'E_INVALID_INPUT',
             'phaseId is required', startTime);
         }
+        const deleteAccessor = await getAccessor(this.projectRoot);
         const data = await deletePhase(phaseId, {
           reassignTo: params?.reassignTo as string | undefined,
           force: params?.force as boolean | undefined,
-        }, this.projectRoot);
+        }, this.projectRoot, deleteAccessor);
         return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.delete', startTime);
       }
 

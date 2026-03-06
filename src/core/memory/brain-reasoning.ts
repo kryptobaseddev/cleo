@@ -9,8 +9,7 @@
  * @epic T5149
  */
 
-import { readJsonRequired } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
 import { searchSimilar } from './brain-similarity.js';
 import { searchBrain } from './brain-search.js';
@@ -49,9 +48,8 @@ const MAX_DEPTH = 10;
  * and their associated brain decisions. Leaf blockers (no further unresolved
  * deps) are reported as root causes.
  */
-export async function reasonWhy(taskId: string, projectRoot: string): Promise<CausalTrace> {
-  const taskPath = getTaskPath(projectRoot);
-  const data = await readJsonRequired<TaskFile>(taskPath);
+export async function reasonWhy(taskId: string, projectRoot: string, taskAccessor?: DataAccessor): Promise<CausalTrace> {
+  const data = await taskAccessor!.loadTaskFile() as TaskFile;
   const taskMap = new Map(data.tasks.map(t => [t.id, t]));
 
   const completedStatuses = new Set(['done', 'cancelled']);

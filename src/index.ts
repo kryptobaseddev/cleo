@@ -79,17 +79,6 @@ export {
   checkGate,
 } from './core/lifecycle/index.js';
 
-// Release
-export {
-  createRelease,
-  planRelease,
-  shipRelease,
-  listReleases,
-  showRelease,
-  getChangelog,
-} from './core/release/index.js';
-export type { ShipReleaseResult } from './core/release/index.js';
-
 // System migration status + storage preflight
 export { getMigrationStatus as getSystemMigrationStatus } from './core/system/migrate.js';
 export type { MigrateResult, MigrateResult as SystemMigrateResult } from './core/system/migrate.js';

@@ -6,11 +6,10 @@
  * @epic T4654
  */
 
-import { readJsonRequired, computeChecksum, saveJson } from '../../store/json.js';
+import { computeChecksum } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir } from '../paths.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 /**
@@ -19,21 +18,8 @@ import type { DataAccessor } from '../../store/data-accessor.js';
  * @task T4659
  * @epic T4654
  */
-let cachedTaskData: { path: string; data: TaskFile; timestamp: number } | null = null;
-const CACHE_TTL_MS = 1000;
-
-async function loadTaskData(cwd?: string, accessor?: DataAccessor): Promise<TaskFile> {
-  if (accessor) {
-    return accessor.loadTaskFile();
-  }
-  const taskPath = getTaskPath(cwd);
-  const now = Date.now();
-  if (cachedTaskData && cachedTaskData.path === taskPath && (now - cachedTaskData.timestamp) < CACHE_TTL_MS) {
-    return cachedTaskData.data;
-  }
-  const data = await readJsonRequired<TaskFile>(taskPath);
-  cachedTaskData = { path: taskPath, data, timestamp: now };
-  return data;
+async function loadTaskData(_cwd?: string, accessor?: DataAccessor): Promise<TaskFile> {
+  return accessor!.loadTaskFile();
 }
 
 /**
@@ -42,7 +28,7 @@ async function loadTaskData(cwd?: string, accessor?: DataAccessor): Promise<Task
  * @epic T4654
  */
 export function invalidateDepsCache(): void {
-  cachedTaskData = null;
+  // No-op: cache removed when JSON fallback was eliminated
 }
 
 /** A node in the dependency graph. */
@@ -473,13 +459,10 @@ export interface TreeNode {
 export async function addRelation(
   taskId: string,
   relatedId: string,
-  cwd?: string,
+  _cwd?: string,
   accessor?: DataAccessor,
 ): Promise<{ taskId: string; relatedId: string }> {
-  const taskPath = getTaskPath(cwd);
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJsonRequired<TaskFile>(taskPath);
+  const data = await accessor!.loadTaskFile();
 
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) {
@@ -500,11 +483,7 @@ export async function addRelation(
   data.lastUpdated = new Date().toISOString();
   data._meta.checksum = computeChecksum(data.tasks);
 
-  if (accessor) {
-    await accessor.saveTaskFile(data);
-  } else {
-    await saveJson(taskPath, data, { backupDir: getBackupDir(cwd) });
-  }
+  await accessor!.saveTaskFile(data);
   invalidateDepsCache();
 
   return { taskId, relatedId };
