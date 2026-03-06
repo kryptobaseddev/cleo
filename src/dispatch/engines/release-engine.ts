@@ -10,6 +10,7 @@
  * @task T4788
  */
 
+import { execFileSync } from 'node:child_process';
 import { resolveProjectRoot } from '../../core/platform.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import {
@@ -273,8 +274,19 @@ export async function releasePush(
 
   try {
     const result = await pushRelease(version, remote, projectRoot, opts);
-    // Update the manifest to record pushed status
-    await markReleasePushed(result.version, result.pushedAt, projectRoot);
+    // Capture commit SHA for provenance and update the manifest
+    let commitSha: string | undefined;
+    try {
+      commitSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: projectRoot ?? process.cwd(),
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }).toString().trim();
+    } catch {
+      // Non-fatal: provenance capture is best-effort
+    }
+    const gitTag = `v${result.version.replace(/^v/, '')}`;
+    await markReleasePushed(result.version, result.pushedAt, projectRoot, { commitSha, gitTag });
     return { success: true, data: result };
   } catch (err: unknown) {
     const execError = err as { status?: number; stderr?: string; message?: string };

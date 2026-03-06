@@ -1,19 +1,22 @@
 /**
- * Release manifest operations for the releases.json data model.
+ * Release manifest operations backed by the release_manifests SQLite table.
  *
- * These functions manage the separate .cleo/releases.json file used by
- * the MCP release domain. This is distinct from the previous JSON-based
- * release tracking in index.ts.
+ * Migrated from .cleo/releases.json to SQLite per T5580.
+ * All reads/writes now go through Drizzle ORM via tasks.db.
  *
+ * @task T5580
  * @task T4788
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, renameSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
-import { readJson, saveJson } from '../../store/json.js';
+import { join } from 'node:path';
+import { eq, desc } from 'drizzle-orm';
+import { getDb } from '../../store/sqlite.js';
+import * as schema from '../../store/schema.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import { readJson } from '../../store/json.js';
 import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -31,12 +34,8 @@ export interface ReleaseManifest {
   notes?: string;
   changelog?: string;
   previousVersion?: string;
-}
-
-/** Release index structure stored in .cleo/releases.json. */
-export interface ReleasesIndex {
-  releases: ReleaseManifest[];
-  latest?: string;
+  commitSha?: string;
+  gitTag?: string;
 }
 
 /** Task record shape needed for release operations. */
@@ -51,30 +50,42 @@ export interface ReleaseTaskRecord {
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-function getReleasesPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'releases.json');
-}
-
-async function readReleases(cwd?: string): Promise<ReleasesIndex> {
-  const data = await readJson<ReleasesIndex>(getReleasesPath(cwd));
-  return data ?? { releases: [] };
-}
-
-async function writeReleases(index: ReleasesIndex, cwd?: string): Promise<void> {
-  const releasesPath = getReleasesPath(cwd);
-  const dir = dirname(releasesPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  await saveJson(releasesPath, index);
-}
-
 function isValidVersion(version: string): boolean {
   return /^v?\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/.test(version);
 }
 
 function normalizeVersion(version: string): string {
   return version.startsWith('v') ? version : `v${version}`;
+}
+
+function rowToManifest(row: schema.ReleaseManifestRow): ReleaseManifest {
+  return {
+    version: row.version,
+    status: row.status as ReleaseManifest['status'],
+    createdAt: row.createdAt,
+    preparedAt: row.preparedAt ?? undefined,
+    committedAt: row.committedAt ?? undefined,
+    taggedAt: row.taggedAt ?? undefined,
+    pushedAt: row.pushedAt ?? undefined,
+    tasks: JSON.parse(row.tasksJson) as string[],
+    notes: row.notes ?? undefined,
+    changelog: row.changelog ?? undefined,
+    previousVersion: row.previousVersion ?? undefined,
+    commitSha: row.commitSha ?? undefined,
+    gitTag: row.gitTag ?? undefined,
+  };
+}
+
+async function findLatestPushedVersion(cwd?: string): Promise<string | undefined> {
+  const db = await getDb(cwd);
+  const rows = await db
+    .select({ version: schema.releaseManifests.version })
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.status, 'pushed'))
+    .orderBy(desc(schema.releaseManifests.pushedAt))
+    .limit(1)
+    .all();
+  return rows[0]?.version;
 }
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -103,11 +114,17 @@ export async function prepareRelease(
   }
 
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
+  const db = await getDb(cwd);
 
-  const existing = index.releases.find((r) => r.version === normalizedVersion);
-  if (existing) {
-    throw new Error(`Release ${normalizedVersion} already exists (status: ${existing.status})`);
+  const existing = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
+
+  if (existing.length > 0) {
+    throw new Error(`Release ${normalizedVersion} already exists (status: ${existing[0]!.status})`);
   }
 
   let releaseTasks = tasks ?? [];
@@ -125,18 +142,20 @@ export async function prepareRelease(
   );
   releaseTasks = releaseTasks.filter((id) => !epicIds.has(id));
 
-  const release: ReleaseManifest = {
+  const previousVersion = await findLatestPushedVersion(cwd);
+  const now = new Date().toISOString();
+  const id = `rel-${normalizedVersion.replace(/[^a-z0-9]/gi, '-')}`;
+
+  await db.insert(schema.releaseManifests).values({
+    id,
     version: normalizedVersion,
     status: 'prepared',
-    createdAt: new Date().toISOString(),
-    preparedAt: new Date().toISOString(),
-    tasks: releaseTasks,
-    notes,
-    previousVersion: index.latest,
-  };
-
-  index.releases.push(release);
-  await writeReleases(index, cwd);
+    tasksJson: JSON.stringify(releaseTasks),
+    notes: notes ?? null,
+    previousVersion: previousVersion ?? null,
+    createdAt: now,
+    preparedAt: now,
+  }).run();
 
   return {
     version: normalizedVersion,
@@ -165,12 +184,20 @@ export async function generateReleaseChangelog(
   }
 
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
-  const release = index.releases.find((r) => r.version === normalizedVersion);
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
 
-  if (!release) {
+  if (rows.length === 0) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
+
+  const row = rows[0]!;
+  const releaseTasks: string[] = JSON.parse(row.tasksJson);
 
   const allTasks = await loadTasksFn();
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
@@ -182,7 +209,7 @@ export async function generateReleaseChangelog(
   const tests: string[] = [];
   const other: string[] = [];
 
-  for (const taskId of release.tasks) {
+  for (const taskId of releaseTasks) {
     const task = taskMap.get(taskId);
     if (!task) continue;
 
@@ -209,8 +236,8 @@ export async function generateReleaseChangelog(
   sections.push(`## ${normalizedVersion} (${date})`);
   sections.push('');
 
-  if (release.notes) {
-    sections.push(release.notes);
+  if (row.notes) {
+    sections.push(row.notes);
     sections.push('');
   }
 
@@ -247,8 +274,11 @@ export async function generateReleaseChangelog(
 
   const changelog = sections.join('\n');
 
-  release.changelog = changelog;
-  await writeReleases(index, cwd);
+  await db
+    .update(schema.releaseManifests)
+    .set({ changelog })
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .run();
 
   // Write or update CHANGELOG.md with section-aware merge
   const changelogPath = join(cwd ?? process.cwd(), 'CHANGELOG.md');
@@ -267,7 +297,7 @@ export async function generateReleaseChangelog(
   return {
     version: normalizedVersion,
     changelog,
-    taskCount: release.tasks.length,
+    taskCount: releaseTasks.length,
     sections: {
       features: features.length,
       fixes: fixes.length,
@@ -290,17 +320,24 @@ export async function listManifestReleases(
   total: number;
   latest?: string;
 }> {
-  const index = await readReleases(cwd);
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .orderBy(desc(schema.releaseManifests.createdAt))
+    .all();
+
+  const latest = await findLatestPushedVersion(cwd);
 
   return {
-    releases: index.releases.map((r) => ({
+    releases: rows.map((r) => ({
       version: r.version,
       status: r.status,
       createdAt: r.createdAt,
-      taskCount: r.tasks.length,
+      taskCount: (JSON.parse(r.tasksJson) as string[]).length,
     })),
-    total: index.releases.length,
-    latest: index.latest,
+    total: rows.length,
+    latest,
   };
 }
 
@@ -317,14 +354,19 @@ export async function showManifestRelease(
   }
 
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
-  const release = index.releases.find((r) => r.version === normalizedVersion);
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
 
-  if (!release) {
+  if (rows.length === 0) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
 
-  return release;
+  return rowToManifest(rows[0]!);
 }
 
 /**
@@ -340,26 +382,30 @@ export async function commitRelease(
   }
 
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
-  const release = index.releases.find((r) => r.version === normalizedVersion);
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
 
-  if (!release) {
+  if (rows.length === 0) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
 
-  if (release.status !== 'prepared') {
-    throw new Error(`Release ${normalizedVersion} is in state '${release.status}', expected 'prepared'`);
+  if (rows[0]!.status !== 'prepared') {
+    throw new Error(`Release ${normalizedVersion} is in state '${rows[0]!.status}', expected 'prepared'`);
   }
 
-  release.status = 'committed';
-  release.committedAt = new Date().toISOString();
-  await writeReleases(index, cwd);
+  const committedAt = new Date().toISOString();
+  await db
+    .update(schema.releaseManifests)
+    .set({ status: 'committed', committedAt })
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .run();
 
-  return {
-    version: normalizedVersion,
-    status: 'committed',
-    committedAt: release.committedAt,
-  };
+  return { version: normalizedVersion, status: 'committed', committedAt };
 }
 
 /**
@@ -375,23 +421,26 @@ export async function tagRelease(
   }
 
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
-  const release = index.releases.find((r) => r.version === normalizedVersion);
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
 
-  if (!release) {
+  if (rows.length === 0) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
 
-  release.status = 'tagged';
-  release.taggedAt = new Date().toISOString();
-  index.latest = normalizedVersion;
-  await writeReleases(index, cwd);
+  const taggedAt = new Date().toISOString();
+  await db
+    .update(schema.releaseManifests)
+    .set({ status: 'tagged', taggedAt })
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .run();
 
-  return {
-    version: normalizedVersion,
-    status: 'tagged',
-    taggedAt: release.taggedAt,
-  };
+  return { version: normalizedVersion, status: 'tagged', taggedAt };
 }
 
 /**
@@ -414,12 +463,20 @@ export async function runReleaseGates(
   }
 
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
-  const release = index.releases.find((r) => r.version === normalizedVersion);
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
 
-  if (!release) {
+  if (rows.length === 0) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
+
+  const row = rows[0]!;
+  const releaseTasks: string[] = JSON.parse(row.tasksJson);
 
   const gates: Array<{ name: string; status: 'passed' | 'failed'; message: string }> = [];
 
@@ -431,18 +488,18 @@ export async function runReleaseGates(
 
   gates.push({
     name: 'has_tasks',
-    status: release.tasks.length > 0 ? 'passed' : 'failed',
-    message: release.tasks.length > 0 ? `${release.tasks.length} tasks included` : 'No tasks in release',
+    status: releaseTasks.length > 0 ? 'passed' : 'failed',
+    message: releaseTasks.length > 0 ? `${releaseTasks.length} tasks included` : 'No tasks in release',
   });
 
   gates.push({
     name: 'has_changelog',
-    status: release.changelog ? 'passed' : 'failed',
-    message: release.changelog ? 'Changelog generated' : 'No changelog generated. Run release.changelog first.',
+    status: row.changelog ? 'passed' : 'failed',
+    message: row.changelog ? 'Changelog generated' : 'No changelog generated. Run release.changelog first.',
   });
 
   const allTasks = await loadTasksFn();
-  const incompleteTasks = release.tasks.filter((id) => {
+  const incompleteTasks = releaseTasks.filter((id) => {
     const task = allTasks.find((t) => t.id === id);
     return task && task.status !== 'done';
   });
@@ -485,24 +542,24 @@ export async function rollbackRelease(
   }
 
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
-  const release = index.releases.find((r) => r.version === normalizedVersion);
+  const db = await getDb(cwd);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
 
-  if (!release) {
+  if (rows.length === 0) {
     throw new Error(`Release ${normalizedVersion} not found`);
   }
 
-  const previousStatus = release.status;
-  release.status = 'rolled_back';
-
-  if (index.latest === normalizedVersion) {
-    const otherReleases = index.releases
-      .filter((r) => r.version !== normalizedVersion && r.status !== 'rolled_back')
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    index.latest = otherReleases[0]?.version;
-  }
-
-  await writeReleases(index, cwd);
+  const previousStatus = rows[0]!.status;
+  await db
+    .update(schema.releaseManifests)
+    .set({ status: 'rolled_back' })
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .run();
 
   return {
     version: normalizedVersion,
@@ -604,9 +661,6 @@ export async function pushRelease(
     }
   }
 
-  // Note: We don't update releases.json here synchronously since the
-  // caller (engine) can handle status update after this returns.
-  // The git push is the critical operation.
   execFileSync('git', ['push', targetRemote, '--follow-tags'], {
     cwd: projectRoot,
     timeout: 60000,
@@ -623,20 +677,102 @@ export async function pushRelease(
 }
 
 /**
- * Update release status after push.
+ * Update release status after push, with optional provenance fields.
  * @task T4788
+ * @task T5580
  */
 export async function markReleasePushed(
   version: string,
   pushedAt: string,
   cwd?: string,
+  provenance?: { commitSha?: string; gitTag?: string },
 ): Promise<void> {
   const normalizedVersion = normalizeVersion(version);
-  const index = await readReleases(cwd);
-  const release = index.releases.find((r) => r.version === normalizedVersion);
-  if (release) {
-    release.status = 'pushed';
-    release.pushedAt = pushedAt;
-    await writeReleases(index, cwd);
+  const db = await getDb(cwd);
+  await db
+    .update(schema.releaseManifests)
+    .set({
+      status: 'pushed',
+      pushedAt,
+      ...(provenance?.commitSha != null ? { commitSha: provenance.commitSha } : {}),
+      ...(provenance?.gitTag != null ? { gitTag: provenance.gitTag } : {}),
+    })
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .run();
+}
+
+/**
+ * One-time migration: read .cleo/releases.json and insert each release into
+ * the release_manifests table. Renames the file to releases.json.migrated on success.
+ *
+ * @task T5580
+ */
+export async function migrateReleasesJsonToSqlite(
+  projectRoot?: string,
+): Promise<{ migrated: number }> {
+  const releasesPath = join(getCleoDirAbsolute(projectRoot), 'releases.json');
+
+  if (!existsSync(releasesPath)) {
+    return { migrated: 0 };
   }
+
+  interface LegacyReleasesIndex {
+    releases: Array<{
+      version: string;
+      status: string;
+      createdAt: string;
+      preparedAt?: string;
+      committedAt?: string;
+      taggedAt?: string;
+      pushedAt?: string;
+      tasks: string[];
+      notes?: string;
+      changelog?: string;
+      previousVersion?: string;
+    }>;
+    latest?: string;
+  }
+
+  const raw = await readJson<LegacyReleasesIndex>(releasesPath);
+  if (!raw || !Array.isArray(raw.releases)) {
+    return { migrated: 0 };
+  }
+
+  const db = await getDb(projectRoot);
+  let migrated = 0;
+
+  for (const r of raw.releases) {
+    // Skip if already exists by version
+    const existing = await db
+      .select({ id: schema.releaseManifests.id })
+      .from(schema.releaseManifests)
+      .where(eq(schema.releaseManifests.version, r.version))
+      .limit(1)
+      .all();
+
+    if (existing.length > 0) continue;
+
+    const id = `rel-${r.version.replace(/[^a-z0-9]/gi, '-')}`;
+    await db.insert(schema.releaseManifests).values({
+      id,
+      version: r.version,
+      status: r.status,
+      tasksJson: JSON.stringify(r.tasks ?? []),
+      notes: r.notes ?? null,
+      changelog: r.changelog ?? null,
+      previousVersion: r.previousVersion ?? null,
+      createdAt: r.createdAt,
+      preparedAt: r.preparedAt ?? null,
+      committedAt: r.committedAt ?? null,
+      taggedAt: r.taggedAt ?? null,
+      pushedAt: r.pushedAt ?? null,
+    }).run();
+
+    migrated++;
+  }
+
+  // Rename legacy file on success
+  renameSync(releasesPath, releasesPath + '.migrated');
+
+  return { migrated };
 }
