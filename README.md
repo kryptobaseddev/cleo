@@ -169,10 +169,11 @@ mutate domain=issues  operation=add.bug  params={"title": "...", "body": "...", 
 1. [`docs/concepts/CLEO-VISION.md`](docs/concepts/CLEO-VISION.md) - immutable product vision
 2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
 3. [`docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md`](docs/specs/CLEO-AUTONOMOUS-RUNTIME-SPEC.md) - normative mapping for The Hearth through The Proving across existing domains and hooks
-4. [`docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md`](docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md) - concrete TypeScript vs Rust ownership and IPC boundaries for the autonomous runtime
-5. [`README.md`](README.md) - operational public contract
-6. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
-7. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
+4. [`docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`](docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md) - normative relay contract for Conduit: envelopes, addressing, leases, acknowledgement, retry, and runtime IPC
+5. [`docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md`](docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md) - concrete TypeScript vs Rust ownership and IPC boundaries for the autonomous runtime
+6. [`README.md`](README.md) - operational public contract
+7. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
+8. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
 
 ---
 

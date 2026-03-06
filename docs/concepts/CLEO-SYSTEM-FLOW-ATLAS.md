@@ -53,7 +53,7 @@ The live workshop also has named runtime forms for autonomous motion. These name
 | Term | Runtime Type | Primary Domain(s) | Meaning |
 |------|--------------|-------------------|---------|
 | **The Hearth** | surface | session, orchestrate, tools | Terminal-facing workshop surface where active sessions, roles, and capabilities gather |
-| **The Circle of Ten** | role overlay | all domains | Role overlay mapped 1:1 to the canonical domains: Smiths, Weavers, Conductors, Artificers, Archivists, Scribes, Wardens, Wayfinders, Envoys, Keepers |
+| **The Circle of Ten** | role overlay | all domains | Role overlay mapped 1:1 to the canonical domains: Smiths, Weavers, Conductors, Artificers, Archivists, Scribes, Wardens, Wayfinders, Catchers, Keepers |
 | **The Impulse** | motion | orchestrate, pipeline, tasks | Self-propelling motion that advances ready work through governed chains |
 | **Conduit** | relay path | orchestrate, session, nexus | Agent relay path using LAFS envelopes and A2A delegation only. `sticky` may hold drafted handoff material, but it is not the live relay lane |
 | **Watchers** | patrols | pipeline, orchestrate, check, admin | Long-running Cascades that patrol health, continuity, and gate state |

@@ -298,7 +298,7 @@ CLEO’s runtime is governed by ten canonical domains. In myth, they are the ten
 | `tools` | The Artificers | Manage skills, providers, issues, and the CAAMP catalog |
 | `admin` | The Keepers | Maintain config, backup, migration, and systemic health |
 | `nexus` | The Wayfinders | Govern cross-project graphs, registries, and routefinding |
-| `sticky` | The Envoys | Carry quick captures and draft handoffs until they are formally bound; live agent relay belongs to Conduit |
+| `sticky` | The Catchers | Carry quick captures and draft handoffs until they are formally bound; live agent relay belongs to Conduit |
 
 Treat them as story if you need memory.
 

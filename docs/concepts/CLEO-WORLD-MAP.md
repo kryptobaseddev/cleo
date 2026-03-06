@@ -132,7 +132,7 @@ The live workshop also has named runtime forms:
                  |                                       |
         +--------+--------+                     +--------+--------+
         |   orchestrate   |                     |     sticky      |
-        |  The Conductors |                     |    The Envoys   |
+        |  The Conductors |                     |   The Catchers  |
         +--------+--------+                     +--------+--------+
                  |                                       |
                  +-------------------+-------------------+
@@ -158,7 +158,7 @@ The live workshop also has named runtime forms:
                             +-----------------+
 ```
 
-The Envoys keep the provisional edge of the realm: capture, draft handoff, and promotion. Live A2A relay belongs to Conduit. Cross-project share operations still travel through `nexus.share.*`; they do not create an eleventh house.
+The Catchers keep the provisional edge of the realm: capture, draft handoff, and promotion. Live A2A relay belongs to Conduit. Cross-project share operations still travel through `nexus.share.*`; they do not create an eleventh house.
 
 ---
 

@@ -40,6 +40,7 @@ The autonomous runtime MUST obey the following constraints:
 6. All autonomous work MUST remain governed by Warp chains and lifecycle gates.
 7. Tessera-driven decomposition remains the canonical way to generate repeatable work patterns.
 8. The autonomous runtime is layered on the existing hook substrate; it does not replace the dispatch-first shared core.
+9. `sticky` remains the stable protocol slug for provisional capture. The Catchers are the Circle of Ten house for that domain, and Conduit owns live relay.
 
 ---
 
@@ -103,10 +104,10 @@ The Circle of Ten is a role overlay, not a new namespace. Each aspect maps direc
 | The Scribes | `session` | Hold the immediate present, handoffs, and working context |
 | The Wardens | `check` | Judge whether work may pass gates, tests, and validations |
 | The Wayfinders | `nexus` | Govern the star road, cross-project lookup, and `nexus.share.*` relay |
-| The Envoys | `sticky` | Carry quick captures, draft handoffs, and promotable notes |
+| The Catchers | `sticky` | Carry quick captures, draft handoffs, and promotable notes |
 | The Keepers | `admin` | Maintain health, backup, sequencing, and runtime continuity |
 
-`sticky` is the house of the Envoys. It is a provisional shelf, not the live A2A lane. Cross-project sharing remains under `nexus.share.*` and belongs to the Wayfinders.
+`sticky` is the house of the Catchers. It is a provisional shelf, not the live A2A lane. Cross-project sharing remains under `nexus.share.*` and belongs to the Wayfinders.
 
 ---
 
@@ -225,3 +226,4 @@ The autonomous runtime does not:
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
 - `docs/specs/CAAMP-INTEGRATION-SPEC.md`
 - `docs/specs/CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md`
+- `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`

@@ -111,6 +111,8 @@ That is the purpose of **Sticky Notes**.
 
 Sticky Notes are deliberately plainspoken because they serve a plainspoken need. They are the quick captures stuck to the edge of the workbench: raw thoughts, half-ideas, reminders, fragments, cautions, sparks. They are not yet shaped enough to deserve a Thread, and not yet stable enough to belong to BRAIN, but too important to trust to memory for even an hour.
 
+In runtime language, this is the Catchers' shelf: a human-facing capture surface, not a live relay path.
+
 Their power lies in their lack of ceremony. They are immediate. They are visible. They do not demand task binding, session binding, or a doctrinal commitment to what they will become. They exist so the builder can catch the thought now and decide what it is later.
 
 If a Sticky Note proves trivial, it disappears with no drama. If it matters, it can be promoted.
@@ -144,7 +146,7 @@ These names are not one flat class of "stations." They are different kinds of ru
 - **The Scribes** keep the house of `session`
 - **The Wardens** keep the house of `check`
 - **The Wayfinders** keep the house of `nexus`
-- **The Envoys** keep the house of `sticky`
+- **The Catchers** keep the house of `sticky`
 - **The Keepers** keep the house of `admin`
 
 **The Impulse** is runtime motion. It is what notices ready work, picks it up without waiting for ceremony, and advances it through governed chains. It is motion under discipline, not ad-hoc restlessness.
@@ -181,7 +183,7 @@ The `memory` domain is the deep archive beneath Tome. It keeps the durable subst
 
 The `session` domain is the lit worktable. It holds the immediate context, the open tools, the present focus, and the notes that only matter while the hands are still warm.
 
-The `sticky` domain is the courier shelf of the Envoys. It catches fast notes, draft handoffs, and provisional captures before they are promoted into a Thread, Session Note, Task Note, or BRAIN Observation. It is not the live agent-to-agent message path.
+The `sticky` domain is the provisional shelf of the Catchers. It catches fast notes, draft handoffs, and provisional captures before they are promoted into a Thread, Session Note, Task Note, or BRAIN Observation. It is not the live agent-to-agent message path. In surface language, it may be presented as the Capture Shelf while the protocol slug remains `sticky`.
 
 The `check` domain is the gatehouse. It does not weave, turn, or compose. It judges whether the thing may pass.
 

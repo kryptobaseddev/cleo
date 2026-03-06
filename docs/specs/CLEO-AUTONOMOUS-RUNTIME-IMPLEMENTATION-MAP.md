@@ -93,7 +93,7 @@ The canonical rule is simple:
 - **Conduit carries live A2A traffic**
 - **sticky holds provisional capture**
 
-The Envoys steward the provisional edge of the realm, but they do not replace Conduit as the message lane.
+The Catchers steward the provisional edge of the realm, but they do not replace Conduit as the message lane.
 
 ### 5.1 Minimum Conduit Tooling
 
@@ -105,6 +105,8 @@ The Envoys steward the provisional edge of the realm, but they do not replace Co
 4. durable runtime relay history for crash recovery
 5. inspection surfaces for inbox, outbox, and failed delivery state
 6. explicit separation between live delivery and promoted handoff artifacts
+
+See `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md` for the normative delivery contract.
 
 ### 5.2 Sticky Restrictions
 
