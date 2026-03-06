@@ -5,15 +5,15 @@ Agent: docs-mapper
 
 ## Summary
 
-The vision.md Document Authority Hierarchy (lines 520-532) and AGENTS.md both reference specs at `docs/specs/` paths, but most canonical specs only exist at `docs/mintlify/specs/`. Line 532 of vision.md explicitly acknowledges this: "Specs at priority 2, 4, and 5 are currently in `docs/mintlify/specs/` awaiting validation and promotion to `docs/specs/`."
+The CLEO-VISION.md Document Authority Hierarchy (lines 520-532) and AGENTS.md both reference specs at `docs/specs/` paths, but most canonical specs only exist at `docs/mintlify/specs/`. Line 532 of CLEO-VISION.md explicitly acknowledges this: "Specs at priority 2, 4, and 5 are currently in `docs/mintlify/specs/` awaiting validation and promotion to `docs/specs/`."
 
-## Document Authority Hierarchy (vision.md lines 16-21)
+## Document Authority Hierarchy (CLEO-VISION.md lines 16-21)
 
 These five documents form the canonical read order:
 
 | # | Document | Expected Path | Actual Path | Action |
 |---|----------|---------------|-------------|--------|
-| 1 | Vision (this doc) | `docs/concepts/vision.md` | `docs/concepts/vision.md` | OK |
+| 1 | Vision (this doc) | `docs/concepts/CLEO-VISION.md` | `docs/concepts/CLEO-VISION.md` | OK |
 | 2 | Portable Brain Spec | `docs/specs/PORTABLE-BRAIN-SPEC.md` | `docs/mintlify/specs/PORTABLE-BRAIN-SPEC.md` | **MOVE** |
 | 3 | README | `README.md` | `README.md` | OK |
 | 4 | Strategic Roadmap | `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | `docs/mintlify/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | **MOVE** |
@@ -45,9 +45,9 @@ Priority-ordered by reference count and authority:
 
 | # | Document | Actual Location | Move To | References | Notes |
 |---|----------|----------------|---------|------------|-------|
-| 1 | PORTABLE-BRAIN-SPEC.md | `docs/mintlify/specs/` | `docs/specs/` | vision.md, README.md, detect-drift.ts, 20+ specs | Authority hierarchy #2 |
-| 2 | CLEO-STRATEGIC-ROADMAP-SPEC.md | `docs/mintlify/specs/` | `docs/specs/` | vision.md, README.md, ADRs, 15+ specs | Authority hierarchy #4 |
-| 3 | CLEO-BRAIN-SPECIFICATION.md | `docs/mintlify/specs/` | `docs/specs/` | vision.md, README.md, ADRs, 10+ specs | Authority hierarchy #5 |
+| 1 | PORTABLE-BRAIN-SPEC.md | `docs/mintlify/specs/` | `docs/specs/` | CLEO-VISION.md, README.md, detect-drift.ts, 20+ specs | Authority hierarchy #2 |
+| 2 | CLEO-STRATEGIC-ROADMAP-SPEC.md | `docs/mintlify/specs/` | `docs/specs/` | CLEO-VISION.md, README.md, ADRs, 15+ specs | Authority hierarchy #4 |
+| 3 | CLEO-BRAIN-SPECIFICATION.md | `docs/mintlify/specs/` | `docs/specs/` | CLEO-VISION.md, README.md, ADRs, 10+ specs | Authority hierarchy #5 |
 | 4 | CLEO-OPERATIONS-REFERENCE.md | `docs/mintlify/specs/` | `docs/specs/` | AGENTS.md, detect-drift.ts, commands.ts, ADRs | Core ops reference |
 | 5 | MCP-SERVER-SPECIFICATION.md | `docs/mintlify/specs/` | `docs/specs/` | AGENTS.md, 3 src/mcp/lib/ files, 8+ specs | MCP contract |
 | 6 | MCP-AGENT-INTERACTION-SPEC.md | `docs/mintlify/specs/` | `docs/specs/` | AGENTS.md, 5+ specs | Agent interaction patterns |
@@ -59,7 +59,7 @@ Priority-ordered by reference count and authority:
 | Document | Location | Status |
 |----------|----------|--------|
 | VERB-STANDARDS.md | `docs/specs/VERB-STANDARDS.md` | Already in docs/specs (also exists in mintlify/specs — remove duplicate after move) |
-| vision.md | `docs/concepts/vision.md` | Correct location |
+| CLEO-VISION.md | `docs/concepts/CLEO-VISION.md` | Correct location |
 | README.md | `README.md` | Correct location |
 
 ## Ghost Reference (Doc Does Not Exist)

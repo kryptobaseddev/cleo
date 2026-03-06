@@ -253,7 +253,7 @@ export class ProtocolEnforcer {
     next: () => Promise<DomainResponse>
   ): Promise<DomainResponse> {
     // Only enforce on mutate operations that may create outputs
-    if (request.gateway !== 'cleo_mutate') {
+    if (request.gateway !== 'mutate') {
       return next();
     }
 
@@ -320,8 +320,8 @@ export class ProtocolEnforcer {
   private requiresProtocolValidation(request: DomainRequest): boolean {
     // Operations that create outputs requiring validation
     const validatedOperations = [
-      'research.inject',
-      'research.manifest.append',
+      'session.context.inject',
+      'pipeline.manifest.append',
       'orchestrate.spawn',
       'tasks.complete',
       'release.prepare',

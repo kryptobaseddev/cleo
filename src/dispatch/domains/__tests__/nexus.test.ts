@@ -21,6 +21,9 @@ vi.mock('../../../core/nexus/query.js', () => ({
 vi.mock('../../../core/nexus/deps.js', () => ({
   nexusDeps: vi.fn(),
   buildGlobalGraph: vi.fn(),
+  criticalPath: vi.fn(),
+  blockingAnalysis: vi.fn(),
+  orphanDetection: vi.fn(),
 }));
 
 vi.mock('../../../core/nexus/permissions.js', () => ({
@@ -48,7 +51,7 @@ import {
   readRegistry,
 } from '../../../core/nexus/registry.js';
 import { resolveTask, validateSyntax } from '../../../core/nexus/query.js';
-import { nexusDeps, buildGlobalGraph } from '../../../core/nexus/deps.js';
+import { nexusDeps, buildGlobalGraph, criticalPath, blockingAnalysis, orphanDetection } from '../../../core/nexus/deps.js';
 import { setPermission } from '../../../core/nexus/permissions.js';
 
 describe('NexusHandler', () => {
@@ -253,6 +256,73 @@ describe('NexusHandler', () => {
     });
   });
 
+  describe('query: path.show', () => {
+    it('returns critical path analysis', async () => {
+      vi.mocked(criticalPath).mockResolvedValue({
+        criticalPath: [{ query: 'project-a:T001', title: 'Task 1' }],
+        length: 1,
+        blockedBy: 'project-a:T001',
+      });
+
+      const result = await handler.query('path.show');
+
+      expect(result.success).toBe(true);
+      expect(criticalPath).toHaveBeenCalled();
+    });
+  });
+
+  describe('query: blockers.show', () => {
+    it('returns error when query param is missing', async () => {
+      const result = await handler.query('blockers.show', {});
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_INVALID_INPUT');
+    });
+
+    it('returns blocking impact analysis', async () => {
+      vi.mocked(blockingAnalysis).mockResolvedValue({
+        task: 'project-a:T001',
+        blocking: [{ query: 'project-b:T002', project: 'project-b' }],
+        impactScore: 1,
+      });
+
+      const result = await handler.query('blockers.show', { query: 'project-a:T001' });
+
+      expect(result.success).toBe(true);
+      expect(blockingAnalysis).toHaveBeenCalledWith('project-a:T001');
+    });
+  });
+
+  describe('query: orphans.list', () => {
+    it('returns orphaned dependency list', async () => {
+      vi.mocked(orphanDetection).mockResolvedValue([
+        {
+          sourceProject: 'project-a',
+          sourceTask: 'T001',
+          targetProject: 'project-b',
+          targetTask: 'T999',
+          reason: 'task_not_found',
+        },
+      ]);
+
+      const result = await handler.query('orphans.list');
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        orphans: [
+          {
+            sourceProject: 'project-a',
+            sourceTask: 'T001',
+            targetProject: 'project-b',
+            targetTask: 'T999',
+            reason: 'task_not_found',
+          },
+        ],
+        count: 1,
+      });
+    });
+  });
+
   // -----------------------------------------------------------------------
   // Mutate operations
   // -----------------------------------------------------------------------
@@ -394,8 +464,8 @@ describe('NexusHandler', () => {
     it('returns all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toEqual(['status', 'list', 'show', 'query', 'deps', 'graph']);
-      expect(ops.mutate).toEqual(['init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set']);
+      expect(ops.query).toEqual(['status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'critical-path', 'blocking', 'orphans', 'discover', 'search', 'share.status', 'share.remotes', 'share.sync.status']);
+      expect(ops.mutate).toEqual(['init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set', 'reconcile', 'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore', 'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull']);
     });
   });
 

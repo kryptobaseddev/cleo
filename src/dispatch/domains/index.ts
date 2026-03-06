@@ -5,6 +5,7 @@
  * are created by parallel agents -- that is expected.
  *
  * @epic T4820
+ * @task T5277 - sharing merged into nexus
  */
 
 import type { DomainHandler } from '../types.js';
@@ -17,18 +18,19 @@ import { OrchestrateHandler } from './orchestrate.js';
 import { PipelineHandler } from './pipeline.js';
 import { ToolsHandler } from './tools.js';
 import { NexusHandler } from './nexus.js';
-import { SharingHandler } from './sharing.js';
+import { StickyHandler } from './sticky.js';
 
 export {
   TasksHandler, SessionHandler, CheckHandler, AdminHandler, MemoryHandler,
-  OrchestrateHandler, PipelineHandler, ToolsHandler, NexusHandler, SharingHandler,
+  OrchestrateHandler, PipelineHandler, ToolsHandler, NexusHandler, StickyHandler,
 };
 
 /**
- * Create a Map of all 9 canonical domain handlers.
+ * Create a Map of all canonical domain handlers.
  */
 export function createDomainHandlers(): Map<string, DomainHandler> {
   const handlers = new Map<string, DomainHandler>();
+
   handlers.set('tasks', new TasksHandler());
   handlers.set('session', new SessionHandler());
   handlers.set('memory', new MemoryHandler());
@@ -38,6 +40,6 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('tools', new ToolsHandler());
   handlers.set('admin', new AdminHandler());
   handlers.set('nexus', new NexusHandler());
-  handlers.set('sharing', new SharingHandler());
+  handlers.set('sticky', new StickyHandler());
   return handlers;
 }

@@ -82,7 +82,7 @@ describe('taskComplete', () => {
 
   it('returns E_TASK_COMPLETED (exitCode 104) when task is already done', async () => {
     const alreadyDoneErr = new Error('Task T100 is already completed');
-    (alreadyDoneErr as Error & { exitCode: number }).exitCode = 104;
+    (alreadyDoneErr as Error & { code: number }).code = 17;
     mockCompleteTask.mockRejectedValue(alreadyDoneErr);
 
     const result = await taskComplete(projectRoot, 'T100');
@@ -115,7 +115,7 @@ describe('taskComplete', () => {
 
   it('returns E_NOT_FOUND with exitCode 4 when task does not exist', async () => {
     const notFoundErr = new Error("Task not found: T999");
-    (notFoundErr as Error & { exitCode: number }).exitCode = 4;
+    (notFoundErr as Error & { code: number }).code = 4;
     mockCompleteTask.mockRejectedValue(notFoundErr);
 
     const result = await taskComplete(projectRoot, 'T999');

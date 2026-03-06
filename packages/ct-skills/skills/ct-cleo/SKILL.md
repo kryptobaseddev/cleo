@@ -19,9 +19,9 @@ CLEO is the task management protocol for AI coding agents. It provides structure
 
 ## MCP-First Workflow
 
-MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate` for writes.
+MCP is the **primary** entry point. Use `query` for reads and `mutate` for writes.
 
-### Key Read Operations (`cleo_query`)
+### Key Read Operations (`query`)
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
@@ -42,8 +42,10 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `skills` | `show` | Skill details (`params: { name }`) |
 | `pipeline` | `stage.status` | Pipeline stage for epic (`params: { epicId }`) |
 | `pipeline` | `stage.validate` | Validate gate before advancing (`params: { epicId, stage }`) |
+| `sticky` | `list` | List sticky notes (`params: { status?, tag? }`) |
+| `sticky` | `show` | Show sticky details (`params: { stickyId }`) |
 
-### Key Write Operations (`cleo_mutate`)
+### Key Write Operations (`mutate`)
 
 | Domain | Operation | Description |
 |--------|-----------|-------------|
@@ -58,6 +60,9 @@ MCP is the **primary** entry point. Use `cleo_query` for reads and `cleo_mutate`
 | `orchestrate` | `spawn` | Generate spawn prompt for subagent (`params: { taskId }`) |
 | `pipeline` | `stage.record` | Record pipeline stage progress (`params: { epicId, stage, status }`) |
 | `pipeline` | `stage.gate.pass` | Advance pipeline to next stage (`params: { epicId, stage }`) |
+| `sticky` | `add` | Create sticky note (`params: { content, tags?, color?, priority? }`) |
+| `sticky` | `convert` | Convert to task/memory (`params: { stickyId, targetType }`) |
+| `sticky` | `archive` | Archive sticky (`params: { stickyId }`) |
 
 ## CLI Fallback
 
@@ -71,6 +76,10 @@ ct add "Task title"        # Create task
 ct complete T1234          # Complete task
 ct start T1234             # Start working on task
 ct dash                    # Project overview
+
+ct sticky add "Quick note"     # Create sticky note
+ct sticky list                 # List active stickies
+ct sticky show SN-001          # Show sticky details
 ```
 
 ## Task Discovery (Context Efficiency)
@@ -157,10 +166,10 @@ ct session end --note "Progress"
 ### MCP Session Operations
 
 ```
-cleo_mutate({ domain: "session", operation: "start",
+mutate({ domain: "session", operation: "start",
   params: { scope: "epic:T001", name: "Work", autoStart: true }})
-cleo_query({ domain: "session", operation: "status" })
-cleo_mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
+query({ domain: "session", operation: "status" })
+mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
 ```
 
 ## Error Handling
@@ -182,7 +191,7 @@ After EVERY command:
 
 ## RCSD-IVTR Lifecycle (LOOM)
 
-**LOOM** (Logical Order of Operations Methodology) is the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. See `docs/concepts/vision.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
+**LOOM** (Logical Order of Operations Methodology) is the systematic framework for how CLEO processes project threads through the RCASD-IVTR+C pipeline. See `docs/concepts/CLEO-VISION.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
 
 **Lifecycle**: See CLEO-INJECTION.md standard tier for full RCASD-IVTR+C pipeline details, or `references/loom-lifecycle.md` for gate enforcement and subagent architecture.
 

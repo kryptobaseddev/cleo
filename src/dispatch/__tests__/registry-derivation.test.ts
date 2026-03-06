@@ -11,7 +11,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   OPERATIONS,
-  LEGACY_DOMAIN_ALIASES,
   deriveGatewayMatrix,
   getGatewayDomains,
 } from '../registry.js';
@@ -57,6 +56,12 @@ describe('deriveGatewayMatrix', () => {
       expect(queryMatrix.session).toContain('handoff.show');
     });
 
+    it('nexus query domain exposes analysis operations', () => {
+      expect(queryMatrix.nexus).toContain('path.show');
+      expect(queryMatrix.nexus).toContain('blockers.show');
+      expect(queryMatrix.nexus).toContain('orphans.list');
+    });
+
     it('tasks mutate domain has expected operations', () => {
       expect(mutateMatrix.tasks).toContain('add');
       expect(mutateMatrix.tasks).toContain('update');
@@ -64,62 +69,34 @@ describe('deriveGatewayMatrix', () => {
       expect(mutateMatrix.tasks).toContain('start');
       expect(mutateMatrix.tasks).toContain('stop');
     });
+
+    it('orchestrate mutate domain includes composite handoff', () => {
+      expect(mutateMatrix.orchestrate).toContain('handoff');
+    });
   });
 
   describe('legacy alias entries', () => {
-    it('research alias maps to memory with no prefix (all memory ops)', () => {
-      expect(queryMatrix.research).toBeDefined();
-      expect(queryMatrix.research).toEqual(queryMatrix.memory);
-    });
-
-    it('validate alias maps to check with no prefix', () => {
-      expect(queryMatrix.validate).toEqual(queryMatrix.check);
-    });
-
-    it('lifecycle alias maps to pipeline with stage. prefix stripped', () => {
-      expect(queryMatrix.lifecycle).toBeDefined();
-      expect(queryMatrix.lifecycle).toContain('validate');
-      expect(queryMatrix.lifecycle).toContain('status');
-      expect(queryMatrix.lifecycle).toContain('history');
-      expect(queryMatrix.lifecycle).toContain('gates');
-      expect(queryMatrix.lifecycle).toContain('prerequisites');
-    });
-
-    it('release alias maps to pipeline with release. prefix stripped', () => {
-      // release only has mutate ops
+    it('does not expose legacy alias domains in query matrix', () => {
+      expect(queryMatrix.research).toBeUndefined();
+      expect(queryMatrix.validate).toBeUndefined();
+      expect(queryMatrix.lifecycle).toBeUndefined();
       expect(queryMatrix.release).toBeUndefined();
-      expect(mutateMatrix.release).toBeDefined();
-      expect(mutateMatrix.release).toContain('prepare');
-      expect(mutateMatrix.release).toContain('changelog');
-      expect(mutateMatrix.release).toContain('tag');
-      expect(mutateMatrix.release).toContain('rollback');
+      expect(queryMatrix.system).toBeUndefined();
+      expect(queryMatrix.skills).toBeUndefined();
+      expect(queryMatrix.providers).toBeUndefined();
+      expect(queryMatrix.issues).toBeUndefined();
     });
 
-    it('skills alias maps to tools with skill. prefix stripped', () => {
-      expect(queryMatrix.skills).toBeDefined();
-      expect(queryMatrix.skills).toContain('list');
-      expect(queryMatrix.skills).toContain('show');
-      expect(queryMatrix.skills).toContain('find');
+    it('does not expose legacy alias domains in mutate matrix', () => {
+      expect(mutateMatrix.research).toBeUndefined();
+      expect(mutateMatrix.validate).toBeUndefined();
+      expect(mutateMatrix.lifecycle).toBeUndefined();
+      expect(mutateMatrix.release).toBeUndefined();
+      expect(mutateMatrix.system).toBeUndefined();
+      expect(mutateMatrix.skills).toBeUndefined();
+      expect(mutateMatrix.providers).toBeUndefined();
+      expect(mutateMatrix.issues).toBeUndefined();
     });
-
-    it('providers alias maps to tools with provider. prefix stripped', () => {
-      expect(queryMatrix.providers).toBeDefined();
-      expect(queryMatrix.providers).toContain('list');
-      expect(queryMatrix.providers).toContain('detect');
-    });
-
-    it('issues alias maps to tools with issue. prefix stripped', () => {
-      expect(queryMatrix.issues).toBeDefined();
-      expect(queryMatrix.issues).toContain('diagnostics');
-    });
-
-    it('system alias maps to admin with no prefix', () => {
-      expect(queryMatrix.system).toEqual(queryMatrix.admin);
-    });
-  });
-
-  it('release domain does not appear in query gateway', () => {
-    expect(queryMatrix.release).toBeUndefined();
   });
 
   it('total canonical operation count matches OPERATIONS array', () => {
@@ -152,32 +129,16 @@ describe('deriveGatewayMatrix', () => {
   });
 });
 
-describe('LEGACY_DOMAIN_ALIASES', () => {
-  it('has 8 legacy aliases', () => {
-    expect(Object.keys(LEGACY_DOMAIN_ALIASES)).toHaveLength(8);
-  });
-
-  it('all aliases map to valid canonical domains', () => {
-    const canonicalSet = new Set(CANONICAL_DOMAINS as readonly string[]);
-    for (const [alias, { canonical }] of Object.entries(LEGACY_DOMAIN_ALIASES)) {
-      expect(
-        canonicalSet.has(canonical),
-        `Legacy alias '${alias}' maps to invalid canonical domain '${canonical}'`,
-      ).toBe(true);
-    }
-  });
-});
-
 describe('getGatewayDomains', () => {
-  it('returns canonical + legacy domains for query', () => {
+  it('returns canonical domains for query', () => {
     const domains = getGatewayDomains('query');
-    // 10 canonical + 7 legacy (release excluded from query)
-    expect(domains).toHaveLength(17);
+    expect(domains).toHaveLength(10);
+    expect(new Set(domains)).toEqual(new Set(CANONICAL_DOMAINS));
   });
 
-  it('returns canonical + legacy domains for mutate', () => {
+  it('returns canonical domains for mutate', () => {
     const domains = getGatewayDomains('mutate');
-    // 10 canonical + 8 legacy (release included in mutate)
-    expect(domains).toHaveLength(18);
+    expect(domains).toHaveLength(10);
+    expect(new Set(domains)).toEqual(new Set(CANONICAL_DOMAINS));
   });
 });

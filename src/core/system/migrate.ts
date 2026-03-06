@@ -3,10 +3,11 @@
  * @task T4783
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 export interface MigrateResult {
   from: string;
@@ -16,22 +17,23 @@ export interface MigrateResult {
 }
 
 /** Check/report schema migration status. */
-export function getMigrationStatus(
+export async function getMigrationStatus(
   projectRoot: string,
   opts?: { target?: string; dryRun?: boolean },
-): MigrateResult {
-  const taskPath = join(projectRoot, '.cleo', 'tasks.json');
+): Promise<MigrateResult> {
+  const taskPath = join(projectRoot, '.cleo', 'tasks.db');
 
   let currentVersion = 'unknown';
   if (existsSync(taskPath)) {
     try {
-      const taskFile = JSON.parse(readFileSync(taskPath, 'utf-8'));
+      const accessor = await getAccessor(projectRoot);
+      const taskFile = await accessor.loadTaskFile();
       currentVersion = taskFile._meta?.schemaVersion ?? taskFile.version ?? 'unknown';
     } catch {
-      throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.json');
+      throw new CleoError(ExitCode.FILE_ERROR, 'Failed to read tasks.db');
     }
   } else {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.json found');
+    throw new CleoError(ExitCode.CONFIG_ERROR, 'No tasks.db found');
   }
 
   const targetVersion = opts?.target ?? currentVersion;

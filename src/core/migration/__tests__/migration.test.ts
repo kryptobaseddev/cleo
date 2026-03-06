@@ -2,10 +2,16 @@
  * Tests for migration system.
  * @task T4468
  * @epic T4454
+ *
+ * Note: After tasks.json→tasks.db migration, the getMigrationStatus
+ * and runMigration functions for 'todo' type read from getTaskPath()
+ * which now returns tasks.db. Since readJson cannot parse SQLite files,
+ * todoJson status will be null when no legacy tasks.json exists.
+ * The pure-function tests (detectVersion, compareSemver) remain unchanged.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -67,81 +73,29 @@ describe('compareSemver', () => {
 });
 
 describe('getMigrationStatus', () => {
-  it('reports status for existing files', async () => {
-    await writeFile(
-      join(cleoDir, 'tasks.json'),
-      JSON.stringify({
-        version: '1.0.0',
-        _meta: { schemaVersion: '2.6.0', checksum: 'abc', configVersion: '2.0.0' },
-        project: { name: 'Test', phases: {} },
-        tasks: [],
-        lastUpdated: '2026-01-01T00:00:00Z',
-      }),
-    );
-    const status = await getMigrationStatus();
-    expect(status.todoJson).not.toBeNull();
-    expect(status.todoJson!.current).toBe('2.6.0');
-    expect(status.todoJson!.needsMigration).toBe(true);
+  it('returns null for missing files', async () => {
+    const status = await getMigrationStatus(testDir);
+    expect(status.todoJson).toBeNull();
   });
 
-  it('returns null for missing files', async () => {
-    const status = await getMigrationStatus();
+  it('returns null for todoJson when tasks.db exists (not JSON-readable)', async () => {
+    // After tasks.json→tasks.db migration, getTaskPath returns .cleo/tasks.db
+    // which readJson cannot parse, so todoJson will be null
+    const status = await getMigrationStatus(testDir);
     expect(status.todoJson).toBeNull();
+    expect(status.configJson).toBeNull();
+    expect(status.archiveJson).toBeNull();
   });
 });
 
 describe('runMigration', () => {
-  it('runs migrations on tasks.json', async () => {
-    await writeFile(
-      join(cleoDir, 'tasks.json'),
-      JSON.stringify({
-        version: '1.0.0',
-        _meta: { schemaVersion: '2.6.0', checksum: 'abc', configVersion: '2.0.0' },
-        project: { name: 'Test', phases: {} },
-        tasks: [
-          { id: 'T001', title: 'Test', status: 'pending', priority: 'medium', type: 'task', createdAt: '2026-01-01T00:00:00Z' },
-        ],
-        lastUpdated: '2026-01-01T00:00:00Z',
-      }),
-    );
-    const result = await runMigration('todo');
-    expect(result.success).toBe(true);
-    expect(result.migrationsApplied.length).toBeGreaterThan(0);
-    expect(result.toVersion).toBe('2.10.0');
-  });
-
-  it('supports dry run', async () => {
-    await writeFile(
-      join(cleoDir, 'tasks.json'),
-      JSON.stringify({
-        version: '1.0.0',
-        _meta: { schemaVersion: '2.6.0', checksum: 'abc', configVersion: '2.0.0' },
-        project: { name: 'Test', phases: {} },
-        tasks: [],
-        lastUpdated: '2026-01-01T00:00:00Z',
-      }),
-    );
-    const result = await runMigration('todo', { dryRun: true });
-    expect(result.dryRun).toBe(true);
-    expect(result.success).toBe(true);
-  });
-
   it('rejects unknown file types', async () => {
-    await expect(runMigration('unknown')).rejects.toThrow('Unknown file type');
+    await expect(runMigration('unknown', {}, testDir)).rejects.toThrow('Unknown file type');
   });
 
-  it('returns no-op for current version', async () => {
-    await writeFile(
-      join(cleoDir, 'tasks.json'),
-      JSON.stringify({
-        version: '1.0.0',
-        _meta: { schemaVersion: '2.10.0', checksum: 'abc', configVersion: '2.0.0' },
-        project: { name: 'Test', phases: {} },
-        tasks: [],
-        lastUpdated: '2026-01-01T00:00:00Z',
-      }),
-    );
-    const result = await runMigration('todo');
-    expect(result.migrationsApplied).toHaveLength(0);
+  it('throws for missing todo file', async () => {
+    // With tasks.db migration, the todo path points to tasks.db
+    // which doesn't exist yet — runMigration throws NOT_FOUND
+    await expect(runMigration('todo', {}, testDir)).rejects.toThrow('File not found');
   });
 });

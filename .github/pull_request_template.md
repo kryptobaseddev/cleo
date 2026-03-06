@@ -5,6 +5,13 @@
 - [ ] `develop` — Normal feature/fix (default)
 - [ ] `main` — Hotfix only (bypasses develop, requires back-merge to develop after)
 
+## Process compliance (required)
+
+- [ ] I did **not** push directly to a protected branch (`develop`/`main`)
+- [ ] This PR comes from a feature/fix/docs/test/refactor/chore branch
+- [ ] Commit messages use `<type>: <summary> (T####)`
+- [ ] I will only tag/release from protected branch state after required checks pass
+
 ## Summary
 
 <!-- What does this PR do? 1-3 bullet points. -->
@@ -34,8 +41,9 @@ Closes #
 
 <!-- Describe the tests you ran. Include commands if applicable. -->
 
-- [ ] Ran `./tests/run-all-tests.sh` (all tests pass)
-- [ ] Ran `bash -n scripts/*.sh lib/*.sh` (no syntax errors)
+- [ ] Ran `npm test` (Vitest)
+- [ ] Ran `npm run build:check` (TypeScript)
+- [ ] Ran `npm run build`
 - [ ] Tested manually with `cleo <command>` (describe below)
 - [ ] Added new tests for this change
 
@@ -54,8 +62,7 @@ Closes #
 - [ ] Validation: Changes pass JSON Schema validation where applicable
 - [ ] Error handling: New commands return proper exit codes and error JSON
 - [ ] No time estimates: No hours/days/duration language added anywhere
-- [ ] Shell standards: `set -euo pipefail`, quoted variables, `[[ ]]` conditionals
-- [ ] Commit messages: Using `<type>: <summary>` format (feat/fix/docs/test/refactor/chore)
+- [ ] Commit messages: Using `<type>: <summary> (T####)` format (feat/fix/docs/test/refactor/chore)
 
 ## Environment
 
@@ -79,4 +86,3 @@ Bash version:
 ## Screenshots / output
 
 <!-- If applicable, paste command output or screenshots showing the change works. -->
-

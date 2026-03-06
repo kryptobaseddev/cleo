@@ -103,6 +103,11 @@ cancelled ──> pending                (restore)
 
 > **Dev note**: Column `status TEXT NOT NULL DEFAULT 'pending'`. Enum defined in `src/store/status-registry.ts`. Transitions enforced by `validateStatusTransition()` in `src/core/validation/validation-rules.ts`.
 
+Completion hardening rules:
+- `ct done T001` (`tasks.complete`) is the canonical path to mark work done.
+- `ct update T001 --status done` is only allowed as a status-only transition and is routed through the same completion checks.
+- Mixing `--status done` with other update fields is rejected; complete first, then run a separate update.
+
 ### `priority`
 
 How urgent/important the task is. Used by `ct next` to suggest what to work on.
@@ -284,6 +289,10 @@ ct add "Add search feature" --acceptance "Returns results within 200ms,Handles e
 
 > **Dev note**: Column `acceptance_json TEXT DEFAULT '[]'`. JSON array, max 200 chars per item, `minItems: 1` if field is present.
 
+Completion hardening integration:
+- If `enforcement.acceptance.mode = block`, completion is blocked when acceptance criteria are required for that task priority and missing.
+- Priority targeting is configured by `enforcement.acceptance.requiredForPriorities`.
+
 ### `files` (linked files)
 
 Relative file paths (from project root) that this task will create or modify. Useful for planning and tracking scope.
@@ -381,6 +390,12 @@ Track which agent or user created/modified a task and in which session.
 ## Verification (Multi-Agent Review)
 
 The `verification` object tracks whether a task's implementation has been reviewed and approved across multiple quality gates. This is primarily used in multi-agent workflows where different agents handle different review responsibilities.
+
+Completion hardening integration:
+- Verification enforcement is **default-on** for task completion and can be disabled per project with `verification.enabled = false` in `.cleo/config.json`.
+- Required gates are controlled by `verification.requiredGates`.
+- `verification.maxRounds` blocks completion when exceeded.
+- In `lifecycle.mode = strict`, failed verification gates return lifecycle gate failure semantics.
 
 ### Gates
 

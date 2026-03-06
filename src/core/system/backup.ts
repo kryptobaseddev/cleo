@@ -38,7 +38,7 @@ export function createBackup(
     mkdirSync(backupDir, { recursive: true });
   }
 
-  const filesToBackup = ['todo.json', 'todo-archive.json', 'sessions.json', 'config.json', 'todo-log.jsonl'];
+  const filesToBackup = ['tasks.db', 'brain.db', 'config.json', 'project-info.json'];
   const backedUp: string[] = [];
 
   for (const file of filesToBackup) {
@@ -46,8 +46,8 @@ export function createBackup(
     if (existsSync(src)) {
       const dest = join(backupDir, `${file}.${backupId}`);
       try {
-        const content = readFileSync(src, 'utf-8');
-        writeFileSync(dest, content, 'utf-8');
+        const content = readFileSync(src);
+        writeFileSync(dest, content);
         backedUp.push(file);
       } catch {
         // skip files that fail to copy
@@ -111,8 +111,8 @@ export function restoreBackup(
     const backupFile = join(backupDir, `${file}.${params.backupId}`);
     if (existsSync(backupFile)) {
       try {
-        const content = readFileSync(backupFile, 'utf-8');
-        writeFileSync(join(cleoDir, file), content, 'utf-8');
+        const content = readFileSync(backupFile);
+        writeFileSync(join(cleoDir, file), content);
         restored.push(file);
       } catch {
         // skip files that fail to restore

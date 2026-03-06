@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe,expect,it,vi } from 'vitest';
+import { DispatchRequest,Middleware } from '../../types.js';
 import { compose } from '../pipeline.js';
-import { DispatchRequest, DispatchResponse, Middleware, DispatchNext } from '../../types.js';
 
 describe('Middleware Pipeline (compose)', () => {
   const mockReq: DispatchRequest = {

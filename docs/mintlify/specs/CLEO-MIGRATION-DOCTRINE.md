@@ -334,7 +334,7 @@ T4340 (This Document: Migration Doctrine)
 ### 6.3 Spec Relationship
 
 ```
-docs/concepts/vision.mdx                    (immutable identity)
+docs/concepts/CLEO-VISION.mdx                    (immutable identity)
     │
     ├── docs/specs/PORTABLE-BRAIN-SPEC.md   (product contract)
     │
@@ -359,9 +359,9 @@ docs/concepts/vision.mdx                    (immutable identity)
 
 ## 7. Consistency Verification
 
-### 7.1 Alignment with vision.mdx
+### 7.1 Alignment with CLEO-VISION.mdx
 
-The interface-layer architecture described in `vision.mdx` defines:
+The interface-layer architecture described in `CLEO-VISION.mdx` defines:
 
 - **CLI (Bash baseline)**: authoritative runtime behavior and deterministic enforcement
 - **MCP (strategic interface)**: provider-neutral integration surface for AI tooling
@@ -407,7 +407,7 @@ Legacy wording differences exist across source documents (especially around sequ
 
 | Document | Path | Purpose |
 |----------|------|---------|
-| Vision Charter | `docs/concepts/vision.mdx` | Immutable product identity |
+| Vision Charter | `docs/concepts/CLEO-VISION.mdx` | Immutable product identity |
 | Strategic Roadmap | `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | Phase execution plan |
 | Path Forward Q1 2026 | `docs/specs/CLEO-PATH-FORWARD-2026Q1.md` | Q1 2026 decisions |
 | Architecture Decisions | `claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md` | ADR D1-D6 |
@@ -442,7 +442,7 @@ Legacy wording differences exist across source documents (especially around sequ
 ---
 
 **Document Status**: STABLE (v2.0.0)
-**Authority**: Canonical migration doctrine. Defers to `docs/concepts/vision.mdx` (immutable identity) and `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract) for product definition.
+**Authority**: Canonical migration doctrine. Defers to `docs/concepts/CLEO-VISION.mdx` (immutable identity) and `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract) for product definition.
 **V2 Architecture**: `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` (T4454)
 **Changes from v1.0.0**:
 1. Migration strategy evolved from "MCP-first then hotspots" to "both tracks parallel"

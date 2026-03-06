@@ -9,7 +9,7 @@ export function createVerificationGates(strictMode: boolean = true): Middleware 
     const context = {
       domain: req.domain,
       operation: req.operation,
-      gateway: req.gateway === 'query' ? 'cleo_query' as const : 'cleo_mutate' as const,
+      gateway: req.gateway === 'query' ? 'query' as const : 'mutate' as const,
       params: req.params,
       taskId: (req.params?.taskId as string) || (req.params?.parent as string),
     };

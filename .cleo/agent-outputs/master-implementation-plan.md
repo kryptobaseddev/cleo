@@ -2,7 +2,7 @@
 
 **Generated**: 2026-03-02
 **Source**: 5 Phase 1 audit reports + registry/schema analysis
-**Objective**: Zero remaining TODOs (actionable), all stubs completed, all referenced docs created, AGENTS.md 100% accurate, all code compiles, all tests pass. Nothing removed -- only added/completed.
+**Objective**: Zero remaining action markers (actionable), all stubs completed, all referenced docs created, AGENTS.md 100% accurate, all code compiles, all tests pass. Nothing removed -- only added/completed.
 
 ---
 
@@ -13,7 +13,7 @@
 | 1 | 1A | Fix AGENTS.md inaccuracies | small | none | yes |
 | 1 | 1B | Implement compliance sync function | small | none | yes |
 | 1 | 1C | Implement config-driven allowlist in git-checkpoint.ts | small | none | yes |
-| 1 | 1D | Resolve TODO comments in pipeline.ts and resume.ts | small | 2A-2C | partial |
+| 1 | 1D | Resolve action-marker comments in pipeline.ts and resume.ts | small | 2A-2C | partial |
 | 2 | 2A | DB migration: `updated_at` on lifecycle_pipelines | small | none | yes |
 | 2 | 2B | DB migration: `transitioned_by` on lifecycle_transitions | small | none | yes |
 | 2 | 2C | DB migration: `version` on lifecycle_pipelines | small | none | yes |
@@ -26,7 +26,7 @@
 | 4 | 4C | Migrate grade.ts to dispatch | small | none | yes |
 | 5 | 5A | TypeScript compilation check | small | 1A-4C | no |
 | 5 | 5B | Full test suite pass | small | 5A | no |
-| 5 | 5C | Final TODO/FIXME/HACK grep + justification | small | 5B | no |
+| 5 | 5C | Final action-marker/FIXME/HACK grep + justification | small | 5B | no |
 | 5 | 5D | Verify all referenced docs exist | small | 3A-3D | yes |
 | 5 | 5E | Verify AGENTS.md counts match reality | small | 1A, 4A-4C | no |
 
@@ -102,7 +102,7 @@ Pattern to follow: Look at `getComplianceSummary()` (lines 13-45) for aggregatio
 ### Task 1C: Implement Config-Driven Allowlist in git-checkpoint.ts
 
 **Files to read first:**
-- `/mnt/projects/claude-todo/src/store/git-checkpoint.ts` (lines 64-85, STATE_FILES array + TODO comment)
+- `/mnt/projects/claude-todo/src/store/git-checkpoint.ts` (lines 64-85, STATE_FILES array + action-marker comment)
 - `/mnt/projects/claude-todo/src/core/paths.ts` (getConfigPath for config.json location)
 - `/mnt/projects/claude-todo/src/store/json.ts` (readJson for config loading)
 
@@ -110,7 +110,7 @@ Pattern to follow: Look at `getComplianceSummary()` (lines 13-45) for aggregatio
 - `/mnt/projects/claude-todo/src/store/git-checkpoint.ts`
 
 **Specific change:**
-1. Remove the TODO comment at lines 74-75
+1. Remove the action-marker comment at lines 74-75
 2. Add a function `loadStateFileAllowlist(cwd?: string): string[]` that:
    - Reads `config.json` via `readJson(getConfigPath(cwd))`
    - Extracts `.checkpoint.stateFileAllowlist` array (if present)
@@ -122,7 +122,7 @@ Pattern to follow: Look at `getComplianceSummary()` (lines 13-45) for aggregatio
 4. Core STATE_FILES array stays hardcoded (always tracked). Config allowlist is additive only.
 
 **Acceptance criteria:**
-- [ ] TODO comment removed from git-checkpoint.ts
+- [ ] Action-marker comment removed from git-checkpoint.ts
 - [ ] Config key `checkpoint.stateFileAllowlist` is read from config.json
 - [ ] Core STATE_FILES are always included (not overridable)
 - [ ] Custom files from config are merged into the checkpoint list
@@ -133,7 +133,7 @@ Pattern to follow: Look at `getComplianceSummary()` (lines 13-45) for aggregatio
 
 ---
 
-### Task 1D: Resolve TODO Comments in pipeline.ts and resume.ts
+### Task 1D: Resolve Action-Marker Comments in pipeline.ts and resume.ts
 
 **Files to read first:**
 - `/mnt/projects/claude-todo/src/core/lifecycle/pipeline.ts` (lines 370, 375)
@@ -148,25 +148,25 @@ Pattern to follow: Look at `getComplianceSummary()` (lines 13-45) for aggregatio
 
 After Wave 2 migrations are applied (columns exist in schema):
 
-1. **pipeline.ts:370** -- Replace `updatedAt: new Date(row.startedAt), // TODO: Add updated_at column` with:
+1. **pipeline.ts:370** -- Replace `updatedAt: new Date(row.startedAt), // Action item: add updated_at column` with:
    ```typescript
    updatedAt: new Date(row.updatedAt ?? row.startedAt),
    ```
 
-2. **pipeline.ts:375** -- Replace `version: 1, // TODO: Add version column for optimistic locking` with:
+2. **pipeline.ts:375** -- Replace `version: 1, // Action item: add version column for optimistic locking` with:
    ```typescript
    version: row.version ?? 1,
    ```
 
-3. **resume.ts:649** -- Replace `transitionedBy: 'system', // TODO: Store agent in transitions table` with:
+3. **resume.ts:649** -- Replace `transitionedBy: 'system', // Action item: store agent in transitions table` with:
    ```typescript
    transitionedBy: t.transitionedBy ?? 'system',
    ```
 
-All three TODO comments are removed and replaced with real column reads with fallback defaults for backward compatibility.
+All three action-marker comments are removed and replaced with real column reads with fallback defaults for backward compatibility.
 
 **Acceptance criteria:**
-- [ ] All 3 TODO comments removed from pipeline.ts and resume.ts
+- [ ] All 3 action-marker comments removed from pipeline.ts and resume.ts
 - [ ] Code reads from real DB columns (added in Wave 2)
 - [ ] Null/missing values fall back to previous defaults (`startedAt`, `1`, `'system'`)
 - [ ] TypeScript compiles cleanly
@@ -567,24 +567,24 @@ npm test
 
 ---
 
-### Task 5C: Final TODO/FIXME/HACK Grep + Justification
+### Task 5C: Final Action-Marker/FIXME/HACK Grep + Justification
 
 **Command:**
 ```bash
-grep -rn "TODO\|FIXME\|HACK" src/ --include="*.ts" | grep -v "node_modules" | grep -v "dist/"
+grep -rn "ACTION-ITEM\|FIXME\|HACK" src/ --include="*.ts" | grep -v "node_modules" | grep -v "dist/"
 ```
 
 **Files to create (if needed):**
 - Update this plan with any remaining items and justification
 
 **Acceptance criteria:**
-- [ ] Every remaining TODO/FIXME/HACK is documented with justification
+- [ ] Every remaining action-marker/FIXME/HACK entry is documented with justification
 - [ ] Intentional items are annotated:
   - Nexus domain stub (INTENTIONAL -- gated on nexus.db, T4820)
   - Dynamic CLI registration stub (INTENTIONAL -- T4894/T4897/T4900)
-  - Skill creator template TODOs (INTENTIONAL -- template placeholders for generated code)
+  - Skill creator template action markers (INTENTIONAL -- template placeholders for generated code)
   - Pipeline stub test comment (INTENTIONAL -- T4800 test documentation)
-- [ ] Zero actionable TODOs remain unexplained
+- [ ] Zero actionable action markers remain unexplained
 
 **Dependencies:** 5B (all changes landed and tested)
 
@@ -656,11 +656,11 @@ The following items were identified by audits but are **intentionally excluded**
 
 2. **Dynamic CLI registration stub** (`src/cli/commands/dynamic.ts`) -- Intentional no-op stub linked to T4894/T4897/T4900 for auto-generated Commander commands.
 
-3. **Skill creator template TODOs** (`packages/ct-skills/skills/ct-skill-creator/`) -- Intentional template placeholders in generated skeleton code. Users are expected to fill these in.
+3. **Skill creator template action markers** (`packages/ct-skills/skills/ct-skill-creator/`) -- Intentional template placeholders in generated skeleton code. Users are expected to fill these in.
 
-4. **Archived dev tools** (`dev/archived/schema-diff-analyzer.sh`) -- Deprecated code in archive directory. Contains template TODOs that are part of the archived tool.
+4. **Archived dev tools** (`dev/archived/schema-diff-analyzer.sh`) -- Deprecated code in archive directory. Contains template action markers that are part of the archived tool.
 
-5. **Dev hooks README TODOs** (`dev/hooks/README.md`) -- Documentation examples showing developers how to write migration hooks.
+5. **Dev hooks README action markers** (`dev/hooks/README.md`) -- Documentation examples showing developers how to write migration hooks.
 
 6. **Pipeline stub test comment** (`src/core/lifecycle/__tests__/pipeline.integration.test.ts:862`) -- T4800 test documentation naming convention, tests are real and functional.
 

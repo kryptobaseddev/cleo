@@ -4,8 +4,8 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi } from 'vitest';
 import { Command } from 'commander';
+import { describe,expect,it } from 'vitest';
 import { registerTestingCommand } from '../commands/testing.js';
 
 describe('registerTestingCommand', () => {

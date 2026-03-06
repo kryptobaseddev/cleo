@@ -75,6 +75,10 @@ describe('MCP auto-init: ensureInitialized() (T4694)', () => {
     } else {
       delete process.env['CLEO_AUTO_INIT'];
     }
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
 

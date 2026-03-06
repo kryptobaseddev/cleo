@@ -21,7 +21,7 @@
 - **Epics**: Parent tasks that contain child tasks (max depth: 3)
 - **RCSD Pipeline**: Research -> Consensus -> Specification -> Decomposition lifecycle
 - **Orchestration**: Multi-agent coordination via spawn/validate protocol
-- **MCP Gateway**: Two tools (cleo_query, cleo_mutate) with domain/operation routing
+- **MCP Gateway**: Two tools (query, mutate) with domain/operation routing
 
 ## Output Format
 
@@ -187,7 +187,7 @@ cleo roadmap [--include-history]
 
 CLEO provides two MCP tools for programmatic access:
 
-### cleo_query (read-only)
+### query (read-only)
 
 Domains: tasks, session, system, orchestrate, research, lifecycle, validate, issues, skills
 
@@ -200,7 +200,7 @@ Key operations:
 - lifecycle: status, check, history, gates
 - validate: schema, protocol, task, manifest
 
-### cleo_mutate (writes)
+### mutate (writes)
 
 Domains: tasks, session, system, orchestrate, research, lifecycle, validate, release, issues, skills
 

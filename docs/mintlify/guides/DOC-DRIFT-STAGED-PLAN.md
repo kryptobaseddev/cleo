@@ -12,7 +12,7 @@ This plan defines how CLEO reaches full documentation parity without allowing ca
 
 The following are release-blocking:
 
-1. Canonical vision markers in `docs/concepts/vision.mdx`
+1. Canonical vision markers in `docs/concepts/CLEO-VISION.mdx`
 2. Canonical contract in `docs/specs/PORTABLE-BRAIN-SPEC.md`
 3. Source-of-truth hierarchy in `README.md` and `docs/INDEX.md`
 4. Canonical term set consistency:
@@ -60,7 +60,7 @@ Target CI sequence:
 
 1. Never represent planned features as shipped.
 2. Vision-level changes require synchronized edits to:
-   - `docs/concepts/vision.mdx`
+   - `docs/concepts/CLEO-VISION.mdx`
    - `docs/specs/PORTABLE-BRAIN-SPEC.md`
    - `README.md`
 3. Roadmap/spec updates must not redefine product identity.

@@ -1,5 +1,5 @@
 /**
- * Tests for cleo_query gateway
+ * Tests for query gateway
  *
  * Validates:
  * - Query operations across all domains (canonical + legacy)
@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateQueryParams,
+  handleQueryRequest,
   registerQueryTool,
   getQueryOperationCount,
   isQueryOperation,
@@ -21,6 +22,14 @@ import {
   QUERY_OPERATIONS,
   type QueryRequest,
 } from '../query.js';
+import { resolve } from '../../../dispatch/registry.js';
+
+const ADVANCED_MEMORY_QUERY_OPS = [
+  'pattern.find',
+  'pattern.stats',
+  'learning.find',
+  'learning.stats',
+] as const;
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
@@ -30,11 +39,10 @@ describe('Query Gateway', () => {
       expect(total).toBeGreaterThan(0);
     });
 
-    it('should have 17 query domains (10 canonical + 7 legacy)', () => {
+    it('should have 10 canonical query domains', () => {
       const domains = getQueryDomains();
-      expect(domains).toHaveLength(17);
+      expect(domains).toHaveLength(10);
       // Derived from registry — order follows OPERATIONS definition order
-      // for canonical domains, then LEGACY_DOMAIN_ALIASES iteration order
       expect(domains).toEqual([
         // Canonical domains (order from OPERATIONS array)
         'tasks',
@@ -45,16 +53,8 @@ describe('Query Gateway', () => {
         'check',
         'admin',
         'tools',
-        'sharing',
         'nexus',
-        // Legacy aliases (order from LEGACY_DOMAIN_ALIASES)
-        'research',
-        'validate',
-        'lifecycle',
-        'system',
-        'skills',
-        'providers',
-        'issues',
+        'sticky',
       ]);
     });
 
@@ -65,32 +65,32 @@ describe('Query Gateway', () => {
   });
 
   describe('Domain Operation Counts', () => {
-    it('tasks domain should have 15 operations', () => {
-      expect(getQueryOperationCount('tasks')).toBe(15);
+    it('tasks domain should have 17 operations', () => {
+      expect(getQueryOperationCount('tasks')).toBe(17);
     });
 
-    it('session domain should have 11 operations', () => {
+    it('session domain should have 11 query operations', () => {
       expect(getQueryOperationCount('session')).toBe(11);
     });
 
-    it('orchestrate domain should have 9 operations', () => {
-      expect(getQueryOperationCount('orchestrate')).toBe(9);
+    it('orchestrate domain should have 11 operations', () => {
+      expect(getQueryOperationCount('orchestrate')).toBe(11);
     });
 
-    it('research domain should have all memory operations (derived, no prefix filter)', () => {
-      expect(getQueryOperationCount('research')).toBe(getQueryOperationCount('memory'));
+    it('memory domain should have 12 operations', () => {
+      expect(getQueryOperationCount('memory')).toBe(12);
     });
 
-    it('lifecycle domain should have 5 operations', () => {
-      expect(getQueryOperationCount('lifecycle')).toBe(5);
+    it('pipeline domain should have 14 operations', () => {
+      expect(getQueryOperationCount('pipeline')).toBe(14);
     });
 
-    it('validate domain should have all check operations (derived, no prefix filter)', () => {
-      expect(getQueryOperationCount('validate')).toBe(getQueryOperationCount('check'));
+    it('check domain should have 17 operations', () => {
+      expect(getQueryOperationCount('check')).toBe(17);
     });
 
-    it('system domain should have all admin operations (derived, no prefix filter)', () => {
-      expect(getQueryOperationCount('system')).toBe(getQueryOperationCount('admin'));
+    it('admin domain should have 23 operations', () => {
+      expect(getQueryOperationCount('admin')).toBe(23);
     });
   });
 
@@ -100,6 +100,54 @@ describe('Query Gateway', () => {
         domain: 'tasks',
         operation: 'list',
         params: { status: 'pending' },
+      };
+      const result = validateQueryParams(request);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should accept memory pattern.find operation', () => {
+      const request: QueryRequest = {
+        domain: 'memory',
+        operation: 'pattern.find',
+        params: { query: 'retry' },
+      };
+      const result = validateQueryParams(request);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should accept check chain.validate for fork-join payload', () => {
+      const request: QueryRequest = {
+        domain: 'check',
+        operation: 'chain.validate',
+        params: {
+          chain: {
+            id: 'fork-join-chain',
+            name: 'Fork Join Chain',
+            version: '1.0.0',
+            description: 'Fork-join chain fixture',
+            shape: {
+              stages: [
+                { id: 'start', name: 'start', category: 'custom', skippable: false },
+                { id: 'left', name: 'left', category: 'custom', skippable: false },
+                { id: 'right', name: 'right', category: 'custom', skippable: false },
+                { id: 'join', name: 'join', category: 'custom', skippable: false },
+                { id: 'finish', name: 'finish', category: 'custom', skippable: false },
+              ],
+              links: [
+                { from: 'start', to: 'left', type: 'fork' },
+                { from: 'start', to: 'right', type: 'fork' },
+                { from: 'left', to: 'join', type: 'linear' },
+                { from: 'right', to: 'join', type: 'linear' },
+                { from: 'join', to: 'finish', type: 'linear' },
+              ],
+              entryPoint: 'start',
+              exitPoints: ['finish'],
+            },
+            gates: [],
+          },
+        },
       };
       const result = validateQueryParams(request);
       expect(result.valid).toBe(true);
@@ -139,6 +187,22 @@ describe('Query Gateway', () => {
       expect(result.error?.error?.code).toBe('E_INVALID_DOMAIN');
     });
 
+    it('should reject all legacy domain aliases with E_INVALID_DOMAIN', () => {
+      const legacyDomains = [
+        'research', 'validate', 'lifecycle',
+        'release', 'system', 'issues', 'skills', 'providers', 'brain',
+      ];
+
+      for (const domain of legacyDomains) {
+        const result = validateQueryParams({
+          domain: domain as any,
+          operation: 'list',
+        });
+        expect(result.valid).toBe(false);
+        expect(result.error?.error?.code).toBe('E_INVALID_DOMAIN');
+      }
+    });
+
     it('should provide fix suggestions on error', () => {
       const request = {
         domain: 'invalid' as any,
@@ -154,7 +218,7 @@ describe('Query Gateway', () => {
   describe('Tool Registration', () => {
     it('should return valid MCP tool definition', () => {
       const tool = registerQueryTool();
-      expect(tool.name).toBe('cleo_query');
+      expect(tool.name).toBe('query');
       expect(tool.description).toContain('read operations');
       expect(tool.inputSchema).toBeDefined();
       expect(tool.inputSchema.type).toBe('object');
@@ -194,7 +258,7 @@ describe('Query Gateway', () => {
 
     it('should return all operations for domain', () => {
       const tasksOps = getQueryOperations('tasks');
-      expect(tasksOps).toHaveLength(15);
+      expect(tasksOps).toHaveLength(17);
       expect(tasksOps).toContain('show');
       expect(tasksOps).toContain('list');
       expect(tasksOps).toContain('find');
@@ -298,125 +362,246 @@ describe('Query Gateway', () => {
       expect(orchOps).toContain('waves');
     });
 
+    it('should support tessera.show operation', () => {
+      expect(orchOps).toContain('tessera.show');
+    });
+
   });
 
-  describe('Research Domain Operations', () => {
-    const researchOps = QUERY_OPERATIONS.research;
+  describe('Memory Domain Operations', () => {
+    const memoryOps = QUERY_OPERATIONS.memory;
 
     it('should support show operation', () => {
-      expect(researchOps).toContain('show');
+      expect(memoryOps).toContain('show');
     });
 
-    it('should support list operation', () => {
-      expect(researchOps).toContain('list');
+    it('should support find operation (brain.db search)', () => {
+      expect(memoryOps).toContain('find');
     });
 
-    it('should support find operation', () => {
-      expect(researchOps).toContain('find');
+    it('should support timeline operation (brain.db context)', () => {
+      expect(memoryOps).toContain('timeline');
     });
 
-    it('should support pending operation', () => {
-      expect(researchOps).toContain('pending');
+    it('should support fetch operation (brain.db batch fetch)', () => {
+      expect(memoryOps).toContain('fetch');
     });
 
     it('should support stats operation', () => {
-      expect(researchOps).toContain('stats');
+      expect(memoryOps).toContain('stats');
     });
 
-    it('should support manifest.read operation', () => {
-      expect(researchOps).toContain('manifest.read');
+    it('should support decision.find operation', () => {
+      expect(memoryOps).toContain('decision.find');
+    });
+
+    it('should support contradictions operation', () => {
+      expect(memoryOps).toContain('contradictions');
+    });
+
+    it('should support superseded operation', () => {
+      expect(memoryOps).toContain('superseded');
+    });
+
+    it('should support pattern.find operation', () => {
+      expect(memoryOps).toContain('pattern.find');
+    });
+
+    it('should support pattern.stats operation', () => {
+      expect(memoryOps).toContain('pattern.stats');
+    });
+
+    it('should support learning.find operation', () => {
+      expect(memoryOps).toContain('learning.find');
+    });
+
+    it('should support learning.stats operation', () => {
+      expect(memoryOps).toContain('learning.stats');
+    });
+
+    it('should not contain manifest.read (moved to pipeline)', () => {
+      expect(memoryOps).not.toContain('manifest.read');
+    });
+
+    it('should keep advanced memory query ops in MCP-dispatch parity lock', async () => {
+      for (const operation of ADVANCED_MEMORY_QUERY_OPS) {
+        expect(memoryOps).toContain(operation);
+
+        const validation = validateQueryParams({
+          domain: 'memory',
+          operation,
+        });
+        expect(validation.valid).toBe(true);
+
+        const gatewayResult = await handleQueryRequest({
+          domain: 'memory',
+          operation,
+        });
+        expect(gatewayResult.success).toBe(true);
+
+        const dispatchOp = resolve('query', 'memory', operation);
+        expect(dispatchOp, `Missing dispatch op for query memory.${operation}`).toBeDefined();
+      }
     });
   });
 
-  describe('Lifecycle Domain Operations', () => {
-    const lifecycleOps = QUERY_OPERATIONS.lifecycle;
+  describe('Pipeline Domain Operations', () => {
+    const pipelineOps = QUERY_OPERATIONS.pipeline;
 
-    it('should support validate operation', () => {
-      expect(lifecycleOps).toContain('validate');
+    it('should support stage.validate operation', () => {
+      expect(pipelineOps).toContain('stage.validate');
     });
 
-    it('should support status operation', () => {
-      expect(lifecycleOps).toContain('status');
+    it('should support stage.status operation', () => {
+      expect(pipelineOps).toContain('stage.status');
     });
 
-    it('should support history operation', () => {
-      expect(lifecycleOps).toContain('history');
+    it('should support stage.history operation', () => {
+      expect(pipelineOps).toContain('stage.history');
     });
 
-    it('should support gates operation', () => {
-      expect(lifecycleOps).toContain('gates');
+    it('should support stage.gates operation', () => {
+      expect(pipelineOps).toContain('stage.gates');
     });
 
-    it('should support prerequisites operation', () => {
-      expect(lifecycleOps).toContain('prerequisites');
+    it('should support stage.prerequisites operation', () => {
+      expect(pipelineOps).toContain('stage.prerequisites');
+    });
+
+    it('should support manifest.show operation', () => {
+      expect(pipelineOps).toContain('manifest.show');
+    });
+
+    it('should support manifest.list operation', () => {
+      expect(pipelineOps).toContain('manifest.list');
+    });
+
+    it('should support manifest.find operation', () => {
+      expect(pipelineOps).toContain('manifest.find');
+    });
+
+    it('should support manifest.pending operation', () => {
+      expect(pipelineOps).toContain('manifest.pending');
+    });
+
+    it('should support manifest.stats operation', () => {
+      expect(pipelineOps).toContain('manifest.stats');
+    });
+
+    it('should support chain.list operation', () => {
+      expect(pipelineOps).toContain('chain.list');
     });
   });
 
-  describe('Validate Domain Operations', () => {
-    const validateOps = QUERY_OPERATIONS.validate;
+  describe('Check Domain Operations', () => {
+    const checkOps = QUERY_OPERATIONS.check;
 
     it('should support schema operation', () => {
-      expect(validateOps).toContain('schema');
+      expect(checkOps).toContain('schema');
     });
 
     it('should support protocol operation', () => {
-      expect(validateOps).toContain('protocol');
+      expect(checkOps).toContain('protocol');
     });
 
     it('should support task operation', () => {
-      expect(validateOps).toContain('task');
+      expect(checkOps).toContain('task');
     });
 
     it('should support manifest operation', () => {
-      expect(validateOps).toContain('manifest');
+      expect(checkOps).toContain('manifest');
     });
 
     it('should support output operation', () => {
-      expect(validateOps).toContain('output');
+      expect(checkOps).toContain('output');
     });
 
     it('should support compliance.summary operation', () => {
-      expect(validateOps).toContain('compliance.summary');
+      expect(checkOps).toContain('compliance.summary');
     });
 
     it('should support compliance.violations operation', () => {
-      expect(validateOps).toContain('compliance.violations');
+      expect(checkOps).toContain('compliance.violations');
     });
 
     it('should support test.status operation', () => {
-      expect(validateOps).toContain('test.status');
+      expect(checkOps).toContain('test.status');
     });
 
     it('should support test.coverage operation', () => {
-      expect(validateOps).toContain('test.coverage');
+      expect(checkOps).toContain('test.coverage');
+    });
+
+    it('should support coherence.check operation', () => {
+      expect(checkOps).toContain('coherence.check');
+    });
+
+    it('should support gate.verify operation', () => {
+      expect(checkOps).toContain('gate.verify');
     });
   });
 
-  describe('System Domain Operations', () => {
-    const systemOps = QUERY_OPERATIONS.system;
+  describe('Admin Domain Operations', () => {
+    const adminOps = QUERY_OPERATIONS.admin;
 
     it('should support version operation', () => {
-      expect(systemOps).toContain('version');
+      expect(adminOps).toContain('version');
     });
 
     it('should support health operation', () => {
-      expect(systemOps).toContain('health');
+      expect(adminOps).toContain('health');
     });
 
     it('should support config.show operation', () => {
-      expect(systemOps).toContain('config.show');
-    });
-
-    it('should support config.get alias', () => {
-      expect(systemOps).toContain('config.get');
+      expect(adminOps).toContain('config.show');
     });
 
     it('should support stats operation', () => {
-      expect(systemOps).toContain('stats');
+      expect(adminOps).toContain('stats');
     });
 
     it('should support context operation', () => {
-      expect(systemOps).toContain('context');
+      expect(adminOps).toContain('context');
+    });
+
+    it('should support runtime operation', () => {
+      expect(adminOps).toContain('runtime');
+    });
+
+    it('should support job.status operation', () => {
+      expect(adminOps).toContain('job.status');
+    });
+
+    it('should support job.list operation', () => {
+      expect(adminOps).toContain('job.list');
+    });
+
+    it('should support dash operation', () => {
+      expect(adminOps).toContain('dash');
+    });
+
+    it('should support log operation', () => {
+      expect(adminOps).toContain('log');
+    });
+
+    it('should support sequence operation', () => {
+      expect(adminOps).toContain('sequence');
+    });
+
+    it('should support help operation', () => {
+      expect(adminOps).toContain('help');
+    });
+
+    it('should support grade operation', () => {
+      expect(adminOps).toContain('grade');
+    });
+
+    it('should support grade.list operation', () => {
+      expect(adminOps).toContain('grade.list');
+    });
+
+    it('should support archive.stats operation', () => {
+      expect(adminOps).toContain('archive.stats');
     });
   });
 
@@ -428,7 +613,7 @@ describe('Query Gateway', () => {
       };
       const result = validateQueryParams(request);
       expect(result.error?._meta).toBeDefined();
-      expect(result.error?._meta.gateway).toBe('cleo_query');
+      expect(result.error?._meta.gateway).toBe('query');
       expect(result.error?._meta.domain).toBe('invalid');
       expect(result.error?._meta.operation).toBe('list');
       expect(result.error?._meta.version).toBeDefined();

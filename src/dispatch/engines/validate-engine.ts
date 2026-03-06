@@ -260,3 +260,398 @@ export function validateTestCoverage(
     return engineError('E_FILE_ERROR', err instanceof Error ? err.message : String(err));
   }
 }
+
+// ============================================================================
+// Protocol Validation Operations (T5327)
+// ============================================================================
+
+import {
+  validateConsensusTask,
+  checkConsensusManifest,
+} from '../../core/validation/protocols/consensus.js';
+import {
+  validateContributionTask,
+  checkContributionManifest,
+} from '../../core/validation/protocols/contribution.js';
+import {
+  validateDecompositionTask,
+  checkDecompositionManifest,
+} from '../../core/validation/protocols/decomposition.js';
+import {
+  validateImplementationTask,
+  checkImplementationManifest,
+} from '../../core/validation/protocols/implementation.js';
+import {
+  validateSpecificationTask,
+  checkSpecificationManifest,
+} from '../../core/validation/protocols/specification.js';
+
+interface ProtocolValidationParams {
+  mode: 'task' | 'manifest';
+  taskId?: string;
+  manifestFile?: string;
+  strict?: boolean;
+  votingMatrixFile?: string;
+  epicId?: string;
+  specFile?: string;
+}
+
+/**
+ * check.protocol.consensus - Validate consensus protocol compliance
+ * @task T5327
+ */
+export async function validateProtocolConsensus(
+  params: ProtocolValidationParams,
+  _projectRoot?: string
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, votingMatrixFile } = params;
+
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateConsensusTask(params.taskId, {
+        strict,
+        votingMatrixFile,
+      });
+      return { success: true, data: result };
+    } else {
+      if (!params.manifestFile) {
+        return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+      }
+      const result = await checkConsensusManifest(params.manifestFile, {
+        strict,
+        votingMatrixFile,
+      });
+      return { success: true, data: result };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = message.includes('not found') ? 'E_NOT_FOUND'
+      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
+      : 'E_VALIDATION_ERROR';
+    return engineError(code, message);
+  }
+}
+
+/**
+ * check.protocol.contribution - Validate contribution protocol compliance
+ * @task T5327
+ */
+export async function validateProtocolContribution(
+  params: ProtocolValidationParams,
+  _projectRoot?: string
+): Promise<EngineResult> {
+  try {
+    const { mode, strict } = params;
+
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateContributionTask(params.taskId, { strict });
+      return { success: true, data: result };
+    } else {
+      if (!params.manifestFile) {
+        return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+      }
+      const result = await checkContributionManifest(params.manifestFile, { strict });
+      return { success: true, data: result };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = message.includes('not found') ? 'E_NOT_FOUND'
+      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
+      : 'E_VALIDATION_ERROR';
+    return engineError(code, message);
+  }
+}
+
+/**
+ * check.protocol.decomposition - Validate decomposition protocol compliance
+ * @task T5327
+ */
+export async function validateProtocolDecomposition(
+  params: ProtocolValidationParams,
+  _projectRoot?: string
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, epicId } = params;
+
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateDecompositionTask(params.taskId, { strict, epicId });
+      return { success: true, data: result };
+    } else {
+      if (!params.manifestFile) {
+        return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+      }
+      const result = await checkDecompositionManifest(params.manifestFile, { strict, epicId });
+      return { success: true, data: result };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = message.includes('not found') ? 'E_NOT_FOUND'
+      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
+      : 'E_VALIDATION_ERROR';
+    return engineError(code, message);
+  }
+}
+
+/**
+ * check.protocol.implementation - Validate implementation protocol compliance
+ * @task T5327
+ */
+export async function validateProtocolImplementation(
+  params: ProtocolValidationParams,
+  _projectRoot?: string
+): Promise<EngineResult> {
+  try {
+    const { mode, strict } = params;
+
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateImplementationTask(params.taskId, { strict });
+      return { success: true, data: result };
+    } else {
+      if (!params.manifestFile) {
+        return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+      }
+      const result = await checkImplementationManifest(params.manifestFile, { strict });
+      return { success: true, data: result };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = message.includes('not found') ? 'E_NOT_FOUND'
+      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
+      : 'E_VALIDATION_ERROR';
+    return engineError(code, message);
+  }
+}
+
+/**
+ * check.protocol.specification - Validate specification protocol compliance
+ * @task T5327
+ */
+export async function validateProtocolSpecification(
+  params: ProtocolValidationParams,
+  _projectRoot?: string
+): Promise<EngineResult> {
+  try {
+    const { mode, strict, specFile } = params;
+
+    if (mode === 'task') {
+      if (!params.taskId) {
+        return engineError('E_INVALID_INPUT', 'taskId is required for task mode');
+      }
+      const result = await validateSpecificationTask(params.taskId, { strict, specFile });
+      return { success: true, data: result };
+    } else {
+      if (!params.manifestFile) {
+        return engineError('E_INVALID_INPUT', 'manifestFile is required for manifest mode');
+      }
+      const result = await checkSpecificationManifest(params.manifestFile, { strict, specFile });
+      return { success: true, data: result };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = message.includes('not found') ? 'E_NOT_FOUND'
+      : message.includes('violations') ? 'E_PROTOCOL_VIOLATION'
+      : 'E_VALIDATION_ERROR';
+    return engineError(code, message);
+  }
+}
+
+// ============================================================================
+// Gate Verification (T5327)
+// ============================================================================
+
+import { getAccessor } from '../../store/data-accessor.js';
+import { computeChecksum } from '../../store/json.js';
+import type { TaskVerification, VerificationGate } from '../../types/task.js';
+
+const VALID_GATES: VerificationGate[] = [
+  'implemented', 'testsPassed', 'qaPassed', 'cleanupDone', 'securityPassed', 'documented',
+];
+
+const DEFAULT_REQUIRED_GATES: VerificationGate[] = [
+  'implemented', 'testsPassed', 'qaPassed', 'securityPassed', 'documented',
+];
+
+function initVerification(): TaskVerification {
+  return {
+    passed: false,
+    round: 0,
+    gates: {},
+    lastAgent: null,
+    lastUpdated: null,
+    failureLog: [],
+  };
+}
+
+function computePassed(verification: TaskVerification): boolean {
+  for (const gate of DEFAULT_REQUIRED_GATES) {
+    if (verification.gates[gate] !== true) return false;
+  }
+  return true;
+}
+
+function getMissingGates(verification: TaskVerification): VerificationGate[] {
+  return DEFAULT_REQUIRED_GATES.filter((g) => verification.gates[g] !== true);
+}
+
+interface GateVerifyParams {
+  taskId: string;
+  gate?: string;
+  value?: boolean;
+  agent?: string;
+  all?: boolean;
+  reset?: boolean;
+}
+
+interface GateVerifyResult {
+  taskId: string;
+  title?: string;
+  status?: string;
+  type?: string;
+  verification: TaskVerification;
+  verificationStatus: 'passed' | 'pending';
+  passed: boolean;
+  round: number;
+  requiredGates: VerificationGate[];
+  missingGates: VerificationGate[];
+  action?: 'view' | 'set_gate' | 'set_all' | 'reset';
+  gateSet?: string;
+  gatesSet?: VerificationGate[];
+}
+
+/**
+ * check.gate.verify - View or modify verification gates for a task
+ * @task T5327
+ */
+export async function validateGateVerify(
+  params: GateVerifyParams,
+  projectRoot?: string
+): Promise<EngineResult<GateVerifyResult>> {
+  try {
+    const root = projectRoot || resolveProjectRoot();
+    const { taskId, gate, value = true, agent, all, reset } = params;
+
+    // Validate task ID format
+    const idPattern = /^T\d{3,}$/;
+    if (!idPattern.test(taskId)) {
+      return engineError('E_INVALID_INPUT', `Invalid task ID format: ${taskId}`);
+    }
+
+    const accessor = await getAccessor(root);
+    const data = await accessor.loadTaskFile();
+
+    const task = data.tasks.find((t) => t.id === taskId);
+    if (!task) {
+      return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
+    }
+
+    // View mode (no modifications)
+    if (!gate && !all && !reset) {
+      const verification = task.verification ?? initVerification();
+      const missing = getMissingGates(verification);
+      return {
+        success: true,
+        data: {
+          taskId,
+          title: task.title,
+          status: task.status,
+          type: task.type ?? 'task',
+          verification,
+          verificationStatus: verification.passed ? 'passed' : 'pending',
+          passed: verification.passed,
+          round: verification.round,
+          requiredGates: DEFAULT_REQUIRED_GATES,
+          missingGates: missing,
+          action: 'view',
+        },
+      };
+    }
+
+    // Modification mode
+    let verification = task.verification ?? initVerification();
+    const now = new Date().toISOString();
+    let action: GateVerifyResult['action'] = 'view';
+
+    if (reset) {
+      verification = initVerification();
+      action = 'reset';
+    } else if (all) {
+      for (const g of DEFAULT_REQUIRED_GATES) {
+        verification.gates[g] = true;
+      }
+      if (agent) {
+        verification.lastAgent = agent as never;
+      }
+      verification.lastUpdated = now;
+      action = 'set_all';
+    } else if (gate) {
+      if (!VALID_GATES.includes(gate as VerificationGate)) {
+        return engineError('E_INVALID_INPUT', `Invalid gate: ${gate}. Valid: ${VALID_GATES.join(', ')}`);
+      }
+
+      verification.gates[gate as VerificationGate] = value;
+
+      if (agent) {
+        verification.lastAgent = agent as never;
+      }
+      verification.lastUpdated = now;
+
+      if (!value) {
+        verification.round++;
+        verification.failureLog.push({
+          round: verification.round,
+          agent: agent ?? 'unknown',
+          reason: `Gate ${gate} set to false`,
+          timestamp: now,
+        });
+      }
+      action = 'set_gate';
+    }
+
+    verification.passed = computePassed(verification);
+    task.verification = verification;
+    task.updatedAt = now;
+
+    data._meta.checksum = computeChecksum(data.tasks);
+    data.lastUpdated = now;
+
+    await accessor.saveTaskFile(data);
+
+    const missing = getMissingGates(verification);
+    const result: GateVerifyResult = {
+      taskId,
+      title: task.title,
+      status: task.status,
+      type: task.type ?? 'task',
+      verification,
+      verificationStatus: verification.passed ? 'passed' : 'pending',
+      passed: verification.passed,
+      round: verification.round,
+      requiredGates: DEFAULT_REQUIRED_GATES,
+      missingGates: missing,
+      action,
+    };
+
+    if (action === 'set_gate') {
+      result.gateSet = gate;
+    } else if (action === 'set_all') {
+      result.gatesSet = DEFAULT_REQUIRED_GATES;
+    }
+
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_GENERAL', message);
+  }
+}

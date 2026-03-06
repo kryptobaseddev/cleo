@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -21,8 +21,10 @@ import {
   orchestrateContext,
   orchestrateValidate,
   orchestrateSpawn,
+  orchestrateHandoff,
   orchestrateStartup,
 } from '../orchestrate-engine.js';
+import { sessionStart, sessionStatus } from '../session-engine.js';
 
 let TEST_ROOT: string;
 let CLEO_DIR: string;
@@ -55,12 +57,15 @@ describe('Orchestrate Engine', () => {
     TEST_ROOT = await mkdtemp(join(tmpdir(), 'cleo-orch-'));
     CLEO_DIR = join(TEST_ROOT, '.cleo');
     await seedTasks(TEST_ROOT, SAMPLE_TASKS);
+    const protocolsDir = join(TEST_ROOT, 'protocols');
+    mkdirSync(protocolsDir, { recursive: true });
+    writeFileSync(join(protocolsDir, 'implementation.md'), '# Implementation Protocol\nUse this for handoff tests.\n');
   });
 
   afterEach(async () => {
     try {
-      const { closeDb } = await import('../../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
     } catch { /* ignore */ }
     await rm(TEST_ROOT, { recursive: true, force: true });
   });
@@ -179,6 +184,75 @@ describe('Orchestrate Engine', () => {
       expect(result.success).toBe(true);
       expect((result.data as any).taskCount).toBe(4);
       expect((result.data as any).estimatedTokens).toBeGreaterThan(0);
+    });
+  });
+
+  describe('orchestrateHandoff', () => {
+    it('should execute inject -> end -> spawn in order', async () => {
+      const startResult = await sessionStart(TEST_ROOT, {
+        scope: 'epic:T100',
+        name: 'handoff-predecessor',
+      });
+      expect(startResult.success).toBe(true);
+
+      const result = await orchestrateHandoff({
+        taskId: 'T102',
+        protocolType: 'implementation',
+        note: 'handoff complete',
+      }, TEST_ROOT);
+
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.predecessorSessionId).toBeDefined();
+      expect(data.endedSessionId).toBe(data.predecessorSessionId);
+      expect(data.steps.contextInject.status).toBe('completed');
+      expect(data.steps.sessionEnd.status).toBe('completed');
+      expect(data.steps.spawn.status).toBe('completed');
+      expect(data.idempotency.policy).toBe('non-idempotent');
+
+      const sessionState = await sessionStatus(TEST_ROOT);
+      expect(sessionState.success).toBe(true);
+      expect(sessionState.data?.hasActiveSession).toBe(false);
+    });
+
+    it('should fail with no active session and surface step metadata', async () => {
+      const result = await orchestrateHandoff({
+        taskId: 'T102',
+        protocolType: 'implementation',
+      }, TEST_ROOT);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_SESSION_REQUIRED');
+      const details = result.error?.details as any;
+      expect(details.failedStep).toBe('session.end');
+      expect(details.steps.contextInject.status).toBe('skipped');
+      expect(details.steps.spawn.status).toBe('skipped');
+    });
+
+    it('should surface partial state when spawn step fails', async () => {
+      const startResult = await sessionStart(TEST_ROOT, {
+        scope: 'epic:T100',
+        name: 'handoff-partial-failure',
+      });
+      expect(startResult.success).toBe(true);
+
+      const result = await orchestrateHandoff({
+        taskId: 'T104',
+        protocolType: 'implementation',
+      }, TEST_ROOT);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_SPAWN_VALIDATION_FAILED');
+      const details = result.error?.details as any;
+      expect(details.failedStep).toBe('orchestrate.spawn');
+      expect(details.steps.contextInject.status).toBe('completed');
+      expect(details.steps.sessionEnd.status).toBe('completed');
+      expect(details.steps.spawn.status).toBe('failed');
+      expect(details.idempotency.safeRetryFrom).toBe('orchestrate.spawn');
+
+      const sessionState = await sessionStatus(TEST_ROOT);
+      expect(sessionState.success).toBe(true);
+      expect(sessionState.data?.hasActiveSession).toBe(false);
     });
   });
 });

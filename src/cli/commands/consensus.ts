@@ -1,18 +1,12 @@
 /**
  * CLI consensus command - consensus protocol validation.
+ * Routes through dispatch layer to check.protocol.consensus.
  * @task T4537
  * @epic T4454
  */
-// CLI-only: consensus protocol validation has no dispatch route
 
 import { Command } from 'commander';
-import {
-  validateConsensusTask,
-  checkConsensusManifest,
-} from '../../core/validation/protocols/consensus.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the consensus command group.
@@ -29,19 +23,12 @@ export function registerConsensusCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--voting-matrix <file>', 'Path to voting matrix JSON file')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await validateConsensusTask(taskId, {
-          strict: opts['strict'] as boolean | undefined,
-          votingMatrixFile: opts['votingMatrix'] as string | undefined,
-        });
-        cliOutput(result, { command: 'consensus' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.consensus', {
+        mode: 'task',
+        taskId,
+        strict: opts['strict'] as boolean | undefined,
+        votingMatrixFile: opts['votingMatrix'] as string | undefined,
+      }, { command: 'consensus' });
     });
 
   consensus
@@ -50,18 +37,11 @@ export function registerConsensusCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--voting-matrix <file>', 'Path to voting matrix JSON file')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await checkConsensusManifest(manifestFile, {
-          strict: opts['strict'] as boolean | undefined,
-          votingMatrixFile: opts['votingMatrix'] as string | undefined,
-        });
-        cliOutput(result, { command: 'consensus' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.consensus', {
+        mode: 'manifest',
+        manifestFile,
+        strict: opts['strict'] as boolean | undefined,
+        votingMatrixFile: opts['votingMatrix'] as string | undefined,
+      }, { command: 'consensus' });
     });
 }

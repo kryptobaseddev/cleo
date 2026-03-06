@@ -77,7 +77,8 @@ describe('MCP server auto-install verification (T4695)', () => {
     it('dev-ts mode generates node command with dist/mcp/index.js', () => {
       const entry = generateMcpServerEntry({ mode: 'dev-ts', source: '/test/project', channel: 'dev' });
       expect(entry.command).toBe('node');
-      expect((entry.args as string[])![0]).toContain('dist/mcp/index.js');
+      const argPath = ((entry.args as string[])![0]).replaceAll('\\', '/');
+      expect(argPath).toContain('dist/mcp/index.js');
     });
 
     it('prod-npm stable mode generates npx latest channel command', () => {

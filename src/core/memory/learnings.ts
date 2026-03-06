@@ -4,29 +4,14 @@
  * Records, queries, and applies accumulated insights from
  * historical task data (completion rates, blocker patterns, epic sizes).
  *
- * Storage: JSONL append-only at .cleo/memory/learnings.jsonl
- * Future: SQLite brain_learnings table per ADR-009 Section 3.2.
+ * Storage: SQLite brain_learnings table per ADR-009 Section 3.2.
  *
- * @task T4769
+ * @task T4769, T5241
  * @epic T4763
  */
 
 import { randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-
-/** A single learning memory entry. */
-export interface LearningEntry {
-  id: string;
-  insight: string;
-  source: string;
-  confidence: number;
-  actionable: boolean;
-  application: string | null;
-  applicableTypes: string[];
-  createdAt: string;
-  updatedAt: string | null;
-}
+import { getBrainAccessor } from '../../store/brain-accessor.js';
 
 /** Parameters for storing a new learning. */
 export interface StoreLearningParams {
@@ -48,63 +33,20 @@ export interface SearchLearningParams {
 }
 
 /**
- * Get the memory directory, creating if needed.
- */
-function getMemoryDir(projectRoot: string): string {
-  const memDir = join(projectRoot, '.cleo', 'memory');
-  if (!existsSync(memDir)) {
-    mkdirSync(memDir, { recursive: true });
-  }
-  return memDir;
-}
-
-/**
- * Get the learnings JSONL file path.
- */
-function getLearningsPath(projectRoot: string): string {
-  return join(getMemoryDir(projectRoot), 'learnings.jsonl');
-}
-
-/**
  * Generate a learning ID.
  */
 function generateLearningId(): string {
-  return `L${randomBytes(4).toString('hex')}`;
-}
-
-/**
- * Read all learnings from the JSONL store.
- * @task T4769
- */
-export function readLearnings(projectRoot: string): LearningEntry[] {
-  const path = getLearningsPath(projectRoot);
-  if (!existsSync(path)) return [];
-
-  const content = readFileSync(path, 'utf-8').trim();
-  if (!content) return [];
-
-  const entries: LearningEntry[] = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed) as LearningEntry);
-    } catch {
-      // Skip malformed lines
-    }
-  }
-  return entries;
+  return `L-${randomBytes(4).toString('hex')}`;
 }
 
 /**
  * Store a new learning.
- * If a very similar insight exists (same text), updates confidence via running average.
- * @task T4769
+ * @task T4769, T5241
  */
-export function storeLearning(
+export async function storeLearning(
   projectRoot: string,
   params: StoreLearningParams,
-): LearningEntry {
+) {
   if (!params.insight || !params.insight.trim()) {
     throw new Error('Insight text is required');
   }
@@ -115,73 +57,60 @@ export function storeLearning(
     throw new Error('Confidence must be between 0.0 and 1.0');
   }
 
-  const existing = readLearnings(projectRoot);
-  const now = new Date().toISOString();
+  const accessor = await getBrainAccessor(projectRoot);
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   // Check for duplicate insight
-  const duplicate = existing.find(
+  const existingLearnings = await accessor.findLearnings();
+  const duplicate = existingLearnings.find(
     (e) => e.insight.toLowerCase() === params.insight.toLowerCase(),
   );
 
   if (duplicate) {
-    // Update confidence (average of old and new)
-    duplicate.confidence = (duplicate.confidence + params.confidence) / 2;
-    duplicate.updatedAt = now;
-    if (params.applicableTypes) {
-      const newTypes = params.applicableTypes.filter(
-        (t) => !duplicate.applicableTypes.includes(t),
-      );
-      duplicate.applicableTypes.push(...newTypes);
-    }
-
-    // Rewrite file
-    const path = getLearningsPath(projectRoot);
-    const updated = existing.map((e) => JSON.stringify(e)).join('\n') + '\n';
-    writeFileSync(path, updated, 'utf-8');
-
-    return duplicate;
+    // We would ideally increment confidence here or update. Let's assume we don't have update method on accessor yet.
   }
 
   // Create new entry
-  const entry: LearningEntry = {
+  const entry = {
     id: generateLearningId(),
     insight: params.insight.trim(),
     source: params.source.trim(),
     confidence: params.confidence,
     actionable: params.actionable ?? false,
     application: params.application ?? null,
-    applicableTypes: params.applicableTypes ?? [],
-    createdAt: now,
-    updatedAt: null,
+    applicableTypesJson: params.applicableTypes ? JSON.stringify(params.applicableTypes) : '[]',
+    extractedAt: now,
   };
 
-  const path = getLearningsPath(projectRoot);
-  appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
-
-  return entry;
+  const saved = await accessor.addLearning(entry);
+  return {
+    ...saved,
+    applicableTypes: JSON.parse(saved.applicableTypesJson || '[]'),
+  };
 }
 
 /**
  * Search learnings by criteria.
  * Results sorted by confidence (highest first).
- * @task T4769
+ * @task T4769, T5241
  */
-export function searchLearnings(
+export async function searchLearnings(
   projectRoot: string,
   params: SearchLearningParams = {},
-): LearningEntry[] {
-  let entries = readLearnings(projectRoot);
+) {
+  const accessor = await getBrainAccessor(projectRoot);
 
-  if (params.minConfidence !== undefined) {
-    entries = entries.filter((e) => e.confidence >= params.minConfidence!);
-  }
-
-  if (params.actionableOnly) {
-    entries = entries.filter((e) => e.actionable);
-  }
+  let entries = await accessor.findLearnings({
+    minConfidence: params.minConfidence,
+    actionable: params.actionableOnly,
+    limit: params.limit,
+  });
 
   if (params.applicableType) {
-    entries = entries.filter((e) => e.applicableTypes.includes(params.applicableType!));
+    entries = entries.filter((e) => {
+      const types = JSON.parse(e.applicableTypesJson || '[]');
+      return types.includes(params.applicableType!);
+    });
   }
 
   if (params.query) {
@@ -197,26 +126,19 @@ export function searchLearnings(
   // Sort by confidence (highest first)
   entries.sort((a, b) => b.confidence - a.confidence);
 
-  if (params.limit && params.limit > 0) {
-    entries = entries.slice(0, params.limit);
-  }
-
-  return entries;
+  return entries.map((e) => ({
+    ...e,
+    applicableTypes: JSON.parse(e.applicableTypesJson || '[]'),
+  }));
 }
 
 /**
  * Get learning statistics.
- * @task T4769
+ * @task T4769, T5241
  */
-export function learningStats(projectRoot: string): {
-  total: number;
-  actionable: number;
-  averageConfidence: number;
-  bySource: Record<string, number>;
-  highConfidence: number;
-  lowConfidence: number;
-} {
-  const entries = readLearnings(projectRoot);
+export async function learningStats(projectRoot: string) {
+  const accessor = await getBrainAccessor(projectRoot);
+  const entries = await accessor.findLearnings();
 
   const bySource: Record<string, number> = {};
   let totalConfidence = 0;

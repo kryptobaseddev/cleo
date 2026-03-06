@@ -12,11 +12,11 @@
  * @epic T4545
  */
 
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson, saveJson } from './json.js';
 import { getCleoHome } from '../core/paths.js';
+import { generateProjectHash as canonicalHash } from '../core/nexus/hash.js';
 
 /** Global registry file structure. */
 export interface ProjectRegistry {
@@ -50,14 +50,15 @@ export interface MergedProjectData extends ProjectRegistryEntry {
 
 /**
  * Generate a stable 12-character hex hash from a project path.
- * Used as the unique identifier in the project registry.
+ * Delegates to canonical implementation in src/core/nexus/hash.ts.
+ * Preserves empty-path guard for backward compatibility.
  * @task T4552
  */
 export function generateProjectHash(path: string): string {
   if (!path) {
     throw new Error('Project path required');
   }
-  return createHash('sha256').update(path).digest('hex').slice(0, 12);
+  return canonicalHash(path);
 }
 
 /**

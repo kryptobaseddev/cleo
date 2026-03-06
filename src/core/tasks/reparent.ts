@@ -18,6 +18,7 @@ import {
 } from './hierarchy.js';
 import { resolveHierarchyPolicy, validateHierarchyPlacement } from './hierarchy-policy.js';
 import type { HierarchyPolicy } from './hierarchy-policy.js';
+import { loadConfig } from '../config.js';
 
 /** Options for reparenting a task. */
 export interface ReparentOptions {
@@ -80,16 +81,7 @@ export async function reparentTask(
   }
 
   // Validate target parent exists and hierarchy constraints (depth + sibling limits)
-  const effectivePolicy = opts.policy ?? resolveHierarchyPolicy({
-    hierarchy: {
-      maxDepth: 3,
-      maxSiblings: 0,
-      maxActiveSiblings: 32,
-      cascadeDelete: false,
-      countDoneInLimit: false,
-      enforcementProfile: 'llm-agent-first',
-    },
-  } as any);
+  const effectivePolicy = opts.policy ?? resolveHierarchyPolicy(await loadConfig());
   const validation = validateHierarchyPlacement(effectiveNewParent, data.tasks, effectivePolicy);
   if (!validation.valid) {
     const code = validation.error?.code === 'E_PARENT_NOT_FOUND'

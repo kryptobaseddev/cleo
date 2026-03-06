@@ -1,8 +1,11 @@
 /**
- * Research Domain Operations (10 operations)
+ * Research Domain Operations (legacy alias for memory domain)
  *
- * Query operations: 6
- * Mutate operations: 4
+ * Query operations: 12 (derived from memory domain)
+ * Mutate operations: 5 (derived from memory domain)
+ *
+ * Note: manifest.* operations moved to pipeline domain (T5241).
+ * inject operation moved to session.context.inject (T5241).
  */
 
 /**
@@ -86,7 +89,7 @@ export interface ResearchStatsResult {
   avgConfidence: number;
 }
 
-// research.manifest.read
+// pipeline.manifest.list (was research.manifest.read, moved to pipeline T5241)
 export interface ResearchManifestReadParams {
   filter?: string;
   limit?: number;
@@ -97,7 +100,7 @@ export type ResearchManifestReadResult = ManifestEntry[];
  * Mutate Operations
  */
 
-// research.inject
+// session.context.inject (was research.inject, moved to session domain T5241)
 export interface ResearchInjectParams {
   protocolType: 'research' | 'consensus' | 'specification' | 'decomposition' | 'implementation' | 'contribution' | 'release';
   taskId?: string;
@@ -122,7 +125,7 @@ export interface ResearchLinkResult {
   linked: string;
 }
 
-// research.manifest.append
+// pipeline.manifest.append (was research.manifest.append, moved to pipeline T5241)
 export interface ResearchManifestAppendParams {
   entry: ManifestEntry;
   validateFile?: boolean;
@@ -133,7 +136,7 @@ export interface ResearchManifestAppendResult {
   validated: boolean;
 }
 
-// research.manifest.archive
+// pipeline.manifest.archive (was research.manifest.archive, moved to pipeline T5241)
 export interface ResearchManifestArchiveParams {
   beforeDate?: string;
   moveFiles?: boolean;

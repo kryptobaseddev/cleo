@@ -19,7 +19,6 @@ import { createPage } from '../../core/pagination.js';
 export function registerFindCommand(program: Command): void {
   program
     .command('find [query]')
-    .alias('search')
     .description('Fuzzy search tasks by title/description')
     .option('--id <id>', 'Search by ID prefix')
     .option('--exact', 'Exact title match')

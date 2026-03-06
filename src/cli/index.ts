@@ -4,7 +4,180 @@
  * @task T4455
  */
 
-import { Command } from 'commander';
+import { Command, Help, Option } from 'commander';
+
+/**
+ * Custom Help class that groups commands by domain.
+ * Organizes commands into logical domains for better UX.
+ */
+class GroupedHelp extends Help {
+  // Domain to command names mapping - organized by functional domain
+  private domainGroups: Record<string, string[]> = {
+    'Tasks': [
+      'add', 'list', 'show', 'find', 'complete', 'update', 'delete',
+      'archive', 'start', 'stop', 'current', 'next',
+      'archive-stats', 'restore', 'reorder', 'reparent', 'relates',
+      'tree', 'deps', 'labels', 'tags', 'blockers', 'exists', 'stats', 'history'
+    ],
+    'Session': [
+      'session', 'briefing', 'phase', 'checkpoint', 'safestop'
+    ],
+    'Memory': [
+      'memory', 'memory-brain', 'observe', 'context', 'inject', 'sync', 'sticky', 'note'
+    ],
+    'Check': [
+      'validate', 'verify', 'compliance', 'doctor', 'analyze'
+    ],
+    'Pipeline': [
+      'release', 'lifecycle', 'promote', 'upgrade', 'specification',
+      'detect-drift', 'roadmap', 'plan', 'log', 'issue', 'bug',
+      'generate-changelog', 'phases'
+    ],
+    'Orchestration': [
+      'orchestrate', 'ops', 'consensus', 'contribution', 'decomposition',
+      'implementation', 'sequence', 'dash'
+    ],
+    'Research': [
+      'research', 'extract', 'web', 'docs'
+    ],
+    'Nexus': [
+      'nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'export', 'import'
+    ],
+    'Admin': [
+      'config', 'backup', 'export-tasks', 'import-tasks',
+      'env', 'mcp-install', 'testing', 'skills', 'self-update',
+      'install-global', 'grade', 'migrate-claude-mem', 'migrate', 'otel', 'adr', 'commands'
+    ]
+  };
+
+  /** Override formatHelp to group commands by domain. */
+  formatHelp(cmd: Command, helper: Help): string {
+    const output: string[] = [];
+
+    // Header: name and version
+    const version = cmd.version();
+    if (version) {
+      output.push(`${cmd.name()}@${version}`);
+    } else {
+      output.push(cmd.name());
+    }
+
+    // Description
+    const description = this.commandDescription(cmd);
+    if (description) {
+      output.push(description);
+    }
+
+    // Usage
+    const usage = this.commandUsage(cmd);
+    if (usage) {
+      output.push(`Usage: ${usage}`);
+    }
+
+    // Global options
+    const globalOpts = this.visibleGlobalOptions(cmd);
+    if (globalOpts.length > 0) {
+      output.push(this.formatOptionsBlock('Global Options:', globalOpts, helper, cmd));
+    }
+
+    // Commands grouped by domain
+    const domainSection = this.formatCommandsByDomain(cmd, helper);
+    if (domainSection) {
+      output.push(domainSection);
+    }
+
+    // Options for current command
+    const opts = this.visibleOptions(cmd);
+    if (opts.length > 0) {
+      output.push(this.formatOptionsBlock('Options:', opts, helper, cmd));
+    }
+
+    // Arguments
+    const args = this.visibleArguments(cmd);
+    if (args.length > 0) {
+      output.push(this.formatArgumentsBlock(args, helper, cmd));
+    }
+
+    return output.filter(Boolean).join('\n\n');
+  }
+
+  /** Format options as a block. */
+  private formatOptionsBlock(title: string, options: Option[], helper: Help, cmd: Command): string {
+    const lines: string[] = [title];
+    const width = this.longestOptionTermLength(cmd, helper);
+
+    for (const option of options) {
+      const term = helper.optionTerm(option);
+      const desc = helper.optionDescription(option);
+      lines.push(`  ${term.padEnd(width)}  ${desc}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /** Format arguments as a block. */
+  private formatArgumentsBlock(args: import('commander').Argument[], helper: Help, cmd: Command): string {
+    const lines: string[] = ['Arguments:'];
+    const width = this.longestArgumentTermLength(cmd, helper);
+
+    for (const arg of args) {
+      const term = helper.argumentTerm(arg);
+      const desc = helper.argumentDescription(arg);
+      lines.push(`  ${term.padEnd(width)}  ${desc}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /** Format commands grouped by domain. */
+  private formatCommandsByDomain(cmd: Command, helper: Help): string {
+    const commands = this.visibleCommands(cmd);
+    if (commands.length === 0) return '';
+
+    // Group commands by domain
+    const grouped: Record<string, Command[]> = {};
+    const ungrouped: Command[] = [];
+
+    for (const command of commands) {
+      const name = command.name();
+      let found = false;
+      for (const [domain, names] of Object.entries(this.domainGroups)) {
+        if (names.includes(name)) {
+          if (!grouped[domain]) grouped[domain] = [];
+          grouped[domain].push(command);
+          found = true;
+          break;
+        }
+      }
+      if (!found) ungrouped.push(command);
+    }
+
+    const lines: string[] = [];
+    lines.push('Commands:');
+
+    // Print grouped commands
+    for (const [domain, cmds] of Object.entries(grouped)) {
+      lines.push(`\n  ${domain}:`);
+      for (const c of cmds.sort((a, b) => a.name().localeCompare(b.name()))) {
+        const term = helper.subcommandTerm(c);
+        const desc = helper.subcommandDescription(c);
+        lines.push(`    ${term.padEnd(22)} ${desc}`);
+      }
+    }
+
+    // Print ungrouped commands
+    if (ungrouped.length > 0) {
+      lines.push('\n  Other:');
+      for (const c of ungrouped.sort((a, b) => a.name().localeCompare(b.name()))) {
+        const term = helper.subcommandTerm(c);
+        const desc = helper.subcommandDescription(c);
+        lines.push(`    ${term.padEnd(22)} ${desc}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+}
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { registerAddCommand } from './commands/add.js';
@@ -15,7 +188,6 @@ import { registerCompleteCommand } from './commands/complete.js';
 import { registerUpdateCommand } from './commands/update.js';
 import { registerDeleteCommand } from './commands/delete.js';
 import { registerArchiveCommand } from './commands/archive.js';
-import { registerFocusCommand } from './commands/focus.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerStopCommand } from './commands/stop.js';
 import { registerCurrentCommand } from './commands/current.js';
@@ -98,9 +270,6 @@ import { registerOpsCommand } from './commands/ops.js';
 // T4882: Multi-contributor snapshot
 import { registerSnapshotCommand } from './commands/snapshot.js';
 
-// T4883: Config-driven sharing allowlist
-import { registerSharingCommand } from './commands/sharing.js';
-
 // T4884: .cleo/.git remote push/pull
 import { registerRemoteCommand } from './commands/remote.js';
 
@@ -117,8 +286,11 @@ import { registerMemoryBrainCommand } from './commands/memory-brain.js';
 // T5143: Claude-mem to brain.db migration
 import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
 
+// T5281: Sticky notes command
+import { registerStickyCommand } from './commands/sticky.js';
+
 // Core: pre-flight migration check (@task T4699)
-import { checkStorageMigration } from '../core/migration/preflight.js';
+import { checkStorageMigration } from '../core/system/storage-preflight.js';
 
 // T4665: Output format resolution (LAFS middleware)
 import { resolveFormat } from './middleware/output-format.js';
@@ -128,8 +300,8 @@ import { setFormatContext } from './format-context.js';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
 
 // Centralized pino logger
-import { initLogger } from '../core/logger.js';
 import { loadConfig as loadCoreConfig } from '../core/config.js';
+import { initCliLogger } from './logger-bootstrap.js';
 
 // Startup guard: fail fast if Node.js version is below minimum
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../core/platform.js';
@@ -159,7 +331,15 @@ function getPackageVersion(): string {
 }
 
 const CLI_VERSION = getPackageVersion();
-const program = new Command();
+
+// Custom Command class that uses GroupedHelp
+class CleoCommand extends Command {
+  createHelp() {
+    return new GroupedHelp();
+  }
+}
+
+const program = new CleoCommand();
 
 program
   .name('cleo')
@@ -200,9 +380,6 @@ registerCurrentCommand(program);
 
 // T4916: Session briefing command
 registerBriefingCommand(program);
-
-// T4462: Focus commands (backward-compat aliases)
-registerFocusCommand(program);
 
 // T4463: Session commands
 registerSessionCommand(program);
@@ -300,9 +477,6 @@ registerOpsCommand(program);
 // T4882: Multi-contributor snapshot export/import
 registerSnapshotCommand(program);
 
-// T4883: Config-driven sharing allowlist
-registerSharingCommand(program);
-
 // T4884: .cleo/.git remote push/pull
 registerRemoteCommand(program);
 
@@ -319,6 +493,9 @@ registerMemoryBrainCommand(program);
 // T5143: Claude-mem to brain.db migration
 registerMigrateClaudeMemCommand(program);
 
+// T5281: Sticky notes command
+registerStickyCommand(program);
+
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).
 let loggerInitialized = false;
@@ -327,7 +504,12 @@ program.hook('preAction', async () => {
   loggerInitialized = true;
   try {
     const config = await loadCoreConfig();
-    initLogger(join(process.cwd(), '.cleo'), config.logging);
+    initCliLogger(process.cwd(), config.logging);
+
+    // Fire-and-forget audit log pruning (T5339, ADR-024 section 2.3)
+    const { pruneAuditLog } = await import('../core/audit-prune.js');
+    pruneAuditLog(join(process.cwd(), '.cleo'), config.logging)
+      .catch(() => { /* non-blocking */ });
   } catch {
     // Logger init is best-effort — fallback stderr logger will be used
   }

@@ -9,7 +9,8 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
-import { checkStorageMigration } from '../migration/preflight.js';
+import { createRequire } from 'node:module';
+import { checkStorageMigration } from './storage-preflight.js';
 import { checkCleoGitignore, checkVitalFilesTracked, checkCoreFilesNotIgnored, checkLegacyAgentOutputs, checkNodeVersion, type CheckResult } from '../validation/doctor/checks.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import { checkProjectInfo, checkProjectContext } from '../scaffold.js';
@@ -18,9 +19,76 @@ import { checkGlobalSchemas, type CheckResult as SchemaCheckResult } from '../sc
 import { checkInjection } from '../injection.js';
 
 const execAsync = promisify(execFile);
+const _require = createRequire(import.meta.url);
+
+type SqliteModule = typeof import('node:sqlite');
+const databaseSyncCtor = (() => {
+  try {
+    return (_require('node:sqlite') as SqliteModule).DatabaseSync;
+  } catch {
+    return null;
+  }
+})();
 
 /** Stale JSON files that should not exist alongside tasks.db (ADR-006). */
 const STALE_JSON_FILES = ['todo.json', 'sessions.json', 'todo-archive.json'] as const;
+
+function resolveStructuredLogPath(cleoDir: string): string {
+  const defaultPath = join(cleoDir, 'logs', 'cleo.log');
+  const configPath = join(cleoDir, 'config.json');
+  if (!existsSync(configPath)) return defaultPath;
+  try {
+    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as {
+      logging?: { filePath?: string }
+    };
+    if (!config.logging?.filePath) return defaultPath;
+    return join(cleoDir, config.logging.filePath);
+  } catch {
+    return defaultPath;
+  }
+}
+
+function checkAuditLogAvailability(dbPath: string): HealthCheck {
+  if (!databaseSyncCtor) {
+    return {
+      name: 'audit_log',
+      status: 'warn',
+      message: 'audit_log check unavailable: node:sqlite runtime not found',
+    };
+  }
+
+  try {
+    const db = new databaseSyncCtor(dbPath, { readOnly: true });
+    try {
+      const tableRow = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'",
+      ).get() as { name?: string } | undefined;
+
+      if (!tableRow?.name) {
+        return {
+          name: 'audit_log',
+          status: 'fail',
+          message: 'audit_log table missing from tasks.db (run: cleo upgrade)',
+        };
+      }
+
+      const countRow = db.prepare('SELECT COUNT(1) AS count FROM audit_log').get() as { count?: number } | undefined;
+      return {
+        name: 'audit_log',
+        status: 'pass',
+        message: `audit_log table available (${countRow?.count ?? 0} rows)`,
+      };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return {
+      name: 'audit_log',
+      status: 'warn',
+      message: 'Unable to validate audit_log availability from tasks.db',
+    };
+  }
+}
 
 export interface HealthCheck {
   name: string;
@@ -85,6 +153,10 @@ export function getSystemHealth(
     checks.push({ name: 'tasks_db', status: 'fail', message: 'tasks.db not found' });
   }
 
+  if (existsSync(dbPath)) {
+    checks.push(checkAuditLogAvailability(dbPath));
+  }
+
   // Check config.json (config remains JSON per ADR-006)
   const configPath = join(cleoDir, 'config.json');
   if (existsSync(configPath)) {
@@ -111,11 +183,11 @@ export function getSystemHealth(
   }
 
   if (opts?.detailed) {
-    const logPath = join(cleoDir, 'todo-log.jsonl');
+    const logPath = resolveStructuredLogPath(cleoDir);
     if (existsSync(logPath)) {
-      checks.push({ name: 'log_file', status: 'pass', message: 'todo-log.jsonl exists' });
+      checks.push({ name: 'log_file', status: 'pass', message: `structured log present: ${logPath}` });
     } else {
-      checks.push({ name: 'log_file', status: 'warn', message: 'todo-log.jsonl not found' });
+      checks.push({ name: 'log_file', status: 'warn', message: `structured log not found: ${logPath}` });
     }
 
     const backupDir = join(cleoDir, '.backups');
@@ -159,7 +231,7 @@ export async function getSystemDiagnostics(
     details: c.message,
     fix: c.status === 'fail'
       ? c.name === 'cleo_dir' ? 'Run: cleo init' :
-        c.name === 'todo_json' ? 'Run: cleo init (or restore from backup)' :
+        c.name === 'tasks_db' ? 'Run: cleo init (or restore from backup)' :
         undefined
       : undefined,
   }));
@@ -397,6 +469,14 @@ export async function coreDoctorReport(
       });
     }
 
+    const auditLogCheck = checkAuditLogAvailability(dbPath);
+    checks.push({
+      check: 'audit_log',
+      status: auditLogCheck.status === 'pass' ? 'ok' : auditLogCheck.status === 'warn' ? 'warning' : 'error',
+      message: auditLogCheck.message ?? 'audit_log availability check completed',
+      ...(auditLogCheck.status === 'fail' ? { fix: 'Run: cleo upgrade' } : {}),
+    });
+
     // SQLite integrity check
     try {
       const { getNativeDb, getDb: getDbInit } = await import('../../store/sqlite.js');
@@ -437,12 +517,12 @@ export async function coreDoctorReport(
     });
   }
 
-  const logPath = join(cleoDir, 'todo-log.jsonl');
+  const logPath = resolveStructuredLogPath(cleoDir);
   const logExists = existsSync(logPath);
   checks.push({
     check: 'log_file',
     status: logExists ? 'ok' : 'warning',
-    message: logExists ? 'log file present' : 'log file not found',
+    message: logExists ? `structured log present: ${logPath}` : `structured log not found: ${logPath}`,
   });
 
   // 4. Check root .gitignore for .cleo/ blocking

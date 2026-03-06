@@ -20,18 +20,18 @@ Implementation operation counts and live operation matrices MUST be sourced from
 - `src/mcp/gateways/query.ts`
 - `src/mcp/gateways/mutate.ts`
 
-As of 2026-02-27, implementation counts are:
+As of 2026-03-06, implementation counts are:
 
-- `cleo_query`: 97 (across 10 canonical domains)
-- `cleo_mutate`: 80 (across 10 canonical domains)
-- Total: 177
+- `query`: 145 (across 10 canonical domains)
+- `mutate`: 111 (across 10 canonical domains)
+- Total: 256
 
-> **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries are the canonical count for deployed operations. Legacy domain aliases (research, lifecycle, validate, release, system, issues, skills, providers) still route to canonical domains.
+> **Note**: The capability matrix (`capability-matrix.ts`) tracks routing metadata. The gateway registries are the canonical count for deployed operations. Legacy domain aliases (research, lifecycle, validate, release, system, issues, skills, providers, sharing) still route to canonical domains; `sharing` resolves into `nexus.share.*`, while `sticky` is the tenth canonical domain.
 
 ### 1.1 Design Goals
 
 1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 80+ tools (~32,500 tokens) = 94% reduction
-2. **Full Capability Access**: All 177 operations accessible through domain routing across 10 canonical domains
+2. **Full Capability Access**: All 256 operations accessible through domain routing across 10 canonical domains
 3. **Safety by Design**: Read operations cannot mutate state
 4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
@@ -43,8 +43,8 @@ As of 2026-02-27, implementation counts are:
 │                            MCP TOOL LAYER (2 Entry Points)                       │
 │                                                                                  │
 │   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
-│   │         cleo_query              │    │         cleo_mutate             │    │
-│   │      (97 Read Operations)       │    │      (80 Write Operations)      │    │
+│   │         query              │    │         mutate             │    │
+│   │      (145 Read Operations)      │    │     (111 Write Operations)      │    │
 │   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
 └────────────────────┼──────────────────────────────────────┼──────────────────────┘
                      │                                      │
@@ -52,7 +52,7 @@ As of 2026-02-27, implementation counts are:
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                        DOMAIN ROUTER (10 Canonical Domains)                      │
 │  tasks │ session │ orchestrate │ memory │ check │ pipeline │ admin │ tools      │
-│                              + nexus │ sharing                                   │
+│                              + nexus │ sticky                                   │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                          │
                                          ▼
@@ -76,7 +76,7 @@ As of 2026-02-27, implementation counts are:
 
 ## 2. Gateway Tool Definitions
 
-### 2.1 `cleo_query` - Read Operations
+### 2.1 `query` - Read Operations
 
 **Purpose**: All read-only operations for discovery, status, analysis, and validation checks.
 
@@ -91,7 +91,7 @@ As of 2026-02-27, implementation counts are:
 
 ```json
 {
-  "name": "cleo_query",
+  "name": "query",
   "description": "CLEO read operations: task discovery, status checks, analysis, validation, and compliance metrics. Never modifies state.",
   "inputSchema": {
     "type": "object",
@@ -109,7 +109,7 @@ As of 2026-02-27, implementation counts are:
           "admin",
           "tools",
           "nexus",
-          "sharing"
+          "sticky"
         ],
         "description": "Functional domain to query"
       },
@@ -127,7 +127,7 @@ As of 2026-02-27, implementation counts are:
 }
 ```
 
-#### 2.1.2 Operations by Domain (97 Total)
+#### 2.1.2 Selected Operations by Domain
 
 ##### tasks (12 operations)
 
@@ -172,7 +172,9 @@ As of 2026-02-27, implementation counts are:
 | `unblock.opportunities` | Unblocking analysis      | `epicId?`  | Unblock recommendations        |
 | `critical.path`         | Longest dependency chain | `epicId`   | Critical path analysis         |
 
-##### research (8 operations)
+##### memory (17 operations)
+
+> **Note**: Memory (BRAIN) operations are MCP-only. There is no CLI equivalent for the memory store.
 
 | Operation        | Description               | Parameters             | Returns                   |
 | ---------------- | ------------------------- | ---------------------- | ------------------------- |
@@ -185,7 +187,7 @@ As of 2026-02-27, implementation counts are:
 | `contradictions` | Find conflicting findings | `epicId?`              | Contradiction array       |
 | `superseded`     | Find superseded entries   | `epicId?`              | Superseded array          |
 
-##### lifecycle (5 operations)
+##### pipeline (15 operations)
 
 | Operation       | Description               | Parameters              | Returns           |
 | --------------- | ------------------------- | ----------------------- | ----------------- |
@@ -195,7 +197,7 @@ As of 2026-02-27, implementation counts are:
 | `gates`         | All gate statuses         | `taskId`                | Gate status array |
 | `prerequisites` | Required prior stages     | `targetStage`           | Prerequisite list |
 
-##### validate (10 operations)
+##### check (18 operations)
 
 | Operation               | Description              | Parameters               | Returns              |
 | ----------------------- | ------------------------ | ------------------------ | -------------------- |
@@ -210,7 +212,7 @@ As of 2026-02-27, implementation counts are:
 | `test.coverage`         | Coverage metrics         | `taskId?`                | Coverage percentages |
 | `coherence.check`       | Task graph consistency   | `scope?`                 | Coherence result     |
 
-##### system (14 operations)
+##### admin (24 operations)
 
 | Operation       | Description                | Parameters         | Returns            |
 | --------------- | -------------------------- | ------------------ | ------------------ |
@@ -235,7 +237,7 @@ As of 2026-02-27, implementation counts are:
 | ------------- | ---------------------------------- | ---------- | ---------------- |
 | `diagnostics` | System diagnostics for bug reports | -          | Diagnostics data |
 
-##### skills (6 operations)
+##### tools (21 operations)
 
 | Operation      | Description                | Parameters | Returns                 |
 | -------------- | -------------------------- | ---------- | ----------------------- |
@@ -246,17 +248,16 @@ As of 2026-02-27, implementation counts are:
 | `verify`       | Validate skill frontmatter | `skillId`  | Validation result       |
 | `dependencies` | Skill dependency tree      | `skillId`  | Dependency graph        |
 
-##### providers (3 operations)
+##### sticky (2 operations)
 
-| Operation       | Description                   | Parameters    | Returns          |
-| --------------- | ----------------------------- | ------------- | ---------------- |
-| `list`          | List all registered providers | -             | Provider array   |
-| `detect`        | Detect installed providers    | -             | Detection result |
-| `inject.status` | Check injection status        | `providerId?` | Injection status |
+| Operation | Description | Parameters | Returns |
+| --------- | ----------- | ---------- | ------- |
+| `list`    | List sticky notes | `status?`, `limit?` | Sticky note array |
+| `show`    | Show sticky note details | `stickyId` | Sticky note object |
 
 ---
 
-### 2.2 `cleo_mutate` - Write Operations
+### 2.2 `mutate` - Write Operations
 
 **Purpose**: All state-modifying operations for task management, orchestration, and system changes.
 
@@ -271,7 +272,7 @@ As of 2026-02-27, implementation counts are:
 
 ```json
 {
-  "name": "cleo_mutate",
+  "name": "mutate",
   "description": "CLEO write operations: create, update, complete tasks; manage sessions; spawn agents; progress lifecycle; execute releases. Modifies state with validation.",
   "inputSchema": {
     "type": "object",
@@ -289,7 +290,7 @@ As of 2026-02-27, implementation counts are:
           "admin",
           "tools",
           "nexus",
-          "sharing"
+          "sticky"
         ],
         "description": "Functional domain to mutate"
       },
@@ -307,7 +308,7 @@ As of 2026-02-27, implementation counts are:
 }
 ```
 
-#### 2.2.2 Operations by Domain (80 Total)
+#### 2.2.2 Selected Operations by Domain
 
 ##### tasks (14 operations)
 
@@ -350,7 +351,9 @@ As of 2026-02-27, implementation counts are:
 | `parallel.start` | Start parallel wave      | `epicId`, `wave`             | Wave tasks              |
 | `parallel.end`   | End parallel wave        | `epicId`, `wave`             | Wave completion         |
 
-##### research (4 operations)
+##### memory (8 operations)
+
+> **Note**: Memory (BRAIN) operations are MCP-only. There is no CLI equivalent for the memory store.
 
 | Operation          | Description            | Parameters                              | Returns            |
 | ------------------ | ---------------------- | --------------------------------------- | ------------------ |
@@ -359,7 +362,7 @@ As of 2026-02-27, implementation counts are:
 | `manifest.append`  | Append manifest entry  | `entry`, `validateFile?`                | Entry confirmation |
 | `manifest.archive` | Archive old entries    | `beforeDate?`, `moveFiles?`             | Archive count      |
 
-##### lifecycle (5 operations)
+##### pipeline (15 operations)
 
 | Operation   | Description             | Parameters                              | Returns               |
 | ----------- | ----------------------- | --------------------------------------- | --------------------- |
@@ -369,14 +372,14 @@ As of 2026-02-27, implementation counts are:
 | `gate.pass` | Mark gate as passed     | `taskId`, `gateName`, `agent`, `notes?` | Gate status           |
 | `gate.fail` | Mark gate as failed     | `taskId`, `gateName`, `reason`          | Gate status           |
 
-##### validate (2 operations)
+##### check (18 operations)
 
 | Operation           | Description             | Parameters                        | Returns             |
 | ------------------- | ----------------------- | --------------------------------- | ------------------- |
 | `compliance.record` | Record compliance check | `taskId`, `result`                | Record confirmation |
 | `test.run`          | Execute test suite      | `scope?`, `pattern?`, `parallel?` | Test results        |
 
-##### release (7 operations)
+##### pipeline (continued)
 
 | Operation   | Description           | Parameters             | Returns            |
 | ----------- | --------------------- | ---------------------- | ------------------ |
@@ -388,7 +391,7 @@ As of 2026-02-27, implementation counts are:
 | `gates.run` | Run release gates     | `gates?`               | Gate results       |
 | `rollback`  | Rollback release      | `version`, `reason`    | Rollback status    |
 
-##### system (11 operations)
+##### admin (24 operations)
 
 | Operation         | Description             | Parameters                | Returns               |
 | ----------------- | ----------------------- | ------------------------- | --------------------- |
@@ -404,7 +407,7 @@ As of 2026-02-27, implementation counts are:
 | `uncancel`        | Restore cancelled tasks | `taskId`                  | Restored task         |
 | `inject.generate` | Generate MVI injection  | `level?`, `format?`       | Injection content     |
 
-##### issues (3 operations)
+##### nexus (17 operations)
 
 | Operation        | Description       | Parameters                 | Returns      |
 | ---------------- | ----------------- | -------------------------- | ------------ |
@@ -412,7 +415,7 @@ As of 2026-02-27, implementation counts are:
 | `create.feature` | Request a feature | `title`, `body`, `labels?` | Issue object |
 | `create.help`    | Ask a question    | `title`, `body`            | Issue object |
 
-##### skills (6 operations)
+##### tools (21 operations)
 
 | Operation   | Description            | Parameters           | Returns              |
 | ----------- | ---------------------- | -------------------- | -------------------- |
@@ -440,7 +443,7 @@ All operations return a consistent envelope:
 ```json
 {
   "_meta": {
-    "gateway": "cleo_query|cleo_mutate",
+    "gateway": "query|mutate",
     "domain": "tasks",
     "operation": "show",
     "version": "1.0.0",
@@ -459,7 +462,7 @@ All operations return a consistent envelope:
 ```json
 {
   "_meta": {
-    "gateway": "cleo_mutate",
+    "gateway": "mutate",
     "domain": "tasks",
     "operation": "add",
     "version": "1.0.0",
@@ -479,7 +482,7 @@ All operations return a consistent envelope:
     "alternatives": [
       {
         "action": "Use generated description",
-        "command": "cleo_mutate tasks add --title \"...\" --description \"Implementation of ...\""
+        "command": "mutate tasks add --title \"...\" --description \"Implementation of ...\""
       }
     ]
   }
@@ -1042,28 +1045,28 @@ These are implementation-alignment concerns. Canonical behavior remains CLI-sema
 
 ```javascript
 // 1. Find task
-const result = await cleo_query({
+const result = await query({
   domain: "tasks",
   operation: "find",
   params: { query: "authentication" },
 });
 
 // 2. Get task details
-const task = await cleo_query({
+const task = await query({
   domain: "tasks",
   operation: "show",
   params: { taskId: "T2405" },
 });
 
 // 3. Set focus
-await cleo_mutate({
+await mutate({
   domain: "tasks",
   operation: "start",
   params: { taskId: "T2405" },
 });
 
 // 4. Complete task
-await cleo_mutate({
+await mutate({
   domain: "tasks",
   operation: "complete",
   params: { taskId: "T2405", notes: "Implemented successfully" },
@@ -1074,28 +1077,28 @@ await cleo_mutate({
 
 ```javascript
 // 1. Initialize orchestration
-const startup = await cleo_mutate({
+const startup = await mutate({
   domain: "orchestrate",
   operation: "start",
   params: { epicId: "T2400" },
 });
 
 // 2. Check lifecycle prerequisites
-const lifecycle = await cleo_query({
-  domain: "lifecycle",
-  operation: "validate",
+const lifecycle = await query({
+  domain: "pipeline",
+  operation: "stage.validate",
   params: { taskId: "T2405", targetStage: "implementation" },
 });
 
 // 3. Generate spawn prompt
-const spawn = await cleo_mutate({
+const spawn = await mutate({
   domain: "orchestrate",
   operation: "spawn",
   params: { taskId: "T2405", skill: "ct-task-executor" },
 });
 
 // 4. Validate protocol compliance after completion
-const validation = await cleo_query({
+const validation = await query({
   domain: "validate",
   operation: "protocol",
   params: { taskId: "T2405", protocolType: "implementation" },
@@ -1106,41 +1109,41 @@ const validation = await cleo_query({
 
 ```javascript
 // 1. Run release gates
-const gates = await cleo_mutate({
+const gates = await mutate({
   domain: "release",
   operation: "gates.run",
   params: { gates: ["tests", "lint", "security"] },
 });
 
 // 2. Prepare release
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "prepare",
   params: { version: "1.2.0", type: "minor" },
 });
 
 // 3. Generate changelog
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "changelog",
   params: { version: "1.2.0" },
 });
 
 // 4. Create commit and tag
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "commit",
   params: { version: "1.2.0" },
 });
 
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "tag",
   params: { version: "1.2.0" },
 });
 
 // 5. Push
-await cleo_mutate({
+await mutate({
   domain: "release",
   operation: "push",
   params: { version: "1.2.0" },
@@ -1212,7 +1215,7 @@ All inputs MUST be validated:
 
 The two-gateway design enables permission separation:
 
-- **Read-only access**: Grant `cleo_query` only
+- **Read-only access**: Grant `query` only
 - **Full access**: Grant both gateways
 - **Audit trail**: All mutations logged
 
@@ -1230,36 +1233,35 @@ Recommended limits:
 
 ### Appendix A: Domain Operation Quick Reference
 
-#### cleo_query Domains
+#### query Domains
 
-| Domain      | Operations                                                                                                                         |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| tasks       | show, list, find, exists, tree, blockers, depends, analyze, next, relates, complexity.estimate, current                            |
-| session     | status, list, show, history, decision.log, context.drift                                                                           |
-| orchestrate | status, next, ready, analyze, context, waves, skill.list, bootstrap, unblock.opportunities, critical.path                          |
-| research    | show, list, find, pending, stats, manifest.read, contradictions, superseded                                                        |
-| lifecycle   | validate, status, history, gates, prerequisites                                                                                    |
-| validate    | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage, coherence.check   |
-| system      | version, health, config.get, stats, context, job.status, job.list, dash, roadmap, labels, compliance, log, archive.stats, sequence |
-| issues      | diagnostics                                                                                                                        |
-| skills      | list, show, find, dispatch, verify, dependencies                                                                                   |
-| providers   | list, detect, inject.status                                                                                                        |
+| Domain | Operations |
+| --- | --- |
+| tasks | show, list, find, exists, tree, blockers, depends, analyze, next, plan, relates, relates.find, complexity.estimate, history, current, label.list, label.show |
+| session | status, list, show, history, decision.log, context.drift, handoff.show, briefing.show, debrief.show, chain.show, find |
+| orchestrate | status, next, ready, analyze, context, waves, bootstrap, unblock.opportunities, critical.path, chain.plan, tessera.show, tessera.list |
+| memory | show, find, timeline, fetch, stats, contradictions, superseded, decision.find, pattern.find, pattern.stats, learning.find, learning.stats, graph.show, graph.neighbors, reason.why, reason.similar, search.hybrid |
+| pipeline | stage.validate, stage.status, stage.history, stage.gates, stage.prerequisites, phase.show, phase.list, manifest.show, manifest.list, manifest.find, manifest.pending, manifest.stats, chain.show, chain.list, chain.find |
+| check | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage, coherence.check, protocol.consensus, protocol.contribution, protocol.decomposition, protocol.implementation, protocol.specification, gate.verify, chain.validate, chain.gate |
+| admin | version, health, config.show, stats, context, runtime, job.status, job.list, dash, log, sequence, help, sync.status, grade, grade.list, archive.stats, adr.list, adr.show, adr.find, doctor, export, snapshot.export, export.tasks |
+| tools | issue.diagnostics, issue.templates, issue.validate.labels, skill.list, skill.show, skill.find, skill.dispatch, skill.verify, skill.dependencies, skill.spawn.providers, skill.catalog.protocols, skill.catalog.profiles, skill.catalog.resources, skill.catalog.info, skill.precedence.show, skill.precedence.resolve, provider.list, provider.detect, provider.inject.status, provider.supports, provider.hooks |
+| nexus | share.status, share.remotes, share.sync.status, status, list, show, query, deps, graph, path.show, blockers.show, orphans.list, critical-path, blocking, orphans, discover, search |
+| sticky | list, show |
 
-#### cleo_mutate Domains
+#### mutate Domains
 
-| Domain      | Operations                                                                                                              |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| tasks       | add, update, complete, delete, archive, restore, reparent, promote, reorder, reopen, relates.add, uncancel, start, stop |
-| session     | start, end, resume, suspend, gc, record.decision, record.assumption                                                     |
-| orchestrate | start, spawn, validate, parallel.start, parallel.end                                                                    |
-| research    | inject, link, manifest.append, manifest.archive                                                                         |
-| lifecycle   | record, skip, reset, gate.pass, gate.fail                                                                               |
-| validate    | compliance.record, test.run                                                                                             |
-| release     | prepare, changelog, commit, tag, push, gates.run, rollback                                                              |
-| system      | init, config.set, backup, restore, migrate, sync, cleanup, job.cancel, safestop, uncancel, inject.generate              |
-| issues      | create.bug, create.feature, create.help                                                                                 |
-| skills      | install, uninstall, enable, disable, configure, refresh                                                                 |
-| providers   | inject                                                                                                                  |
+| Domain | Operations |
+| --- | --- |
+| tasks | add, update, complete, cancel, delete, archive, restore, reopen, unarchive, reparent, promote, reorder, relates.add, start, stop |
+| session | start, end, resume, suspend, gc, record.decision, record.assumption, context.inject |
+| orchestrate | start, spawn, handoff, spawn.execute, validate, parallel.start, parallel.end, tessera.instantiate |
+| memory | observe, decision.store, pattern.store, learning.store, link, unlink, graph.add, graph.remove |
+| pipeline | stage.record, stage.skip, stage.reset, stage.gate.pass, stage.gate.fail, manifest.append, manifest.archive, phase.set, phase.start, phase.complete, phase.advance, phase.rename, phase.delete, chain.add, chain.instantiate, chain.advance, chain.gate.pass, chain.gate.fail, release.prepare, release.changelog, release.commit, release.tag, release.push, release.gates.run, release.rollback |
+| check | compliance.record, test.run |
+| admin | init, config.set, backup, restore, backup.restore, migrate, sync, sync.clear, cleanup, job.cancel, safestop, inject.generate, sequence, install.global, adr.sync, adr.validate, fix, import, snapshot.import, import.tasks |
+| tools | issue.add.bug, issue.add.feature, issue.add.help, issue.generate.config, skill.install, skill.uninstall, skill.enable, skill.disable, skill.configure, skill.refresh, provider.inject |
+| nexus | share.snapshot.export, share.snapshot.import, share.sync.gitignore, share.remote.add, share.remote.remove, share.push, share.pull, init, register, unregister, sync, sync.all, permission.set, reconcile |
+| sticky | add, convert, archive, purge |
 
 ### Appendix B: Exit Code Summary
 
@@ -1327,7 +1329,7 @@ Recommended limits:
 ### v1.0.0 (2026-01-31)
 
 - Initial specification
-- Two-gateway CQRS design (cleo_query + cleo_mutate)
+- Two-gateway CQRS design (query + mutate)
 - Full RCSD-IVTR protocol coverage
 - 93 operations across 8 domains (46 query + 47 mutate)
 - Complete exit code mapping

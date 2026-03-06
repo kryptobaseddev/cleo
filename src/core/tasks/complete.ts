@@ -8,12 +8,14 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
 import { getDependents, getUnresolvedDeps } from './dependency-check.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getRawConfigValue } from '../config.js';
+import type { VerificationGate } from '../../types/task.js';
 import {
-  safeSaveTaskFile,
+  safeSaveTaskData,
   safeAppendLog,
 } from '../../store/data-safety-central.js';
 
@@ -31,6 +33,85 @@ export interface CompleteTaskResult {
   unblockedTasks?: Array<{ id: string; title: string }>;
 }
 
+interface CompletionEnforcement {
+  acceptanceMode: 'off' | 'warn' | 'block';
+  acceptanceRequiredForPriorities: string[];
+  verificationEnabled: boolean;
+  verificationRequiredGates: VerificationGate[];
+  verificationMaxRounds: number;
+  lifecycleMode: 'strict' | 'warn' | 'advisory' | 'none' | 'off';
+}
+
+const DEFAULT_VERIFICATION_REQUIRED_GATES: VerificationGate[] = [
+  'implemented',
+  'testsPassed',
+  'qaPassed',
+  'securityPassed',
+  'documented',
+];
+
+const VERIFICATION_GATES = new Set<VerificationGate>([
+  'implemented',
+  'testsPassed',
+  'qaPassed',
+  'cleanupDone',
+  'securityPassed',
+  'documented',
+]);
+
+function isVerificationGate(value: string): value is VerificationGate {
+  return VERIFICATION_GATES.has(value as VerificationGate);
+}
+
+async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforcement> {
+  const modeRaw = await getRawConfigValue('enforcement.acceptance.mode', cwd);
+  const prioritiesRaw = await getRawConfigValue('enforcement.acceptance.requiredForPriorities', cwd);
+  const verificationEnabledRaw = await getRawConfigValue('verification.enabled', cwd);
+  const verificationRequiredGatesRaw = await getRawConfigValue('verification.requiredGates', cwd);
+  const verificationMaxRoundsRaw = await getRawConfigValue('verification.maxRounds', cwd);
+  const lifecycleModeRaw = await getRawConfigValue('lifecycle.mode', cwd);
+
+  const acceptanceMode =
+    modeRaw === 'off' || modeRaw === 'warn' || modeRaw === 'block'
+      ? modeRaw
+      : 'warn';
+
+  const acceptanceRequiredForPriorities = Array.isArray(prioritiesRaw)
+    ? prioritiesRaw.filter((p): p is string => typeof p === 'string')
+    : ['critical', 'high'];
+
+  const verificationEnabled = verificationEnabledRaw !== false;
+
+  const verificationRequiredGates = Array.isArray(verificationRequiredGatesRaw)
+    ? verificationRequiredGatesRaw
+      .filter((g): g is string => typeof g === 'string')
+      .filter(isVerificationGate)
+    : DEFAULT_VERIFICATION_REQUIRED_GATES;
+
+  const verificationMaxRounds =
+    typeof verificationMaxRoundsRaw === 'number' && Number.isInteger(verificationMaxRoundsRaw)
+      ? verificationMaxRoundsRaw
+      : 5;
+
+  const lifecycleMode =
+    lifecycleModeRaw === 'strict' ||
+    lifecycleModeRaw === 'warn' ||
+    lifecycleModeRaw === 'advisory' ||
+    lifecycleModeRaw === 'none' ||
+    lifecycleModeRaw === 'off'
+      ? lifecycleModeRaw
+      : 'off';
+
+  return {
+    acceptanceMode,
+    acceptanceRequiredForPriorities,
+    verificationEnabled,
+    verificationRequiredGates,
+    verificationMaxRounds,
+    lifecycleMode,
+  };
+}
+
 /**
  * Complete a task by ID.
  * Handles dependency checking and optional auto-completion of epics.
@@ -38,7 +119,6 @@ export interface CompleteTaskResult {
  */
 export async function completeTask(options: CompleteTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<CompleteTaskResult> {
   const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -56,6 +136,8 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
 
   const task = data.tasks[taskIdx]!;
 
+  const enforcement = await loadCompletionEnforcement(cwd);
+
   // Already done
   if (task.status === 'done') {
     throw new CleoError(
@@ -68,13 +150,69 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
   if (task.depends?.length) {
     const incompleteDeps = task.depends.filter(depId => {
       const dep = data.tasks.find(t => t.id === depId);
-      return dep && dep.status !== 'done';
+      return dep && dep.status !== 'done' && dep.status !== 'cancelled';
     });
     if (incompleteDeps.length > 0) {
       throw new CleoError(
         ExitCode.DEPENDENCY_ERROR,
         `Task ${options.taskId} has incomplete dependencies: ${incompleteDeps.join(', ')}`,
         { fix: `Complete dependencies first: ${incompleteDeps.map(d => `cleo complete ${d}`).join(', ')}` },
+      );
+    }
+  }
+
+  if (
+    enforcement.acceptanceMode === 'block' &&
+    enforcement.acceptanceRequiredForPriorities.includes(task.priority)
+  ) {
+    if (!task.acceptance || task.acceptance.length === 0) {
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Task ${options.taskId} requires acceptance criteria before completion (priority: ${task.priority})`,
+        {
+          fix: `Add criteria: cleo update ${options.taskId} --acceptance \"criterion 1,criterion 2\"`,
+        },
+      );
+    }
+  }
+
+  if (enforcement.verificationEnabled && task.type !== 'epic') {
+    if (!task.verification) {
+      throw new CleoError(
+        ExitCode.VERIFICATION_INIT_FAILED,
+        `Task ${options.taskId} is missing verification metadata`,
+        {
+          fix: `Initialize verification for ${options.taskId} before completion`,
+        },
+      );
+    }
+
+    if (task.verification.round > enforcement.verificationMaxRounds) {
+      throw new CleoError(
+        ExitCode.MAX_ROUNDS_EXCEEDED,
+        `Task ${options.taskId} exceeded verification max rounds (${enforcement.verificationMaxRounds})`,
+        {
+          fix: `Review failure log and resolve blockers before retrying completion`,
+        },
+      );
+    }
+
+    const missingRequiredGates = enforcement.verificationRequiredGates.filter(
+      gate => task.verification?.gates?.[gate] !== true,
+    );
+
+    if (missingRequiredGates.length > 0 || task.verification.passed !== true) {
+      const exitCode =
+        enforcement.lifecycleMode === 'strict'
+          ? ExitCode.LIFECYCLE_GATE_FAILED
+          : ExitCode.GATE_DEPENDENCY;
+
+      throw new CleoError(
+        exitCode,
+        `Task ${options.taskId} failed verification gates: ${missingRequiredGates.join(', ') || 'verification.passed=false'}`,
+        {
+          fix: `Set required verification gates before completion: ${enforcement.verificationRequiredGates.join(', ')}`,
+        },
       );
     }
   }
@@ -142,7 +280,7 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
         if (parent) await accessor.upsertSingleTask(parent);
       }
     } else {
-      await safeSaveTaskFile(accessor, data, cwd);
+      await safeSaveTaskData(accessor, data, cwd);
     }
     await safeAppendLog(accessor, {
       id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
@@ -156,7 +294,7 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
     }, cwd);
   } else {
     await saveJson(taskPath, data, { backupDir });
-    await logOperation(logPath, 'task_completed', options.taskId, {
+    await logOperation('task_completed', options.taskId, {
       title: task.title,
       previousStatus: before.status,
     });

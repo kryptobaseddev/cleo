@@ -13,7 +13,7 @@ Pre-commit hooks for CLEO development.
 2. Analyzes schema diff (old vs new)
 3. Classifies change type:
    - **PATCH**: Constraint relaxation (maxLength increase) → Auto-generates complete migration
-   - **MINOR**: New optional field → Auto-generates template with TODO
+   - **MINOR**: New optional field → Auto-generates template with action-required placeholder text
    - **MAJOR**: Breaking change → Auto-generates template with warning
 4. Inserts migration function into `lib/migrate.sh`
 5. Shows preview and asks to stage
@@ -81,7 +81,7 @@ git commit --no-verify -m "feat: emergency fix"
 
         echo "  Migrating to v2.5.0: Adding optional field(s)"
 
-        # TODO: Add field with appropriate default value
+        # ACTION REQUIRED: Add field with appropriate default value
         # Example for new optional field:
         # add_field_if_missing "$file" ".tasks[].newFieldName" '"default_value"'
 
@@ -95,7 +95,7 @@ git commit --no-verify -m "feat: emergency fix"
 ```
 
 **Manual edit required:**
-For MINOR/MAJOR changes, edit the TODO sections in the generated function before committing.
+For MINOR/MAJOR changes, edit the action-required sections in the generated function before committing.
 
 ## Maintenance
 

@@ -139,11 +139,11 @@ Measures whether the agent uses CLEO's progressive disclosure system (help, skil
 | Points | Condition | Evidence |
 |--------|-----------|----------|
 | +10 | At least one help/skill call: `admin.help`, `tools.skill.show`, `tools.skill.list`, `skills.list`, or `skills.show` | `Progressive disclosure used (Nx)` |
-| +10 | At least one MCP query gateway call (metadata.gateway === `cleo_query`) | `cleo_query (MCP) used Nx` |
+| +10 | At least one MCP query gateway call (metadata.gateway === `query`) | `query (MCP) used Nx` |
 
 **Flags on violation:**
 - `No admin.help or skill lookup calls (load ct-cleo for guidance)` -- no help/skill calls found
-- `No MCP query calls (prefer cleo_query over CLI for programmatic access)` -- no MCP gateway usage
+- `No MCP query calls (prefer query over CLI for programmatic access)` -- no MCP gateway usage
 
 **Scoring logic:** Starts at 0, adds 10 per condition met. Range: 0-20.
 
@@ -183,7 +183,7 @@ Output includes: sessionId, score (e.g. `85/100`), percent, timestamp, flag coun
 ### Grade a session
 
 ```
-cleo_query admin grade { "sessionId": "<session-id>" }
+query admin grade { "sessionId": "<session-id>" }
 ```
 
 - **Gateway:** query
@@ -196,7 +196,7 @@ cleo_query admin grade { "sessionId": "<session-id>" }
 ### List all grades
 
 ```
-cleo_query admin grade.list
+query admin grade.list
 ```
 
 - **Gateway:** query
@@ -235,7 +235,7 @@ Grade results conform to `schemas/grade.schema.json` (schema version `1.0.0`).
     "errorProtocol": { "score": 20, "max": 20, "evidence": [...] },
     "disclosureUse": { "score": 10, "max": 20, "evidence": [...] }
   },
-  "flags": ["No MCP query calls (prefer cleo_query over CLI for programmatic access)"],
+  "flags": ["No MCP query calls (prefer query over CLI for programmatic access)"],
   "timestamp": "2026-03-01T12:00:00.000Z",
   "entryCount": 47,
   "evaluator": "auto"

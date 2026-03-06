@@ -1,66 +1,39 @@
 /**
  * CLI phase command with subcommands.
- * @task T4464
- * @epic T4454
+ * @task T4464, T5326
+ * @epic T4454, T5323
  */
 
-// CLI-only: no dispatch route for phase operations (pipeline domain covers stage lifecycle only)
 import { Command } from 'commander';
-import {
-  listPhases,
-  showPhase,
-  setPhase,
-  startPhase,
-  completePhase,
-  advancePhase,
-  renamePhase,
-  deletePhase,
-} from '../../core/phases/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the phase command group.
- * @task T4464
+ * @task T4464, T5326
  */
 export function registerPhaseCommand(program: Command): void {
   const phase = program
     .command('phase')
     .description('Project-level phase lifecycle management');
 
+  // T5326: Migrated to dispatch
   phase
     .command('show [slug]')
     .description('Show phase details (current phase if no slug given)')
     .action(async (slug?: string) => {
-      try {
-        const result = await showPhase(slug);
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      const params = slug ? { phaseId: slug } : {};
+      await dispatchFromCli('query', 'pipeline', 'phase.show', params, { command: 'phase' });
     });
 
+  // T5326: Migrated to dispatch
   phase
     .command('list')
     .description('List all phases with status')
     .action(async () => {
-      try {
-        const result = await listPhases();
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'pipeline', 'phase.list', {}, { command: 'phase' });
     });
 
+  // T5326: Migrated to dispatch
   phase
     .command('set <slug>')
     .description('Set current phase')
@@ -68,106 +41,60 @@ export function registerPhaseCommand(program: Command): void {
     .option('--force', 'Skip confirmation prompt')
     .option('--dry-run', 'Preview changes without modifying files')
     .action(async (slug: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await setPhase({
-          slug,
-          rollback: opts['rollback'] as boolean | undefined,
-          force: opts['force'] as boolean | undefined,
-          dryRun: opts['dryRun'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'phase.set', {
+        phaseId: slug,
+        rollback: opts['rollback'],
+        force: opts['force'],
+        dryRun: opts['dryRun'],
+      }, { command: 'phase' });
     });
 
+  // T5326: Migrated to dispatch
   phase
     .command('start <slug>')
     .description('Start a phase (pending -> active)')
     .action(async (slug: string) => {
-      try {
-        const result = await startPhase(slug);
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'phase.start', { phaseId: slug }, { command: 'phase' });
     });
 
+  // T5326: Migrated to dispatch
   phase
     .command('complete <slug>')
     .description('Complete a phase (active -> completed)')
     .action(async (slug: string) => {
-      try {
-        const result = await completePhase(slug);
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'phase.complete', { phaseId: slug }, { command: 'phase' });
     });
 
+  // T5326: Migrated to dispatch
   phase
     .command('advance')
     .description('Complete current phase and start next')
     .option('-f, --force', 'Skip validation and interactive prompt')
     .action(async (opts: Record<string, unknown>) => {
-      try {
-        const result = await advancePhase(opts['force'] as boolean | undefined);
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'phase.advance', {
+        force: opts['force'],
+      }, { command: 'phase' });
     });
 
+  // T5326: Migrated to dispatch
   phase
     .command('rename <oldName> <newName>')
     .description('Rename a phase and update all task references')
     .action(async (oldName: string, newName: string) => {
-      try {
-        const result = await renamePhase(oldName, newName);
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'phase.rename', { oldName, newName }, { command: 'phase' });
     });
 
+  // T5326: Migrated to dispatch
   phase
     .command('delete <slug>')
     .description('Delete a phase with task reassignment protection')
     .option('--reassign-to <phase>', 'Reassign tasks to another phase')
     .option('--force', 'Required safety flag')
     .action(async (slug: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await deletePhase(slug, {
-          reassignTo: opts['reassignTo'] as string | undefined,
-          force: opts['force'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'phase' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('mutate', 'pipeline', 'phase.delete', {
+        phaseId: slug,
+        reassignTo: opts['reassignTo'],
+        force: opts['force'],
+      }, { command: 'phase' });
     });
 }

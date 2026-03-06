@@ -14,11 +14,12 @@ import { mkdir, access, writeFile, readFile } from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { saveJson } from '../store/json.js';
 import { getCleoDirAbsolute, getConfigPath } from './paths.js';
+import { generateProjectHash } from './nexus/hash.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -82,8 +83,6 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 *.db-wal
 *.db-journal
 log.json
-tasks-log.jsonl
-todo-log.jsonl
 bypass-log.json
 qa-log.json
 .deps-cache/
@@ -149,12 +148,8 @@ export async function removeCleoFromRootGitignore(
   return { removed: true };
 }
 
-/**
- * Generate a 12-character hex hash from a project path.
- */
-export function generateProjectHash(projectPath: string): string {
-  return createHash('sha256').update(projectPath).digest('hex').substring(0, 12);
-}
+// generateProjectHash moved to src/core/nexus/hash.ts (canonical location)
+export { generateProjectHash } from './nexus/hash.js';
 
 /**
  * Resolve the package root directory (where schemas/ and templates/ live).
@@ -309,7 +304,19 @@ export async function ensureProjectInfo(
   const cleoDir = getCleoDirAbsolute(projectRoot);
   const projectInfoPath = join(cleoDir, 'project-info.json');
 
+  // Backfill projectId on existing files that lack it (T5333)
   if (existsSync(projectInfoPath) && !opts?.force) {
+    try {
+      const existing = JSON.parse(readFileSync(projectInfoPath, 'utf-8'));
+      if (typeof existing.projectId !== 'string' || existing.projectId.length === 0) {
+        existing.projectId = randomUUID();
+        existing.lastUpdated = new Date().toISOString();
+        await writeFile(projectInfoPath, JSON.stringify(existing, null, 2));
+        return { action: 'repaired', path: projectInfoPath, details: 'Added projectId' };
+      }
+    } catch {
+      // If parse fails, fall through to regenerate
+    }
     return { action: 'skipped', path: projectInfoPath, details: 'Already exists' };
   }
 
@@ -324,6 +331,7 @@ export async function ensureProjectInfo(
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
     schemaVersion: '1.0.0',
+    projectId: randomUUID(),
     projectHash,
     cleoVersion,
     lastUpdated: now,
