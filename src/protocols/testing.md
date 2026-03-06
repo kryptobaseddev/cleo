@@ -356,4 +356,4 @@ See: `src/protocols/contribution.md` for attribution requirements.
 - **Test Framework**: [BATS](https://github.com/bats-core/bats-core)
 - **Existing Tests**: `tests/unit/`, `tests/integration/`
 - **Test Helpers**: `tests/test_helper/bats-support/`, `tests/test_helper/bats-assert/`
-- **Specification**: `docs/specs/PROTOCOL-ENFORCEMENT-SPEC.md`
+- **Specification**: `docs/specs/PROTOCOL-ENFORCEMENT-SPEC.md` *(ARCHIVED — modernization tracked in T5492)*
