@@ -6,6 +6,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   sanitizeTaskId,
   sanitizePath,
@@ -72,21 +74,23 @@ describe('Security Module', () => {
   });
 
   describe('sanitizePath', () => {
-    const projectRoot = '/home/user/project';
+    const projectRoot = join(tmpdir(), 'cleo-sec-test-project');
+    const normalizedRoot = resolve(projectRoot);
 
     it('should accept paths within project root', () => {
       const result = sanitizePath('src/lib/test.ts', projectRoot);
-      expect(result).toBe('/home/user/project/src/lib/test.ts');
+      expect(result).toBe(resolve(normalizedRoot, 'src', 'lib', 'test.ts'));
     });
 
     it('should accept absolute paths within project root', () => {
-      const result = sanitizePath('/home/user/project/src/lib/test.ts', projectRoot);
-      expect(result).toBe('/home/user/project/src/lib/test.ts');
+      const absPath = join(normalizedRoot, 'src', 'lib', 'test.ts');
+      const result = sanitizePath(absPath, projectRoot);
+      expect(result).toBe(resolve(normalizedRoot, 'src', 'lib', 'test.ts'));
     });
 
     it('should accept paths with . segments', () => {
       const result = sanitizePath('./src/lib/test.ts', projectRoot);
-      expect(result).toBe('/home/user/project/src/lib/test.ts');
+      expect(result).toBe(resolve(normalizedRoot, 'src', 'lib', 'test.ts'));
     });
 
     it('should reject path traversal with ..', () => {
@@ -95,8 +99,10 @@ describe('Security Module', () => {
     });
 
     it('should reject absolute paths outside project root', () => {
-      expect(() => sanitizePath('/etc/passwd', projectRoot)).toThrow(SecurityError);
-      expect(() => sanitizePath('/home/other/file.txt', projectRoot)).toThrow(SecurityError);
+      const outsidePath1 = resolve(normalizedRoot, '..', '..', 'etc', 'passwd');
+      const outsidePath2 = resolve(normalizedRoot, '..', 'other', 'file.txt');
+      expect(() => sanitizePath(outsidePath1, projectRoot)).toThrow(SecurityError);
+      expect(() => sanitizePath(outsidePath2, projectRoot)).toThrow(SecurityError);
     });
 
     it('should reject paths with null bytes', () => {
@@ -219,8 +225,8 @@ describe('Security Module', () => {
     });
 
     it('should define valid gateways', () => {
-      expect(VALID_GATEWAYS).toContain('cleo_query');
-      expect(VALID_GATEWAYS).toContain('cleo_mutate');
+      expect(VALID_GATEWAYS).toContain('query');
+      expect(VALID_GATEWAYS).toContain('mutate');
       expect(VALID_GATEWAYS).toHaveLength(2);
     });
 
@@ -441,18 +447,20 @@ describe('Security Module', () => {
     });
 
     it('should sanitize path fields when projectRoot provided', () => {
+      const paramRoot = join(tmpdir(), 'cleo-param-test-project');
       const result = sanitizeParams(
         { path: 'src/test.ts' },
-        '/home/user/project'
+        paramRoot
       );
-      expect(result?.path).toBe('/home/user/project/src/test.ts');
+      expect(result?.path).toBe(resolve(paramRoot, 'src', 'test.ts'));
     });
 
     it('should reject path traversal in params', () => {
+      const paramRoot = join(tmpdir(), 'cleo-param-test-project');
       expect(() =>
         sanitizeParams(
           { path: '../../../etc/passwd' },
-          '/home/user/project'
+          paramRoot
         )
       ).toThrow(SecurityError);
     });

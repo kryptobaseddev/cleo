@@ -75,8 +75,11 @@ export async function verifyBackup(
   // This catches cases where the file is intact but not a valid SQLite file
   try {
     const db = new DatabaseSync(backupPath, { readOnly: true });
-    db.prepare('SELECT 1').get();
-    db.close();
+    try {
+      db.prepare('SELECT 1').get();
+    } finally {
+      db.close();
+    }
   } catch (err) {
     return {
       valid: false,

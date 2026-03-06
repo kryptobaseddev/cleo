@@ -11,40 +11,39 @@
  * @epic T4798
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm,writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 
 // Canonical imports from stages.ts
 import {
-  PIPELINE_STAGES,
-  CONTRIBUTION_STAGE,
-  validateStage,
-  getNextStage,
-  getPreviousStage,
-  getPrerequisites,
   checkTransition,
+  CONTRIBUTION_STAGE,
+  getNextStage,
+  getPrerequisites,
+  getPreviousStage,
+  PIPELINE_STAGES,
+  validateStage,
 } from '../lifecycle/stages.js';
 
 // Barrel imports from index.ts
 import {
   PIPELINE_STAGES as BARREL_PIPELINE_STAGES,
-  CANONICAL_STAGE_DEFINITIONS,
   CANONICAL_PREREQUISITES,
+  CANONICAL_STAGE_DEFINITIONS,
 } from '../lifecycle/index.js';
 
 // RCASD-INDEX population
 import {
   buildIndex,
-  writeIndex,
-  readIndex,
-  getTaskAnchor,
   findByStage,
-  findByStatus,
   getIndexTotals,
+  getTaskAnchor,
+  readIndex,
   rebuildIndex,
+  writeIndex
 } from '../lifecycle/rcasd-index.js';
 
 describe('RCSD Pipeline E2E', () => {

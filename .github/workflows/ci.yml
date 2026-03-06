@@ -11,6 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  hygiene:
+    name: Hygiene Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enforce scoped TODO policy
+        run: bash dev/check-todo-hygiene.sh
+
+      - name: Report and enforce underscore import hygiene
+        run: node dev/check-underscore-import-hygiene.mjs
+
   typescript:
     name: TypeScript Build & Test
     runs-on: ${{ matrix.os }}
@@ -32,6 +52,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Add cleo binary to PATH (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          echo "$((Get-Location).Path)\node_modules\.bin" >> $env:GITHUB_PATH
 
       - name: Type check
         run: npx tsc --noEmit

@@ -43,12 +43,12 @@ describe('LAFS strict_mode_behavior review (T4693)', () => {
 
   describe('Gateway meta strict mode', () => {
     it('createGatewayMeta always sets strict = true', () => {
-      const meta = createGatewayMeta('cleo_query', 'tasks', 'list', Date.now());
+      const meta = createGatewayMeta('query', 'tasks', 'list', Date.now());
       expect(meta.strict).toBe(true);
     });
 
     it('createGatewayMeta for mutate also sets strict = true', () => {
-      const meta = createGatewayMeta('cleo_mutate', 'tasks', 'add', Date.now());
+      const meta = createGatewayMeta('mutate', 'tasks', 'add', Date.now());
       expect(meta.strict).toBe(true);
     });
   });

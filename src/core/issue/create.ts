@@ -13,8 +13,9 @@ import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getTemplateForSubcommand } from './template-parser.js';
 import { collectDiagnostics, formatDiagnosticsTable } from './diagnostics.js';
+import { BUILD_CONFIG } from '../../config/build-config.js';
 
-const CLEO_REPO = 'kryptobaseddev/cleo';
+const CLEO_REPO = BUILD_CONFIG.repository.fullName;
 
 /**
  * Build structured issue body with template sections.
@@ -74,9 +75,9 @@ export function checkGhCli(): void {
 }
 
 /**
- * Create a GitHub issue via gh CLI.
+ * Add a GitHub issue via gh CLI (internal implementation).
  */
-export function createGhIssue(title: string, body: string, labels: string): string {
+function addGhIssue(title: string, body: string, labels: string): string {
   try {
     const result = execFileSync('gh', [
       'issue', 'create',
@@ -96,7 +97,7 @@ export function createGhIssue(title: string, body: string, labels: string): stri
   }
 }
 
-export interface CreateIssueParams {
+export interface AddIssueParams {
   issueType: string;
   title: string;
   body: string;
@@ -105,7 +106,7 @@ export interface CreateIssueParams {
   dryRun?: boolean;
 }
 
-export interface CreateIssueResult {
+export interface AddIssueResult {
   type: string;
   url?: string;
   number?: number | string;
@@ -117,10 +118,12 @@ export interface CreateIssueResult {
 }
 
 /**
- * Create a GitHub issue for a given type (bug, feature, help).
+ * Add a GitHub issue for a given type (bug, feature, help).
  * Returns structured result. Does not handle CLI output or process.exit.
+ * 
+ * Note: Named 'add' per VERB-STANDARDS.md (canonical verb for "Create new entity")
  */
-export function createIssue(params: CreateIssueParams): CreateIssueResult {
+export function addIssue(params: AddIssueParams): AddIssueResult {
   const { issueType, title, body, severity, area, dryRun } = params;
 
   // Get template-driven label and title prefix
@@ -144,7 +147,7 @@ export function createIssue(params: CreateIssueParams): CreateIssueResult {
   }
 
   checkGhCli();
-  const issueUrl = createGhIssue(fullTitle, fullBody, labels);
+  const issueUrl = addGhIssue(fullTitle, fullBody, labels);
   const issueNumber = issueUrl.match(/(\d+)$/)?.[1] ?? 'unknown';
 
   return {

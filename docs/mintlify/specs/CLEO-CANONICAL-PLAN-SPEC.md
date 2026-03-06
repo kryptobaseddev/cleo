@@ -23,7 +23,7 @@ supersedes:
 
 ### 1.1 Document Hierarchy
 
-1. `docs/concepts/vision.mdx` (immutable identity, highest authority)
+1. `docs/concepts/CLEO-VISION.mdx` (immutable identity, highest authority)
 2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract and invariants)
 3. `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md` (this document: canonical strategy + decisions + execution)
 4. Supporting reference docs (roadmap, ADR record, migration doctrine, V2 architecture spec)

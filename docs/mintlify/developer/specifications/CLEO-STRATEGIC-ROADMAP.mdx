@@ -76,7 +76,7 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 **Pain Points**:
 
 - Implementation gaps (missing protocol CLI, Nexus CLI)
-- Technical debt (1,111 TODO comments)
+- Technical debt (1,111 to-do comments)
 - Nexus premature complexity (5 files, zero usage data)
 - 22% protocol enforcement (orphaned code)
 
@@ -126,14 +126,14 @@ Domain research validated that CLEO's current architecture is **sound**. The ori
 | **Protocol CLI**         | +2 commands  | Add consensus.sh, contribution.sh (research T2997) |
 | **Nexus CLI**            | +3 commands  | Add query, discover, search (research T2995)       |
 | **Protocol Enforcement** | 22% → 40%    | Connect orphaned code to CLI wrappers              |
-| **TODO Comments**        | 1,111 → <100 | Unchanged                                          |
+| **To-Do Comments**       | 1,111 → <100 | Unchanged                                          |
 | **Test Pass Rate**       | 100%         | Unchanged                                          |
 
 #### 3.1.3 MCP Server Implementation (Epic 2)
 
 **Architecture** (TypeScript + FastMCP)
 
-Two-tool CQRS gateway: `cleo_query` (45 read operations) and `cleo_mutate` (53 write operations), routing through 8 domains via CLI adapter to the Bash CLI.
+Two-tool CQRS gateway: `query` (45 read operations) and `mutate` (53 write operations), routing through 8 domains via CLI adapter to the Bash CLI.
 
 **Token Reduction Target**:
 

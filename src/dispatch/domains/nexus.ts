@@ -4,12 +4,17 @@
  * Cross-project coordination via the BRAIN Network.
  * Delegates to src/core/nexus/ for all business logic.
  *
+ * Also handles multi-contributor sharing operations (snapshot export/import,
+ * .gitignore sync, remote management, and push/pull for .cleo/.git).
+ *
  * @epic T4820
+ * @task T5277
  */
 
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getLogger } from '../../core/logger.js';
+import { getProjectRoot } from '../../core/paths.js';
 
 import {
   nexusInit,
@@ -19,23 +24,51 @@ import {
   nexusSync,
   nexusSyncAll,
   nexusGetProject,
+  nexusReconcile,
   readRegistry,
   type NexusPermissionLevel,
 } from '../../core/nexus/registry.js';
 
 import {
   resolveTask,
+  parseQuery,
   validateSyntax,
 } from '../../core/nexus/query.js';
 
 import {
   nexusDeps,
   buildGlobalGraph,
+  criticalPath,
+  blockingAnalysis,
+  orphanDetection,
 } from '../../core/nexus/deps.js';
 
 import {
   setPermission,
 } from '../../core/nexus/permissions.js';
+
+import { getAccessor } from '../../store/data-accessor.js';
+
+// Sharing core imports (merged from sharing domain)
+import {
+  getSharingStatus,
+  syncGitignore,
+} from '../../core/nexus/sharing/index.js';
+import {
+  exportSnapshot,
+  importSnapshot,
+  readSnapshot,
+  writeSnapshot,
+  getDefaultSnapshotPath,
+} from '../../core/snapshot/index.js';
+import {
+  listRemotes,
+  getSyncStatus,
+  addRemote,
+  removeRemote,
+  push as remotePush,
+  pull as remotePull,
+} from '../../core/remote/index.js';
 
 
 // ---------------------------------------------------------------------------
@@ -43,6 +76,11 @@ import {
 // ---------------------------------------------------------------------------
 
 export class NexusHandler implements DomainHandler {
+  private projectRoot: string;
+
+  constructor() {
+    this.projectRoot = getProjectRoot();
+  }
 
   // -----------------------------------------------------------------------
   // Query
@@ -112,6 +150,91 @@ export class NexusHandler implements DomainHandler {
         case 'graph': {
           const graph = await buildGlobalGraph();
           return this.successResponse('query', operation, startTime, graph);
+        }
+
+        case 'path.show':
+        case 'critical-path': {
+          const path = await criticalPath();
+          return this.successResponse('query', operation, startTime, path);
+        }
+
+        case 'blockers.show':
+        case 'blocking': {
+          const query = params?.query as string;
+          if (!query) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          }
+          const analysis = await blockingAnalysis(query);
+          return this.successResponse('query', operation, startTime, analysis);
+        }
+
+        case 'orphans.list':
+        case 'orphans': {
+          const orphans = await orphanDetection();
+          return this.successResponse('query', operation, startTime, {
+            orphans,
+            count: orphans.length,
+          });
+        }
+
+        case 'discover': {
+          const query = params?.query as string;
+          if (!query) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          }
+          const method = (params?.method as string) ?? 'auto';
+          const limit = (params?.limit as number) ?? 10;
+          const results = await this.discoverRelatedTasks(query, method, limit);
+          return this.successResponse('query', operation, startTime, {
+            query,
+            method,
+            results,
+            total: results.length,
+          });
+        }
+
+        case 'search': {
+          const pattern = params?.pattern as string;
+          if (!pattern) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'pattern is required', startTime);
+          }
+          const projectFilter = params?.project as string | undefined;
+          const limit = (params?.limit as number) ?? 20;
+          const results = await this.searchAcrossProjects(pattern, projectFilter, limit);
+          return this.successResponse('query', operation, startTime, {
+            pattern,
+            results,
+            resultCount: results.length,
+          });
+        }
+
+        // Sharing sub-operations (T5277)
+        case 'share.status': {
+          const result = await getSharingStatus(this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'share.remotes': {
+          const remotes = await listRemotes(this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: { remotes },
+          };
+        }
+
+        case 'share.sync.status': {
+          const remote = (params?.remote as string) ?? 'origin';
+          const syncStatus = await getSyncStatus(remote, this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'nexus', operation, startTime),
+            success: true,
+            data: syncStatus,
+          };
         }
 
         default:
@@ -202,6 +325,109 @@ export class NexusHandler implements DomainHandler {
           });
         }
 
+        case 'reconcile': {
+          const projectRoot = (params?.projectRoot as string) || process.cwd();
+          const result = await nexusReconcile(projectRoot);
+          return this.successResponse('mutate', operation, startTime, result);
+        }
+
+        // Sharing sub-operations (T5277)
+        case 'share.snapshot.export':
+        case 'share.snapshot-export': {
+          const snapshot = await exportSnapshot(this.projectRoot);
+          const outputPath = (params?.outputPath as string) ?? getDefaultSnapshotPath(this.projectRoot);
+          await writeSnapshot(snapshot, outputPath);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: {
+              path: outputPath,
+              taskCount: snapshot._meta.taskCount,
+              checksum: snapshot._meta.checksum,
+            },
+          };
+        }
+
+        case 'share.snapshot.import':
+        case 'share.snapshot-import': {
+          const inputPath = params?.inputPath as string;
+          if (!inputPath) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'inputPath is required', startTime);
+          }
+          const snapshot = await readSnapshot(inputPath);
+          const result = await importSnapshot(snapshot, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'share.sync.gitignore':
+        case 'share.sync-gitignore': {
+          const result = await syncGitignore(this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'share.remote.add':
+        case 'share.remote-add': {
+          const url = params?.url as string;
+          if (!url) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'url is required', startTime);
+          }
+          const remoteName = (params?.name as string) ?? 'origin';
+          await addRemote(url, remoteName, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: { name: remoteName, url },
+          };
+        }
+
+        case 'share.remote.remove':
+        case 'share.remote-remove': {
+          const remoteName = (params?.name as string) ?? 'origin';
+          await removeRemote(remoteName, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: true,
+            data: { name: remoteName },
+          };
+        }
+
+        case 'share.push': {
+          const remote = (params?.remote as string) ?? 'origin';
+          const result = await remotePush(remote, {
+            force: params?.force as boolean | undefined,
+            setUpstream: params?.setUpstream as boolean | undefined,
+          }, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: result.success,
+            data: result,
+            ...(result.success ? {} : {
+              error: { code: 'E_PUSH_FAILED', message: result.message },
+            }),
+          };
+        }
+
+        case 'share.pull': {
+          const remote = (params?.remote as string) ?? 'origin';
+          const result = await remotePull(remote, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
+            success: result.success,
+            data: result,
+            ...(result.success ? {} : {
+              error: { code: 'E_PULL_FAILED', message: result.message },
+            }),
+          };
+        }
+
         default:
           return this.unsupported('mutate', operation, startTime);
       }
@@ -216,13 +442,210 @@ export class NexusHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'query', 'deps', 'graph'],
-      mutate: ['init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set'],
+      query: [
+        'status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'critical-path', 'blocking', 'orphans', 'discover', 'search',
+        // Sharing sub-operations (T5277)
+        'share.status', 'share.remotes', 'share.sync.status',
+      ],
+      mutate: [
+        'init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set', 'reconcile',
+        // Sharing sub-operations (T5277)
+        'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore',
+        'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull',
+      ],
     };
   }
 
   // -----------------------------------------------------------------------
   // Helpers
+  // -----------------------------------------------------------------------
+
+  // -----------------------------------------------------------------------
+  // Discovery & Search engines (moved from CLI, T5323/T5330)
+  // -----------------------------------------------------------------------
+
+  private async discoverRelatedTasks(
+    taskQuery: string,
+    method: string,
+    limit: number,
+  ): Promise<Array<{ project: string; taskId: string; title: string; score: number; type: string; reason: string }>> {
+    if (!validateSyntax(taskQuery)) {
+      throw new Error(`Invalid query syntax: ${taskQuery}. Expected: T001, project:T001, .:T001, or *:T001`);
+    }
+
+    const sourceTask = await resolveTask(taskQuery);
+    if (Array.isArray(sourceTask)) {
+      throw new Error('Wildcard queries not supported for discovery. Specify a single task.');
+    }
+
+    const sourceLabels = new Set(sourceTask.labels ?? []);
+    const sourceDesc = (sourceTask.description ?? '').toLowerCase();
+    const sourceTitle = (sourceTask.title ?? '').toLowerCase();
+    const sourceWords = this.extractKeywords(sourceTitle + ' ' + sourceDesc);
+    const parsed = parseQuery(taskQuery);
+
+    const registry = await readRegistry();
+    if (!registry) return [];
+
+    const candidates: Array<{ project: string; taskId: string; title: string; score: number; type: string; reason: string }> = [];
+
+    for (const project of Object.values(registry.projects)) {
+      let tasks: Array<{ id: string; title: string; description?: string; labels?: string[]; status: string }>;
+      try {
+        const accessor = await getAccessor(project.path);
+        const data = await accessor.loadTaskFile();
+        tasks = data.tasks ?? [];
+      } catch {
+        continue;
+      }
+
+      for (const task of tasks) {
+        if (task.id === parsed.taskId && project.name === parsed.project) continue;
+
+        let score = 0;
+        let matchType = 'none';
+        let reason = '';
+
+        if (method === 'labels' || method === 'auto') {
+          const taskLabels = task.labels ?? [];
+          const overlap = taskLabels.filter(l => sourceLabels.has(l));
+          if (overlap.length > 0) {
+            const labelScore = overlap.length / Math.max(sourceLabels.size, taskLabels.length, 1);
+            if (method === 'labels' || labelScore > score) {
+              score = Math.max(score, labelScore);
+              matchType = 'labels';
+              reason = `Shared labels: ${overlap.join(', ')}`;
+            }
+          }
+        }
+
+        if (method === 'description' || method === 'auto') {
+          const taskDesc = ((task.description ?? '') + ' ' + (task.title ?? '')).toLowerCase();
+          const taskWords = this.extractKeywords(taskDesc);
+          const commonWords = sourceWords.filter(w => taskWords.includes(w));
+          if (commonWords.length > 0) {
+            const descScore = commonWords.length / Math.max(sourceWords.length, taskWords.length, 1);
+            if (descScore > score) {
+              score = descScore;
+              matchType = 'description';
+              reason = `Keyword match: ${commonWords.slice(0, 5).join(', ')}`;
+            }
+          }
+        }
+
+        if (score > 0) {
+          candidates.push({
+            project: project.name,
+            taskId: task.id,
+            title: task.title,
+            score: Math.round(score * 100) / 100,
+            type: matchType,
+            reason,
+          });
+        }
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates.slice(0, limit);
+  }
+
+  private async searchAcrossProjects(
+    pattern: string,
+    projectFilter?: string,
+    limit = 20,
+  ): Promise<Array<{ id: string; title: string; status: string; priority?: string; description?: string; _project: string }>> {
+    // Handle wildcard query syntax (*:T001) - delegate to resolveTask
+    if (/^\*:.+$/.test(pattern)) {
+      try {
+        const result = await resolveTask(pattern);
+        const tasks = Array.isArray(result) ? result : [result];
+        return tasks.slice(0, limit).map(t => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          description: t.description,
+          _project: t._project,
+        }));
+      } catch {
+        // Fall through to pattern search if resolveTask fails
+      }
+    }
+
+    const registry = await readRegistry();
+    if (!registry) return [];
+
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    const regexPattern = escaped.replace(/\*/g, '.*');
+    let regex: RegExp;
+    try {
+      regex = new RegExp(regexPattern, 'i');
+    } catch {
+      throw new Error(`Invalid search pattern: ${pattern}`);
+    }
+
+    const results: Array<{ id: string; title: string; status: string; priority?: string; description?: string; _project: string }> = [];
+    const projectEntries = projectFilter
+      ? Object.values(registry.projects).filter(p => p.name === projectFilter)
+      : Object.values(registry.projects);
+
+    if (projectFilter && projectEntries.length === 0) {
+      throw new Error(`Project not found in registry: ${projectFilter}`);
+    }
+
+    for (const project of projectEntries) {
+      let tasks: Array<{ id: string; title: string; description?: string; status: string; priority?: string }>;
+      try {
+        const accessor = await getAccessor(project.path);
+        const data = await accessor.loadTaskFile();
+        tasks = data.tasks ?? [];
+      } catch {
+        continue;
+      }
+
+      for (const task of tasks) {
+        const matchesId = regex.test(task.id);
+        const matchesTitle = regex.test(task.title);
+        const matchesDesc = regex.test(task.description ?? '');
+
+        if (matchesId || matchesTitle || matchesDesc) {
+          results.push({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            priority: task.priority,
+            description: task.description,
+            _project: project.name,
+          });
+        }
+      }
+    }
+
+    return results.slice(0, limit);
+  }
+
+  private extractKeywords(text: string): string[] {
+    const stopWords = new Set([
+      'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+      'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'to', 'of',
+      'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through',
+      'during', 'before', 'after', 'above', 'below', 'and', 'but', 'or', 'nor',
+      'not', 'so', 'yet', 'both', 'either', 'neither', 'each', 'every', 'all',
+      'any', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'only',
+      'own', 'same', 'than', 'too', 'very', 'just', 'because', 'if', 'when',
+      'this', 'that', 'these', 'those', 'it', 'its',
+    ]);
+
+    return text
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w));
+  }
+
+  // -----------------------------------------------------------------------
+  // Response helpers
   // -----------------------------------------------------------------------
 
   private successResponse(

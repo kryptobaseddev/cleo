@@ -21,7 +21,7 @@ export function registerConfigCommand(program: Command): void {
     .command('get <key>')
     .description('Get a configuration value')
     .action(async (key: string) => {
-      await dispatchFromCli('query', 'admin', 'config.get', { key }, { command: 'config' });
+      await dispatchFromCli('query', 'admin', 'config.show', { key }, { command: 'config' });
     });
 
   config

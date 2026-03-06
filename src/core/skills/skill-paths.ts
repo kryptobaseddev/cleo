@@ -14,7 +14,7 @@
  */
 
 import { existsSync, lstatSync, realpathSync, readlinkSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, delimiter } from 'node:path';
 import { homedir } from 'node:os';
 
 /** Source type classification for a skill directory. */
@@ -88,7 +88,7 @@ export function getSkillSearchPaths(projectRoot?: string): SkillSearchPath[] {
   // Explicit override paths get highest priority
   const overridePaths = process.env['CLEO_SKILL_PATH'];
   if (overridePaths) {
-    for (const p of overridePaths.split(':')) {
+    for (const p of overridePaths.split(delimiter)) {
       if (p && existsSync(p)) {
         paths.push({ path: p, origin: 'override' });
       }

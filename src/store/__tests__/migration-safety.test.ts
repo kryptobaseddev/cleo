@@ -18,13 +18,13 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readFile, stat, rename, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { existsSync,readFileSync } from 'node:fs';
+import { mkdir,mkdtemp,rm,stat,writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { existsSync, readFileSync } from 'node:fs';
-import type { Task } from '../../types/task.js';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import type { Session } from '../../types/session.js';
+import type { Task } from '../../types/task.js';
 
 describe('Migration Safety Integration Tests', () => {
   let tempDir: string;

@@ -230,7 +230,7 @@ The `architecture_decisions` table is further extended with 3 cognitive search c
 **`admin.adr.find` dispatch operation** (Tier 1 — accessible from check/memory tier):
 
 ```typescript
-cleo_query({
+query({
   domain: 'admin',
   operation: 'adr.find',
   params: {
@@ -331,8 +331,8 @@ The scaffolding-only `architecture_decisions` table cannot support automated fro
 
 1. `npm run adr:validate` → 0 violations
 2. `npm run adr:manifest` → `.cleo/adrs/MANIFEST.jsonl` with 15+ entries
-3. `cleo_mutate({domain:'admin', operation:'adr.sync'})` populates DB table
-4. `cleo_query({domain:'admin', operation:'adr.list', params:{status:'accepted'}})` returns results
+3. `mutate({domain:'admin', operation:'adr.sync'})` populates DB table
+4. `query({domain:'admin', operation:'adr.list', params:{status:'accepted'}})` returns results
 5. All 15 active ADRs have canonical frontmatter
 6. `docs/mintlify/specs/VERB-STANDARDS.md` matches `docs/specs/VERB-STANDARDS.md`
 7. `npx tsc --noEmit` exits 0

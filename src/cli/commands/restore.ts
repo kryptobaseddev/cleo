@@ -1,21 +1,19 @@
 /**
  * CLI restore command - universal restoration (backup, archived, cancelled, completed tasks).
- * Delegates task restoration to core functions.
+ * Delegates to dispatch operations (tasks.restore, tasks.reopen, tasks.unarchive, admin.backup.restore).
  * @task T4454
  * @task T4795
  * @task T4904
+ * @task T5329
  */
-// CLI-only: implements complex multi-branch logic (task reopen vs archive unarchive vs backup restore)
 
 import { Command } from 'commander';
 import { formatError } from '../../core/output.js';
 import { CleoError } from '../../core/errors.js';
 import { cliOutput } from '../renderers/index.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { restoreFromBackup, listBackups } from '../../store/backup.js';
-import { getTaskPath, getConfigPath, getArchivePath, getBackupDir, getProjectRoot } from '../../core/paths.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { coreTaskRestore, coreTaskReopen, coreTaskUnarchive } from '../../core/tasks/task-ops.js';
+import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 
 export function registerRestoreCommand(program: Command): void {
   const restoreCmd = program
@@ -26,51 +24,40 @@ export function registerRestoreCommand(program: Command): void {
   restoreCmd
     .command('backup')
     .description('Restore todo files from backup')
-    .option('--file <name>', 'Specific file to restore (tasks.json, config.json, etc.)')
+    .option('--file <name>', 'Specific file to restore (tasks.db, config.json, etc.)')
     .option('--dry-run', 'Preview what would be restored')
     .action(async (opts: Record<string, unknown>) => {
       try {
-        const backupDir = getBackupDir();
-        const fileName = (opts['file'] as string) || 'tasks.json';
+        const fileName = (opts['file'] as string) || 'tasks.db';
 
-        // Map file name to target path
-        const targetPathMap: Record<string, string> = {
-          'tasks.json': getTaskPath(),
-          'config.json': getConfigPath(),
-          'tasks-archive.json': getArchivePath(),
-        };
+        const response = await dispatchRaw('mutate', 'admin', 'backup.restore', {
+          file: fileName,
+          dryRun: opts['dryRun'] as boolean | undefined,
+        });
 
-        const targetPath = targetPathMap[fileName];
-        if (!targetPath) {
-          throw new CleoError(ExitCode.INVALID_INPUT, `Unknown file: ${fileName}. Valid: ${Object.keys(targetPathMap).join(', ')}`);
+        if (!response.success) {
+          const code = ExitCode[response.error?.code as keyof typeof ExitCode] ?? ExitCode.GENERAL_ERROR;
+          throw new CleoError(code, response.error?.message ?? 'Backup restore failed');
         }
 
-        // Check available backups
-        const backups = await listBackups(fileName, backupDir);
-        if (backups.length === 0) {
-          throw new CleoError(ExitCode.NOT_FOUND, `No backups found for ${fileName}`, {
-            fix: 'cleo backup add',
-          });
-        }
+        const data = response.data as Record<string, unknown>;
 
         if (opts['dryRun']) {
           cliOutput({
             dryRun: true,
             file: fileName,
-            wouldRestore: backups[0],
-            availableBackups: backups.length,
-          }, { command: 'restore', message: 'Dry run - no changes made', operation: 'restore.backup' });
+            wouldRestore: data?.from,
+            targetPath: data?.targetPath,
+          }, { command: 'restore', message: 'Dry run - no changes made', operation: 'admin.backup.restore' });
           return;
         }
-
-        const restoredFrom = await restoreFromBackup(fileName, backupDir, targetPath);
 
         cliOutput({
           restored: true,
           file: fileName,
-          restoredFrom,
-          targetPath,
-        }, { command: 'restore', operation: 'restore.backup' });
+          restoredFrom: data?.from,
+          targetPath: data?.targetPath,
+        }, { command: 'restore', operation: 'admin.backup.restore' });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));
@@ -83,9 +70,6 @@ export function registerRestoreCommand(program: Command): void {
   // Universal task restore - handles archived, cancelled, and completed tasks
   restoreCmd
     .command('task <task-id>')
-    .alias('unarchive')
-    .alias('reopen')
-    .alias('uncancel')
     .description('Restore task from terminal state (archived, cancelled, or completed) back to active')
     .option('--status <status>', 'Status to restore task as (default: pending)', 'pending')
     .option('--preserve-status', 'Keep the original task status')
@@ -98,7 +82,6 @@ export function registerRestoreCommand(program: Command): void {
           throw new CleoError(ExitCode.INVALID_INPUT, `Invalid task ID: ${taskId}`);
         }
 
-        const projectRoot = getProjectRoot();
         const accessor = await getAccessor();
 
         // First, check if task exists in active tasks
@@ -119,11 +102,16 @@ export function registerRestoreCommand(program: Command): void {
               }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.restore' });
               return;
             }
-            const result = await coreTaskRestore(projectRoot, taskId);
+            const response = await dispatchRaw('mutate', 'tasks', 'restore', { taskId });
+            if (!response.success) {
+              const code = ExitCode[response.error?.code as keyof typeof ExitCode] ?? ExitCode.GENERAL_ERROR;
+              throw new CleoError(code, response.error?.message ?? 'Task restore failed');
+            }
+            const resultData = response.data as Record<string, unknown>;
             cliOutput({
               restored: true,
-              taskId: result.task,
-              count: result.count,
+              taskId: resultData?.task,
+              count: resultData?.count,
               source: 'active-tasks',
             }, { command: 'restore', operation: 'tasks.restore' });
             return;
@@ -137,20 +125,27 @@ export function registerRestoreCommand(program: Command): void {
                 previousStatus: activeTask.status,
                 newStatus,
                 source: 'active-tasks',
-              }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.restore' });
+              }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.reopen' });
               return;
             }
             const targetStatus = opts['preserveStatus'] ? undefined : (opts['status'] as string);
-            const result = await coreTaskReopen(projectRoot, taskId, {
+            const response = await dispatchRaw('mutate', 'tasks', 'reopen', {
+              taskId,
               status: targetStatus,
+              reason: opts['reason'] as string | undefined,
             });
+            if (!response.success) {
+              const code = ExitCode[response.error?.code as keyof typeof ExitCode] ?? ExitCode.GENERAL_ERROR;
+              throw new CleoError(code, response.error?.message ?? 'Task reopen failed');
+            }
+            const resultData = response.data as Record<string, unknown>;
             cliOutput({
               restored: true,
-              taskId: result.task,
-              previousStatus: result.previousStatus,
-              newStatus: result.newStatus,
+              taskId: resultData?.task,
+              previousStatus: resultData?.previousStatus,
+              newStatus: resultData?.newStatus,
               source: 'active-tasks',
-            }, { command: 'restore', operation: 'tasks.restore' });
+            }, { command: 'restore', operation: 'tasks.reopen' });
             return;
           } else {
             throw new CleoError(ExitCode.VALIDATION_ERROR, `Task ${taskId} is already active with status: ${activeTask.status}`);
@@ -172,7 +167,7 @@ export function registerRestoreCommand(program: Command): void {
                   previousStatus: task.status,
                   newStatus: opts['preserveStatus'] ? task.status : (opts['status'] as string),
                   source: 'archive',
-                }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.restore' });
+                }, { command: 'restore', message: 'Dry run - no changes made', operation: 'tasks.unarchive' });
                 return;
               }
             }
@@ -182,20 +177,26 @@ export function registerRestoreCommand(program: Command): void {
           });
         }
 
-        // Delegate to core unarchive
+        // Delegate to unarchive via dispatch
         try {
           const targetStatus = opts['preserveStatus'] ? undefined : (opts['status'] as string);
-          const result = await coreTaskUnarchive(projectRoot, taskId, {
+          const response = await dispatchRaw('mutate', 'tasks', 'unarchive', {
+            taskId,
             status: targetStatus,
             preserveStatus: !!opts['preserveStatus'],
           });
+          if (!response.success) {
+            const code = ExitCode[response.error?.code as keyof typeof ExitCode] ?? ExitCode.GENERAL_ERROR;
+            throw new CleoError(code, response.error?.message ?? 'Task unarchive failed');
+          }
+          const resultData = response.data as Record<string, unknown>;
           cliOutput({
             restored: true,
-            taskId: result.task,
-            title: result.title,
-            newStatus: result.status,
+            taskId: resultData?.task,
+            title: resultData?.title,
+            newStatus: resultData?.status,
             source: 'archive',
-          }, { command: 'restore', operation: 'tasks.restore' });
+          }, { command: 'restore', operation: 'tasks.unarchive' });
         } catch {
           throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found in active tasks or archive`, {
             fix: `cleo find "${taskId}" to search for the task`,

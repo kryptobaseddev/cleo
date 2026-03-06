@@ -12,30 +12,30 @@
  * @epic T4454
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { mkdir,mkdtemp,rm,writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 
 import {
+  addMigrationError,
+  canResumeMigration,
+  clearMigrationState,
+  completeMigration,
   createMigrationState,
+  failMigration,
+  isMigrationInProgress,
+  loadMigrationState,
   updateMigrationPhase,
   updateMigrationProgress,
-  loadMigrationState,
-  isMigrationInProgress,
-  canResumeMigration,
-  completeMigration,
-  failMigration,
-  clearMigrationState,
-  addMigrationError,
   verifySourceIntegrity,
   type MigrationPhase,
 } from '../state.js';
 
 import {
-  validateSourceFiles,
   checkTaskCountMismatch,
+  validateSourceFiles,
 } from '../validate.js';
 
 import {
@@ -43,7 +43,7 @@ import {
   readMigrationLog,
 } from '../logger.js';
 
-import { acquireLock, isLocked, withLock } from '../../../store/lock.js';
+import { acquireLock,isLocked,withLock } from '../../../store/lock.js';
 
 describe('migration failure integration: state machine recovery', () => {
   let tempDir: string;

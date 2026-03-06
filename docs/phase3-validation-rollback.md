@@ -91,9 +91,9 @@ cleo session stop
 
 ```bash
 # These should all succeed
-cleo_query({ domain: "tasks", operation: "current" })
-cleo_mutate({ domain: "tasks", operation: "start", params: { taskId: "T001" } })
-cleo_mutate({ domain: "tasks", operation: "stop" })
+query({ domain: "tasks", operation: "current" })
+mutate({ domain: "tasks", operation: "start", params: { taskId: "T001" } })
+mutate({ domain: "tasks", operation: "stop" })
 ```
 
 ### 6. Backward Compatibility

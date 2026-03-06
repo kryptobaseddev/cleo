@@ -39,7 +39,9 @@ import {
   currentTask,
   startTask,
   stopTask,
+  getTaskHistory,
 } from '../../core/task-work/index.js';
+import type { TaskWorkHistoryEntry } from '../../core/task-work/index.js';
 import { CleoError } from '../../core/errors.js';
 import { getExitCodeName } from '../../types/exit-codes.js';
 import { engineError, type EngineResult } from './_error.js';
@@ -233,6 +235,25 @@ export async function taskStop(
     return {
       success: true,
       data: { cleared: true, previousTask: result.previousTask },
+    };
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * Get task work history from session notes.
+ * @task T5323
+ */
+export async function taskWorkHistory(
+  projectRoot: string,
+): Promise<EngineResult<{ history: TaskWorkHistoryEntry[]; count: number }>> {
+  try {
+    const accessor = await getAccessor(projectRoot);
+    const history = await getTaskHistory(undefined, accessor);
+    return {
+      success: true,
+      data: { history, count: history.length },
     };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');

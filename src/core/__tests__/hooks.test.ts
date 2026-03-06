@@ -70,9 +70,13 @@ describe('ensureGitHooks', () => {
     await ensureGitHooks(projectRoot);
 
     const hookStat = await stat(join(projectRoot, '.git', 'hooks', 'commit-msg'));
-    // Check that the file has executable bits set (0o755 = 493)
-    // eslint-disable-next-line no-bitwise
-    expect(hookStat.mode & 0o111).toBeTruthy();
+    // Windows does not support Unix permission bits — skip executable check
+    if (process.platform !== 'win32') {
+      // eslint-disable-next-line no-bitwise
+      expect(hookStat.mode & 0o111).toBeTruthy();
+    }
+    // On all platforms, the hook file should exist
+    expect(hookStat.isFile()).toBe(true);
   });
 
   it('skips when hooks already installed and current', async () => {

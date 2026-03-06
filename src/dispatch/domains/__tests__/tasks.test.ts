@@ -21,7 +21,6 @@ vi.mock('../../lib/engine.js', () => ({
   taskReorder: vi.fn(),
   taskReparent: vi.fn(),
   taskPromote: vi.fn(),
-  taskReopen: vi.fn(),
   taskComplexityEstimate: vi.fn(),
   taskDepends: vi.fn(),
   taskCurrentGet: vi.fn(),
@@ -55,7 +54,6 @@ import {
   taskReorder,
   taskReparent,
   taskPromote,
-  taskReopen,
   taskComplexityEstimate,
   taskDepends,
   taskCurrentGet,
@@ -80,7 +78,8 @@ describe('TasksHandler', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
         'show', 'list', 'find', 'exists', 'tree', 'blockers',
-        'depends', 'analyze', 'next', 'plan', 'relates', 'complexity.estimate', 'current',
+        'depends', 'analyze', 'next', 'plan', 'relates', 'relates.find', 'complexity.estimate',
+        'history', 'current',
         'label.list', 'label.show',
       ]);
     });
@@ -88,8 +87,9 @@ describe('TasksHandler', () => {
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'add', 'update', 'complete', 'delete', 'archive', 'restore',
-        'reparent', 'promote', 'reorder', 'reopen', 'relates.add',
+        'add', 'update', 'complete', 'cancel', 'delete', 'archive', 'restore',
+        'reopen', 'unarchive',
+        'reparent', 'promote', 'reorder', 'relates.add',
         'start', 'stop',
       ]);
     });
@@ -412,15 +412,6 @@ describe('TasksHandler', () => {
 
       expect(result.success).toBe(true);
       expect(taskReorder).toHaveBeenCalledWith('/mock/project', 'T001', 3);
-    });
-
-    it('reopen - delegates to taskReopen', async () => {
-      vi.mocked(taskReopen).mockResolvedValue({ success: true, data: { task: 'T001', reopened: true } });
-
-      const result = await handler.mutate('reopen', { taskId: 'T001', status: 'pending' });
-
-      expect(result.success).toBe(true);
-      expect(taskReopen).toHaveBeenCalledWith('/mock/project', 'T001', { status: 'pending', reason: undefined });
     });
 
     it('relates.add - delegates to taskRelatesAdd', async () => {

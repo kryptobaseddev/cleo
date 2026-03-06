@@ -12,7 +12,7 @@ task: "T4334"
 
 ## 1. Purpose
 
-This specification defines when and how AI agents should interact with CLEO through MCP tools (`cleo_query` / `cleo_mutate`) versus the CLI (`cleo` / `ct`), and establishes a progressive disclosure architecture for agent context injection.
+This specification defines when and how AI agents should interact with CLEO through MCP tools (`query` / `mutate`) versus the CLI (`cleo` / `ct`), and establishes a progressive disclosure architecture for agent context injection.
 
 CLEO's vision positions it as a vendor-neutral Brain and Memory system with interoperable interfaces (Pillar 3). The MCP gateway and CLI are both first-class interfaces, but they serve different consumers with different constraints. This document makes those boundaries explicit.
 
@@ -36,7 +36,7 @@ This specification does NOT cover:
 
 | Term                       | Definition                                                                                |
 | -------------------------- | ----------------------------------------------------------------------------------------- |
-| **MCP Gateway**            | The two-tool CQRS surface: `cleo_query` (reads) and `cleo_mutate` (writes)                |
+| **MCP Gateway**            | The two-tool CQRS surface: `query` (reads) and `mutate` (writes)                |
 | **CLI**                    | The TypeScript command-line interface invoked via `cleo` or `ct` alias                    |
 | **Native operation**       | An operation implemented in TypeScript that runs cross-platform without Bash              |
 | **CLI-only operation**     | An operation that requires the CLI subprocess                                             |
@@ -48,7 +48,7 @@ This specification does NOT cover:
 
 ### 4.1 Statement
 
-When an AI agent needs to interact with CLEO, it SHOULD prefer MCP tools (`cleo_query` / `cleo_mutate`) over CLI commands invoked through Bash.
+When an AI agent needs to interact with CLEO, it SHOULD prefer MCP tools (`query` / `mutate`) over CLI commands invoked through Bash.
 
 ### 4.2 Rationale
 
@@ -58,7 +58,7 @@ When an AI agent needs to interact with CLEO, it SHOULD prefer MCP tools (`cleo_
 | **Error contract**      | Structured error objects with codes | Exit codes + stderr (requires parsing)      |
 | **Token efficiency**    | Direct tool call, no shell overhead | Bash tool + command string + output parsing |
 | **Cross-platform**      | Native operations work on any OS    | Requires Bash + Unix utilities              |
-| **Tool discovery**      | 2 tools, domain-routed              | 65+ commands to learn                       |
+| **Tool discovery**      | 2 tools, 10 canonical domains, 247 operations              | 86 commands to learn                       |
 | **Concurrency safety**  | Server-managed state                | Race conditions possible                    |
 | **Provider neutrality** | Works with any MCP-compatible agent | Tied to agents with Bash tool access        |
 
@@ -89,7 +89,7 @@ Agent needs to interact with CLEO
     │
     ├── Is MCP server available?
     │   ├── YES ─── Is operation native or hybrid?
-    │   │           ├── YES ─── Use cleo_query / cleo_mutate
+    │   │           ├── YES ─── Use query / mutate
     │   │           └── NO ──── MCP routes to CLI automatically (transparent)
     │   └── NO ──── Use CLI directly via Bash tool
     │
@@ -101,49 +101,35 @@ Key insight: even CLI-only operations can be invoked through MCP tools. The MCP 
 
 ## 5. Capability Matrix Summary
 
-The MCP server maintains a capability matrix (`src/mcp/engine/capability-matrix.ts`) that defines which operations run natively versus requiring CLI. As of v0.91.0:
+The MCP server implements exactly 247 operations across 10 canonical domains. Both MCP and CLI entry points route to the shared business logic layer.
 
-### 5.1 Native Operations (Cross-Platform, No Bash)
+### 5.1 Canonical Domains
 
-**Tasks domain (queries):** show, list, find, exists, manifest, current
-**Tasks domain (mutations):** add, update, complete, delete, archive, start, stop
+- **tasks** (32 ops): Task hierarchy, CRUD, dependencies
+- **session** (19 ops): Session lifecycle and context
+- **memory** (25 ops): Cognitive memory and observations
+- **check** (20 ops): Schema validation and test execution
+- **pipeline** (40 ops): RCSD lifecycle and releases
+- **orchestrate** (20 ops): Multi-agent coordination
+- **tools** (32 ops): Skills, providers, and CAAMP catalog
+- **admin** (43 ops): Configuration, backup, diagnostics
+- **nexus** (31 ops): Cross-project coordination
+- **sticky** (6 ops): Ephemeral project-wide capture
 
-**Session domain (queries):** status, list, show
-**Tasks domain (focus queries):** current
+Total operations: 247.
 
-**System domain:** version, config, config.get, config.set, init
-**Validate domain:** schema
+### 5.2 Routing Transparency
 
-**Total native:** 29 operations
-
-### 5.2 CLI-Only Operations
-
-**Tasks:** next, depends, stats, export, history, lint, batch-validate, tree, blockers, analyze, relates, restore, import, reorder, reparent, promote, reopen, relates.add
-
-**Session:** history, stats, resume, switch, archive, suspend, gc
-
-**Orchestrate (all):** status, next, ready, analyze, context, waves, skill.list, start, spawn, validate, parallel.start, parallel.end, skill.inject
-
-**Research (all):** show, list, find, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate
-
-**Lifecycle (all):** validate, status, history, gates, prerequisites, record, skip, reset, gate.pass, gate.fail
-
-**Release (all):** prepare, changelog, commit, tag, push, gates.run, rollback
-
-### 5.3 Routing Transparency
-
-From the agent's perspective, all operations are invoked identically through `cleo_query` or `cleo_mutate`. The MCP server handles routing internally:
+From the agent\'s perspective, all 247 operations are invoked identically through `query` or `mutate`. The MCP server handles routing internally:
 
 ```
-Agent calls: cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }
+Agent calls: query { domain: "tasks", operation: "show", params: { id: "T1234" } }
     │
-    ├── Capability matrix says: native
     └── Engine executes TypeScript directly
 
-Agent calls: cleo_query { domain: "orchestrate", operation: "waves", params: { epic: "T001" } }
+Agent calls: mutate { domain: "pipeline", operation: "release.prepare" }
     │
-    ├── Capability matrix says: cli
-    └── Engine spawns: cleo orchestrator waves --epic T001
+    └── Engine spawns fallback adapter if required
 ```
 
 ## 6. Progressive Disclosure Architecture
@@ -152,61 +138,64 @@ Agent calls: cleo_query { domain: "orchestrate", operation: "waves", params: { e
 
 Current agent injection (CLEO-INJECTION.md) is ~600 lines and consumed entirely on every agent spawn. Most agents need only basic task operations, yet they receive the full protocol stack, lifecycle gates, and orchestration details.
 
-### 6.2 Solution: Four Disclosure Levels
+### 6.2 Solution: Three-Tier Progressive Disclosure
 
-Progressive disclosure delivers agent context in layers, expanding only when the agent's task requires deeper knowledge.
+Progressive disclosure delivers agent context in tiers, expanding only when the agent's task requires deeper knowledge. The 247 operations are organized into 3 tiers.
 
-#### Level 0: Minimal Entry (Default)
+#### Tier 0: Core (Default)
 
 **Token budget:** ~200 tokens
 **Target:** All agents, always injected
+**Operations:** 149 operations (tasks, session, check, pipeline, orchestrate, tools, admin, sticky)
 **Content:**
 
 ```
 CLEO provides two MCP tools:
-- cleo_query(domain, operation, params) - Read operations (never modifies state)
-- cleo_mutate(domain, operation, params) - Write operations (validated, logged, atomic)
+- query(domain, operation, params) - Read operations (never modifies state)
+- mutate(domain, operation, params) - Write operations (validated, logged, atomic)
 
-Domains: tasks, session, system, validate, orchestrate, research, lifecycle, release, issues, skills, providers
+Domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky
 
 Quick reference:
-- Show task:    cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }
-- Add task:     cleo_mutate { domain: "tasks", operation: "add", params: { title: "..." } }
-- Complete:     cleo_mutate { domain: "tasks", operation: "complete", params: { id: "T1234" } }
-- Focus set:    cleo_mutate { domain: "tasks", operation: "start", params: { id: "T1234" } }
-- Find tasks:   cleo_query { domain: "tasks", operation: "find", params: { query: "..." } }
-- Session start: cleo_mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }
+- Show task:    query { domain: "tasks", operation: "show", params: { id: "T1234" } }
+- Add task:     mutate { domain: "tasks", operation: "add", params: { title: "..." } }
+- Complete:     mutate { domain: "tasks", operation: "complete", params: { id: "T1234" } }
+- Focus set:    mutate { domain: "tasks", operation: "start", params: { id: "T1234" } }
+- Find tasks:   query { domain: "tasks", operation: "find", params: { query: "..." } }
+- Session start: mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }
 ```
 
-#### Level 1: Domain Discovery
+#### Tier 1: Extended (Domain Discovery)
 
 **Token budget:** ~500 tokens
-**Target:** Agents performing multi-step workflows
-**Trigger:** Agent invokes operations across 2+ domains, or requests help
+**Target:** Agents performing multi-step workflows, requiring cognitive memory or research access
+**Operations:** 58 additional operations (memory + extended ops in pipeline, session, admin, tools)
+**Trigger:** Agent escalates by querying `admin.help` with tier=1
 **Content:** Adds available operations per domain with brief descriptions.
 
 ```
 Tasks operations:
-  Query: show, list, find, exists, next, depends, stats, manifest, tree, blockers, current
-  Mutate: add, update, complete, delete, archive, restore, reparent, promote, start, stop
+  Query: show, list, find, exists, tree, blockers, depends, analyze, next, plan, current...
+  Mutate: add, update, complete, delete, archive, restore, start, stop...
 
 Session operations:
-  Query: status, list, show
-  Mutate: start, end, resume
+  Query: status, list, show, history, context.drift...
+  Mutate: start, end, resume, gc, record.decision...
 
-System operations:
-  Query: version, health, config.get, dash
-  Mutate: init, config.set, backup
+Memory operations:
+  Query: show, find, timeline, fetch...
+  Mutate: observe, decision.store, pattern.store...
 
 [... other domains ...]
 ```
 
-#### Level 2: Operation-Specific
+#### Tier 2: Full System (Operation-Specific / Protocol-Aware)
 
-**Token budget:** ~2-5K tokens (loaded per-operation)
-**Target:** Agents needing parameter schemas and error contracts
-**Trigger:** Agent encounters error, or requests operation details
-**Content:** Full parameter schemas, return types, error codes, and examples for specific operations.
+**Token budget:** ~2-5K tokens
+**Target:** Orchestrators, system administrators, and agents needing parameter schemas
+**Operations:** 61 additional operations (nexus + advanced admin/tools)
+**Trigger:** Agent escalates by querying `admin.help` with tier=2 or requests operation details
+**Content:** Cross-project coordination (NEXUS), full protocol stack, lifecycle gates, and full parameter schemas.
 
 ```
 ## tasks.add
@@ -224,45 +213,31 @@ Returns: { success: true, data: { id: "T####", ... } }
 Errors:
   E_VALIDATION (6): Field validation failed
   E_PARENT_NOT_FOUND (10): Parent task does not exist
-  E_DEPTH_EXCEEDED (11): Max depth 3 (epic > task > subtask)
-  E_SIBLING_LIMIT (12): Configured sibling limit exceeded (`hierarchy.maxSiblings`, default: unlimited)
-
-Example:
-  cleo_mutate { domain: "tasks", operation: "add", params: {
-    title: "Implement auth flow",
-    description: "Add JWT-based authentication",
-    parent: "T001",
-    priority: "high"
-  }}
 ```
 
-#### Level 3: Protocol-Aware
+### 6.3 Tier Selection Matrix
 
-**Token budget:** ~5-15K tokens
-**Target:** Orchestrators and protocol-compliant subagents
-**Trigger:** Orchestrator spawn or lifecycle-gated operations
-**Content:** Full protocol stack injection including lifecycle gates, validation rules, manifest requirements, and RCSD pipeline. This is the current CLEO-INJECTION.md content.
-
-### 6.3 Level Selection Matrix
-
-| Agent Role             | Default Level | May Escalate To     |
+| Agent Role             | Default Tier | May Escalate To     |
 | ---------------------- | ------------- | ------------------- |
-| Generic coding agent   | Level 0       | Level 1, Level 2    |
-| Task executor subagent | Level 1       | Level 2             |
-| Orchestrator           | Level 3       | N/A (already max)   |
+| Generic coding agent   | Tier 0       | Tier 1, Tier 2    |
+| Task executor subagent | Tier 1       | Tier 2             |
+| Orchestrator           | Tier 2       | N/A (already max)   |
 | Human via CLI          | N/A           | N/A (uses CLI docs) |
-| External MCP client    | Level 0       | Level 1             |
+| External MCP client    | Tier 0       | Tier 1             |
 
 ### 6.4 Escalation Mechanism
 
-Agents can request higher disclosure levels through MCP:
+Agents can request higher disclosure tiers through MCP:
 
 ```json
-// Discover available domains and operations
-cleo_query { domain: "system", operation: "help", params: { level: 1 } }
+// Discover available domains and operations (Tier 0)
+query { domain: "admin", operation: "help" }
 
-// Get operation-specific schema
-cleo_query { domain: "system", operation: "help", params: { level: 2, domain: "tasks", operation: "add" } }
+// Escalate to Tier 1 operations
+query { domain: "admin", operation: "help", params: { tier: 1 } }
+
+// Get operation-specific schema (returns full Tier 2 operation definition)
+query { domain: "admin", operation: "help", params: { tier: 2, domain: "tasks", operation: "add" } }
 ```
 
 This is self-service: agents discover what they need when they need it, rather than receiving everything upfront.
@@ -279,14 +254,14 @@ This is self-service: agents discover what they need when they need it, rather t
 ┌─────────────────────────────────────────────────┐
 │                  MCP Gateway                     │
 │                                                  │
-│  cleo_query(domain, operation, params)           │
-│  cleo_mutate(domain, operation, params)          │
+│  query(domain, operation, params)           │
+│  mutate(domain, operation, params)          │
 │                                                  │
 │  ┌───────────────────────────────────────────┐  │
 │  │          Domain Router                     │  │
-│  │  tasks | session | system | validate |     │  │
-│  │  orchestrate | research | lifecycle |      │  │
-│  │  release | issues | skills | providers     │  │
+│  │  tasks | session | memory | check |        │  │
+│  │  pipeline | orchestrate | tools | admin |  │  │
+│  │  nexus | sticky                            │  │
 │  └─────────┬─────────────────┬───────────────┘  │
 │            │                 │                    │
 │    ┌───────▼──────┐  ┌──────▼───────┐           │
@@ -323,11 +298,11 @@ Every MCP operation MUST have a CLI equivalent. Every CLI command SHOULD be acce
 
 | MCP                                                                                     | CLI                                  |
 | --------------------------------------------------------------------------------------- | ------------------------------------ |
-| `cleo_query { domain: "tasks", operation: "show", params: { id: "T1234" } }`            | `ct show T1234`                      |
-| `cleo_mutate { domain: "tasks", operation: "add", params: { title: "Fix bug" } }`       | `ct add "Fix bug"`                   |
-| `cleo_mutate { domain: "tasks", operation: "complete", params: { id: "T42" } }`         | `ct complete T42`                    |
-| `cleo_query { domain: "session", operation: "status" }`                                 | `ct session status`                  |
-| `cleo_mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }` | `ct session start --scope epic:T001` |
+| `query { domain: "tasks", operation: "show", params: { id: "T1234" } }`            | `ct show T1234`                      |
+| `mutate { domain: "tasks", operation: "add", params: { title: "Fix bug" } }`       | `ct add "Fix bug"`                   |
+| `mutate { domain: "tasks", operation: "complete", params: { id: "T42" } }`         | `ct complete T42`                    |
+| `query { domain: "session", operation: "status" }`                                 | `ct session status`                  |
+| `mutate { domain: "session", operation: "start", params: { scope: "epic:T001" } }` | `ct session start --scope epic:T001` |
 
 ## 8. Agent Injection Evolution Plan
 
@@ -346,7 +321,7 @@ Both files evolve to MCP-first with CLI as documented fallback:
 
 **AGENT-INJECTION.md** (project-level, ~200 lines):
 
-- Section 1: MCP-first quick reference (Level 0 + Level 1 content)
+- Section 1: MCP-first quick reference (Tier 0 + Tier 1 content)
 - Section 2: CLI fallback reference (condensed)
 - Section 3: Session protocol (MCP-first with CLI alternative)
 - Section 4: Subagent architecture summary (unchanged)
@@ -354,9 +329,9 @@ Both files evolve to MCP-first with CLI as documented fallback:
 
 **CLEO-INJECTION.md** (global, ~600 lines):
 
-- Section 1: MCP-first entry (Level 0)
+- Section 1: MCP-first entry (Tier 0)
 - Section 2: Progressive disclosure guidance (how to escalate)
-- Section 3: Full protocol stack (Level 3, unchanged)
+- Section 3: Full protocol stack (Tier 2, unchanged)
 - Section 4: CLI reference (condensed, marked as fallback)
 
 ### 8.3 Migration Strategy
@@ -366,7 +341,7 @@ The migration is non-breaking:
 1. **Phase 1:** Add MCP-first section to top of both files. Existing CLI content remains.
 2. **Phase 2:** Reorder sections so MCP guidance appears before CLI in both files.
 3. **Phase 3:** Condense CLI sections into a "CLI Fallback Reference" appendix.
-4. **Phase 4:** Implement server-side progressive disclosure (Level 0-3 dynamic loading).
+4. **Phase 4:** Implement server-side progressive disclosure (Tier 0-2 dynamic loading).
 
 Phase 1-3 are documentation changes. Phase 4 requires MCP server implementation.
 
@@ -382,12 +357,11 @@ Phase 1-3 are documentation changes. Phase 4 requires MCP server implementation.
 
 ### 9.2 Target Cost (MCP-First with Progressive Disclosure)
 
-| Level                        | Tokens (approx)          | Agents Using         |
+| Tier                         | Tokens (approx)          | Agents Using         |
 | ---------------------------- | ------------------------ | -------------------- |
-| Level 0 (minimal)            | ~200                     | All agents           |
-| Level 1 (domain discovery)   | ~500                     | Multi-step workflows |
-| Level 2 (operation-specific) | ~500-2,000 per operation | On-demand            |
-| Level 3 (full protocol)      | ~4,500                   | Orchestrators only   |
+| Tier 0 (Core)                | ~200                     | All agents           |
+| Tier 1 (Extended)            | ~500                     | Multi-step workflows |
+| Tier 2 (Full System)         | ~2,000-5,000             | Orchestrators only   |
 
 ### 9.3 Savings
 
@@ -413,7 +387,7 @@ All MCP operations return structured errors:
     "code": "E_NOT_FOUND",
     "exitCode": 4,
     "message": "Task T9999 not found",
-    "fix": "cleo_query { domain: 'tasks', operation: 'find', params: { query: 'T9999' } }",
+    "fix": "query { domain: 'tasks', operation: 'find', params: { query: 'T9999' } }",
     "alternatives": [
       { "action": "Search by title", "operation": "tasks.find" },
       { "action": "List all tasks", "operation": "tasks.list" }
@@ -453,12 +427,12 @@ Every MCP error code maps to a CLI exit code for equivalence:
 - MCP operations MUST return structured JSON with `success` field.
 - Error responses MUST include `code`, `message`, and `fix` fields.
 - Native operations MUST NOT require Bash availability.
-- Progressive disclosure Level 0 MUST be under 250 tokens.
+- Progressive disclosure Tier 0 MUST be under 250 tokens.
 
 ### 11.2 SHOULD (Recommended)
 
 - Agents SHOULD prefer MCP tools over CLI for programmatic operations.
-- Agent injection SHOULD include Level 0 content by default.
+- Agent injection SHOULD include Tier 0 content by default.
 - MCP error responses SHOULD include `alternatives` array.
 - CLI fallback documentation SHOULD be clearly marked as secondary.
 
@@ -466,7 +440,7 @@ Every MCP error code maps to a CLI exit code for equivalence:
 
 - Agents MAY use CLI directly for debugging or human-interactive sessions.
 - Progressive disclosure MAY be implemented server-side in a future phase.
-- Operation schemas MAY be served dynamically via `system.help`.
+- Operation schemas MAY be served dynamically via `admin.help`.
 
 ## 12. Implementation Tasks
 
@@ -474,11 +448,11 @@ The following tasks implement this specification:
 
 1. **Update AGENT-INJECTION.md for MCP-first guidance** - Add MCP quick reference section, reorder content.
 2. **Update CLEO-INJECTION.md for MCP-first guidance** - Add MCP entry section, condense CLI reference.
-3. **Implement progressive disclosure in MCP server** - Add `system.help` operation with level parameter.
+3. **Implement progressive disclosure in MCP server** - Add `admin.help` operation with level parameter.
 
 ## 13. References
 
-- `docs/concepts/vision.md` - CLEO canonical vision
+- `docs/concepts/CLEO-VISION.md` - CLEO canonical vision
 - `docs/specs/PORTABLE-BRAIN-SPEC.md` - Product contract
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server internals
 - `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing

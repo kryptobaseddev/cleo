@@ -9,10 +9,13 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { TaskFile } from '../../types/task.js';
-import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+
+// Auto-register hook handlers
+import '../hooks/handlers/index.js';
 
 /** Result of getting current task. */
 export interface TaskCurrentResult {
@@ -66,7 +69,6 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
   }
 
   const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -123,10 +125,18 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
     await saveJson(taskPath, data, { backupDir });
   }
 
-  await logOperation(logPath, 'task_start', taskId, {
+  await logOperation('task_start', taskId, {
     previousTask,
     title: task.title,
   }, accessor);
+
+  // Dispatch onToolStart hook (best-effort, don't await)
+  const { hooks } = await import('../hooks/registry.js');
+  hooks.dispatch('onToolStart', cwd ?? process.cwd(), {
+    timestamp: new Date().toISOString(),
+    taskId,
+    taskTitle: task.title,
+  }).catch(() => { /* Hooks are best-effort */ });
 
   return {
     taskId,
@@ -142,7 +152,6 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
  */
 export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{ previousTask: string | null }> {
   const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -155,6 +164,10 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
     return { previousTask: null };
   }
 
+  // Get task info before clearing focus for hook dispatch
+  const taskId = data.focus.currentTask;
+  const task = taskId ? data.tasks.find(t => t.id === taskId) : undefined;
+
   data.focus.currentTask = null;
   data.focus.nextAction = null;
 
@@ -162,13 +175,24 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
   data._meta.checksum = computeChecksum(data.tasks);
   data.lastUpdated = now;
 
+  // Dispatch onToolComplete hook (best-effort, don't await)
+  if (taskId && task) {
+    const { hooks } = await import('../hooks/registry.js');
+    hooks.dispatch('onToolComplete', cwd ?? process.cwd(), {
+      timestamp: now,
+      taskId,
+      taskTitle: task.title,
+      status: 'done',
+    }).catch(() => { /* Hooks are best-effort */ });
+  }
+
   if (accessor) {
     await accessor.saveTaskFile(data);
   } else {
     await saveJson(taskPath, data, { backupDir });
   }
 
-  await logOperation(logPath, 'task_stop', previousTask ?? 'none', {
+  await logOperation('task_stop', previousTask ?? 'none', {
     previousTask,
   }, accessor);
 
@@ -202,3 +226,8 @@ export async function getWorkHistory(cwd?: string, accessor?: DataAccessor): Pro
   return history.reverse(); // Most recent first
 }
 
+/**
+ * Get task work history (canonical verb alias for dispatch layer).
+ * @task T5323
+ */
+export const getTaskHistory = getWorkHistory;

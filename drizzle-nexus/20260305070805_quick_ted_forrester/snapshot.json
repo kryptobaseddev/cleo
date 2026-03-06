@@ -1,0 +1,461 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "0bd403db-eed5-4060-b495-69c07a376216",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "nexus_audit_log",
+      "entityType": "tables"
+    },
+    {
+      "name": "nexus_schema_meta",
+      "entityType": "tables"
+    },
+    {
+      "name": "project_registry",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "timestamp",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "action",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_hash",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "domain",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "operation",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "request_id",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "gateway",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "success",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "duration_ms",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "details_json",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error_message",
+      "entityType": "columns",
+      "table": "nexus_audit_log"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "nexus_schema_meta"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "nexus_schema_meta"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_hash",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "project_path",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "registered_at",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "last_seen",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'unknown'",
+      "generated": null,
+      "name": "health_status",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "health_last_check",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'read'",
+      "generated": null,
+      "name": "permissions",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(datetime('now'))",
+      "generated": null,
+      "name": "last_sync",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "task_count",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "labels_json",
+      "entityType": "columns",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "nexus_audit_log_pk",
+      "table": "nexus_audit_log",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "nexus_schema_meta_pk",
+      "table": "nexus_schema_meta",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "project_id"
+      ],
+      "nameExplicit": false,
+      "name": "project_registry_pk",
+      "table": "project_registry",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "timestamp",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_timestamp",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "action",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_action",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_project_hash",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_project_id",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_nexus_audit_session",
+      "entityType": "indexes",
+      "table": "nexus_audit_log"
+    },
+    {
+      "columns": [
+        {
+          "value": "project_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_project_registry_hash",
+      "entityType": "indexes",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        {
+          "value": "health_status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_project_registry_health",
+      "entityType": "indexes",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        {
+          "value": "name",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_project_registry_name",
+      "entityType": "indexes",
+      "table": "project_registry"
+    },
+    {
+      "columns": [
+        "project_path"
+      ],
+      "nameExplicit": false,
+      "name": "project_registry_project_path_unique",
+      "entityType": "uniques",
+      "table": "project_registry"
+    }
+  ],
+  "renames": []
+}

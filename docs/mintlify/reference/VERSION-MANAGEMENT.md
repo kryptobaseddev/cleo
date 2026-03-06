@@ -347,7 +347,7 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/):
 
 | Schema | Bump When | Example |
 |--------|-----------|---------|
-| TODO | Add/remove/change task fields | Adding hierarchy fields (2.2.0 → 2.3.0) |
+| TASKS | Add/remove/change task fields | Adding hierarchy fields (2.2.0 → 2.3.0) |
 | CONFIG | Add/remove config options | Adding new validation rules |
 | ARCHIVE | Change archive format | Modifying archived task structure |
 | LOG | Change log entry format | Adding new event types |

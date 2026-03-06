@@ -25,10 +25,8 @@ export interface SchemaVersions {
 }
 
 export interface FileHashes {
-  'todo.json'?: string;
+  'tasks.db'?: string;
   'config.json'?: string;
-  'todo-archive.json'?: string;
-  'todo-log.jsonl'?: string;
 }
 
 export interface ProjectCacheEntry {
@@ -145,10 +143,10 @@ export function getCachedValidation(
   if (age > (entry.ttl || CACHE_TTL_SECONDS)) return null;
 
   // Check file hashes for invalidation
-  const currentTodoHash = getFileHash(join(projectPath, '.cleo', 'todo.json'));
+  const currentTasksDbHash = getFileHash(join(projectPath, '.cleo', 'tasks.db'));
   const currentConfigHash = getFileHash(join(projectPath, '.cleo', 'config.json'));
 
-  if (currentTodoHash !== (entry.fileHashes['todo.json'] ?? '')) return null;
+  if (currentTasksDbHash !== (entry.fileHashes['tasks.db'] ?? '')) return null;
   if (currentConfigHash !== (entry.fileHashes['config.json'] ?? '')) return null;
 
   return entry;
@@ -173,10 +171,8 @@ export function cacheValidationResult(
     cache = initCacheFile(cachePath);
   }
 
-  const todoHash = getFileHash(join(projectPath, '.cleo', 'todo.json'));
+  const tasksDbHash = getFileHash(join(projectPath, '.cleo', 'tasks.db'));
   const configHash = getFileHash(join(projectPath, '.cleo', 'config.json'));
-  const archiveHash = getFileHash(join(projectPath, '.cleo', 'todo-archive.json'));
-  const logHash = getFileHash(join(projectPath, '.cleo', 'todo-log.jsonl'));
 
   const timestamp = new Date().toISOString();
 
@@ -186,10 +182,8 @@ export function cacheValidationResult(
     validationStatus,
     schemaVersions,
     fileHashes: {
-      'todo.json': todoHash,
+      'tasks.db': tasksDbHash,
       'config.json': configHash,
-      'todo-archive.json': archiveHash,
-      'todo-log.jsonl': logHash,
     },
     issues,
     ttl: CACHE_TTL_SECONDS,

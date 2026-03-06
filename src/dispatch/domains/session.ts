@@ -39,6 +39,8 @@ import {
   sessionFind,
 } from '../lib/engine.js';
 
+import { sessionContextInject } from '../../core/sessions/context-inject.js';
+
 // ---------------------------------------------------------------------------
 // SessionHandler
 // ---------------------------------------------------------------------------
@@ -295,6 +297,19 @@ export class SessionHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
         }
 
+        case 'context.inject': {
+          const protocolType = params?.protocolType as string;
+          if (!protocolType) {
+            return this.errorResponse('mutate', 'session', operation, 'E_INVALID_INPUT', 'protocolType is required', startTime);
+          }
+          const result = sessionContextInject(
+            protocolType,
+            { taskId: params?.taskId as string | undefined, variant: params?.variant as string | undefined },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
+        }
+
         default:
           return this.unsupported('mutate', 'session', operation, startTime);
       }
@@ -310,7 +325,7 @@ export class SessionHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['status', 'list', 'show', 'find', 'history', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show', 'debrief.show', 'chain.show'],
-      mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
+      mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption', 'context.inject'],
     };
   }
 

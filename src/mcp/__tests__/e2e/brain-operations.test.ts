@@ -9,10 +9,10 @@
  * @task T4478
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync, mkdtempSync } from 'fs';
-import { join } from 'path';
+import { existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { join } from 'path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 
 import {
   orchestrateBootstrap,
@@ -29,10 +29,10 @@ import {
 } from '../../../dispatch/engines/validate-engine.js';
 
 import {
-  sessionRecordDecision,
+  sessionContextDrift,
   sessionDecisionLog,
   sessionRecordAssumption,
-  sessionContextDrift,
+  sessionRecordDecision,
 } from '../../../dispatch/engines/session-engine.js';
 
 import {

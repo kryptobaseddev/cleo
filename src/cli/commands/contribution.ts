@@ -1,17 +1,12 @@
 /**
  * CLI contribution command - contribution protocol validation.
+ * Routes through dispatch layer to check.protocol.contribution.
  * @task T4537
  * @epic T4454
  */
 
 import { Command } from 'commander';
-import {
-  validateContributionTask,
-  checkContributionManifest,
-} from '../../core/validation/protocols/contribution.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the contribution command group.
@@ -27,18 +22,11 @@ export function registerContributionCommand(program: Command): void {
     .description('Validate contribution protocol compliance for task')
     .option('--strict', 'Exit with error code on violations')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await validateContributionTask(taskId, {
-          strict: opts['strict'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'contribution' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.contribution', {
+        mode: 'task',
+        taskId,
+        strict: opts['strict'] as boolean | undefined,
+      }, { command: 'contribution' });
     });
 
   contribution
@@ -46,17 +34,10 @@ export function registerContributionCommand(program: Command): void {
     .description('Validate manifest entry directly')
     .option('--strict', 'Exit with error code on violations')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await checkContributionManifest(manifestFile, {
-          strict: opts['strict'] as boolean | undefined,
-        });
-        cliOutput(result, { command: 'contribution' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.contribution', {
+        mode: 'manifest',
+        manifestFile,
+        strict: opts['strict'] as boolean | undefined,
+      }, { command: 'contribution' });
     });
 }

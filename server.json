@@ -37,12 +37,12 @@
     "io.modelcontextprotocol.registry/publisher-provided": {
       "tools": [
         {
-          "name": "cleo_query",
-          "description": "Read-only operations across 11 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers"
+          "name": "query",
+          "description": "Read-only operations across 10 domains: tasks, session, orchestrate, memory, pipeline, check, admin, tools, nexus, sticky"
         },
         {
-          "name": "cleo_mutate",
-          "description": "Write operations across 11 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system, issues, skills, providers"
+          "name": "mutate",
+          "description": "Write operations across 10 domains: tasks, session, orchestrate, memory, pipeline, check, admin, tools, nexus, sticky"
         }
       ],
       "features": [

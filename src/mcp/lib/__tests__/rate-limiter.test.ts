@@ -9,7 +9,7 @@
  * @task T2916
  */
 
-import { RateLimiter, DEFAULT_RATE_LIMITING, RateLimitingConfig } from '../rate-limiter.js';
+import { DEFAULT_RATE_LIMITING,RateLimiter } from '../rate-limiter.js';
 
 describe('RateLimiter', () => {
   let limiter: RateLimiter;
@@ -51,7 +51,7 @@ describe('RateLimiter', () => {
 
   describe('check()', () => {
     it('allows requests within the limit', () => {
-      const result = limiter.check('cleo_query', 'tasks', 'list');
+      const result = limiter.check('query', 'tasks', 'list');
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(99);
       expect(result.limit).toBe(100);
@@ -59,28 +59,28 @@ describe('RateLimiter', () => {
     });
 
     it('correctly categorizes query operations', () => {
-      const result = limiter.check('cleo_query', 'tasks', 'find');
+      const result = limiter.check('query', 'tasks', 'find');
       expect(result.category).toBe('query');
     });
 
     it('correctly categorizes mutate operations', () => {
-      const result = limiter.check('cleo_mutate', 'tasks', 'add');
+      const result = limiter.check('mutate', 'tasks', 'add');
       expect(result.category).toBe('mutate');
     });
 
     it('correctly categorizes spawn operations', () => {
-      const result = limiter.check('cleo_mutate', 'orchestrate', 'spawn');
+      const result = limiter.check('mutate', 'orchestrate', 'spawn');
       expect(result.category).toBe('spawn');
     });
 
     it('decrements remaining count on each check', () => {
-      const r1 = limiter.check('cleo_mutate', 'tasks', 'add');
+      const r1 = limiter.check('mutate', 'tasks', 'add');
       expect(r1.remaining).toBe(29);
 
-      const r2 = limiter.check('cleo_mutate', 'tasks', 'update');
+      const r2 = limiter.check('mutate', 'tasks', 'update');
       expect(r2.remaining).toBe(28);
 
-      const r3 = limiter.check('cleo_mutate', 'session', 'start');
+      const r3 = limiter.check('mutate', 'session', 'start');
       expect(r3.remaining).toBe(27);
     });
 
@@ -90,12 +90,12 @@ describe('RateLimiter', () => {
         mutate: { maxRequests: 3, windowMs: 60_000 },
       });
 
-      expect(smallLimiter.check('cleo_mutate', 'tasks', 'add').allowed).toBe(true);
-      expect(smallLimiter.check('cleo_mutate', 'tasks', 'update').allowed).toBe(true);
-      expect(smallLimiter.check('cleo_mutate', 'tasks', 'delete').allowed).toBe(true);
+      expect(smallLimiter.check('mutate', 'tasks', 'add').allowed).toBe(true);
+      expect(smallLimiter.check('mutate', 'tasks', 'update').allowed).toBe(true);
+      expect(smallLimiter.check('mutate', 'tasks', 'delete').allowed).toBe(true);
 
       // 4th request should be blocked
-      const blocked = smallLimiter.check('cleo_mutate', 'tasks', 'complete');
+      const blocked = smallLimiter.check('mutate', 'tasks', 'complete');
       expect(blocked.allowed).toBe(false);
       expect(blocked.remaining).toBe(0);
       expect(blocked.limit).toBe(3);
@@ -107,17 +107,17 @@ describe('RateLimiter', () => {
         spawn: { maxRequests: 2, windowMs: 60_000 },
       });
 
-      expect(smallLimiter.check('cleo_mutate', 'orchestrate', 'spawn').allowed).toBe(true);
-      expect(smallLimiter.check('cleo_mutate', 'orchestrate', 'spawn').allowed).toBe(true);
+      expect(smallLimiter.check('mutate', 'orchestrate', 'spawn').allowed).toBe(true);
+      expect(smallLimiter.check('mutate', 'orchestrate', 'spawn').allowed).toBe(true);
 
-      const blocked = smallLimiter.check('cleo_mutate', 'orchestrate', 'spawn');
+      const blocked = smallLimiter.check('mutate', 'orchestrate', 'spawn');
       expect(blocked.allowed).toBe(false);
       expect(blocked.category).toBe('spawn');
     });
 
     it('returns Infinity when disabled', () => {
       const disabledLimiter = new RateLimiter({ enabled: false });
-      const result = disabledLimiter.check('cleo_query', 'tasks', 'list');
+      const result = disabledLimiter.check('query', 'tasks', 'list');
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(Infinity);
       expect(result.limit).toBe(Infinity);
@@ -131,12 +131,12 @@ describe('RateLimiter', () => {
       });
 
       // Use up query limit
-      smallLimiter.check('cleo_query', 'tasks', 'list');
-      smallLimiter.check('cleo_query', 'tasks', 'find');
-      expect(smallLimiter.check('cleo_query', 'tasks', 'show').allowed).toBe(false);
+      smallLimiter.check('query', 'tasks', 'list');
+      smallLimiter.check('query', 'tasks', 'find');
+      expect(smallLimiter.check('query', 'tasks', 'show').allowed).toBe(false);
 
       // Mutate should still be available
-      expect(smallLimiter.check('cleo_mutate', 'tasks', 'add').allowed).toBe(true);
+      expect(smallLimiter.check('mutate', 'tasks', 'add').allowed).toBe(true);
     });
 
     it('resets after window expires', () => {
@@ -145,13 +145,13 @@ describe('RateLimiter', () => {
         query: { maxRequests: 1, windowMs: 10 }, // 10ms window
       });
 
-      expect(shortLimiter.check('cleo_query', 'tasks', 'list').allowed).toBe(true);
-      expect(shortLimiter.check('cleo_query', 'tasks', 'list').allowed).toBe(false);
+      expect(shortLimiter.check('query', 'tasks', 'list').allowed).toBe(true);
+      expect(shortLimiter.check('query', 'tasks', 'list').allowed).toBe(false);
 
       // Wait for window to expire
       return new Promise<void>((resolve) => {
         setTimeout(() => {
-          expect(shortLimiter.check('cleo_query', 'tasks', 'list').allowed).toBe(true);
+          expect(shortLimiter.check('query', 'tasks', 'list').allowed).toBe(true);
           resolve();
         }, 20);
       });
@@ -160,23 +160,23 @@ describe('RateLimiter', () => {
 
   describe('peek()', () => {
     it('returns status without recording a request', () => {
-      const peek1 = limiter.peek('cleo_query', 'tasks', 'list');
+      const peek1 = limiter.peek('query', 'tasks', 'list');
       expect(peek1.allowed).toBe(true);
       expect(peek1.remaining).toBe(100);
 
       // Peek again - should still be 100 (not recorded)
-      const peek2 = limiter.peek('cleo_query', 'tasks', 'list');
+      const peek2 = limiter.peek('query', 'tasks', 'list');
       expect(peek2.remaining).toBe(100);
 
       // Now check (records) and peek should show 99
-      limiter.check('cleo_query', 'tasks', 'list');
-      const peek3 = limiter.peek('cleo_query', 'tasks', 'list');
+      limiter.check('query', 'tasks', 'list');
+      const peek3 = limiter.peek('query', 'tasks', 'list');
       expect(peek3.remaining).toBe(99);
     });
 
     it('returns Infinity when disabled', () => {
       const disabledLimiter = new RateLimiter({ enabled: false });
-      const result = disabledLimiter.peek('cleo_query', 'tasks', 'list');
+      const result = disabledLimiter.peek('query', 'tasks', 'list');
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(Infinity);
     });
@@ -184,30 +184,30 @@ describe('RateLimiter', () => {
 
   describe('reset()', () => {
     it('clears all buckets', () => {
-      limiter.check('cleo_query', 'tasks', 'list');
-      limiter.check('cleo_mutate', 'tasks', 'add');
+      limiter.check('query', 'tasks', 'list');
+      limiter.check('mutate', 'tasks', 'add');
 
       limiter.reset();
 
-      const queryResult = limiter.peek('cleo_query', 'tasks', 'list');
+      const queryResult = limiter.peek('query', 'tasks', 'list');
       expect(queryResult.remaining).toBe(100);
 
-      const mutateResult = limiter.peek('cleo_mutate', 'tasks', 'add');
+      const mutateResult = limiter.peek('mutate', 'tasks', 'add');
       expect(mutateResult.remaining).toBe(30);
     });
   });
 
   describe('resetCategory()', () => {
     it('clears only the specified category', () => {
-      limiter.check('cleo_query', 'tasks', 'list');
-      limiter.check('cleo_mutate', 'tasks', 'add');
+      limiter.check('query', 'tasks', 'list');
+      limiter.check('mutate', 'tasks', 'add');
 
       limiter.resetCategory('query');
 
-      const queryResult = limiter.peek('cleo_query', 'tasks', 'list');
+      const queryResult = limiter.peek('query', 'tasks', 'list');
       expect(queryResult.remaining).toBe(100);
 
-      const mutateResult = limiter.peek('cleo_mutate', 'tasks', 'add');
+      const mutateResult = limiter.peek('mutate', 'tasks', 'add');
       expect(mutateResult.remaining).toBe(29);
     });
   });
@@ -217,7 +217,7 @@ describe('RateLimiter', () => {
       limiter.updateConfig({ enabled: false });
       expect(limiter.getConfig().enabled).toBe(false);
 
-      const result = limiter.check('cleo_query', 'tasks', 'list');
+      const result = limiter.check('query', 'tasks', 'list');
       expect(result.allowed).toBe(true);
       expect(result.remaining).toBe(Infinity);
     });
@@ -258,12 +258,12 @@ describe('RateLimiter', () => {
       });
 
       for (let i = 0; i < 5; i++) {
-        const r = smallLimiter.check('cleo_query', 'tasks', 'list');
+        const r = smallLimiter.check('query', 'tasks', 'list');
         expect(r.allowed).toBe(true);
         expect(r.remaining).toBe(4 - i);
       }
 
-      const blocked = smallLimiter.check('cleo_query', 'tasks', 'list');
+      const blocked = smallLimiter.check('query', 'tasks', 'list');
       expect(blocked.allowed).toBe(false);
       expect(blocked.remaining).toBe(0);
     });
@@ -273,8 +273,8 @@ describe('RateLimiter', () => {
         query: { maxRequests: 1, windowMs: 60_000 },
       });
 
-      smallLimiter.check('cleo_query', 'tasks', 'list');
-      const blocked = smallLimiter.check('cleo_query', 'tasks', 'list');
+      smallLimiter.check('query', 'tasks', 'list');
+      const blocked = smallLimiter.check('query', 'tasks', 'list');
 
       expect(blocked.resetMs).toBeGreaterThan(0);
       expect(blocked.resetMs).toBeLessThanOrEqual(60_000);

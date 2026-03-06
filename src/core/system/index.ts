@@ -27,6 +27,9 @@ export type { SafestopResult, UncancelResult } from './safestop.js';
 export { getMigrationStatus } from './migrate.js';
 export type { MigrateResult } from './migrate.js';
 
+export { checkStorageMigration } from './storage-preflight.js';
+export type { PreflightResult } from './storage-preflight.js';
+
 export { getSystemMetrics } from './metrics.js';
 export type { SystemMetricsResult } from './metrics.js';
 

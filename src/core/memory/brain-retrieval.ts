@@ -24,6 +24,7 @@ import {
   BRAIN_OBSERVATION_TYPES,
   BRAIN_OBSERVATION_SOURCE_TYPES,
 } from '../../store/brain-schema.js';
+import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
 
 // ============================================================================
 // Types
@@ -477,6 +478,9 @@ function classifyObservationType(text: string): BrainObservationType {
   return 'discovery';
 }
 
+/** Monotonic counter to prevent ID collisions within the same millisecond. */
+let observeSeq = 0;
+
 /**
  * Save an observation to the BRAIN observations table.
  * Replaces the external claude-mem save_observation pattern.
@@ -522,7 +526,7 @@ export async function observeBrain(
     }
   }
 
-  const id = `O-${Date.now().toString(36)}`;
+  const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
   const accessor = await getBrainAccessor(projectRoot);
 
   const row = await accessor.addObservation({
@@ -537,9 +541,95 @@ export async function observeBrain(
     createdAt: now,
   });
 
+  // Populate embedding if provider is available (T5387).
+  // Embedding failure must never prevent the observation from being saved.
+  if (isEmbeddingAvailable()) {
+    try {
+      const vector = await embedText(text);
+      if (vector && nativeDb) {
+        nativeDb.prepare(
+          'INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)',
+        ).run(id, Buffer.from(vector.buffer));
+      }
+    } catch {
+      // Silently skip embedding failures
+    }
+  }
+
   return {
     id: row.id,
     type: row.type,
     createdAt: row.createdAt,
   };
+}
+
+// ============================================================================
+// Embedding Backfill Pipeline (T5387)
+// ============================================================================
+
+/** Result from populateEmbeddings backfill. */
+export interface PopulateEmbeddingsResult {
+  processed: number;
+  skipped: number;
+}
+
+/**
+ * Backfill embeddings for existing observations that lack them.
+ *
+ * Iterates through observations not yet in brain_embeddings and
+ * generates vectors using the registered embedding provider.
+ * Processes in batches to avoid memory pressure.
+ *
+ * @param projectRoot - Project root directory
+ * @param options - Optional batch size configuration
+ * @returns Count of processed and skipped observations
+ */
+export async function populateEmbeddings(
+  projectRoot: string,
+  options?: { batchSize?: number },
+): Promise<PopulateEmbeddingsResult> {
+  if (!isEmbeddingAvailable()) {
+    return { processed: 0, skipped: 0 };
+  }
+
+  await getBrainDb(projectRoot);
+  const nativeDb = getBrainNativeDb();
+
+  if (!nativeDb) {
+    return { processed: 0, skipped: 0 };
+  }
+
+  const batchSize = options?.batchSize ?? 50;
+  let processed = 0;
+  let skipped = 0;
+
+  // Find observations without embeddings
+  const rows = nativeDb.prepare(`
+    SELECT o.id, o.narrative, o.title
+    FROM brain_observations o
+    LEFT JOIN brain_embeddings e ON o.id = e.id
+    WHERE e.id IS NULL AND o.narrative IS NOT NULL
+    ORDER BY o.created_at DESC
+  `).all() as Array<{ id: string; narrative: string; title: string }>;
+
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    for (const row of batch) {
+      try {
+        const vector = await embedText(row.narrative || row.title);
+        if (vector) {
+          nativeDb.prepare(
+            'INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)',
+          ).run(row.id, Buffer.from(vector.buffer));
+          processed++;
+        } else {
+          skipped++;
+        }
+      } catch {
+        skipped++;
+      }
+    }
+  }
+
+  return { processed, skipped };
 }

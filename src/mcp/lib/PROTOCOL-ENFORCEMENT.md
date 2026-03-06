@@ -173,8 +173,8 @@ const violations = protocolEnforcer.getViolations(10); // Last 10
 
 The middleware validates these operations:
 
-- `research.inject`
-- `research.manifest.append`
+- `session.context.inject`
+- `pipeline.manifest.append`
 - `orchestrate.spawn`
 - `tasks.complete`
 - `release.prepare`

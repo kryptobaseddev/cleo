@@ -27,6 +27,15 @@ import {
   MANIFEST_STATUSES,
 } from './status-registry.js';
 
+// Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
+export { warpChains, warpChainInstances } from './chain-schema.js';
+export type {
+  WarpChainRow,
+  NewWarpChainRow,
+  WarpChainInstanceRow,
+  NewWarpChainInstanceRow,
+} from './chain-schema.js';
+
 // Re-export status constants and types so existing imports from schema.ts still work.
 export {
   TASK_STATUSES,
@@ -336,7 +345,7 @@ export const schemaMeta = sqliteTable('schema_meta', {
 
 /**
  * Task change audit log — stores every add/update/complete/delete/archive operation.
- * Migrated from tasks-log.jsonl to SQLite per ADR-006/ADR-012.
+ * Migrated from legacy JSONL task logs to SQLite per ADR-006/ADR-012.
  * No FK on taskId — log entries must survive task deletion.
  *
  * @task T4837
@@ -360,12 +369,15 @@ export const auditLog = sqliteTable('audit_log', {
   source: text('source'),
   gateway: text('gateway'),
   errorMessage: text('error_message'),
+  // Project correlation (T5334)
+  projectHash: text('project_hash'),
 }, (table) => [
   index('idx_audit_log_task_id').on(table.taskId),
   index('idx_audit_log_action').on(table.action),
   index('idx_audit_log_timestamp').on(table.timestamp),
   index('idx_audit_log_domain').on(table.domain),
   index('idx_audit_log_request_id').on(table.requestId),
+  index('idx_audit_log_project_hash').on(table.projectHash),
 ]);
 
 // === ARCHITECTURE DECISIONS ===

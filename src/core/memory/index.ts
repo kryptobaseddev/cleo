@@ -9,7 +9,7 @@ import { safeReadFile, atomicWrite } from '../../store/atomic.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { TaskFile } from '../../types/task.js';
-import { getTaskPath, getBackupDir, getLogPath, getCleoDirAbsolute, getManifestPath as getCentralManifestPath, getManifestArchivePath, getProjectRoot } from '../paths.js';
+import { getTaskPath, getBackupDir, getCleoDirAbsolute, getManifestPath as getCentralManifestPath, getManifestArchivePath, getProjectRoot } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { join, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
@@ -127,7 +127,7 @@ export async function addResearch(options: AddResearchOptions, cwd?: string, acc
   research.entries.push(entry);
 
   await saveJson(getResearchPath(cwd), research, { backupDir: getBackupDir(cwd) });
-  await logOperation(getLogPath(cwd), 'research_added', entry.id, {
+  await logOperation('research_added', entry.id, {
     taskId: options.taskId,
     topic: options.topic,
   }, accessor);
@@ -1070,3 +1070,6 @@ export * from './learnings.js';
 
 // === BRAIN Retrieval functions (3-layer pattern) ===
 export * from './brain-retrieval.js';
+
+// === BRAIN Lifecycle (temporal decay) ===
+export * from './brain-lifecycle.js';

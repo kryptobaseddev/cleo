@@ -42,17 +42,17 @@ describe('CLEO-INJECTION v2.1.0 minimal-only template', () => {
   describe('Contains all minimal sections', () => {
     it('includes CLEO Identity section', () => {
       expect(content).toContain('## CLEO Identity');
-      expect(content).toContain('cleo_query');
-      expect(content).toContain('cleo_mutate');
+      expect(content).toContain('query');
+      expect(content).toContain('mutate');
     });
 
     it('includes Mandatory Efficiency Sequence', () => {
       expect(content).toContain('## Mandatory Efficiency Sequence');
-      expect(content).toContain('cleo_query session status');
-      expect(content).toContain('cleo_query admin dash');
-      expect(content).toContain('cleo_query tasks current');
-      expect(content).toContain('cleo_query tasks next');
-      expect(content).toContain('cleo_query tasks show');
+      expect(content).toContain('query session status');
+      expect(content).toContain('query admin dash');
+      expect(content).toContain('query tasks current');
+      expect(content).toContain('query tasks next');
+      expect(content).toContain('query tasks show');
     });
 
     it('includes Agent Work Loop', () => {

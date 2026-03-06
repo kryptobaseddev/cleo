@@ -6,18 +6,18 @@
  * @epic T4498
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import {
-  startSession,
   endSession,
-  sessionStatus,
-  resumeSession,
-  listSessions,
   gcSessions,
+  listSessions,
   parseScope,
+  resumeSession,
+  sessionStatus,
+  startSession,
 } from '../index.js';
 
 let tempDir: string;
@@ -31,6 +31,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  try {
+    const { closeAllDatabases } = await import('../../../store/sqlite.js');
+    await closeAllDatabases();
+  } catch { /* ignore */ }
   await rm(tempDir, { recursive: true, force: true });
 });
 

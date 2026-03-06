@@ -11,16 +11,16 @@
 
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 /**
  * Check if a CLEO project is initialized at the given root.
- * Checks for both tasks.json (canonical) and todo.json (legacy).
+ * Checks for tasks.db.
  */
 export function isProjectInitialized(projectRoot?: string): boolean {
   const root = projectRoot ?? getProjectRoot();
   const cleoDir = join(root, '.cleo');
-  return existsSync(cleoDir) && (existsSync(join(cleoDir, 'tasks.json')) || existsSync(join(cleoDir, 'todo.json')) || existsSync(join(cleoDir, 'tasks.db')));
+  return existsSync(cleoDir) && existsSync(join(cleoDir, 'tasks.db'));
 }
 
 /**
@@ -105,10 +105,20 @@ export function resolveProjectPath(relativePath: string, cwd?: string): string {
 }
 
 /**
- * Get the path to the project's tasks.json file.
+ * Get the path to the project's tasks.db file (SQLite database).
+ * @deprecated Use getAccessor() from '../store/data-accessor.js' instead. This function
+ *   returns the database file path for legacy compatibility, but all task data access
+ *   should go through the DataAccessor interface to ensure proper SQLite interaction.
+ *   Example:
+ *     // OLD (deprecated):
+ *     const taskPath = getTaskPath(cwd);
+ *     const data = await readJsonFile<TaskFile>(taskPath);
+ *     // NEW (correct):
+ *     const accessor = await getAccessor(cwd);
+ *     const data = await accessor.loadTaskFile();
  */
 export function getTaskPath(cwd?: string): string {
-  return join(getCleoDirAbsolute(cwd), 'tasks.json');
+  return join(getCleoDirAbsolute(cwd), 'tasks.db');
 }
 
 /**
@@ -134,25 +144,11 @@ export function getArchivePath(cwd?: string): string {
 
 /**
  * Get the path to the project's log file.
- * Auto-migrates legacy todo-log.json to tasks-log.jsonl if needed.
+ * Canonical structured runtime log path (pino).
  * @task T4644
  */
 export function getLogPath(cwd?: string): string {
-  const cleoDir = getCleoDirAbsolute(cwd);
-  const newPath = join(cleoDir, 'tasks-log.jsonl');
-  const legacyPath = join(cleoDir, 'todo-log.json');
-
-  // Auto-migrate: rename legacy file if new file doesn't exist
-  if (!existsSync(newPath) && existsSync(legacyPath)) {
-    try {
-      renameSync(legacyPath, newPath);
-    } catch {
-      // If rename fails (e.g. permissions), fall back to legacy path
-      return legacyPath;
-    }
-  }
-
-  return newPath;
+  return join(getCleoDirAbsolute(cwd), 'logs', 'cleo.log');
 }
 
 /**

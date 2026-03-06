@@ -47,3 +47,9 @@ export {
   caampGenerateInjectionContent,
   caampGetInstructionFiles,
 } from './adapter.js';
+
+// Capability Checking
+export {
+  checkProviderCapability,
+  checkProviderCapabilities,
+} from './capability-check.js';

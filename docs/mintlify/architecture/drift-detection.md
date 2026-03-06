@@ -21,7 +21,7 @@ The drift detection system performs 8 canonical checks:
 | Domain handlers | Domain coverage | `src/mcp/domains/*.ts` | No domain handlers found |
 | Capability matrix | Feature matrix | `src/mcp/engine/capability-matrix.ts` | Matrix file missing |
 | Schema validation | Database schema | `src/store/schema.ts` | No CREATE TABLE statements |
-| Canonical identity | Vision/pillars | `docs/concepts/vision.mdx` + `docs/specs/PORTABLE-BRAIN-SPEC.md` | Missing canonical documents or pillars |
+| Canonical identity | Vision/pillars | `docs/concepts/CLEO-VISION.mdx` + `docs/specs/PORTABLE-BRAIN-SPEC.md` | Missing canonical documents or pillars |
 | Agent injection | Agent templates | `.cleo/templates/CLEO-INJECTION.md` | Template missing |
 | Exit codes | Exit code definitions | `src/types/exit-codes.ts` | Exit codes file missing |
 
@@ -82,7 +82,7 @@ Create `.drift-config.json` in your project root:
     },
     "canonicalIdentity": {
       "enabled": true,
-      "visionPath": "docs/vision.md",
+      "visionPath": "docs/concepts/CLEO-VISION.md",
       "specPath": "docs/product-spec.md",
       "pillars": [
         "Core Value 1",

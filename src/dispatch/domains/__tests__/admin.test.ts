@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach,describe,expect,it,vi } from 'vitest';
 
 // Mock engine functions before importing the handler
 vi.mock('../../lib/engine.js', () => ({
@@ -41,28 +41,27 @@ vi.mock('../../registry.js', () => ({
   ],
 }));
 
-import { AdminHandler } from '../admin.js';
 import {
-  systemDash,
-  systemStats,
-  systemLog,
-  systemContext,
-  systemRuntime,
-  systemSequence,
-  systemSequenceRepair,
-  systemHealth,
-  systemInjectGenerate,
-  systemBackup,
-  systemRestore,
-  systemMigrate,
-  systemCleanup,
-  systemSync,
-  systemSafestop,
-  configGet,
   configSet,
   getVersion,
   initProject,
+  systemBackup,
+  systemCleanup,
+  systemContext,
+  systemDash,
+  systemHealth,
+  systemInjectGenerate,
+  systemLog,
+  systemMigrate,
+  systemRestore,
+  systemRuntime,
+  systemSafestop,
+  systemSequence,
+  systemSequenceRepair,
+  systemStats,
+  systemSync
 } from '../../lib/engine.js';
+import { AdminHandler } from '../admin.js';
 
 describe('AdminHandler', () => {
   let handler: AdminHandler;
@@ -80,18 +79,19 @@ describe('AdminHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
-        'version', 'health', 'doctor', 'config.show', 'config.get', 'stats', 'context',
+        'version', 'health', 'doctor', 'config.show', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
+        'sync.status', 'export', 'snapshot.export', 'export.tasks',
       ]);
     });
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'init', 'fix', 'config.set', 'backup', 'restore', 'migrate',
-        'sync', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
-        'adr.sync', 'adr.validate',
+        'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
+        'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
+        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks',
       ]);
     });
   });
@@ -121,15 +121,6 @@ describe('AdminHandler', () => {
 
       expect(res.success).toBe(true);
       expect(systemHealth).toHaveBeenCalledWith('/mock/project', { detailed: true });
-    });
-
-    it('should call configGet for config.get', async () => {
-      vi.mocked(configGet).mockReturnValue({ success: true, data: { key: 'val' } });
-
-      const res = await handler.query('config.get', { key: 'some.key' });
-
-      expect(res.success).toBe(true);
-      expect(configGet).toHaveBeenCalledWith('/mock/project', 'some.key');
     });
 
     it('should call systemStats for stats', async () => {
@@ -374,7 +365,7 @@ describe('AdminHandler', () => {
     });
 
     it('should call systemCleanup for cleanup with target validation', async () => {
-      vi.mocked(systemCleanup).mockReturnValue({ success: true, data: { removed: 3 } });
+      vi.mocked(systemCleanup).mockResolvedValue({ success: true, data: { removed: 3 } });
 
       const res = await handler.mutate('cleanup', { target: 'backups', dryRun: true });
 

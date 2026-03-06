@@ -16,37 +16,36 @@
  * @audit T4799 - Validates unified pipeline implementation
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest';
 
 // State machine (fully implemented)
 import {
+  checkPrerequisites as checkPrerequisitesRaw,
   createInitialContext,
   executeTransition as executeTransitionRaw,
-  validateTransition as validateTransitionRaw,
-  checkPrerequisites as checkPrerequisitesRaw,
   getCurrentStageState,
-  isTerminalState,
-  isBlocked,
   getValidNextStages,
+  isBlocked,
+  isTerminalState,
   setStageStatus as setStageStatusRaw,
   skipStage as skipStageRaw,
+  validateTransition as validateTransitionRaw,
   type StateMachineContext,
   type StateTransition,
 } from '../state-machine.js';
 
 // Pipeline (stub implementations - validates expected behavior)
 import {
-  initializePipeline,
-  getPipeline,
   advanceStage,
-  getCurrentStage,
-  completePipeline,
   cancelPipeline,
-  type Pipeline,
-  type AdvanceStageOptions,
+  completePipeline,
+  getCurrentStage,
+  getPipeline,
+  initializePipeline,
+  type AdvanceStageOptions
 } from '../pipeline.js';
 
 // Stage definitions
@@ -54,19 +53,19 @@ import {
   PIPELINE_STAGES,
   STAGE_DEFINITIONS as STAGE_DEFINITIONS_RAW,
   STAGE_ORDER as STAGE_ORDER_RAW,
-  getPrerequisites as getPrerequisitesRaw,
   checkTransition as checkTransitionRaw,
+  getPrerequisites as getPrerequisitesRaw,
   type Stage,
   type StageDefinition,
 } from '../stages.js';
 
 // Legacy lifecycle (for cross-session resume testing)
 import {
-  recordStageProgress,
-  getLifecycleStatus,
-  getLifecycleHistory,
-  passGate,
   failGate,
+  getLifecycleHistory,
+  getLifecycleStatus,
+  passGate,
+  recordStageProgress,
 } from '../index.js';
 
 let testDir: string;
@@ -191,6 +190,11 @@ describe('RCSD Pipeline Integration', () => {
   });
 
   afterEach(async () => {
+    // Close ALL SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* module may not be loaded */ }
     delete process.env['CLEO_DIR'];
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
     await rm(testDir, { recursive: true, force: true });
@@ -1107,6 +1111,10 @@ describe('T4798 Epic Completion Validation', () => {
   });
 
   afterEach(async () => {
+    try {
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     delete process.env['CLEO_DIR'];
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
     await rm(testDir, { recursive: true, force: true });

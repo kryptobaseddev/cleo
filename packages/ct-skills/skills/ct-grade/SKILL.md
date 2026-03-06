@@ -45,7 +45,7 @@ ct session start --scope epic:T001 --name "Feature work" --grade
 ### MCP
 
 ```
-cleo_mutate({ domain: "session", operation: "start",
+mutate({ domain: "session", operation: "start",
   params: { scope: "epic:T001", name: "Feature work", grade: true }})
 ```
 
@@ -66,7 +66,7 @@ Tests whether the agent handles errors correctly: follows up `E_NOT_FOUND` with 
 Tests session discipline end-to-end: session listed before task ops, session properly ended, MCP-first usage patterns.
 
 ### 5. Multi-Domain Analysis
-Tests progressive disclosure: use of `admin.help` or skill lookups, preference for `cleo_query` (MCP) over CLI for programmatic access.
+Tests progressive disclosure: use of `admin.help` or skill lookups, preference for `query` (MCP) over CLI for programmatic access.
 
 ## Evaluating Results
 
@@ -84,11 +84,11 @@ ct grade --list
 
 ```
 # Grade a session
-cleo_query({ domain: "admin", operation: "grade",
+query({ domain: "admin", operation: "grade",
   params: { sessionId: "abc-123" }})
 
 # List past grades
-cleo_query({ domain: "admin", operation: "grade.list" })
+query({ domain: "admin", operation: "grade.list" })
 ```
 
 ## Understanding the 5 Dimensions
@@ -140,7 +140,7 @@ Starts at 20 and deducts for violations:
 | Points | Criteria |
 |--------|----------|
 | 10 | `admin.help` or skill lookup calls made |
-| 10 | `cleo_query` (MCP gateway) used for programmatic access |
+| 10 | `query` (MCP gateway) used for programmatic access |
 
 **What it measures**: Does the agent use progressive disclosure (help/skills) and prefer MCP over CLI?
 
@@ -177,7 +177,7 @@ Flags are actionable diagnostic messages. Each flag identifies a specific behavi
 - `Subtasks created without tasks.exists parent check` -- Verify parent exists first
 - `E_NOT_FOUND not followed by recovery lookup` -- Follow errors with `tasks.find` or `tasks.exists`
 - `No admin.help or skill lookup calls` -- Load `ct-cleo` for protocol guidance
-- `No MCP query calls` -- Prefer `cleo_query` over CLI
+- `No MCP query calls` -- Prefer `query` over CLI
 
 ## Common Anti-patterns
 
@@ -190,7 +190,7 @@ Flags are actionable diagnostic messages. Each flag identifies a specific behavi
 | Ignoring `E_NOT_FOUND` errors | -5 each S4 | Follow up with `tasks.find` or `tasks.exists` |
 | Creating duplicate tasks | -5 S4 | Check for existing tasks before creating new ones |
 | Never using `admin.help` | -10 S5 | Use progressive disclosure for protocol guidance |
-| CLI-only usage (no MCP) | -10 S5 | Prefer `cleo_query`/`cleo_mutate` for programmatic access |
+| CLI-only usage (no MCP) | -10 S5 | Prefer `query`/`mutate` for programmatic access |
 
 ## Grade Result Schema
 
@@ -210,5 +210,5 @@ Grade results are stored in `.cleo/metrics/GRADES.jsonl` as append-only JSONL. E
 
 | Gateway | Domain | Operation | Description |
 |---------|--------|-----------|-------------|
-| `cleo_query` | `admin` | `grade` | Grade a session (`params: { sessionId }`) |
-| `cleo_query` | `admin` | `grade.list` | List all past grade results |
+| `query` | `admin` | `grade` | Grade a session (`params: { sessionId }`) |
+| `query` | `admin` | `grade.list` | List all past grade results |

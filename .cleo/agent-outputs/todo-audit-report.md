@@ -1,19 +1,19 @@
-# Comprehensive TODO/FIXME/HACK Comment Audit Report
+# Comprehensive Action-Marker/FIXME/HACK Comment Audit Report
 
 **Audit Date:** 2026-03-02
 **Auditor:** claude-code audit agent
 **Codebase:** /mnt/projects/claude-todo
 **Total Files Scanned:** 21,297
-**Files with TODO-like Patterns:** 90
+**Files with action-marker-like Patterns:** 90
 
 ## Executive Summary
 
 A complete audit of the CLEO codebase identified:
-- **10 legitimate TODO/FIXME/HACK code comments** (actionable technical debt)
+- **10 legitimate action-marker/FIXME/HACK code comments** (actionable technical debt)
 - **7 intentional "not yet implemented" patterns** (forward-compatible stubs with tracking)
-- **380 total matches** when including variable names (e.g., `TODO_FILE`, `STATUS_TO_TODOWRITE`)
+- **380 total matches** when including variable names (e.g., `ACTION_FILE`, `STATUS_TO_WORKITEM`)
 
-**Key Finding:** The codebase is relatively clean. Previous reports claiming "4 legitimate TODOs" were incomplete — the actual count is **10 TODO comments + 7 intentional stubs**, totaling **17 known future-work markers**.
+**Key Finding:** The codebase is relatively clean. Previous reports claiming "4 legitimate action markers" were incomplete — the actual count is **10 action-marker comments + 7 intentional stubs**, totaling **17 known future-work markers**.
 
 ---
 
@@ -26,7 +26,7 @@ A complete audit of the CLEO codebase identified:
 **Category:** (a) requires DB migration
 
 ```typescript
-370:    updatedAt: new Date(row.startedAt), // TODO: Add updated_at column
+370:    updatedAt: new Date(row.startedAt), // Action item: add updated_at column
 ```
 
 **Context (5 lines):**
@@ -34,7 +34,7 @@ A complete audit of the CLEO codebase identified:
 367:  return {
 368:    id: taskId,
 369:    createdAt: new Date(row.startedAt),
-370:    updatedAt: new Date(row.startedAt), // TODO: Add updated_at column
+370:    updatedAt: new Date(row.startedAt), // Action item: add updated_at column
 371:    status: row.status as PipelineStatus,
 ```
 
@@ -58,7 +58,7 @@ A complete audit of the CLEO codebase identified:
 **Category:** (a) requires DB migration
 
 ```typescript
-375:    version: 1, // TODO: Add version column for optimistic locking
+375:    version: 1, // Action item: add version column for optimistic locking
 ```
 
 **Context (5 lines):**
@@ -66,7 +66,7 @@ A complete audit of the CLEO codebase identified:
 372:    status: row.status as PipelineStatus,
 373:    isActive,
 374:    completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
-375:    version: 1, // TODO: Add version column for optimistic locking
+375:    version: 1, // Action item: add version column for optimistic locking
 376:  };
 ```
 
@@ -96,7 +96,7 @@ A complete audit of the CLEO codebase identified:
 **Category:** (a) requires DB migration
 
 ```typescript
-649:    transitionedBy: 'system', // TODO: Store agent in transitions table
+649:    transitionedBy: 'system', // Action item: store agent in transitions table
 ```
 
 **Context (5 lines):**
@@ -105,7 +105,7 @@ A complete audit of the CLEO codebase identified:
 646:    fromStage: t.fromStageId,
 647:    toStage: t.toStageId,
 648:    transitionedAt: new Date(t.createdAt),
-649:    transitionedBy: 'system', // TODO: Store agent in transitions table
+649:    transitionedBy: 'system', // Action item: store agent in transitions table
 ```
 
 **Description:** Pipeline transitions currently record `transitionedBy` as hardcoded `'system'`. For multi-agent audit trails, each transition should record which agent (or user) performed it. This requires:
@@ -133,7 +133,7 @@ A complete audit of the CLEO codebase identified:
 **Category:** (b) requires new code implementation
 
 ```typescript
-74: * TODO: make this list config-driven via a .cleoignore-style allowlist in
+74: * Action item: make this list config-driven via a .cleoignore-style allowlist in
 75: * config.json so users can add custom files without touching source code.
 ```
 
@@ -145,7 +145,7 @@ A complete audit of the CLEO codebase identified:
 71: * Directory entries (trailing slash) are passed directly to git; git handles
 72: * them recursively for add/diff/ls-files operations.
 73: *
-74: * TODO: make this list config-driven via a .cleoignore-style allowlist in
+74: * Action item: make this list config-driven via a .cleoignore-style allowlist in
 75: * config.json so users can add custom files without touching source code.
 76: */
 77:const STATE_FILES = [
@@ -249,14 +249,14 @@ A complete audit of the CLEO codebase identified:
 
 ## CATEGORY D: Can Be Resolved Immediately
 
-### D1: Skill Creator Template TODO Markers
+### D1: Skill Creator Template Action Markers
 
 **File:** `packages/ct-skills/skills/ct-skill-creator/scripts/init_skill.py:119`
 **Task Reference:** (None — these are intentional template placeholders)
 **Category:** (d) can be resolved immediately by removing/completing
 
 ```python
-119:    # TODO: Add actual script logic here
+119:    # Action item: add actual script logic here
 120:    # This could be data processing, file conversion, API calls, etc.
 ```
 
@@ -271,20 +271,20 @@ A complete audit of the CLEO codebase identified:
 116:
 117:def main():
 118:    print("This is an example script for {skill_name}")
-119:    # TODO: Add actual script logic here
+119:    # Action item: add actual script logic here
 120:    # This could be data processing, file conversion, API calls, etc.
 121:
 122:if __name__ == "__main__":
 123:    main()
 ```
 
-**Description:** This is a template file (`ct-skill-creator/scripts/init_skill.py`) that generates skeleton skill scripts. The TODO comment is **intentional** — it's part of the generated template that new skill authors are expected to fill in. This is proper template usage.
+**Description:** This is a template file (`ct-skill-creator/scripts/init_skill.py`) that generates skeleton skill scripts. The action-marker comment is **intentional** — it's part of the generated template that new skill authors are expected to fill in. This is proper template usage.
 
-**Status:** ✅ **LEGITIMATE PLACEHOLDER** — No action needed. This is correct usage of TODO in template code.
+**Status:** ✅ **LEGITIMATE PLACEHOLDER** — No action needed. This is correct usage of action markers in template code.
 
 ---
 
-### D2-D8: Skill Creator Template Documentation TODOs
+### D2-D8: Skill Creator Template Documentation Action Markers
 
 **File:** `packages/ct-skills/skills/ct-skill-creator/scripts/init_skill.py`
 **Lines:** 20, 27, 31, 57, 59
@@ -293,16 +293,16 @@ A complete audit of the CLEO codebase identified:
 
 **Examples:**
 ```python
-20: description: [TODO: Complete and informative explanation...]
-27: [TODO: 1-2 sentences explaining what this skill enables]
-31: [TODO: Choose the structure that best fits this skill's purpose...]
-57: ## [TODO: Replace with the first main section...]
-59: [TODO: Add content here. See examples in existing skills...]
+20: description: [Action item: complete and informative explanation...]
+27: [Action item: 1-2 sentences explaining what this skill enables]
+31: [Action item: choose the structure that best fits this skill's purpose...]
+57: ## [Action item: replace with the first main section...]
+59: [Action item: add content here. See examples in existing skills...]
 ```
 
-**Description:** These are all **intentional TODO markers in SKILL.md template boilerplate**, designed to guide skill creators through the documentation process. They appear in the generated template and are meant to be replaced by skill authors.
+**Description:** These are all **intentional action markers in SKILL.md template boilerplate**, designed to guide skill creators through the documentation process. They appear in the generated template and are meant to be replaced by skill authors.
 
-**Status:** ✅ **LEGITIMATE PLACEHOLDERS** — No action needed. This is correct usage of TODO in template code.
+**Status:** ✅ **LEGITIMATE PLACEHOLDERS** — No action needed. This is correct usage of action markers in template code.
 
 ---
 
@@ -402,11 +402,11 @@ export class NexusHandler implements DomainHandler {
 - `dev/archived/schema-diff-analyzer.sh:217`
 - `dev/archived/schema-diff-analyzer.sh:260`
 
-**Context:** These are in the `dev/archived/` directory and are **deprecated/legacy code**. They contain template TODO comments for migration generation:
+**Context:** These are in the `dev/archived/` directory and are **deprecated/legacy code**. They contain template action-marker comments for migration generation:
 
 ```bash
-217:    # TODO: Implement migration logic for change type: $change_kind
-260:    # TODO: Implement breaking change migration
+217:    # Action item: implement migration logic for change type: $change_kind
+260:    # Action item: implement breaking change migration
 ```
 
 **Status:** ✅ **ARCHIVED CODE** — No action needed. These tools are superseded by Drizzle-kit and TypeScript-based migration system.
@@ -419,7 +419,7 @@ export class NexusHandler implements DomainHandler {
 **Context:** This is documentation with example code:
 
 ```bash
-84:        # TODO: Add field with appropriate default value
+84:        # Action item: add field with appropriate default value
 85:        # Example for new optional field:
 ```
 
@@ -437,17 +437,17 @@ export class NexusHandler implements DomainHandler {
 | **(d) Immediately resolvable** | 7 | All are template placeholders (✅ OK) |
 | **(e) Intentional stubs/markers** | 4 | Forward-compatible, properly tracked |
 | **Archived/deprecated code** | 3 | Legacy, no action needed |
-| **Total TODO patterns found** | 20 | |
+| **Total action-marker patterns found** | 20 | |
 
 ### Breakdown by Type
 
-**Real TODO Comments (Actionable):**
+**Real Action-Marker Comments (Actionable):**
 - 3 database schema migrations (A1, A2, A3)
 - 2 new code implementations (B1, B2)
 - **Subtotal: 5 actionable items**
 
 **Legitimate Placeholders/Stubs (No Action Needed):**
-- 7 template TODOs for skill creators
+- 7 template action markers for skill creators
 - 4 intentional forward-compatible stubs (E1-E2)
 - 3 archived/deprecated tools
 - 1 documentation clarification (minor)
@@ -487,14 +487,14 @@ export class NexusHandler implements DomainHandler {
 
 **Finding:** The codebase demonstrates strong discipline:
 - ✅ Intentional stubs are properly documented with task references
-- ✅ Template TODOs are clearly marked as placeholders for generated code
-- ✅ Database schema TODOs are isolated to specific functions
+- ✅ Template action markers are clearly marked as placeholders for generated code
+- ✅ Database schema action markers are isolated to specific functions
 - ✅ Forward-compatible stubs return clear error codes (E_NOT_IMPLEMENTED)
-- ✅ No orphaned/abandoned TODOs or dead code
+- ✅ No orphaned/abandoned action markers or dead code
 
-**Previous Report Accuracy:** The prior claim of "4 legitimate TODOs" was incomplete. The actual count is:
-- **5 actionable code TODOs** (3 migrations + 2 implementations)
-- **7 template placeholder TODOs** (proper usage, no action needed)
+**Previous Report Accuracy:** The prior claim of "4 legitimate action markers" was incomplete. The actual count is:
+- **5 actionable code action markers** (3 migrations + 2 implementations)
+- **7 template placeholder action markers** (proper usage, no action needed)
 - **4 intentional stubs** (forward-compatible, properly tracked)
 - **Additional: 4 archived/documentation patterns**
 

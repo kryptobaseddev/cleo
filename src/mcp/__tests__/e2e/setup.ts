@@ -127,7 +127,7 @@ export function extractSessionId(result: any): string {
  */
 export function verifyResponseFormat(
   response: any,
-  _expectedGateway: 'cleo_query' | 'cleo_mutate',
+  _expectedGateway: 'query' | 'mutate',
   _expectedDomain: string,
   _expectedOperation: string
 ): void {

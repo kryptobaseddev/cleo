@@ -135,35 +135,35 @@ echo ""
 # ============================================================
 echo -e "${BLUE}━━━ 1. TASKS DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "tasks" "list" '{"status":"pending"}' \
+test_operation "query" "tasks" "list" '{"status":"pending"}' \
     "List pending tasks"
 
-test_operation "cleo_query" "tasks" "show" '{"id":"T001"}' \
+test_operation "query" "tasks" "show" '{"id":"T001"}' \
     "Show task T001"
 
-test_operation "cleo_query" "tasks" "find" '{"query":"test"}' \
+test_operation "query" "tasks" "find" '{"query":"test"}' \
     "Find tasks with 'test'"
 
-test_operation "cleo_query" "tasks" "exists" '{"id":"T001"}' \
+test_operation "query" "tasks" "exists" '{"id":"T001"}' \
     "Check if T001 exists"
 
-test_operation "cleo_query" "tasks" "next" '{}' \
+test_operation "query" "tasks" "next" '{}' \
     "Get next suggested task"
 
-test_operation "cleo_query" "tasks" "stats" '{}' \
+test_operation "query" "tasks" "stats" '{}' \
     "Get task statistics"
 
-test_operation "cleo_mutate" "tasks" "add" '{"title":"MCP Test Task","description":"Created via MCP","addPhase":true}' \
+test_operation "mutate" "tasks" "add" '{"title":"MCP Test Task","description":"Created via MCP","addPhase":true}' \
     "Add new task via MCP"
 
-test_operation "cleo_mutate" "tasks" "update" '{"id":"T002","title":"Updated via MCP"}' \
+test_operation "mutate" "tasks" "update" '{"id":"T002","title":"Updated via MCP"}' \
     "Update task T002"
 
-test_operation "cleo_query" "tasks" "depends" '{"id":"T003"}' \
+test_operation "query" "tasks" "depends" '{"id":"T003"}' \
     "Get dependencies for T003"
 
 # Error case
-test_operation "cleo_query" "tasks" "show" '{"id":"T999"}' \
+test_operation "query" "tasks" "show" '{"id":"T999"}' \
     "Error case: non-existent task"
 
 # ============================================================
@@ -171,25 +171,25 @@ test_operation "cleo_query" "tasks" "show" '{"id":"T999"}' \
 # ============================================================
 echo -e "${BLUE}━━━ 2. SESSION DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "session" "status" '{}' \
+test_operation "query" "session" "status" '{}' \
     "Get current session status"
 
-test_operation "cleo_query" "session" "list" '{}' \
+test_operation "query" "session" "list" '{}' \
     "List all sessions"
 
-test_operation "cleo_query" "session" "focus-show" '{}' \
+test_operation "query" "session" "focus-show" '{}' \
     "Show current focus"
 
-test_operation "cleo_query" "session" "stats" '{}' \
+test_operation "query" "session" "stats" '{}' \
     "Get session statistics"
 
-test_operation "cleo_mutate" "session" "focus-set" '{"id":"T002"}' \
+test_operation "mutate" "session" "focus-set" '{"id":"T002"}' \
     "Set focus to T002"
 
-test_operation "cleo_query" "session" "focus-show" '{}' \
+test_operation "query" "session" "focus-show" '{}' \
     "Verify focus changed to T002"
 
-test_operation "cleo_mutate" "session" "focus-set" '{"id":"T001"}' \
+test_operation "mutate" "session" "focus-set" '{"id":"T001"}' \
     "Reset focus to T001"
 
 # ============================================================
@@ -197,22 +197,22 @@ test_operation "cleo_mutate" "session" "focus-set" '{"id":"T001"}' \
 # ============================================================
 echo -e "${BLUE}━━━ 3. SYSTEM DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "system" "version" '{}' \
+test_operation "query" "system" "version" '{}' \
     "Get CLEO version"
 
-test_operation "cleo_query" "system" "context" '{}' \
+test_operation "query" "system" "context" '{}' \
     "Get context window usage"
 
-test_operation "cleo_query" "system" "health" '{}' \
+test_operation "query" "system" "health" '{}' \
     "Get system health"
 
-test_operation "cleo_query" "system" "config" '{}' \
+test_operation "query" "system" "config" '{}' \
     "Get system configuration"
 
-test_operation "cleo_query" "system" "metrics" '{}' \
+test_operation "query" "system" "metrics" '{}' \
     "Get system metrics"
 
-test_operation "cleo_query" "system" "help" '{"command":"tasks"}' \
+test_operation "query" "system" "help" '{"command":"tasks"}' \
     "Get help for tasks domain"
 
 # ============================================================
@@ -220,19 +220,19 @@ test_operation "cleo_query" "system" "help" '{"command":"tasks"}' \
 # ============================================================
 echo -e "${BLUE}━━━ 4. ORCHESTRATE DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "orchestrate" "status" '{"epic":"T001"}' \
+test_operation "query" "orchestrate" "status" '{"epic":"T001"}' \
     "Get orchestration status for T001"
 
-test_operation "cleo_query" "orchestrate" "ready" '{"epic":"T001"}' \
+test_operation "query" "orchestrate" "ready" '{"epic":"T001"}' \
     "Get ready tasks for T001"
 
-test_operation "cleo_query" "orchestrate" "next" '{"epic":"T001"}' \
+test_operation "query" "orchestrate" "next" '{"epic":"T001"}' \
     "Get next task for T001"
 
-test_operation "cleo_query" "orchestrate" "waves" '{"epicId":"T001"}' \
+test_operation "query" "orchestrate" "waves" '{"epicId":"T001"}' \
     "Get dependency waves for T001"
 
-test_operation "cleo_mutate" "orchestrate" "analyze" '{"epicId":"T001"}' \
+test_operation "mutate" "orchestrate" "analyze" '{"epicId":"T001"}' \
     "Analyze epic T001"
 
 # ============================================================
@@ -240,13 +240,13 @@ test_operation "cleo_mutate" "orchestrate" "analyze" '{"epicId":"T001"}' \
 # ============================================================
 echo -e "${BLUE}━━━ 5. RESEARCH DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "research" "list" '{"task":"T001"}' \
+test_operation "query" "research" "list" '{"task":"T001"}' \
     "List research for T001"
 
-test_operation "cleo_query" "research" "stats" '{}' \
+test_operation "query" "research" "stats" '{}' \
     "Get research statistics"
 
-test_operation "cleo_query" "research" "validate" '{}' \
+test_operation "query" "research" "validate" '{}' \
     "Validate research entries"
 
 # ============================================================
@@ -254,19 +254,19 @@ test_operation "cleo_query" "research" "validate" '{}' \
 # ============================================================
 echo -e "${BLUE}━━━ 6. LIFECYCLE DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "lifecycle" "stages" '{}' \
+test_operation "query" "lifecycle" "stages" '{}' \
     "List lifecycle stages"
 
-test_operation "cleo_query" "lifecycle" "status" '{"epicId":"T001"}' \
+test_operation "query" "lifecycle" "status" '{"epicId":"T001"}' \
     "Get lifecycle status for T001"
 
-test_operation "cleo_query" "lifecycle" "validate" '{"epicId":"T001"}' \
+test_operation "query" "lifecycle" "validate" '{"epicId":"T001"}' \
     "Validate lifecycle for T001"
 
-test_operation "cleo_mutate" "lifecycle" "record" '{"epicId":"T001","stage":"research","status":"completed"}' \
+test_operation "mutate" "lifecycle" "record" '{"epicId":"T001","stage":"research","status":"completed"}' \
     "Record lifecycle stage completion"
 
-test_operation "cleo_query" "lifecycle" "report" '{"epicId":"T001"}' \
+test_operation "query" "lifecycle" "report" '{"epicId":"T001"}' \
     "Generate lifecycle report for T001"
 
 # ============================================================
@@ -274,16 +274,16 @@ test_operation "cleo_query" "lifecycle" "report" '{"epicId":"T001"}' \
 # ============================================================
 echo -e "${BLUE}━━━ 7. VALIDATE DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "validate" "all" '{}' \
+test_operation "query" "validate" "all" '{}' \
     "Validate all data"
 
-test_operation "cleo_query" "validate" "task" '{"id":"T001"}' \
+test_operation "query" "validate" "task" '{"id":"T001"}' \
     "Validate task T001"
 
-test_operation "cleo_query" "validate" "stats" '{}' \
+test_operation "query" "validate" "stats" '{}' \
     "Get validation statistics"
 
-test_operation "cleo_query" "validate" "schema" '{}' \
+test_operation "query" "validate" "schema" '{}' \
     "Validate schema compliance"
 
 # ============================================================
@@ -291,13 +291,13 @@ test_operation "cleo_query" "validate" "schema" '{}' \
 # ============================================================
 echo -e "${BLUE}━━━ 8. RELEASE DOMAIN ━━━${NC}"
 
-test_operation "cleo_query" "release" "version" '{}' \
+test_operation "query" "release" "version" '{}' \
     "Get release version"
 
-test_operation "cleo_query" "release" "verify" '{}' \
+test_operation "query" "release" "verify" '{}' \
     "Verify release readiness"
 
-test_operation "cleo_query" "release" "changelog" '{}' \
+test_operation "query" "release" "changelog" '{}' \
     "Get changelog"
 
 # ============================================================

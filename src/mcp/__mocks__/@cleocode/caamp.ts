@@ -17,6 +17,8 @@ export const getInstalledProviders = vi.fn(() => []);
 export const getProviderCount = vi.fn(() => 0);
 export const getRegistryVersion = vi.fn(() => '0.0.0-mock');
 export const getInstructionFiles = vi.fn(() => []);
+export const getProvidersByHookEvent = vi.fn(() => []);
+export const getCommonHookEvents = vi.fn(() => []);
 
 // MCP Config
 export const installMcpServer = vi.fn(async () => ({ installed: false }));
