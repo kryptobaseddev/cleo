@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/cleo",
-  "version": "2026.3.13-beta.1",
+  "version": "2026.3.14",
   "description": "CLEO V2 - TypeScript task management CLI for AI coding agents",
   "mcpName": "io.github.kryptobaseddev/cleo-mcp-server",
   "type": "module",
@@ -31,7 +31,6 @@
     "prepare": "npm run build",
     "prepack": "npm run build",
     "postinstall": "node bin/postinstall.js",
-    "migrate:todos": "node dist/scripts/migrate-todo-to-tasks.js",
     "cleo:update-status": "node dist/scripts/update-task-status.js",
     "adr:validate": "tsx dev/validate-adrs.ts",
     "adr:manifest": "tsx dev/generate-adr-manifest.ts",
@@ -56,6 +55,7 @@
   "files": [
     "dist",
     "drizzle",
+    "drizzle-brain",
     "packages/ct-skills",
     "schemas",
     "templates",

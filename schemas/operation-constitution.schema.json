@@ -13,7 +13,7 @@
     },
     "CanonicalDomain": {
       "type": "string",
-      "enum": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sharing"],
+      "enum": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sticky"],
       "description": "One of 10 canonical CLEO domains"
     },
     "Tier": {
@@ -205,7 +205,7 @@
           "type": "array",
           "items": { "$ref": "#/definitions/OperationDef" },
           "minItems": 1,
-          "description": "All 201 operations in the registry"
+          "description": "All 207 operations in the registry"
         }
       }
     },
@@ -223,7 +223,7 @@
               "type": "object",
               "description": "Query gateway matrix: domain -> operations[]",
               "patternProperties": {
-                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sharing)$": {
+                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sticky)$": {
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -249,7 +249,7 @@
               "type": "object",
               "description": "Mutate gateway matrix: domain -> operations[]",
               "patternProperties": {
-                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sharing)$": {
+                "^(tasks|session|memory|check|pipeline|orchestrate|tools|admin|nexus|sticky)$": {
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -271,7 +271,7 @@
     "domains": {
       "type": "object",
       "description": "Domain tables: operations grouped by domain",
-      "required": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sharing"],
+      "required": ["tasks", "session", "memory", "check", "pipeline", "orchestrate", "tools", "admin", "nexus", "sticky"],
       "additionalProperties": false,
       "properties": {
         "tasks": {
@@ -391,11 +391,11 @@
             }
           }
         },
-        "sharing": {
+        "sticky": {
           "type": "object",
           "required": ["name", "purpose", "operations"],
           "properties": {
-            "name": { "const": "sharing" },
+            "name": { "const": "sticky" },
             "purpose": { "type": "string" },
             "primaryStore": { "type": "string" },
             "operations": {

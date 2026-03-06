@@ -4,24 +4,22 @@
  * Tests complete session management workflows.
  *
  * Scenario 2: Session Management Workflow
- * 1. Start session via cleo_mutate
- * 2. Set focus via cleo_mutate
- * 3. Check session status via cleo_query
- * 4. End session via cleo_mutate
- * 5. Verify session ended via cleo_query
+ * 1. Start session via mutate
+ * 2. Set focus via mutate
+ * 3. Check session status via query
+ * 4. End session via mutate
+ * 5. Verify session ended via query
  *
  * @task T2937
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { afterAll,beforeAll,describe,expect,it } from 'vitest';
+import type { IntegrationTestContext } from '../integration-setup.js';
 import {
-  setupE2ETest,
   cleanupE2ETest,
   extractTaskId,
-  extractSessionId,
-  verifyResponseFormat,
+  setupE2ETest
 } from './setup.js';
-import type { IntegrationTestContext } from '../integration-setup.js';
 
 describe('E2E: Session Management Workflow', () => {
   let context: IntegrationTestContext;

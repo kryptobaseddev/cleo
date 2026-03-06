@@ -14,13 +14,13 @@ The MCP Server exposes **two gateway tools** using a CQRS (Command Query Respons
 
 | Tool | Purpose | Operations |
 |------|---------|------------|
-| `cleo_query` | Read-only operations | Find tasks, check status, analyze dependencies |
-| `cleo_mutate` | Write operations | Create tasks, start sessions, complete work |
+| `query` | Read-only operations | Find tasks, check status, analyze dependencies |
+| `mutate` | Write operations | Create tasks, start sessions, complete work |
 
 This 2-tool design uses ~1,800 tokens of context -- a **94% reduction** compared to exposing each operation as a separate tool.
 
 <Info>
-The MCP Server covers **177 operations** (97 query + 80 mutate) across 10 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, and sharing.
+The MCP Server covers **256 operations** (145 query + 111 mutate) across 10 canonical domains: tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, and sticky. Cross-project share operations live under `nexus.share.*`.
 </Info>
 
 ## Install in One Command
@@ -71,8 +71,8 @@ Also supports: Goose, OpenCode, Windsurf, Kimi, Antigravity, and Codex.
 After installing, ask your AI agent to run a version check:
 
 ```typescript
-await cleo_query({
-  domain: "system",
+await query({
+  domain: "admin",
   operation: "version"
 });
 ```
@@ -85,21 +85,21 @@ Here is a typical agent workflow -- find a task, focus on it, then mark it compl
 
 ```typescript
 // Find tasks matching a query
-await cleo_query({
+await query({
   domain: "tasks",
   operation: "find",
   params: { query: "authentication" }
 });
 
 // Set focus on a task
-await cleo_mutate({
-  domain: "session",
-  operation: "tasks.start",
+await mutate({
+  domain: "tasks",
+  operation: "start",
   params: { taskId: "T042" }
 });
 
 // Complete the task
-await cleo_mutate({
+await mutate({
   domain: "tasks",
   operation: "complete",
   params: { taskId: "T042", notes: "Auth flow implemented" }

@@ -69,7 +69,7 @@ function generateSessionId(): string {
  * Read sessions from accessor or JSON file.
  * @task T4463
  */
-async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
+export async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Session[]> {
   if (accessor) {
     return accessor.loadSessions();
   }
@@ -83,7 +83,7 @@ async function readSessions(cwd?: string, accessor?: DataAccessor): Promise<Sess
  * Save sessions via accessor or JSON file.
  * @task T4463
  */
-async function saveSessions(sessions: Session[], cwd?: string, accessor?: DataAccessor): Promise<void> {
+export async function saveSessions(sessions: Session[], cwd?: string, accessor?: DataAccessor): Promise<void> {
   if (accessor) {
     await accessor.saveSessions(sessions);
     return;
@@ -205,14 +205,25 @@ export async function endSession(options: EndSessionOptions = {}, cwd?: string, 
   session.status = 'ended';
   session.endedAt = new Date().toISOString();
 
+  const duration = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000);
+
   // Dispatch onSessionEnd hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
   hooks.dispatch('onSessionEnd', cwd ?? process.cwd(), {
     timestamp: new Date().toISOString(),
     sessionId: session.id,
-    duration: Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000),
+    duration,
     tasksCompleted: session.tasksCompleted || [],
   }).catch(() => { /* Hooks are best-effort */ });
+
+  // Bridge session data to brain.db as an observation (best-effort)
+  const { bridgeSessionToMemory } = await import('./session-memory-bridge.js');
+  bridgeSessionToMemory(cwd ?? process.cwd(), {
+    sessionId: session.id,
+    scope: options.sessionId ? session.scope.type : (session.scope.epicId ? `epic:${session.scope.epicId}` : session.scope.type),
+    tasksCompleted: session.tasksCompleted || [],
+    duration,
+  }).catch(() => { /* Memory bridge is best-effort */ });
 
   // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them
   // to query audit entries after the session ends. The caller (admin.grade handler
@@ -363,4 +374,6 @@ export type { Session as SessionRecord } from '../../types/session.js';
 export { SessionView } from './session-view.js';
 export { findSessions } from './find.js';
 export type { MinimalSessionRecord, FindSessionsParams } from './find.js';
+export { bridgeSessionToMemory } from './session-memory-bridge.js';
+export type { SessionBridgeData } from './session-memory-bridge.js';
 

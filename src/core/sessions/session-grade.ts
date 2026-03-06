@@ -221,9 +221,9 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
       (e.domain === 'tools' && (e.operation === 'skill.show' || e.operation === 'skill.list')) ||
       (e.domain === 'skills' && (e.operation === 'list' || e.operation === 'show')),
   );
-  // gateway is stored as 'cleo_query'/'cleo_mutate' in the audit log
+  // gateway is stored as 'query'/'mutate' in the audit log
   const mcpQueryCalls = sessionEntries.filter(
-    e => e.metadata?.gateway === 'cleo_query',
+    e => e.metadata?.gateway === 'query',
   );
 
   let disclosureScore = 0;
@@ -240,10 +240,10 @@ export async function gradeSession(sessionId: string, cwd?: string): Promise<Gra
   if (mcpQueryCalls.length > 0) {
     disclosureScore += 10;
     result.dimensions.disclosureUse.evidence.push(
-      `cleo_query (MCP) used ${mcpQueryCalls.length}x`,
+      `query (MCP) used ${mcpQueryCalls.length}x`,
     );
   } else {
-    result.flags.push('No MCP query calls (prefer cleo_query over CLI for programmatic access)');
+    result.flags.push('No MCP query calls (prefer query over CLI for programmatic access)');
   }
 
   result.dimensions.disclosureUse.score = disclosureScore;

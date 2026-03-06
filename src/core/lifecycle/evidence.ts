@@ -13,6 +13,9 @@ import { relative, basename } from 'node:path';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/schema.js';
 import { getCleoDirAbsolute } from '../paths.js';
+import { getLogger } from '../logger.js';
+
+const log = getLogger('lifecycle:evidence');
 
 // =============================================================================
 // TYPES
@@ -83,7 +86,7 @@ export async function recordEvidence(
       })
       .run();
   } catch (err) {
-    console.warn(`[lifecycle-evidence] Failed to write evidence to SQLite:`, err);
+    log.warn({ err }, 'Failed to write evidence to SQLite');
   }
 
   return record;
@@ -136,7 +139,7 @@ export async function getEvidence(
       description: row.description ?? undefined,
     }));
   } catch (err) {
-    console.warn(`[lifecycle-evidence] Failed to query evidence:`, err);
+    log.warn({ err }, 'Failed to query evidence');
     return [];
   }
 }
@@ -164,7 +167,7 @@ export async function linkProvenance(
   cwd?: string,
 ): Promise<EvidenceRecord> {
   const cleoDir = getCleoDirAbsolute(cwd);
-  const relativeUri = relative(cleoDir, filePath);
+  const relativeUri = relative(cleoDir, filePath).replaceAll('\\', '/');
   const description = basename(filePath);
 
   return recordEvidence(epicId, stage, relativeUri, 'file', {
@@ -217,7 +220,7 @@ export async function getEvidenceSummary(
       types: data.types,
     }));
   } catch (err) {
-    console.warn(`[lifecycle-evidence] Failed to get evidence summary:`, err);
+    log.warn({ err }, 'Failed to get evidence summary');
     return [];
   }
 }

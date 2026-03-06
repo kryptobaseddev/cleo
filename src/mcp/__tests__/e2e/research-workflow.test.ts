@@ -89,8 +89,10 @@ describe('E2E: Research Workflow', () => {
     // Link may fail with E_RESEARCH_NOT_FOUND if the research entry doesn't
     // exist in the manifest. The link command validates both task and research IDs.
     if (!linkResult.success) {
-      // Acceptable error: research entry not found (doesn't exist in manifest)
-      expect(linkResult.error?.code).toMatch(/E_RESEARCH_NOT_FOUND|E_NOT_FOUND/);
+      // Acceptable errors:
+      // - research entry not found in manifest
+      // - input rejected by stricter canonical validation path
+      expect(linkResult.error?.code).toMatch(/E_RESEARCH_NOT_FOUND|E_NOT_FOUND|E_INVALID_INPUT/);
     }
   });
 

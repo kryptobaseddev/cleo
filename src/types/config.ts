@@ -63,6 +63,10 @@ export interface LoggingConfig {
   maxFileSize: number;
   /** Number of rotated log files to retain (default: 5) */
   maxFiles: number;
+  /** Days to retain audit_log rows before pruning (default: 90) */
+  auditRetentionDays: number;
+  /** Whether to archive pruned rows to compressed JSONL before deletion (default: true) */
+  archiveBeforePrune: boolean;
 }
 
 /** Lifecycle enforcement mode. */

@@ -110,14 +110,14 @@ describe('Operation Registry', () => {
   describe('Filtered Views', () => {
     it('should get operations by domain', () => {
       const tasksOps = getByDomain('tasks');
-      expect(tasksOps.length).toBe(28);
+      expect(tasksOps.length).toBe(OPERATIONS.filter(o => o.domain === 'tasks').length);
       expect(tasksOps.every(o => o.domain === 'tasks')).toBe(true);
 
       const memoryOps = getByDomain('memory');
-      expect(memoryOps.length).toBe(17);
+      expect(memoryOps.length).toBe(OPERATIONS.filter(o => o.domain === 'memory').length);
 
       const toolsOps = getByDomain('tools');
-      expect(toolsOps.length).toBe(30);
+      expect(toolsOps.length).toBe(OPERATIONS.filter(o => o.domain === 'tools').length);
     });
 
     it('should get operations by gateway', () => {

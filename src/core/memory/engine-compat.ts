@@ -40,6 +40,7 @@ import {
 
 // BRAIN accessor for direct table queries (T5241)
 import { getBrainAccessor } from '../../store/brain-accessor.js';
+import { linkMemoryToTask, unlinkMemoryFromTask } from './brain-links.js';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
 import { getProjectRoot } from '../paths.js';
 
@@ -791,32 +792,257 @@ export async function memoryLink(
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' } };
   }
 
+  const entryType = parseIdPrefix(params.entryId);
+  if (!entryType) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
+  }
+
   try {
     const root = resolveRoot(projectRoot);
-    const accessor = await getBrainAccessor(root);
-    const entryType = parseIdPrefix(params.entryId);
-
-    if (!entryType) {
-      return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
-    }
-
-    const typeMap: Record<string, 'decision' | 'pattern' | 'learning' | 'observation'> = {
-      decision: 'decision',
-      pattern: 'pattern',
-      learning: 'learning',
-      observation: 'observation',
-    };
-
-    await accessor.addLink({
-      memoryType: typeMap[entryType],
-      memoryId: params.entryId,
-      taskId: params.taskId,
-      linkType: 'applies_to',
-      createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
-    });
-
+    await linkMemoryToTask(root, entryType, params.entryId, params.taskId, 'applies_to');
     return { success: true, data: { linked: true, taskId: params.taskId, entryId: params.entryId } };
   } catch (error) {
     return { success: false, error: { code: 'E_MEMORY_LINK', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.unlink - Remove a link between a brain entry and a task */
+export async function memoryUnlink(
+  params: { taskId: string; entryId: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.taskId || !params.entryId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId and entryId are required' } };
+  }
+
+  const entryType = parseIdPrefix(params.entryId);
+  if (!entryType) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'Invalid entryId format' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    await unlinkMemoryFromTask(root, entryType, params.entryId, params.taskId, 'applies_to');
+    return { success: true, data: { unlinked: true, taskId: params.taskId, entryId: params.entryId } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_MEMORY_UNLINK', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+// ============================================================================
+// PageIndex Graph Operations (T5385)
+// ============================================================================
+
+/** memory.graph.add - Add a node or edge to the PageIndex graph */
+export async function memoryGraphAdd(
+  params: {
+    nodeId?: string;
+    nodeType?: string;
+    label?: string;
+    metadataJson?: string;
+    fromId?: string;
+    toId?: string;
+    edgeType?: string;
+    weight?: number;
+  },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const accessor = await getBrainAccessor(root);
+
+    // Edge mode: fromId + toId + edgeType
+    if (params.fromId && params.toId && params.edgeType) {
+      const edge = await accessor.addPageEdge({
+        fromId: params.fromId,
+        toId: params.toId,
+        edgeType: params.edgeType as typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number],
+        weight: params.weight,
+      });
+      return { success: true, data: { type: 'edge', edge } };
+    }
+
+    // Node mode: nodeId + nodeType + label
+    if (params.nodeId && params.nodeType && params.label) {
+      const node = await accessor.addPageNode({
+        id: params.nodeId,
+        nodeType: params.nodeType as typeof import('../../store/brain-schema.js').BRAIN_NODE_TYPES[number],
+        label: params.label,
+        metadataJson: params.metadataJson,
+      });
+      return { success: true, data: { type: 'node', node } };
+    }
+
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_INPUT',
+        message: 'Provide (nodeId + nodeType + label) for a node or (fromId + toId + edgeType) for an edge',
+      },
+    };
+  } catch (error) {
+    return { success: false, error: { code: 'E_GRAPH_ADD', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.graph.show - Get a node and its edges from the PageIndex graph */
+export async function memoryGraphShow(
+  params: { nodeId: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.nodeId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'nodeId is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const accessor = await getBrainAccessor(root);
+
+    const node = await accessor.getPageNode(params.nodeId);
+    if (!node) {
+      return { success: false, error: { code: 'E_NOT_FOUND', message: `Node '${params.nodeId}' not found` } };
+    }
+
+    const edges = await accessor.getPageEdges(params.nodeId, 'both');
+    return { success: true, data: { node, edges } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_GRAPH_SHOW', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.graph.neighbors - Get neighbor nodes from the PageIndex graph */
+export async function memoryGraphNeighbors(
+  params: { nodeId: string; edgeType?: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.nodeId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'nodeId is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const accessor = await getBrainAccessor(root);
+
+    const neighbors = await accessor.getNeighbors(
+      params.nodeId,
+      params.edgeType as typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number] | undefined,
+    );
+    return { success: true, data: { neighbors, total: neighbors.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_GRAPH_NEIGHBORS', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+// ============================================================================
+// BRAIN Reasoning & Hybrid Search Operations (T5388-T5393)
+// ============================================================================
+
+/** memory.reason.why - Causal trace through task dependency chains */
+export async function memoryReasonWhy(
+  params: { taskId: string },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.taskId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'taskId is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const { reasonWhy } = await import('./brain-reasoning.js');
+    const result = await reasonWhy(params.taskId, root);
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: { code: 'E_REASON_WHY', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.reason.similar - Find semantically similar entries */
+export async function memoryReasonSimilar(
+  params: { entryId: string; limit?: number },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.entryId) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'entryId is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const { reasonSimilar } = await import('./brain-reasoning.js');
+    const results = await reasonSimilar(params.entryId, root, params.limit);
+    return { success: true, data: { results, total: results.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_REASON_SIMILAR', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.search.hybrid - Hybrid search across FTS5, vector, and graph */
+export async function memorySearchHybrid(
+  params: {
+    query: string;
+    ftsWeight?: number;
+    vecWeight?: number;
+    graphWeight?: number;
+    limit?: number;
+  },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!params.query) {
+    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'query is required' } };
+  }
+
+  try {
+    const root = resolveRoot(projectRoot);
+    const { hybridSearch } = await import('./brain-search.js');
+    const results = await hybridSearch(params.query, root, {
+      ftsWeight: params.ftsWeight,
+      vecWeight: params.vecWeight,
+      graphWeight: params.graphWeight,
+      limit: params.limit,
+    });
+    return { success: true, data: { results, total: results.length } };
+  } catch (error) {
+    return { success: false, error: { code: 'E_HYBRID_SEARCH', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** memory.graph.remove - Remove a node or edge from the PageIndex graph */
+export async function memoryGraphRemove(
+  params: {
+    nodeId?: string;
+    fromId?: string;
+    toId?: string;
+    edgeType?: string;
+  },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  try {
+    const root = resolveRoot(projectRoot);
+    const accessor = await getBrainAccessor(root);
+
+    // Edge removal: fromId + toId + edgeType
+    if (params.fromId && params.toId && params.edgeType) {
+      await accessor.removePageEdge(
+        params.fromId,
+        params.toId,
+        params.edgeType as typeof import('../../store/brain-schema.js').BRAIN_EDGE_TYPES[number],
+      );
+      return { success: true, data: { removed: 'edge', fromId: params.fromId, toId: params.toId, edgeType: params.edgeType } };
+    }
+
+    // Node removal: nodeId (cascades edges)
+    if (params.nodeId) {
+      await accessor.removePageNode(params.nodeId);
+      return { success: true, data: { removed: 'node', nodeId: params.nodeId } };
+    }
+
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_INPUT',
+        message: 'Provide nodeId to remove a node or (fromId + toId + edgeType) to remove an edge',
+      },
+    };
+  } catch (error) {
+    return { success: false, error: { code: 'E_GRAPH_REMOVE', message: error instanceof Error ? error.message : String(error) } };
   }
 }

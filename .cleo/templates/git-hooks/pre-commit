@@ -1,10 +1,15 @@
 #!/bin/sh
-# Pre-commit guardrails — four checks:
+# Pre-commit guardrails — five checks:
 #   0. Reject .cleo/*.db* files (data loss on git restore, ADR-013, T5158).
 #   1. Reject SQLite WAL/SHM files (data corruption risk, T4894).
 #   2. Block commits when core CLEO files are gitignored (data integrity).
 #   3. Reject drizzle/ migration directories without snapshot.json (T4792).
 #      Agents must use `drizzle-kit generate`, never hand-write migration SQL.
+#   4. Enforce zero task-marker tokens in active scopes.
+#      Active scopes: packages/ct-skills/skills/ct-skill-creator, dev/hooks,
+#      and .cleo/templates/git-hooks.
+#      Explicit exclusions: binary-like extensions (*.png, *.jpg, *.gif, *.svg,
+#      *.ico, *.ttf, *.woff, *.woff2, *.pdf, *.zip, *.skill).
 
 set -e
 
@@ -91,5 +96,37 @@ if [ -n "$MISSING_SNAPSHOTS" ]; then
   echo ""
   echo "A snapshot.json is required to maintain the migration chain."
   echo "Without it, the next drizzle-kit generate run will produce incorrect diffs."
+  exit 1
+fi
+
+# ── 4. Zero marker policy for active scopes ───────────────────────────────────
+ACTIVE_SCOPE_FILES=$(git ls-files \
+  packages/ct-skills/skills/ct-skill-creator \
+  dev/hooks \
+  .cleo/templates/git-hooks 2>/dev/null || true)
+
+MARKER_PATTERN='\<(TO[D]O|FIX[M]E|HA[C]K)\>'
+BINARY_EXT_PATTERN='\.(png|jpg|jpeg|gif|svg|ico|ttf|woff|woff2|pdf|zip|skill)$'
+
+MARKER_VIOLATIONS=""
+for file in $ACTIVE_SCOPE_FILES; do
+  if printf '%s\n' "$file" | grep -Eiq "$BINARY_EXT_PATTERN"; then
+    continue
+  fi
+
+  if grep -nE "$MARKER_PATTERN" "$file" >/dev/null 2>&1; then
+    FILE_MATCHES=$(grep -nE "$MARKER_PATTERN" "$file" || true)
+    MARKER_VIOLATIONS="${MARKER_VIOLATIONS}${file}\n${FILE_MATCHES}\n"
+  fi
+done
+
+if [ -n "$MARKER_VIOLATIONS" ]; then
+  echo "ERROR: Found blocked task-marker tokens in active scopes:"
+  echo ""
+  printf '%b' "$MARKER_VIOLATIONS" | sed 's/^/  /'
+  echo ""
+  echo "Active scopes must remain marker-free."
+  echo "Exclusions apply only to binary-like assets (*.png, *.jpg, *.gif, *.svg,"
+  echo "*.ico, *.ttf, *.woff, *.woff2, *.pdf, *.zip, *.skill)."
   exit 1
 fi

@@ -1,5 +1,5 @@
 /**
- * Tests for cleo_mutate Gateway
+ * Tests for mutate Gateway
  *
  * @task T2929
  */
@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MUTATE_OPERATIONS,
   validateMutateParams,
+  handleMutateRequest,
   isIdempotentOperation,
   requiresSession,
   getMutateOperationCount,
@@ -17,6 +18,9 @@ import {
   registerMutateTool,
   type MutateRequest,
 } from '../mutate.js';
+import { resolve } from '../../../dispatch/registry.js';
+
+const ADVANCED_MEMORY_MUTATE_OPS = ['pattern.store', 'learning.store'] as const;
 
 describe('MUTATE_OPERATIONS', () => {
   it('should derive total operations dynamically from registry', () => {
@@ -25,10 +29,9 @@ describe('MUTATE_OPERATIONS', () => {
     expect(totalCount).toBeGreaterThan(0);
   });
 
-  it('should have all 18 domains (10 canonical + 8 legacy)', () => {
+  it('should have all 10 canonical domains', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
-    // Derived from registry — order follows OPERATIONS definition order
-    // for canonical domains, then LEGACY_DOMAIN_ALIASES iteration order
+    // Derived from registry — order follows canonical OPERATIONS definition order
     expect(domains).toEqual([
       // Canonical domains (order from OPERATIONS array)
       'tasks',
@@ -39,41 +42,23 @@ describe('MUTATE_OPERATIONS', () => {
       'check',
       'admin',
       'tools',
-      'sharing',
       'nexus',
-      // Legacy aliases (order from LEGACY_DOMAIN_ALIASES)
-      'research',
-      'validate',
-      'lifecycle',
-      'release',
-      'system',
-      'skills',
-      'providers',
-      'issues',
+      'sticky',
     ]);
   });
 
   it('should have correct operation counts per domain', () => {
-    // Canonical domains
-    expect(MUTATE_OPERATIONS.tasks.length).toBe(13);
+    // Canonical domains (updated for T5323 CLI-to-dispatch migration)
+    expect(MUTATE_OPERATIONS.tasks.length).toBe(15);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
-    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
-    expect(MUTATE_OPERATIONS.memory.length).toBe(5);
+    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(8);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(6);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
-    expect(MUTATE_OPERATIONS.pipeline.length).toBe(14);
-    expect(MUTATE_OPERATIONS.admin.length).toBe(15);
-    expect(MUTATE_OPERATIONS.tools.length).toBe(14);
-    // Legacy aliases (derived from canonical — may include more ops than
-    // the old hand-maintained lists due to no-prefix aliases getting
-    // all canonical ops and prefix aliases getting new ops added to canonical)
-    expect(MUTATE_OPERATIONS.research.length).toBe(MUTATE_OPERATIONS.memory.length);
-    expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
-    expect(MUTATE_OPERATIONS.validate.length).toBe(MUTATE_OPERATIONS.check.length);
-    expect(MUTATE_OPERATIONS.release.length).toBe(7);
-    expect(MUTATE_OPERATIONS.system.length).toBe(MUTATE_OPERATIONS.admin.length);
-    expect(MUTATE_OPERATIONS.issues.length).toBe(7);
-    expect(MUTATE_OPERATIONS.skills.length).toBe(6);
-    expect(MUTATE_OPERATIONS.providers.length).toBe(1);
+    expect(MUTATE_OPERATIONS.pipeline.length).toBe(23);
+    expect(MUTATE_OPERATIONS.admin.length).toBe(20);
+    expect(MUTATE_OPERATIONS.tools.length).toBe(11);
+    expect(MUTATE_OPERATIONS.nexus.length).toBe(14);  // Includes share.* operations
+    expect(getMutateOperationCount("nexus")).toBe(14);
   });
 });
 
@@ -96,12 +81,13 @@ describe('validateMutateParams', () => {
         'tasks',
         'session',
         'orchestrate',
-        'research',
-        'lifecycle',
-        'validate',
-        'release',
-        'system',
-        'issues',
+        'memory',
+        'pipeline',
+        'check',
+        'admin',
+        'tools',
+        'nexus',
+        'sticky',
       ];
 
       for (const domain of domains) {
@@ -309,43 +295,33 @@ describe('validateMutateParams', () => {
       const result = validateMutateParams(request);
       expect(result.valid).toBe(true);
     });
+
+    it('should reject handoff without protocolType', () => {
+      const request: MutateRequest = {
+        domain: 'orchestrate',
+        operation: 'handoff',
+        params: { taskId: 'T1234' },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(false);
+      expect(result.error?.error?.message).toContain('taskId and protocolType');
+    });
   });
 
-  describe('research domain parameter validation (legacy alias for memory)', () => {
-    it('should reject inject as invalid operation (moved to session.context.inject)', () => {
-      const request: MutateRequest = {
-        domain: 'research',
-        operation: 'inject',
-        params: {},
-      };
+  describe('legacy domain aliases are rejected', () => {
+    it('rejects removed legacy aliases with E_INVALID_DOMAIN', () => {
+      const legacyDomains = ['research', 'validate', 'lifecycle', 'release', 'system', 'skills', 'providers', 'issues', 'brain'];
 
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.code).toBe('E_INVALID_OPERATION');
-    });
-
-    it('should reject link without researchId and taskId', () => {
-      const request: MutateRequest = {
-        domain: 'research',
-        operation: 'link',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('researchId and taskId');
-    });
-
-    it('should reject manifest.append as invalid operation (moved to pipeline)', () => {
-      const request: MutateRequest = {
-        domain: 'research',
-        operation: 'manifest.append',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.code).toBe('E_INVALID_OPERATION');
+      for (const domain of legacyDomains) {
+        const result = validateMutateParams({
+          domain: domain as MutateRequest['domain'],
+          operation: 'add',
+          params: {},
+        });
+        expect(result.valid).toBe(false);
+        expect(result.error?.error?.code).toBe('E_INVALID_DOMAIN');
+      }
     });
   });
 
@@ -384,38 +360,23 @@ describe('validateMutateParams', () => {
       const result = validateMutateParams(request);
       expect(result.valid).toBe(true);
     });
-  });
 
-  describe('lifecycle domain parameter validation', () => {
-    it('should reject record without required params', () => {
+    it('should accept stage.gate.pass with required params', () => {
       const request: MutateRequest = {
-        domain: 'lifecycle',
-        operation: 'record',
-        params: {},
+        domain: 'pipeline',
+        operation: 'stage.gate.pass',
+        params: { taskId: 'T1234', gateName: 'quality-gate' },
       };
 
       const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('taskId, stage, and status');
+      expect(result.valid).toBe(true);
     });
 
-    it('should reject skip without required params', () => {
+    it('should reject stage.gate.fail without required params', () => {
       const request: MutateRequest = {
-        domain: 'lifecycle',
-        operation: 'skip',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('taskId, stage, and reason');
-    });
-
-    it('should reject gate.pass without taskId and gateName', () => {
-      const request: MutateRequest = {
-        domain: 'lifecycle',
-        operation: 'gate.pass',
-        params: {},
+        domain: 'pipeline',
+        operation: 'stage.gate.fail',
+        params: { taskId: 'T1234' },
       };
 
       const result = validateMutateParams(request);
@@ -424,97 +385,52 @@ describe('validateMutateParams', () => {
     });
   });
 
-  describe('validate domain parameter validation', () => {
-    it('should reject compliance.record without taskId and result', () => {
+  describe('memory domain advanced operation validation', () => {
+    it('should accept pattern.store as a valid memory operation', () => {
       const request: MutateRequest = {
-        domain: 'validate',
-        operation: 'compliance.record',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('taskId and result');
-    });
-  });
-
-  describe('release domain parameter validation', () => {
-    it('should reject release operations without version', () => {
-      const operations = ['prepare', 'changelog', 'commit', 'tag', 'push', 'rollback'];
-
-      for (const operation of operations) {
-        const request: MutateRequest = {
-          domain: 'release',
-          operation,
-          params: {},
-        };
-
-        const result = validateMutateParams(request);
-        expect(result.valid).toBe(false);
-        expect(result.error?.error?.message).toContain('version');
-      }
-    });
-
-    it('should accept release operations with version', () => {
-      const request: MutateRequest = {
-        domain: 'release',
-        operation: 'tag',
+        domain: 'memory',
+        operation: 'pattern.store',
         params: {
-          version: '1.0.0',
+          pattern: 'retry failed webhook once',
+          context: 'webhook processing',
         },
       };
 
       const result = validateMutateParams(request);
       expect(result.valid).toBe(true);
     });
-  });
 
-  describe('system domain parameter validation', () => {
-    it('should reject config.set without key and value', () => {
-      const request: MutateRequest = {
-        domain: 'system',
-        operation: 'config.set',
-        params: {},
-      };
+    it('should keep advanced memory mutate ops in MCP-dispatch parity lock', async () => {
+      for (const operation of ADVANCED_MEMORY_MUTATE_OPS) {
+        expect(MUTATE_OPERATIONS.memory).toContain(operation);
 
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('key and value');
-    });
+        const validation = validateMutateParams({
+          domain: 'memory',
+          operation,
+          params: {},
+        });
+        expect(validation.valid).toBe(true);
 
-    it('should reject restore without backupId', () => {
-      const request: MutateRequest = {
-        domain: 'system',
-        operation: 'restore',
-        params: {},
-      };
+        const gatewayResult = await handleMutateRequest({
+          domain: 'memory',
+          operation,
+          params: {},
+        });
+        expect(gatewayResult.success).toBe(true);
 
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('backupId');
-    });
-
-    it('should reject cleanup without type', () => {
-      const request: MutateRequest = {
-        domain: 'system',
-        operation: 'cleanup',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('type');
+        const dispatchOp = resolve('mutate', 'memory', operation);
+        expect(dispatchOp, `Missing dispatch op for mutate memory.${operation}`).toBeDefined();
+      }
     });
   });
+
 });
 
 describe('isIdempotentOperation', () => {
   it('should identify idempotent operations', () => {
-    expect(isIdempotentOperation('tasks', 'complete')).toBe(true);
-    expect(isIdempotentOperation('tasks', 'archive')).toBe(true);
-    expect(isIdempotentOperation('session', 'end')).toBe(true);
-    expect(isIdempotentOperation('lifecycle', 'record')).toBe(true);
-    expect(isIdempotentOperation('system', 'init')).toBe(true);
+    expect(isIdempotentOperation('session', 'context.inject')).toBe(true);
+    expect(isIdempotentOperation('admin', 'install.global')).toBe(true);
+    expect(isIdempotentOperation('nexus', 'sync')).toBe(true);
   });
 
   it('should identify non-idempotent operations', () => {
@@ -526,18 +442,15 @@ describe('isIdempotentOperation', () => {
 
 describe('requiresSession', () => {
   it('should identify operations requiring session', () => {
-    expect(requiresSession('tasks', 'add')).toBe(true);
-    expect(requiresSession('tasks', 'update')).toBe(true);
-    expect(requiresSession('tasks', 'complete')).toBe(true);
-    expect(requiresSession('session', 'start')).toBe(true);
-    expect(requiresSession('orchestrate', 'start')).toBe(true);
-    expect(requiresSession('orchestrate', 'spawn')).toBe(true);
+    expect(requiresSession('tasks', 'add')).toBe(false);
+    expect(requiresSession('session', 'start')).toBe(false);
+    expect(requiresSession('orchestrate', 'spawn')).toBe(false);
   });
 
   it('should identify operations not requiring session', () => {
     expect(requiresSession('tasks', 'delete')).toBe(false);
     expect(requiresSession('session', 'end')).toBe(false);
-    expect(requiresSession('release', 'tag')).toBe(false);
+    expect(requiresSession('pipeline', 'release.tag')).toBe(false);
   });
 });
 
@@ -547,24 +460,17 @@ describe('getMutateOperationCount', () => {
   });
 
   it('should return domain-specific counts', () => {
-    // Canonical domains
-    expect(getMutateOperationCount('tasks')).toBe(13);
+    // Canonical domains (updated for T5323 CLI-to-dispatch migration)
+    expect(getMutateOperationCount('tasks')).toBe(15);
     expect(getMutateOperationCount('session')).toBe(8);
-    expect(getMutateOperationCount('orchestrate')).toBe(5);
-    expect(getMutateOperationCount('memory')).toBe(5);
+    expect(getMutateOperationCount('orchestrate')).toBe(8);
+    expect(getMutateOperationCount('memory')).toBe(6);
     expect(getMutateOperationCount('check')).toBe(2);
-    expect(getMutateOperationCount('pipeline')).toBe(14);
-    expect(getMutateOperationCount('admin')).toBe(15);
-    expect(getMutateOperationCount('tools')).toBe(14);
-    // Legacy aliases (derived — no-prefix aliases equal canonical)
-    expect(getMutateOperationCount('research')).toBe(getMutateOperationCount('memory'));
-    expect(getMutateOperationCount('lifecycle')).toBe(5);
-    expect(getMutateOperationCount('validate')).toBe(getMutateOperationCount('check'));
-    expect(getMutateOperationCount('release')).toBe(7);
-    expect(getMutateOperationCount('system')).toBe(getMutateOperationCount('admin'));
-    expect(getMutateOperationCount('issues')).toBe(7);
-    expect(getMutateOperationCount('skills')).toBe(6);
-    expect(getMutateOperationCount('providers')).toBe(1);
+    expect(getMutateOperationCount('pipeline')).toBe(23);
+    expect(getMutateOperationCount('admin')).toBe(20);
+    expect(getMutateOperationCount('tools')).toBe(11);
+    expect(getMutateOperationCount('sticky')).toBe(4);
+    expect(getMutateOperationCount('nexus')).toBe(14);
   });
 
   it('should return 0 for unknown domain', () => {
@@ -577,6 +483,7 @@ describe('isMutateOperation', () => {
     expect(isMutateOperation('tasks', 'add')).toBe(true);
     expect(isMutateOperation('session', 'start')).toBe(true);
     expect(isMutateOperation('orchestrate', 'spawn')).toBe(true);
+    expect(isMutateOperation('memory', 'pattern.store')).toBe(true);
   });
 
   it('should reject invalid operations', () => {
@@ -588,7 +495,7 @@ describe('isMutateOperation', () => {
 describe('getMutateDomains', () => {
   it('should return all mutate domains', () => {
     const domains = getMutateDomains();
-    expect(domains).toHaveLength(18); // 10 canonical + 8 legacy
+    expect(domains).toHaveLength(10);
     expect(domains).toEqual(Object.keys(MUTATE_OPERATIONS));
   });
 });
@@ -599,7 +506,7 @@ describe('getMutateOperations', () => {
     expect(taskOps).toContain('add');
     expect(taskOps).toContain('update');
     expect(taskOps).toContain('complete');
-    expect(taskOps.length).toBe(13);
+    expect(taskOps.length).toBe(15);
   });
 
   it('should return empty array for unknown domain', () => {
@@ -611,7 +518,7 @@ describe('registerMutateTool', () => {
   it('should return valid MCP tool definition', () => {
     const tool = registerMutateTool();
 
-    expect(tool.name).toBe('cleo_mutate');
+    expect(tool.name).toBe('mutate');
     expect(tool.description).toContain('write operations');
     expect(tool.inputSchema.type).toBe('object');
     expect(tool.inputSchema.required).toEqual(['domain', 'operation']);

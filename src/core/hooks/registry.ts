@@ -14,6 +14,7 @@ import type {
   HookRegistration,
   HookConfig
 } from './types.js';
+import { getLogger } from '../logger.js';
 
 /**
  * Default configuration for the hook system.
@@ -30,6 +31,11 @@ const DEFAULT_HOOK_CONFIG: HookConfig = {
     'onError': true,
     'onPromptSubmit': true,
     'onResponseComplete': true,
+    'onWorkAvailable': true,
+    'onAgentSpawn': true,
+    'onAgentComplete': true,
+    'onCascadeStart': true,
+    'onPatrol': true,
   } as Record<HookEvent, boolean>,
 };
 
@@ -127,7 +133,7 @@ export class HookRegistry {
           await reg.handler(projectRoot, payload);
         } catch (error) {
           // Hooks are best-effort - log but don't throw
-          console.warn(`Hook handler ${reg.id} failed:`, error);
+          getLogger('hooks').warn({ err: error, hookId: reg.id, event }, 'Hook handler failed');
         }
       })
     );

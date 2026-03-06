@@ -25,7 +25,7 @@ import {
   validateLabels,
 } from '../engines/template-parser.js';
 import { collectDiagnostics } from '../../core/issue/diagnostics.js';
-import { createIssue } from '../../core/issue/create.js';
+import { addIssue } from '../../core/issue/create.js';
 import {
   catalog,
   discoverSkill,
@@ -135,7 +135,6 @@ export class ToolsHandler implements DomainHandler {
       mutate: [
         // issue
         'issue.add.bug', 'issue.add.feature', 'issue.add.help',
-        'issue.create.bug', 'issue.create.feature', 'issue.create.help',
         'issue.generate.config',
         // skill
         'skill.install', 'skill.uninstall', 'skill.enable',
@@ -206,10 +205,7 @@ export class ToolsHandler implements DomainHandler {
     switch (sub) {
       case 'add.bug':
       case 'add.feature':
-      case 'add.help':
-      case 'create.bug':
-      case 'create.feature':
-      case 'create.help': {
+      case 'add.help': {
         const title = params?.title as string;
         const body = params?.body as string;
         if (!title || !body) {
@@ -218,7 +214,7 @@ export class ToolsHandler implements DomainHandler {
         }
         // Extract issue type from sub (e.g. "add.bug" -> "bug")
         const issueType = sub.split('.').pop()!;
-        const result = createIssue({
+        const result = addIssue({
           issueType,
           title,
           body,
@@ -657,7 +653,7 @@ export class ToolsHandler implements DomainHandler {
             'Missing required parameter: event (HookEvent)', startTime);
         }
         const { queryHookProviders } = await import('../engines/hooks-engine.js');
-        const result = await queryHookProviders(event as import('@cleocode/caamp').HookEvent);
+        const result = await queryHookProviders(event as import('../../core/hooks/types.js').HookEvent);
         return this.wrapEngineResult(result, 'query', 'provider.hooks', startTime);
       }
 

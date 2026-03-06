@@ -22,7 +22,7 @@
           "id": "mcp-primary-interface",
           "name": "MCP Primary Interface",
           "status": "shipped",
-          "details": "2 MCP tools across 10 domains and 201 canonical operations"
+          "details": "2 MCP tools across 10 domains and 256 canonical operations"
         },
         {
           "id": "cli-backup-interface",
@@ -67,7 +67,7 @@
           "name": "Embedding Generation Pipeline",
           "status": "planned",
           "taskIds": ["T5158", "T5159"],
-          "details": "Vector generation and semantic KNN retrieval"
+          "details": "Embedding generation and vector similarity retrieval as Living BRAIN substrate"
         },
         {
           "id": "reasoning-engine",
@@ -128,6 +128,41 @@
           "status": "planned",
           "taskIds": ["T5161"],
           "details": "BFS/DFS traversal, relation filters, recency and latest-version queries"
+        }
+      ]
+    },
+    {
+      "id": "autonomous-runtime",
+      "name": "Autonomous Runtime",
+      "status": "planned",
+      "features": [
+        {
+          "id": "agent-runtime-foundation",
+          "name": "Agent-Runtime Foundation",
+          "status": "planned",
+          "taskIds": ["T5519", "T5573", "T5574", "T5575"],
+          "details": "Foundation service for worker lifecycle, leases, identity, self-propulsion, and patrol motion"
+        },
+        {
+          "id": "live-workshop-surface",
+          "name": "Live Workshop Surface",
+          "status": "planned",
+          "taskIds": ["T5520", "T5521", "T5524"],
+          "details": "The Hearth, Circle of Ten, and Conduit mapped onto the ten canonical domains"
+        },
+        {
+          "id": "quality-and-convergence",
+          "name": "Quality and Convergence",
+          "status": "planned",
+          "taskIds": ["T5525", "T5526", "T5529"],
+          "details": "The Sweep, Refinery, and The Proving for patrol quality, integration readiness, and runtime validation"
+        },
+        {
+          "id": "living-brain-runtime",
+          "name": "Living BRAIN Runtime",
+          "status": "planned",
+          "taskIds": ["T5527", "T5528", "T5158", "T5159"],
+          "details": "Looming Engine and Living BRAIN runtime behavior, with T5158/T5159 providing embedding and vector substrate rather than the runtime epic"
         }
       ]
     },

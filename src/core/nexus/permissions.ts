@@ -16,8 +16,7 @@
 import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import { nexusGetProject, generateProjectHash, readRegistryRequired, getRegistryPath, type NexusPermissionLevel } from './registry.js';
-import { saveJson } from '../../store/json.js';
+import { nexusGetProject, nexusSetPermission, type NexusPermissionLevel } from './registry.js';
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
@@ -130,27 +129,7 @@ export async function setPermission(
     throw new CleoError(ExitCode.INVALID_INPUT, 'Project name or hash required');
   }
 
-  const project = await nexusGetProject(nameOrHash);
-  if (!project) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Project not found in registry: ${nameOrHash}`,
-    );
-  }
-
-  const projectHash = generateProjectHash(project.path);
-  const registry = await readRegistryRequired();
-
-  if (!registry.projects[projectHash]) {
-    throw new CleoError(
-      ExitCode.NOT_FOUND,
-      `Project not found in registry: ${nameOrHash}`,
-    );
-  }
-
-  registry.projects[projectHash].permissions = permission;
-  registry.lastUpdated = new Date().toISOString();
-  await saveJson(getRegistryPath(), registry);
+  await nexusSetPermission(nameOrHash, permission);
 }
 
 /** Convenience: check read access. */

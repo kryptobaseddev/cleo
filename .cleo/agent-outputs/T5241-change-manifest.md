@@ -12,7 +12,7 @@ The refactoring has 4 types of changes:
 1. **Operation string renames** — `brain.search` → `find`, `pattern.search` → `pattern.find`, etc.
 2. **Function renames** — `memoryBrainSearch` → `memoryFind`, etc.
 3. **Domain migrations** — `manifest.*` from memory → pipeline, `inject` from memory → session
-4. **Documentation updates** — specs, guides, INJECTION.md, VERB-STANDARDS, vision.md
+4. **Documentation updates** — specs, guides, INJECTION.md, VERB-STANDARDS, CLEO-VISION.md
 
 ---
 
@@ -331,7 +331,7 @@ export {
 | 96 | `memory brain.search`, `memory brain.timeline`, `memory brain.fetch` | → `memory find`, `memory timeline`, `memory fetch` |
 | 97 | `memory brain.observe` | → `memory observe` |
 
-### `docs/concepts/vision.md`
+### `docs/concepts/CLEO-VISION.md`
 
 | Lines | Current content | Change |
 |-------|----------------|--------|

@@ -15,18 +15,17 @@
  * @epic T4663
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { validateEnvelope, runEnvelopeConformance } from '@cleocode/lafs-protocol';
-import { formatSuccess, formatError, pushWarning } from '../output.js';
-import { CleoError } from '../errors.js';
-import { ExitCode, isErrorCode, isSuccessCode, getExitCodeName } from '../../types/exit-codes.js';
+import { runEnvelopeConformance,validateEnvelope } from '@cleocode/lafs-protocol';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { enforceBudget,isWithinBudget } from '../../mcp/lib/budget.js';
 import { createGatewayMeta } from '../../mcp/lib/gateway-meta.js';
-import { createPage, paginate } from '../pagination.js';
-import { getCleoErrorRegistry, isCleoRegisteredCode, getRegistryEntry } from '../error-registry.js';
-import { enforceBudget, isWithinBudget } from '../../mcp/lib/budget.js';
+import { createTestDb,makeTaskFile,type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../store/data-accessor.js';
+import { ExitCode,getExitCodeName,isErrorCode,isSuccessCode } from '../../types/exit-codes.js';
+import { getCleoErrorRegistry,getRegistryEntry,isCleoRegisteredCode } from '../error-registry.js';
+import { CleoError } from '../errors.js';
+import { formatError,formatSuccess,pushWarning } from '../output.js';
+import { createPage,paginate } from '../pagination.js';
 import { validateHierarchyPlacement } from '../tasks/hierarchy-policy.js';
 
 // ============================
@@ -240,7 +239,7 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
 describe('MCP Gateway Meta', () => {
   it('createGatewayMeta includes all LAFS fields', () => {
     const startTime = Date.now();
-    const meta = createGatewayMeta('cleo_query', 'tasks', 'list', startTime);
+    const meta = createGatewayMeta('query', 'tasks', 'list', startTime);
     expect(meta.specVersion).toBe('1.2.3');
     expect(meta.schemaVersion).toBe('2026.2.1');
     expect(meta.timestamp).toBeDefined();
@@ -254,8 +253,8 @@ describe('MCP Gateway Meta', () => {
 
   it('createGatewayMeta includes CLEO gateway extensions', () => {
     const startTime = Date.now();
-    const meta = createGatewayMeta('cleo_mutate', 'session', 'start', startTime);
-    expect(meta.gateway).toBe('cleo_mutate');
+    const meta = createGatewayMeta('mutate', 'session', 'start', startTime);
+    expect(meta.gateway).toBe('mutate');
     expect(meta.domain).toBe('session');
     expect(typeof meta.duration_ms).toBe('number');
   });
@@ -343,39 +342,30 @@ describe('Exit Code Taxonomy', () => {
 // ============================
 
 describe('LAFS Integration with Core Modules', () => {
-  let testDir: string;
-  let cleoDir: string;
+  let env: TestDbEnv;
+  let accessor: DataAccessor;
 
   beforeEach(async () => {
-    testDir = await mkdtemp(join(tmpdir(), 'cleo-lafs-'));
-    cleoDir = join(testDir, '.cleo');
-    await mkdir(cleoDir, { recursive: true });
-    await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
-    process.env['CLEO_DIR'] = cleoDir;
+    env = await createTestDb();
+    accessor = env.accessor;
 
-    await writeFile(
-      join(cleoDir, 'tasks.json'),
-      JSON.stringify({
-        version: '2.10.0',
-        project: { name: 'Test', phases: { core: { order: 1, name: 'Core', status: 'active' } } },
-        lastUpdated: '2026-01-01T00:00:00Z',
-        _meta: { schemaVersion: '2.10.0', specVersion: '0.1.0', checksum: 'abc', configVersion: '2.0.0' },
-        focus: {},
-        tasks: [
-          { id: 'T001', title: 'Test task', status: 'pending', priority: 'medium', phase: 'core', createdAt: '2026-01-01T00:00:00Z' },
-        ],
-      }),
-    );
+    const taskFile = makeTaskFile([
+      { id: 'T001', title: 'Test task', status: 'pending', priority: 'medium', phase: 'core', createdAt: '2026-01-01T00:00:00Z' },
+    ]);
+    taskFile.project = {
+      name: 'Test',
+      phases: { core: { order: 1, name: 'Core', status: 'active' } },
+    } as typeof taskFile.project;
+    await accessor.saveTaskFile(taskFile);
   });
 
   afterEach(async () => {
-    delete process.env['CLEO_DIR'];
-    await rm(testDir, { recursive: true, force: true });
+    await env.cleanup();
   });
 
   it('addTask result produces valid full LAFS envelope (no operation)', async () => {
     const { addTask } = await import('../tasks/add.js');
-    const result = await addTask({ title: 'New task' });
+    const result = await addTask({ title: 'New task' }, env.tempDir, accessor);
     const json = formatSuccess({ task: result.task });
     expect(isValidLafsEnvelope(json).valid).toBe(true);
     const envelope = JSON.parse(json);
@@ -385,7 +375,7 @@ describe('LAFS Integration with Core Modules', () => {
 
   it('addTask result produces valid full LAFS envelope (explicit operation)', async () => {
     const { addTask } = await import('../tasks/add.js');
-    const result = await addTask({ title: 'Full LAFS task' });
+    const result = await addTask({ title: 'Full LAFS task' }, env.tempDir, accessor);
     const json = formatSuccess({ task: result.task }, undefined, 'tasks.add');
     const envelope = JSON.parse(json);
     const validation = validateEnvelope(envelope);
@@ -394,7 +384,7 @@ describe('LAFS Integration with Core Modules', () => {
 
   it('listPhases result produces valid LAFS', async () => {
     const { listPhases } = await import('../phases/index.js');
-    const result = await listPhases();
+    const result = await listPhases(env.tempDir, accessor);
     const json = formatSuccess(result);
     expect(isValidLafsEnvelope(json).valid).toBe(true);
   });
@@ -402,7 +392,7 @@ describe('LAFS Integration with Core Modules', () => {
   it('error from showTask produces valid LAFS', async () => {
     const { showTask } = await import('../tasks/show.js');
     try {
-      await showTask('T999');
+      await showTask('T999', env.tempDir, accessor);
     } catch (err) {
       if (err instanceof CleoError) {
         const json = formatError(err);
@@ -693,7 +683,7 @@ describe('Session ID in _meta (T4702)', () => {
     const origEnv = process.env['CLEO_SESSION'];
     process.env['CLEO_SESSION'] = 'gw-session-99';
     try {
-      const meta = createGatewayMeta('cleo_query', 'tasks', 'list', Date.now());
+      const meta = createGatewayMeta('query', 'tasks', 'list', Date.now());
       expect(meta.sessionId).toBe('gw-session-99');
     } finally {
       if (origEnv !== undefined) {

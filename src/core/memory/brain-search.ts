@@ -9,6 +9,9 @@
  */
 
 import { getBrainNativeDb, getBrainDb } from '../../store/brain-sqlite.js';
+import { getBrainAccessor } from '../../store/brain-accessor.js';
+import { searchSimilar } from './brain-similarity.js';
+import type { SimilarityResult } from './brain-similarity.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { BrainDecisionRow, BrainPatternRow, BrainLearningRow, BrainObservationRow } from '../../store/brain-schema.js';
 
@@ -432,4 +435,200 @@ function escapeFts5Query(query: string): string {
 export function resetFts5Cache(): void {
   _fts5Available = null;
   _fts5Initialized = false;
+}
+
+// ============================================================================
+// Hybrid Search (FTS5 + Vector + Graph)
+// ============================================================================
+
+/** Result from hybridSearch combining multiple search signals. */
+export interface HybridResult {
+  id: string;
+  score: number;
+  type: string;
+  title: string;
+  text: string;
+  sources: Array<'fts' | 'vec' | 'graph'>;
+}
+
+/** Options for hybridSearch weighting and limits. */
+export interface HybridSearchOptions {
+  ftsWeight?: number;
+  vecWeight?: number;
+  graphWeight?: number;
+  limit?: number;
+}
+
+/**
+ * Hybrid search across FTS5, vector similarity, and graph neighbors.
+ *
+ * 1. Runs FTS5 search via existing searchBrain.
+ * 2. Runs vector similarity via searchSimilar (if available).
+ * 3. Runs graph neighbor expansion via getNeighbors (if query matches a node).
+ * 4. Normalizes scores to 0-1 using min-max normalization.
+ * 5. Combines with configurable weights.
+ * 6. Deduplicates by ID, keeping highest combined score.
+ * 7. Returns top-N sorted by score descending.
+ *
+ * Graceful fallback: if vec unavailable, redistributes weight to FTS5.
+ *
+ * @param query - Search query text
+ * @param projectRoot - Project root directory
+ * @param options - Weight and limit configuration
+ * @returns Array of hybrid results ranked by combined score
+ */
+export async function hybridSearch(
+  query: string,
+  projectRoot: string,
+  options?: HybridSearchOptions,
+): Promise<HybridResult[]> {
+  if (!query || !query.trim()) return [];
+
+  const maxResults = options?.limit ?? 10;
+  let ftsWeight = options?.ftsWeight ?? 0.5;
+  let vecWeight = options?.vecWeight ?? 0.4;
+  const graphWeight = options?.graphWeight ?? 0.1;
+
+  // Score accumulators: id -> { score, sources, type, title, text }
+  const scoreMap = new Map<string, {
+    score: number;
+    type: string;
+    title: string;
+    text: string;
+    sources: Set<'fts' | 'vec' | 'graph'>;
+  }>();
+
+  const addScore = (
+    id: string,
+    normalizedScore: number,
+    weight: number,
+    source: 'fts' | 'vec' | 'graph',
+    type: string,
+    title: string,
+    text: string,
+  ) => {
+    const existing = scoreMap.get(id);
+    if (existing) {
+      existing.score += normalizedScore * weight;
+      existing.sources.add(source);
+    } else {
+      scoreMap.set(id, {
+        score: normalizedScore * weight,
+        type,
+        title,
+        text,
+        sources: new Set([source]),
+      });
+    }
+  };
+
+  // --- 1. FTS5 search ---
+  const ftsResults = await searchBrain(projectRoot, query, { limit: maxResults * 2 });
+
+  // Collect all FTS hits into a flat list with position-based scores
+  const ftsHits: Array<{ id: string; type: string; title: string; text: string }> = [];
+
+  for (const d of ftsResults.decisions) {
+    ftsHits.push({ id: d.id, type: 'decision', title: d.decision, text: `${d.decision} — ${d.rationale}` });
+  }
+  for (const p of ftsResults.patterns) {
+    ftsHits.push({ id: p.id, type: 'pattern', title: p.pattern, text: `${p.pattern} — ${p.context}` });
+  }
+  for (const l of ftsResults.learnings) {
+    ftsHits.push({ id: l.id, type: 'learning', title: l.insight, text: `${l.insight} (source: ${l.source})` });
+  }
+  for (const o of ftsResults.observations) {
+    ftsHits.push({ id: o.id, type: 'observation', title: o.title, text: o.narrative ?? o.title });
+  }
+
+  // Normalize FTS: position-based (first result = 1.0, last = near 0)
+  for (let i = 0; i < ftsHits.length; i++) {
+    const hit = ftsHits[i]!;
+    const normalizedScore = ftsHits.length > 1
+      ? 1.0 - (i / (ftsHits.length - 1))
+      : 1.0;
+    addScore(hit.id, normalizedScore, ftsWeight, 'fts', hit.type, hit.title, hit.text);
+  }
+
+  // --- 2. Vector similarity search ---
+  let vecResults: SimilarityResult[] = [];
+  try {
+    vecResults = await searchSimilar(query, projectRoot, maxResults * 2);
+  } catch {
+    // Vector search unavailable
+  }
+
+  if (vecResults.length > 0) {
+    // Normalize vector: distance-based (smaller distance = higher score)
+    const maxDist = Math.max(...vecResults.map(r => r.distance), 0.001);
+    for (const r of vecResults) {
+      const normalizedScore = 1.0 - (r.distance / maxDist);
+      addScore(r.id, normalizedScore, vecWeight, 'vec', r.type, r.title, r.text);
+    }
+  } else {
+    // Redistribute vec weight to FTS if vector unavailable
+    ftsWeight += vecWeight;
+    vecWeight = 0;
+
+    // Re-score FTS hits with updated weight
+    scoreMap.clear();
+    for (let i = 0; i < ftsHits.length; i++) {
+      const hit = ftsHits[i]!;
+      const normalizedScore = ftsHits.length > 1
+        ? 1.0 - (i / (ftsHits.length - 1))
+        : 1.0;
+      addScore(hit.id, normalizedScore, ftsWeight, 'fts', hit.type, hit.title, hit.text);
+    }
+  }
+
+  // --- 3. Graph neighbor expansion ---
+  try {
+    const accessor = await getBrainAccessor(projectRoot);
+
+    // Check if query matches a known graph node ID pattern
+    const possibleNodeIds = [
+      `concept:${query.toLowerCase().replace(/\s+/g, '-')}`,
+      `task:${query}`,
+      `doc:${query}`,
+    ];
+
+    for (const nodeId of possibleNodeIds) {
+      const node = await accessor.getPageNode(nodeId);
+      if (!node) continue;
+
+      const neighbors = await accessor.getNeighbors(nodeId);
+      for (let i = 0; i < neighbors.length; i++) {
+        const neighbor = neighbors[i]!;
+        const normalizedScore = neighbors.length > 1
+          ? 1.0 - (i / (neighbors.length - 1))
+          : 1.0;
+        addScore(
+          neighbor.id,
+          normalizedScore,
+          graphWeight,
+          'graph',
+          neighbor.nodeType,
+          neighbor.label,
+          neighbor.label,
+        );
+      }
+    }
+  } catch {
+    // Graph search unavailable — no redistribution needed (small weight)
+  }
+
+  // --- 4. Sort and return top-N ---
+  const sorted = [...scoreMap.entries()]
+    .map(([id, data]) => ({
+      id,
+      score: data.score,
+      type: data.type,
+      title: data.title,
+      text: data.text,
+      sources: [...data.sources] as Array<'fts' | 'vec' | 'graph'>,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults);
+
+  return sorted;
 }

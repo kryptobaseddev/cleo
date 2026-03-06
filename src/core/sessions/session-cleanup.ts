@@ -68,7 +68,7 @@ export async function cleanupSessions(
     }
   }
 
-  // Clean stale references in todo.json
+  // Clean stale references in task data
   if (current._meta?.activeSession) {
     const activeExists = sessions.some(
       (s) => s.id === current._meta!.activeSession && s.status === 'active',

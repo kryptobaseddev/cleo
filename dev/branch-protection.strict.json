@@ -1,0 +1,27 @@
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "TypeScript Build & Test (ubuntu-latest, 24)",
+      "TypeScript Build & Test (macos-latest, 24)",
+      "TypeScript Build & Test (windows-latest, 24)",
+      "Validate JSON Files",
+      "npm Install Test"
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 1,
+    "require_last_push_approval": true
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": true,
+  "lock_branch": false,
+  "allow_fork_syncing": false
+}

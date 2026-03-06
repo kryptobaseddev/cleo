@@ -92,7 +92,7 @@ export class RateLimiter {
   /**
    * Check if a request is allowed and record it if so.
    *
-   * @param gateway - The gateway type ('cleo_query' or 'cleo_mutate')
+   * @param gateway - The gateway type ('query' or 'mutate')
    * @param domain - The domain being accessed
    * @param operation - The operation being performed
    * @returns Rate limit check result with remaining quota
@@ -240,7 +240,7 @@ export class RateLimiter {
     }
 
     // Map gateway to category
-    if (gateway === 'cleo_query') {
+    if (gateway === 'query') {
       return 'query';
     }
 

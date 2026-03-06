@@ -71,8 +71,8 @@ CLEO Nexus operates as a four-layer architecture:
 │   - build_global_graph()                                │
 ├─────────────────────────────────────────────────────────┤
 │ Registry Layer: Global project index + permissions       │
-│   - ~/.cleo/projects-registry.json (existing)           │
-│   - ~/.cleo/nexus/relationships.json (new)              │
+│   - ~/.cleo/nexus.db (SQLite, primary storage)          │
+│   - Legacy: ~/.cleo/projects-registry.json (migrated)   │
 │   - Permission enforcement (read/write/execute)         │
 ├─────────────────────────────────────────────────────────┤
 │ Local Layer: Existing per-project graph-rag.sh          │

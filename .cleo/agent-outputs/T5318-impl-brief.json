@@ -1,0 +1,246 @@
+{
+  "tasks": {
+    "T5333": {
+      "title": "project-info.ts utility — readProjectInfo + ensureProjectId",
+      "targetFiles": ["src/core/project-info.ts"],
+      "createFiles": ["src/core/project-info.ts"],
+      "modifyFiles": ["src/core/scaffold.ts"],
+      "keyRequirements": [
+        "Create new src/core/project-info.ts with readProjectInfo(cwd) and ensureProjectInfo(cleoDir) functions",
+        "readProjectInfo reads .cleo/project-info.json and returns { projectId, projectHash, createdAt } or null",
+        "ensureProjectInfo generates crypto.randomUUID() projectId if not present, writes to project-info.json",
+        "Immutability: NEVER overwrite projectId if already set",
+        "Spec says projectId should be a UUID, but existing project-info.json uses projectHash (SHA-256 of path). DECISION: add projectId field (UUID) alongside existing projectHash — they serve different purposes"
+      ],
+      "apiContract": {
+        "readProjectInfo": "export function readProjectInfo(cwd: string): ProjectInfo | null",
+        "ensureProjectInfo": "export function ensureProjectInfo(cleoDir: string): ProjectInfo",
+        "ProjectInfo": "{ projectId: string; projectHash?: string; createdAt: string }"
+      },
+      "notes": "CRITICAL FINDING: project-info.json ALREADY EXISTS at scaffold time (src/core/scaffold.ts:300-350, ensureProjectInfo function). It contains projectHash (SHA-256 of path) but NOT projectId (UUID). The spec wants projectId as the immutable correlation UUID. The new src/core/project-info.ts is a THIN reader utility — it does NOT replace scaffold.ts's ensureProjectInfo. The scaffold function should be updated to also generate projectId (UUID) alongside projectHash. Existing field: projectHash = 12-char hex (line 314 of scaffold.ts). New field: projectId = crypto.randomUUID(). Both are useful; projectHash identifies the path, projectId is a stable identity token that survives directory moves."
+    },
+    "T5334": {
+      "title": "Drizzle migration: project_hash column on audit_log",
+      "targetFiles": ["src/store/schema.ts", "drizzle/"],
+      "createFiles": [],
+      "modifyFiles": ["src/store/schema.ts"],
+      "keyRequirements": [
+        "Add projectHash: text('project_hash') to auditLog table in src/store/schema.ts (line ~362, before closing paren)",
+        "Run drizzle-kit generate --custom --name 'add-project-hash-to-audit-log' (ALTER TABLE ADD COLUMN won't be auto-detected)",
+        "Fill in generated migration.sql with: ALTER TABLE audit_log ADD COLUMN project_hash TEXT; CREATE INDEX idx_audit_log_project_hash ON audit_log(project_hash);",
+        "NEVER hand-write snapshot.json — drizzle-kit generates it",
+        "Column is nullable — pre-migration rows will have NULL project_hash"
+      ],
+      "apiContract": {},
+      "notes": "Current audit_log schema at src/store/schema.ts:344-369 has 17 columns (id, timestamp, action, taskId, actor, detailsJson, beforeJson, afterJson, domain, operation, sessionId, requestId, durationMs, success, source, gateway, errorMessage). Add project_hash as 18th column. Add index idx_audit_log_project_hash. Existing indexes: task_id, action, timestamp, domain, request_id.",
+      "schemaLocation": "src/store/schema.ts:344-369",
+      "existingColumns": ["id", "timestamp", "action", "taskId", "actor", "detailsJson", "beforeJson", "afterJson", "domain", "operation", "sessionId", "requestId", "durationMs", "success", "source", "gateway", "errorMessage"],
+      "existingIndexes": ["idx_audit_log_task_id", "idx_audit_log_action", "idx_audit_log_timestamp", "idx_audit_log_domain", "idx_audit_log_request_id"]
+    },
+    "T5335": {
+      "title": "initLogger() projectHash param + root context binding",
+      "targetFiles": ["src/core/logger.ts"],
+      "createFiles": [],
+      "modifyFiles": ["src/core/logger.ts"],
+      "keyRequirements": [
+        "Add optional projectHash parameter to initLogger() signature (3rd param, optional for backward compat)",
+        "If projectHash provided, add to pino base object: pino({ base: { projectHash, pid, hostname } })",
+        "If projectHash absent, log warn via getLogger('engine'): 'projectHash not provided to initLogger; audit correlation will be incomplete'",
+        "Pino root logger base already has default pid/hostname; we add projectHash alongside",
+        "LoggerConfig interface stays unchanged (projectHash is a separate param, not in config)"
+      ],
+      "apiContract": {
+        "initLogger": "export function initLogger(cleoDir: string, config: LoggerConfig, projectHash?: string): pino.Logger"
+      },
+      "notes": "Current initLogger at src/core/logger.ts:48 takes (cleoDir: string, config: LoggerConfig). The pino constructor at line 73-82 uses { level, formatters, timestamp } but no base object. Add base: { projectHash } to make it appear in every log entry. The warn for missing projectHash should fire AFTER logger is initialized so it goes to the log file, not stderr.",
+      "currentSignature": "initLogger(cleoDir: string, config: LoggerConfig): pino.Logger",
+      "targetSignature": "initLogger(cleoDir: string, config: LoggerConfig, projectHash?: string): pino.Logger",
+      "pinoConstructorLocation": "src/core/logger.ts:73-82"
+    },
+    "T5336": {
+      "title": "MCP startup: call initLogger(), migrate console.error to Pino",
+      "targetFiles": ["src/mcp/index.ts"],
+      "createFiles": [],
+      "modifyFiles": ["src/mcp/index.ts"],
+      "keyRequirements": [
+        "Import initLogger from '../core/logger.js' and readProjectInfo from '../core/project-info.js'",
+        "Call initLogger() AFTER config load (line ~70) but BEFORE dispatch init (line ~79)",
+        "Read projectInfo via readProjectInfo(process.cwd()) to get projectId for correlation",
+        "Pass config.logLevel to logger config, use same defaults as CLI (filePath: 'logs/cleo.log', maxFileSize: 10MB, maxFiles: 5)",
+        "Replace post-init console.error('[CLEO MCP] ...') calls with getLogger('mcp:startup').info(...)",
+        "KEEP pre-init console.error calls (Node.js version check, global bootstrap) as-is since logger not yet initialized",
+        "KEEP shutdown/error handler console.error calls since logger may be closed",
+        "Import closeLogger and call it in shutdown() function"
+      ],
+      "apiContract": {},
+      "notes": "src/mcp/index.ts has 20+ console.error calls. Classification: (1) Pre-init (lines 52-56, 64-65): KEEP as console.error. (2) Post-config/pre-dispatch (lines 69-74): migrate to Pino info after initLogger. (3) Post-dispatch (lines 83-92): migrate to Pino info/debug. (4) Request handling (lines 123-125, 188-189, 205-206, 218, 244): migrate to Pino debug/error. (5) Shutdown (lines 300-313): KEEP as console.error (logger may be closed). (6) Uncaught error (line 323): KEEP as console.error.",
+      "consoleErrorCount": "20+ calls in src/mcp/index.ts",
+      "insertionPoint": "After line 70 (const config = loadConfig()) and before line 79 (initMcpDispatcher)"
+    },
+    "T5337": {
+      "title": "Wire projectHash into audit middleware + LoggingConfig retention fields",
+      "targetFiles": ["src/dispatch/middleware/audit.ts", "src/types/config.ts", "src/core/config.ts"],
+      "createFiles": [],
+      "modifyFiles": ["src/dispatch/middleware/audit.ts", "src/types/config.ts"],
+      "keyRequirements": [
+        "Add auditRetentionDays: number (default 90) and archiveBeforePrune: boolean (default true) to LoggingConfig interface in src/types/config.ts:57-66",
+        "Update config defaults in src/core/config.ts to include new fields",
+        "In audit.ts writeToSqlite(), add projectHash to the insert values",
+        "Read projectHash from project-info.json via readProjectInfo (cached singleton pattern)",
+        "Add CLEO_AUDIT_RETENTION_DAYS env var support in config resolution"
+      ],
+      "apiContract": {
+        "LoggingConfig": "{ level, filePath, maxFileSize, maxFiles, auditRetentionDays: number, archiveBeforePrune: boolean }"
+      },
+      "notes": "audit.ts writeToSqlite at line 79-107 does db.insert(auditLog).values({...}). Add projectHash field to values object. Need to import readProjectInfo and cache the result (project-info.json is immutable, so read once and cache). Current LoggingConfig at src/types/config.ts:57-66 has 4 fields. Add 2 new fields. The config.ts default values need updating too — find the logging defaults section.",
+      "auditMiddlewareFile": "src/dispatch/middleware/audit.ts",
+      "writeToSqliteLocation": "src/dispatch/middleware/audit.ts:79-107",
+      "configTypeFile": "src/types/config.ts:57-66"
+    },
+    "T5338": {
+      "title": "Remove all legacy JSONL read paths",
+      "targetFiles": [],
+      "createFiles": [],
+      "modifyFiles": [],
+      "keyRequirements": [
+        "CRITICAL FINDING: Most legacy JSONL paths are ALREADY REMOVED in current codebase",
+        "coreTaskHistory() at src/core/tasks/task-ops.ts:1425-1484 ALREADY reads from SQLite audit_log (not JSONL)",
+        "systemLog() at src/dispatch/engines/system-engine.ts:419-437 ALREADY uses SQLite only (no JSONL fallback)",
+        "health.ts ALREADY checks structured log path via resolveStructuredLogPath(), NOT todo-log.jsonl",
+        "scaffold.ts .gitignore uses deny-by-default pattern (not individual file entries) — no legacy JSONL entries to remove",
+        "REMAINING: test files reference JSONL — src/mcp/__tests__/test-environment.ts and src/mcp/__tests__/integration-setup.ts still reference todo-log.jsonl",
+        "REMAINING: src/core/platform.ts, src/store/file-utils.ts may have stale JSONL references"
+      ],
+      "legacyJSONLPaths": [
+        {
+          "file": "src/core/tasks/task-ops.ts",
+          "function": "coreTaskHistory()",
+          "status": "ALREADY_MIGRATED",
+          "replacementStrategy": "Already reads from SQLite audit_log. No change needed."
+        },
+        {
+          "file": "src/dispatch/engines/system-engine.ts",
+          "function": "systemLog() / queryAuditLogSqlite()",
+          "status": "ALREADY_MIGRATED",
+          "replacementStrategy": "Already uses SQLite only. No JSONL fallback exists."
+        },
+        {
+          "file": "src/core/system/health.ts",
+          "function": "resolveStructuredLogPath() checks",
+          "status": "ALREADY_MIGRATED",
+          "replacementStrategy": "Already checks structured log path (logs/cleo.log), not todo-log.jsonl."
+        },
+        {
+          "file": "src/core/scaffold.ts",
+          "function": ".gitignore template",
+          "status": "ALREADY_MIGRATED",
+          "replacementStrategy": "Uses deny-by-default .gitignore. No individual JSONL entries exist."
+        },
+        {
+          "file": "src/mcp/__tests__/test-environment.ts",
+          "function": "getAuditLogPath(), readAuditLogEntries()",
+          "status": "STALE_TEST_CODE",
+          "replacementStrategy": "Update test helpers to use SQLite audit_log instead of todo-log.jsonl. Lines 196-210."
+        },
+        {
+          "file": "src/mcp/__tests__/integration-setup.ts",
+          "function": "readAuditLogEntries()",
+          "status": "STALE_TEST_CODE",
+          "replacementStrategy": "Update test helper to use SQLite. Lines 860-877."
+        },
+        {
+          "file": "src/store/file-utils.ts",
+          "function": "JSONL file utilities",
+          "status": "CHECK_NEEDED",
+          "replacementStrategy": "Verify if JSONL utilities are still used. Remove if orphaned."
+        },
+        {
+          "file": "src/core/platform.ts",
+          "function": "JSONL reference",
+          "status": "CHECK_NEEDED",
+          "replacementStrategy": "Verify nature of reference. May be in documentation or feature detection."
+        }
+      ],
+      "notes": "MAJOR FINDING: The spec (T5315 §7) assumed coreTaskHistory() reads tasks-log.jsonl and systemLog() has a JSONL fallback. NEITHER IS TRUE in the current codebase. Both are already fully migrated to SQLite. The research matrix (T5312) was based on an older codebase snapshot. T5338 scope is dramatically reduced — only stale test helper code needs updating."
+    },
+    "T5339": {
+      "title": "pruneAuditLog() with archive-before-prune + startup wiring",
+      "targetFiles": ["src/core/system/cleanup.ts", "src/cli/index.ts", "src/mcp/index.ts"],
+      "createFiles": [],
+      "modifyFiles": ["src/core/system/cleanup.ts", "src/cli/index.ts", "src/mcp/index.ts"],
+      "keyRequirements": [
+        "Add pruneAuditLog(projectRoot, config) function to src/core/system/cleanup.ts",
+        "Signature: async function pruneAuditLog(projectRoot: string, config: { auditRetentionDays: number; archiveBeforePrune: boolean }): Promise<{ rowsArchived: number; rowsDeleted: number }>",
+        "Logic: calculate cutoff = new Date(Date.now() - days * 86400000).toISOString()",
+        "If archiveBeforePrune: query old rows, serialize to JSONL, compress to .cleo/backups/logs/audit-YYYY-MM-DD.jsonl.gz",
+        "DELETE FROM audit_log WHERE timestamp < cutoff",
+        "Log result at info level via getLogger('system:cleanup')",
+        "NEVER throw — log failures at warn level",
+        "Wire into CLI preAction hook (fire-and-forget after initLogger at src/cli/index.ts:507)",
+        "Wire into MCP startup (fire-and-forget after initLogger, added in T5336)",
+        "Wire into 'cleo cleanup logs' command — await result, surface counts"
+      ],
+      "apiContract": {
+        "pruneAuditLog": "export async function pruneAuditLog(projectRoot: string, config: { auditRetentionDays: number; archiveBeforePrune: boolean }): Promise<{ rowsArchived: number; rowsDeleted: number }>"
+      },
+      "notes": "cleanup.ts already has a cleanupSystem function with target='logs' case (likely handles Pino log files). The new pruneAuditLog is specifically for SQLite audit_log table rows. The CLI preAction hook for initLogger is at src/cli/index.ts:502-511. Add pruneAuditLog call after initLogger in the same hook or a new one. Use zlib.createGzip() for .gz compression of archive files."
+    },
+    "T5340": {
+      "title": "Finalize ADR-023 file and update ADR-019 status",
+      "targetFiles": [".cleo/adrs/ADR-023-multi-store-canonical-logging.md"],
+      "createFiles": [".cleo/adrs/ADR-023-multi-store-canonical-logging.md"],
+      "modifyFiles": [],
+      "keyRequirements": [
+        "Create .cleo/adrs/ADR-023-multi-store-canonical-logging.md from T5314 draft proposal",
+        "Update status from DRAFT to APPROVED after implementation tasks complete",
+        "Add supersedes note to ADR-019 for amended sections (2.1-2.4)",
+        "Include all 6 decisions (D1-D6) from T5313 consensus",
+        "Reference T5312, T5313, T5314, T5315 as source documents"
+      ],
+      "apiContract": {},
+      "notes": "Draft content is in .cleo/rcasd/T5318/T5314-adr-update-proposal.md. Copy the embedded ADR-023 markdown (lines 28-221) to the target file. ADR-019 location needs to be found — check .cleo/adrs/ directory."
+    }
+  },
+  "currentState": {
+    "loggerFile": "src/core/logger.ts",
+    "loggerSignature": "initLogger(cleoDir: string, config: LoggerConfig): pino.Logger",
+    "loggerConfigInterface": "src/types/config.ts:57-66 (4 fields: level, filePath, maxFileSize, maxFiles)",
+    "auditLogTable": "src/store/schema.ts:344-369 (17 columns, 5 indexes)",
+    "auditMiddleware": "src/dispatch/middleware/audit.ts (createAudit, writeToSqlite, queryAudit)",
+    "mcpEntryPoint": "src/mcp/index.ts (20+ console.error calls, NO initLogger call)",
+    "cliPreActionHook": "src/cli/index.ts:502-511 (calls initLogger with config.logging)",
+    "auditMiddlewareFiles": [
+      "src/dispatch/middleware/audit.ts"
+    ],
+    "jsonlFiles": [
+      "src/mcp/__tests__/test-environment.ts (stale test helper, references todo-log.jsonl)",
+      "src/mcp/__tests__/integration-setup.ts (stale test helper, references todo-log.jsonl)",
+      "src/store/file-utils.ts (JSONL utilities, check if orphaned)",
+      "src/core/platform.ts (minor reference, check nature)"
+    ],
+    "projectInfoExists": true,
+    "projectInfoLocation": "src/core/scaffold.ts:300-350 (ensureProjectInfo function, generates projectHash as 12-char SHA-256 hex)",
+    "projectInfoFields": ["$schema", "schemaVersion", "projectHash", "cleoVersion", "lastUpdated", "schemas"],
+    "projectInfoMissingField": "projectId (UUID) — the spec wants this as the stable immutable identity token",
+    "cleanupModule": "src/core/system/cleanup.ts (exists, has cleanupSystem function, no pruneAuditLog yet)",
+    "coreTaskHistoryStatus": "ALREADY READS FROM SQLITE (src/core/tasks/task-ops.ts:1425-1484)",
+    "systemLogStatus": "ALREADY USES SQLITE ONLY (src/dispatch/engines/system-engine.ts:419-437)",
+    "healthCheckStatus": "ALREADY CHECKS STRUCTURED LOG PATH (not todo-log.jsonl)"
+  },
+  "executionOrder": [
+    "T5333",
+    "T5334",
+    "T5335",
+    "T5336",
+    "T5337",
+    ["T5338", "T5339"],
+    "T5340"
+  ],
+  "criticalFindings": [
+    "SPEC DRIFT: coreTaskHistory() ALREADY reads from SQLite, not JSONL. T5315 spec §7.1 code sample matches what's already implemented. T5338 scope is dramatically smaller than expected.",
+    "SPEC DRIFT: systemLog() has NO JSONL fallback. The queryAuditLogJsonl function referenced in T5315 §7.3 does not exist in current codebase. Already fully SQLite.",
+    "SPEC DRIFT: health.ts already checks structured log path via resolveStructuredLogPath(), not todo-log.jsonl. T5315 §7.2 changes already done.",
+    "FIELD NAMING: Existing project-info.json uses 'projectHash' (12-char SHA-256 of path). Spec wants 'projectId' (UUID). These are DIFFERENT concepts — projectHash changes if dir moves, projectId is stable. Both should coexist.",
+    "SCAFFOLD OVERLAP: src/core/scaffold.ts already has ensureProjectInfo() — the new src/core/project-info.ts must be a READER utility, not duplicate the scaffold writer."
+  ]
+}

@@ -1,11 +1,13 @@
 ---
 version: 1.0.0
-status: proposed
+status: partially implemented
 task: T4870
 date: 2026-02-25
 ---
 
 # CLEO Data Integrity Specification
+
+*Note: `git-checkpoint.ts` exists and is partially implemented based on this specification.*
 
 ## 1. Git Checkpoint Isolation
 

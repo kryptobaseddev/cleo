@@ -13,7 +13,7 @@
  * Request from MCP gateway
  */
 export interface DomainRequest {
-  gateway: 'cleo_query' | 'cleo_mutate';
+  gateway: 'query' | 'mutate';
   domain: string;
   operation: string;
   params?: Record<string, unknown>;

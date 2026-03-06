@@ -15,7 +15,6 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { readLogFileEntries, getDataPath } from '../../core/platform.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import type { TaskRecord } from './task-engine.js';
 import { engineError, type EngineResult } from './_error.js';
@@ -413,7 +412,7 @@ export async function systemArchiveStats(
 
 /**
  * Query audit log with optional filters.
- * Reads from SQLite audit_log table (primary) with JSONL fallback.
+ * Reads from SQLite audit_log table.
  *
  * @task T4837
  */
@@ -429,21 +428,16 @@ export async function systemLog(
   },
 ): Promise<EngineResult<LogQueryData>> {
   try {
-    // Try SQLite audit_log table first
+    // Canonical path: SQLite audit_log table.
     const entries = await queryAuditLogSqlite(projectRoot, filters);
-    if (entries !== null) {
-      return { success: true, data: entries };
-    }
-
-    // Fallback: JSONL file (for JSON-engine installs or pre-migration state)
-    return queryAuditLogJsonl(projectRoot, filters);
+    return { success: true, data: entries };
   } catch (err: unknown) {
     return engineError('E_FILE_ERROR', (err as Error).message);
   }
 }
 
 /**
- * Query audit_log from SQLite. Returns null if SQLite is unavailable.
+ * Query audit_log from SQLite.
  * Includes dispatch-level fields (domain, requestId, durationMs, success,
  * source, gateway, errorMessage) when present (T4844).
  *
@@ -460,12 +454,19 @@ async function queryAuditLogSqlite(
     limit?: number;
     offset?: number;
   },
-): Promise<LogQueryData | null> {
+): Promise<LogQueryData> {
   try {
     const { join } = await import('node:path');
     const { existsSync } = await import('node:fs');
     const dbPath = join(projectRoot, '.cleo', 'tasks.db');
-    if (!existsSync(dbPath)) return null;
+    if (!existsSync(dbPath)) {
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit ?? 20;
+      return {
+        entries: [],
+        pagination: { total: 0, offset, limit, hasMore: false },
+      };
+    }
 
     const { getDb } = await import('../../store/sqlite.js');
     const { auditLog } = await import('../../store/schema.js');
@@ -501,7 +502,12 @@ async function queryAuditLogSqlite(
       );
       const total = countResult[0]?.cnt ?? 0;
 
-      if (total === 0) return null; // Fall through to JSONL
+      if (total === 0) {
+        return {
+          entries: [],
+          pagination: { total: 0, offset: filters?.offset ?? 0, limit: filters?.limit ?? 20, hasMore: false },
+        };
+      }
 
       const offset = filters?.offset ?? 0;
       const limit = filters?.limit ?? 20;
@@ -558,59 +564,21 @@ async function queryAuditLogSqlite(
         pagination: { total, offset, limit, hasMore: offset + limit < total },
       };
     } catch {
-      // audit_log table may not exist yet — fall through to JSONL
-      return null;
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit ?? 20;
+      return {
+        entries: [],
+        pagination: { total: 0, offset, limit, hasMore: false },
+      };
     }
   } catch {
-    return null;
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit ?? 20;
+    return {
+      entries: [],
+      pagination: { total: 0, offset, limit, hasMore: false },
+    };
   }
-}
-
-/**
- * Query audit log from JSONL file (fallback path).
- */
-function queryAuditLogJsonl(
-  projectRoot: string,
-  filters?: {
-    operation?: string;
-    taskId?: string;
-    since?: string;
-    until?: string;
-    limit?: number;
-    offset?: number;
-  },
-): EngineResult<LogQueryData> {
-  const logPath = getDataPath(projectRoot, 'todo-log.jsonl');
-  const raw = readLogFileEntries(logPath) as Array<{ operation: string; timestamp: string; taskId?: string; [key: string]: unknown }>;
-  let entries = raw;
-
-  if (filters?.operation) {
-    entries = entries.filter(e => e.operation === filters.operation);
-  }
-  if (filters?.taskId) {
-    entries = entries.filter(e => e.taskId === filters.taskId);
-  }
-  if (filters?.since) {
-    entries = entries.filter(e => e.timestamp >= filters.since!);
-  }
-  if (filters?.until) {
-    entries = entries.filter(e => e.timestamp <= filters.until!);
-  }
-
-  entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-  const total = entries.length;
-  const offset = filters?.offset ?? 0;
-  const limit = filters?.limit ?? 20;
-  const paginated = entries.slice(offset, offset + limit);
-
-  return {
-    success: true,
-    data: {
-      entries: paginated,
-      pagination: { total, offset, limit, hasMore: offset + limit < total },
-    },
-  };
 }
 
 // ===== Context =====
@@ -790,7 +758,8 @@ export async function systemInjectGenerate(
 ): Promise<EngineResult<import('../../core/system/inject-generate.js').InjectGenerateResult>> {
   try {
     const root = projectRoot || process.cwd();
-    const result = await generateInjection(root);
+    const accessor = await getAccessor(root);
+    const result = await generateInjection(root, accessor);
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
@@ -1075,18 +1044,83 @@ export function systemRestore(
   }
 }
 
+/**
+ * Restore an individual file from backup.
+ * @task T5329
+ */
+export async function backupRestore(
+  projectRoot: string,
+  fileName: string,
+  options?: { dryRun?: boolean },
+): Promise<EngineResult<{ restored: boolean; file: string; from: string; targetPath: string; dryRun?: boolean }>> {
+  try {
+    const { getBackupDir, getTaskPath, getConfigPath } = await import('../../core/paths.js');
+    const { restoreFromBackup, listBackups } = await import('../../store/backup.js');
+
+    const backupDir = getBackupDir(projectRoot);
+
+    const targetPathMap: Record<string, () => string> = {
+      'tasks.db': getTaskPath,
+      'config.json': getConfigPath,
+    };
+
+    const pathGetter = targetPathMap[fileName];
+    if (!pathGetter) {
+      return engineError('E_INVALID_INPUT', `Unknown file: ${fileName}. Valid files: tasks.db, config.json`);
+    }
+
+    const targetPath = pathGetter();
+
+    const backups = await listBackups(fileName, backupDir);
+    if (backups.length === 0) {
+      return engineError('E_NOT_FOUND', `No backups found for ${fileName}`);
+    }
+
+    if (options?.dryRun) {
+      return {
+        success: true,
+        data: {
+          restored: false,
+          file: fileName,
+          from: backups[0]!,
+          targetPath,
+          dryRun: true,
+        },
+      };
+    }
+
+    const restoredFrom = await restoreFromBackup(fileName, backupDir, targetPath);
+
+    return {
+      success: true,
+      data: {
+        restored: true,
+        file: fileName,
+        from: restoredFrom,
+        targetPath,
+      },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('not found') || message.includes('No backups')) {
+      return engineError('E_NOT_FOUND', message);
+    }
+    return engineError('E_GENERAL', `Backup restore failed: ${message}`);
+  }
+}
+
 // ===== Migrate =====
 
 /**
  * Check/run schema migrations.
  * @task T4631
  */
-export function systemMigrate(
+export async function systemMigrate(
   projectRoot: string,
   params?: { target?: string; dryRun?: boolean },
-): EngineResult<import('../../core/system/migrate.js').MigrateResult> {
+): Promise<EngineResult<import('../../core/system/migrate.js').MigrateResult>> {
   try {
-    const result = getMigrationStatus(projectRoot, params);
+    const result = await getMigrationStatus(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_MIGRATE_FAILED';
@@ -1100,12 +1134,12 @@ export function systemMigrate(
  * Cleanup stale data (sessions, backups, logs).
  * @task T4631
  */
-export function systemCleanup(
+export async function systemCleanup(
   projectRoot: string,
   params: { target: string; olderThan?: string; dryRun?: boolean },
-): EngineResult<import('../../core/system/cleanup.js').CleanupResult> {
+): Promise<EngineResult<import('../../core/system/cleanup.js').CleanupResult>> {
   try {
-    const result = cleanupSystem(projectRoot, params);
+    const result = await cleanupSystem(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_CLEANUP_FAILED';
@@ -1119,12 +1153,12 @@ export function systemCleanup(
  * Audit data integrity.
  * @task T4631
  */
-export function systemAudit(
+export async function systemAudit(
   projectRoot: string,
   params?: { scope?: string; fix?: boolean },
-): EngineResult<import('../../core/system/audit.js').AuditResult> {
+): Promise<EngineResult<import('../../core/system/audit.js').AuditResult>> {
   try {
-    const result = auditData(projectRoot, params);
+    const result = await auditData(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
@@ -1183,12 +1217,12 @@ export function systemSafestop(
  * Uncancel a cancelled task (restore to pending).
  * @task T4631
  */
-export function systemUncancel(
+export async function systemUncancel(
   projectRoot: string,
   params: { taskId: string; cascade?: boolean; notes?: string; dryRun?: boolean },
-): EngineResult<import('../../core/system/safestop.js').UncancelResult> {
+): Promise<EngineResult<import('../../core/system/safestop.js').UncancelResult>> {
   try {
-    const result = uncancelTask(projectRoot, params);
+    const result = await uncancelTask(projectRoot, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? 'E_UNCANCEL_FAILED';

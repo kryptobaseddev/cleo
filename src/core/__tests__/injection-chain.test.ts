@@ -14,11 +14,11 @@
  * @epic T4663
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { mkdtemp,readFile,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest';
 
 // Mock @cleocode/caamp to avoid requiring actual provider installations
 vi.mock('@cleocode/caamp', () => {
@@ -111,6 +111,10 @@ describe('E2E: injection chain validation (T4694)', () => {
     } else {
       delete process.env['CLEO_HOME'];
     }
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
 

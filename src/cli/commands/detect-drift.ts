@@ -269,7 +269,7 @@ export function registerDetectDriftCommand(program: Command): void {
 
       // Check 6: Canonical identity
       try {
-        const visionPath = join(projectRoot, 'docs', 'concepts', 'vision.mdx');
+        const visionPath = join(projectRoot, 'docs', 'concepts', 'CLEO-VISION.md');
         const specPath = join(projectRoot, 'docs', 'specs', 'PORTABLE-BRAIN-SPEC.md');
         
         const issues: DriftIssue[] = [];
@@ -280,7 +280,7 @@ export function registerDetectDriftCommand(program: Command): void {
             category: 'vision',
             message: 'Vision document missing',
             file: visionPath,
-            recommendation: 'Create docs/concepts/vision.mdx with project vision',
+            recommendation: 'Create docs/concepts/CLEO-VISION.md with project vision',
           });
         }
         

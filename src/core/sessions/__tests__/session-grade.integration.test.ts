@@ -61,15 +61,15 @@ function entry(
 function exemplarySession(): AuditEntry[] {
   return [
     // Check existing sessions first
-    entry({ domain: 'session', operation: 'list', timestamp: ts(0), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
+    entry({ domain: 'session', operation: 'list', timestamp: ts(0), metadata: { source: 'mcp', gateway: 'query' } }),
     // Use admin.help for progressive disclosure
-    entry({ domain: 'admin', operation: 'help', timestamp: ts(1000), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
+    entry({ domain: 'admin', operation: 'help', timestamp: ts(1000), metadata: { source: 'mcp', gateway: 'query' } }),
     // Discover tasks with find (not list)
-    entry({ domain: 'tasks', operation: 'find', timestamp: ts(2000), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
+    entry({ domain: 'tasks', operation: 'find', timestamp: ts(2000), metadata: { source: 'mcp', gateway: 'query' } }),
     // Drill into specific task
-    entry({ domain: 'tasks', operation: 'show', timestamp: ts(3000), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
+    entry({ domain: 'tasks', operation: 'show', timestamp: ts(3000), metadata: { source: 'mcp', gateway: 'query' } }),
     // Check parent exists before creating subtask
-    entry({ domain: 'tasks', operation: 'exists', timestamp: ts(4000), metadata: { source: 'mcp', gateway: 'cleo_query' } }),
+    entry({ domain: 'tasks', operation: 'exists', timestamp: ts(4000), metadata: { source: 'mcp', gateway: 'query' } }),
     // Create subtask with proper description
     entry({
       domain: 'tasks',
@@ -77,7 +77,7 @@ function exemplarySession(): AuditEntry[] {
       timestamp: ts(5000),
       params: { title: 'Implement feature X', description: 'Build the X feature as described in spec', parent: 'T100' },
       result: { success: true, exitCode: 0, duration: 50 },
-      metadata: { source: 'mcp', gateway: 'cleo_mutate' },
+      metadata: { source: 'mcp', gateway: 'mutate' },
     }),
     // Complete a task
     entry({
@@ -86,10 +86,10 @@ function exemplarySession(): AuditEntry[] {
       timestamp: ts(6000),
       params: { taskId: 'T101' },
       result: { success: true, exitCode: 0, duration: 30 },
-      metadata: { source: 'mcp', gateway: 'cleo_mutate' },
+      metadata: { source: 'mcp', gateway: 'mutate' },
     }),
     // End session properly
-    entry({ domain: 'session', operation: 'end', timestamp: ts(7000), metadata: { source: 'mcp', gateway: 'cleo_mutate' } }),
+    entry({ domain: 'session', operation: 'end', timestamp: ts(7000), metadata: { source: 'mcp', gateway: 'mutate' } }),
   ];
 }
 
@@ -192,7 +192,7 @@ describe('Session grade integration', () => {
     // Error protocol: 2 unrecovered E_NOT_FOUND (-10) + 1 duplicate (-5) = max(0, 20-15) = 5
     expect(result.dimensions.errorProtocol.score).toBeLessThanOrEqual(10);
 
-    // Disclosure: no help (0), no cleo_query (0) = 0
+    // Disclosure: no help (0), no query (0) = 0
     expect(result.dimensions.disclosureUse.score).toBe(0);
 
     // Total should be low

@@ -19,6 +19,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
+import { expect } from 'vitest';
 import {
   createTestEnvironment,
   destroyTestEnvironment,
@@ -115,6 +116,12 @@ class CLIExecutor {
    */
   private escapeArg(arg: string | number | boolean): string {
     const str = String(arg);
+    if (process.platform === 'win32') {
+      // PowerShell: use double quotes, escape internal double quotes
+      const escaped = str.replace(/"/g, '\\"');
+      return `"${escaped}"`;
+    }
+    // Unix: use single quotes, escape internal single quotes
     const escaped = str.replace(/'/g, "'\\''");
     return `'${escaped}'`;
   }
@@ -193,7 +200,7 @@ class CLIExecutor {
     // System domain
     const systemOps: Record<string, string> = {
       version: 'version', config: 'config', 'config.show': 'config',
-      'config.get': 'config', 'config.set': 'config',
+      'config.set': 'config',
       backup: 'backup', cleanup: 'cleanup', health: 'doctor',
       stats: 'stats', context: 'context',
     };
@@ -856,7 +863,7 @@ export async function waitForCondition(
 
 /**
  * Capture audit log entries from the isolated test environment.
- * CLEO stores audit logs in .cleo/todo-log.jsonl as a JSON object with an "entries" array.
+ * Reads from SQLite audit_log table (T5338, ADR-024).
  */
 export async function getAuditLogEntries(
   projectRootOrTestDataDir: string,
@@ -868,60 +875,44 @@ export async function getAuditLogEntries(
   }
 ): Promise<any[]> {
   // Try the given path directly, then try parent (in case testDataDir was passed).
-  // The log file may be named 'tasks-log.jsonl' (current) or 'todo-log.jsonl' (legacy).
   const candidates = [
-    path.join(projectRootOrTestDataDir, '.cleo', 'tasks-log.jsonl'),
-    path.join(projectRootOrTestDataDir, '.cleo', 'todo-log.jsonl'),
-    path.join(projectRootOrTestDataDir, '..', '.cleo', 'tasks-log.jsonl'),
-    path.join(projectRootOrTestDataDir, '..', '.cleo', 'todo-log.jsonl'),
+    projectRootOrTestDataDir,
+    path.join(projectRootOrTestDataDir, '..'),
   ];
 
-  for (const logPath of candidates) {
+  for (const projectRoot of candidates) {
     try {
-      const content = await fs.readFile(logPath, 'utf-8');
-      let entries: any[] = [];
+      const dbPath = path.join(projectRoot, '.cleo', 'tasks.db');
+      await fs.access(dbPath);
 
-      // Try parsing as JSON first (initial format with entries array)
-      try {
-        const parsed = JSON.parse(content);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.entries)) {
-          entries = parsed.entries;
-        } else {
-          // Not the expected {entries:[]} format - fall through to JSONL
-          throw new Error('Not entries format');
-        }
-      } catch {
-        // Hybrid format: JSON object followed by JSONL entries.
-        // Parse each line that looks like valid JSON.
-        const lines = content.split('\n').filter((l: string) => l.trim());
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('{')) {
-            try {
-              const entry = JSON.parse(trimmed);
-              // Skip the initial JSON object (it has "entries" key)
-              if (entry.action || entry.taskId) {
-                entries.push(entry);
-              } else if (Array.isArray(entry.entries)) {
-                entries.push(...entry.entries);
-              }
-            } catch {
-              // Skip malformed lines
-            }
-          }
-        }
-      }
+      const { getDb } = await import('../../store/sqlite.js');
+      const { auditLog } = await import('../../store/schema.js');
+      const db = await getDb(projectRoot);
+      const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
+
+      let entries = rows.map(r => ({
+        action: r.action,
+        taskId: r.taskId,
+        timestamp: r.timestamp,
+        domain: r.domain,
+        operation: r.operation,
+        sessionId: r.sessionId,
+        requestId: r.requestId,
+        success: r.success,
+        source: r.source,
+        gateway: r.gateway,
+        errorMessage: r.errorMessage,
+        detailsJson: r.detailsJson,
+      }));
 
       if (!filter) {
         return entries;
       }
 
-      return entries.filter((entry: any) => {
+      return entries.filter((entry) => {
         if (filter.action && entry.action !== filter.action) return false;
-        // CLEO logs actions like "task_created", "task_updated" etc.
-        // Match domain by checking if action contains the domain
-        if (filter.domain && !entry.action?.includes(filter.domain)) return false;
-        if (filter.operation && !entry.action?.includes(filter.operation)) return false;
+        if (filter.domain && entry.domain !== filter.domain) return false;
+        if (filter.operation && entry.operation !== filter.operation) return false;
         if (filter.sessionId && entry.sessionId !== filter.sessionId) return false;
         return true;
       });
@@ -966,7 +957,7 @@ export function createManifestEntry(taskId: string, overrides?: any): any {
  */
 export function verifyResponseFormat(
   response: any,
-  _expectedGateway: 'cleo_query' | 'cleo_mutate',
+  _expectedGateway: 'query' | 'mutate',
   _expectedDomain: string,
   _expectedOperation: string
 ): void {
@@ -984,20 +975,3 @@ export function verifyResponseFormat(
   }
 }
 
-/**
- * Mock expect for TypeScript (when running without Jest in this context)
- */
-function expect(value: any) {
-  return {
-    toBeDefined: () => {
-      if (value === undefined || value === null) {
-        throw new Error(`Expected value to be defined, got ${value}`);
-      }
-    },
-    toBe: (expected: any) => {
-      if (value !== expected) {
-        throw new Error(`Expected ${value} to be ${expected}`);
-      }
-    },
-  };
-}

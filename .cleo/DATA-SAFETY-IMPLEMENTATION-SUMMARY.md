@@ -78,7 +78,7 @@ Successfully implemented comprehensive data safety and naming standardization ac
 **Status**: COMPLETE  
 **Task ID**: T4749 (child of T4748 - Naming Standardization Epic)
 
-**Created**: `src/scripts/migrate-todo-to-tasks.ts`
+**Historical note**: A legacy todo-migration script existed during the T4749 migration phase and was later removed as dead code in T5303.
 
 **Features**:
 - **Atomic operation pattern**: backup → migrate → validate → cleanup
@@ -139,11 +139,10 @@ npm run migrate:todos -- --keep-backups
 
 ## Files Changed
 
-### New Files
+### New Files (historical at time of original write-up)
 ```
 src/store/data-safety-central.ts       # Centralized safety functions
 src/store/safety-data-accessor.ts      # Safety wrapper class
-src/scripts/migrate-todo-to-tasks.ts   # Migration script
 ```
 
 ### Modified Core Files

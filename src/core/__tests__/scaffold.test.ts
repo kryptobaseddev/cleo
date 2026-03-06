@@ -3,32 +3,30 @@
  * Covers ensure*, check*, strip, and utility functions.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync,mkdirSync,readFileSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 
 import {
-  fileExists,
-  stripCLEOBlocks,
-  removeCleoFromRootGitignore,
-  generateProjectHash,
-  getPackageRoot,
-  getCleoVersion,
-  getGitignoreContent,
-  createDefaultConfig,
-  ensureCleoStructure,
-  ensureGitignore,
-  ensureConfig,
-  ensureProjectContext,
-  ensureCleoGitRepo,
   checkCleoStructure,
   checkConfig,
   checkGitignore,
   checkSqliteDb,
-  ensureSqliteDb,
+  createDefaultConfig,
+  ensureCleoGitRepo,
+  ensureCleoStructure,
+  ensureConfig,
+  ensureGitignore,
+  ensureProjectContext,
+  fileExists,
+  generateProjectHash,
+  getCleoVersion,
+  getGitignoreContent,
+  getPackageRoot,
+  removeCleoFromRootGitignore,
   REQUIRED_CLEO_SUBDIRS,
-  CLEO_GITIGNORE_FALLBACK,
+  stripCLEOBlocks
 } from '../scaffold.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────

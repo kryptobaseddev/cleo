@@ -14,7 +14,6 @@ vi.mock('../../../store/data-accessor.js', () => ({
 // Mock file-utils since loadAllTasks path goes through it indirectly
 vi.mock('../../../store/file-utils.js', () => ({
   readJsonFile: vi.fn(() => null),
-  readLogFileEntries: vi.fn(() => []),
   getDataPath: vi.fn((_root: string, file: string) => `/mock/${file}`),
 }));
 

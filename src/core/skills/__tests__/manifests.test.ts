@@ -3,18 +3,14 @@
  * @task T4522
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import type { ManifestEntry } from '../types.js';
+import { describe,expect,it } from 'vitest';
+import type { ContributionDecision } from '../manifests/contribution.js';
 import {
-  generateContributionId,
-  detectConflicts,
   computeConsensus,
   createContributionManifestEntry,
+  detectConflicts,
+  generateContributionId,
 } from '../manifests/contribution.js';
-import type { ContributionDecision } from '../manifests/contribution.js';
 
 describe('generateContributionId', () => {
   it('should generate unique IDs', () => {

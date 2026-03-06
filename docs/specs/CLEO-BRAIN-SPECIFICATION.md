@@ -1,9 +1,9 @@
 ---
 title: "CLEO BRAIN Specification"
-version: "1.2.0"
+version: "1.3.0"
 status: "approved"
 created: "2026-02-03"
-updated: "2026-03-02"
+updated: "2026-03-05"
 epic: "T2975"
 task: "T3002"
 authors: ["Claude Opus 4.5", "CLEO Development Team"]
@@ -11,13 +11,13 @@ authors: ["Claude Opus 4.5", "CLEO Development Team"]
 
 # CLEO BRAIN Specification
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Status**: APPROVED
-**Date**: 2026-03-02
+**Date**: 2026-03-05
 **Epic**: T2975 - CLEO Consolidation Sprint
 **Task**: T3002 - Specification: Define AGENTIC BRAIN Concrete Requirements
-**Implementation**: Phases 1-2 SHIPPED (brain.db schema, 3-layer retrieval, 22 MCP operations, 5,122 observations migrated from claude-mem)
-**Remaining**: Phases 3-5 (SQLite-vec embeddings, reasoning engine, claude-mem full retirement)
+**Implementation**: Phases 1-4 SHIPPED (brain.db schema, 3-layer retrieval, MCP operations, vector search, PageIndex graph, reasoning engine, temporal decay, memory consolidation)
+**Remaining**: Phase 5 (claude-mem full retirement)
 
 ---
 
@@ -29,7 +29,7 @@ This specification defines CLEO as an **Agentic Cognitive Infrastructure** imple
 
 This document is a capability-model specification. Product identity and canonical invariants are defined by higher-authority documents:
 
-1. `docs/concepts/vision.md` (immutable vision identity)
+1. `docs/concepts/CLEO-VISION.md` (immutable vision identity)
 2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (canonical product contract)
 
 If conflicts occur, higher-authority documents prevail. This specification defines dimension-level implementation requirements and measurable certification criteria.
@@ -38,8 +38,8 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 
 | Dimension | What It Means | Current State |
 |-----------|---------------|---------------|
-| **B**ase (Memory) | Persistent knowledge across sessions | SHIPPED: brain.db with decisions, patterns, learnings, observations tables; 3-layer retrieval (search/timeline/fetch); 5,122 observations migrated |
-| **R**easoning | Causal inference and temporal analysis | Static dependency graph only |
+| **B**ase (Memory) | Persistent knowledge across sessions | SHIPPED: brain.db with decisions, patterns, learnings, observations tables; 3-layer retrieval (search/timeline/fetch); hybrid search (FTS5 + vector + graph); PageIndex graph (nodes/edges); 5,122 observations migrated |
+| **R**easoning | Causal inference and temporal analysis | SHIPPED: reason.why (causal trace), reason.similar (FTS5/vector fallback), temporal decay, memory consolidation |
 | **A**gent | Autonomous multi-agent orchestration | No self-healing or learning |
 | **I**ntelligence | Adaptive validation and prediction | No pattern extraction |
 | **N**etwork | Cross-project knowledge coordination | Unvalidated Nexus (zero usage) |
@@ -97,11 +97,20 @@ If conflicts occur, higher-authority documents prevail. This specification defin
 - **Observe**: `memory observe` — SHIPPED via MCP mutate gateway
 - **Session continuity**: Shipped via session chains and handoff/briefing system (ADR-020)
 
+**SHIPPED in Phase 3** (T5385-T5388):
+- FTS5 virtual tables with auto-sync triggers
+- Vector embeddings via pluggable EmbeddingProvider interface (384-dim vec0 table)
+- PageIndex graph tables: `brain_page_nodes` + `brain_page_edges` with bidirectional traversal
+- Hybrid search across FTS5, vector similarity, and graph neighbors (`memory.search.hybrid`)
+
+**SHIPPED in Phase 4** (T5390-T5395):
+- `memory.reason.why` — causal trace through task dependency chains with brain_decisions enrichment
+- `memory.reason.similar` — semantic similarity via vector search with FTS5 fallback
+- Temporal decay — exponential confidence reduction for stale learnings (`brain-lifecycle.ts`)
+- Memory consolidation — keyword-overlap clustering of old observations into summaries
+
 **Remaining gaps**:
-- FTS5 virtual tables with auto-sync triggers (gated on SQLite-vec integration)
-- Vector embeddings via SQLite-vec (Phase 3)
-- PageIndex graph tables (Phase 3)
-- Knowledge graph with version chains (Phase 3)
+- Knowledge graph with version chains (deferred)
 
 #### 2.1.2 Target Capabilities
 
@@ -228,10 +237,12 @@ cleo memory consolidate --period "2026-Q1" --output .cleo/memory/consolidated/20
 - Dependency graph analysis (`cleo deps`)
 - Wave-based parallel execution (`cleo orchestrator analyze`)
 - Graph-RAG semantic discovery
+- **Causal inference** via `memory.reason.why` — walks blocker chains with brain_decisions enrichment (SHIPPED, T5390)
+- **Similarity detection** via `memory.reason.similar` — vector KNN with FTS5 fallback (SHIPPED, T5391)
+- **Temporal decay** via `applyTemporalDecay` — exponential confidence reduction for stale learnings (SHIPPED, T5394)
+- **Memory consolidation** via `consolidateMemories` — keyword-overlap clustering into summaries (SHIPPED, T5395)
 
 **Limitations**:
-- **Static dependencies**: No causal inference ("Why did X happen?")
-- **No similarity matching**: Cannot find similar past work
 - **No impact prediction**: Cannot predict downstream effects
 - **No temporal reasoning**: Cannot analyze timelines (prohibited by "NO TIME ESTIMATES" rule)
 
@@ -922,7 +933,7 @@ cleo network similarity --project backend-api  # Find similar projects
 
 **Deliverables**:
 - 163 files → 100 files
-- MCP Server v1.0.0 (2 tools: `cleo_query`, `cleo_mutate`)
+- MCP Server v1.0.0 (2 tools: `query`, `mutate`)
 - Zero breaking changes
 
 ### 3.3 Phase 1: Validation (Months 3-4)
@@ -1595,7 +1606,7 @@ All 5 dimensions MUST meet certification criteria:
 - **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical product contract and invariants
 - **docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md**: Phase definitions and timeline
 - **docs/specs/MCP-SERVER-SPECIFICATION.md**: MCP architecture (prepares for Agent enhancements)
-- **docs/specs/CLEO-NEXUS-SPEC.md**: Network dimension architecture
+- **docs/specs/CLEO-NEXUS-SPECIFICATION.md**: Network dimension architecture
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCASD-IVTR lifecycle
 - **docs/specs/CLEO-SYSTEM-FLOW-ATLAS.md**: Canonical Information Flow diagram
 
@@ -1603,7 +1614,7 @@ All 5 dimensions MUST meet certification criteria:
 
 - **CLAUDE.md**: Core repository guidelines
 - **.cleo/templates/CLEO-INJECTION.md**: Subagent architecture
-- **docs/concepts/vision.md**: CLEO vision statement
+- **docs/concepts/CLEO-VISION.md**: CLEO vision statement
 
 ---
 
@@ -1628,7 +1639,7 @@ All 5 dimensions MUST meet certification criteria:
 ┌─────────────────────────────────────────────────────────────┐
 │ USER INTERACTION LAYER                                       │
 │ - CLI commands (76 commands)                                 │
-│ - MCP Server (cleo_query / cleo_mutate)                     │
+│ - MCP Server (query / mutate)                     │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
@@ -1683,7 +1694,7 @@ All 5 dimensions MUST meet certification criteria:
 ---
 
 **Specification Status**: APPROVED
-**Implementation**: Phases 1-2 shipped (brain.db, 3-layer retrieval, 22 MCP operations, claude-mem migration)
-**Next Steps**: Phase 3 planning (SQLite-vec embeddings, reasoning engine, knowledge graph)
+**Implementation**: Phases 1-4 shipped (brain.db, 3-layer retrieval, vector search, PageIndex graph, reasoning engine, temporal decay, memory consolidation)
+**Next Steps**: Phase 5 planning (claude-mem full retirement)
 **Approval Authority**: CLEO Development Team
 **Review Cycle**: Quarterly (or after each phase gate)

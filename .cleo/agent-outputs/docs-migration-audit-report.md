@@ -200,7 +200,7 @@ The spec is **heavily referenced** but **not written**:
 |-----|-----------|--------|-------|
 | docs/mintlify/ROADMAP.md | T2112 (REMOVED), T4454 (old) | ⚠️ STALE | References removed/superseded tasks |
 | docs/mintlify/specs/CLEO-V2-ARCHITECTURE-SPEC.md | Multiple | ⚠️ DUPLICATE | Also exists (or should) in docs/specs/ |
-| docs/concepts/vision.md | docs/INDEX.md | ✅ OK | Newly created, real content (28KB) |
+| docs/concepts/CLEO-VISION.md | docs/INDEX.md | ✅ OK | Newly created, real content (28KB) |
 
 ---
 
@@ -282,7 +282,7 @@ The spec is **heavily referenced** but **not written**:
 - docs/INDEX.md → docs/specs/*.md (all valid)
 - docs/SUMMARY.md → docs/specs/*.md (all valid)
 - AGENTS.md → docs/specs/VERB-STANDARDS.md, MCP-SERVER-SPECIFICATION.md, etc. (all valid)
-- docs/concepts/vision.md → docs/specs/* (new file, refs still to be added)
+- docs/concepts/CLEO-VISION.md → docs/specs/* (new file, refs still to be added)
 
 ---
 
@@ -319,7 +319,7 @@ The spec is **heavily referenced** but **not written**:
 **Current state**:
 ```
 docs/
-  ├── concepts/              # NEW (vision.md only)
+  ├── concepts/              # NEW (CLEO-VISION.md only)
   ├── guides/                # (2 files from migration, mostly empty)
   ├── research/              # (empty, never used)
   ├── specs/                 # (18 canonical specs)

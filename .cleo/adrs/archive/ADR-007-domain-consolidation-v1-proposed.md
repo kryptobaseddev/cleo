@@ -116,7 +116,7 @@ The following domain models were evaluated during T4797 research:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                     UNIFIED ENTRY POINT ARCHITECTURE                         │
 ├─────────────────────────────┬───────────────────────────────────────────────┤
-│        CLI (76 commands)    │         MCP Gateway (cleo_query/mutate)       │
+│        CLI (76 commands)    │         MCP Gateway (query/mutate)             │
 │                             │                                               │
 │  Commander.js registration  │    2-tool CQRS interface                      │
 │  → parse arguments          │    → validate params                          │

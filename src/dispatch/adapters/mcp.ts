@@ -74,7 +74,7 @@ export function resetMcpDispatcher(): void {
 }
 
 /**
- * Handle an MCP tool call (cleo_query or cleo_mutate).
+ * Handle an MCP tool call (query or mutate).
  *
  * Translates the MCP parameters into a DispatchRequest, executes it
  * through the dispatcher, and formats the response back to the standard
@@ -90,7 +90,7 @@ export async function handleMcpToolCall(
   const dispatcher = getMcpDispatcher();
 
   // Validate gateway
-  if (gateway !== 'cleo_query' && gateway !== 'cleo_mutate') {
+  if (gateway !== 'query' && gateway !== 'mutate' && gateway !== 'cleo_query' && gateway !== 'cleo_mutate') {
     return {
       _meta: {
         gateway: gateway as Gateway,
@@ -103,7 +103,7 @@ export async function handleMcpToolCall(
       error: {
         code: 'E_INVALID_GATEWAY',
         exitCode: 2,
-        message: `Unknown gateway: ${gateway}. Use 'cleo_query' or 'cleo_mutate'.`,
+        message: `Unknown gateway: ${gateway}. Use 'query' or 'mutate'.`,
       },
     } as DispatchResponse;
   }
@@ -129,7 +129,7 @@ export async function handleMcpToolCall(
 
   // Normalize gateway: 'cleo_query' → 'query', 'cleo_mutate' → 'mutate'
   // The dispatch registry and router use canonical 'query'/'mutate' values.
-  const normalizedGateway: Gateway = gateway === 'cleo_query' ? 'query' : 'mutate';
+  const normalizedGateway: Gateway = (gateway === 'cleo_query' || gateway === 'query') ? 'query' : 'mutate';
 
   const req: DispatchRequest = {
     gateway: normalizedGateway,

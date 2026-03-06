@@ -8,7 +8,7 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize, TaskFile } from '../../types/task.js';
-import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
 import {
   validateStatus,
   normalizePriority,
@@ -87,7 +87,6 @@ export interface UpdateTaskResult {
  */
 export async function updateTask(options: UpdateTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<UpdateTaskResult> {
   const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -289,7 +288,7 @@ export async function updateTask(options: UpdateTaskOptions, cwd?: string, acces
     }, cwd);
   } else {
     await saveJson(taskPath, data, { backupDir });
-    await logOperation(logPath, 'task_updated', options.taskId, {
+    await logOperation('task_updated', options.taskId, {
       changes,
       title: task.title,
     });

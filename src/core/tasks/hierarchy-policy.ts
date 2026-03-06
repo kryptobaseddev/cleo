@@ -35,7 +35,7 @@ export interface HierarchyValidationResult {
 // ---------------------------------------------------------------------------
 
 export const ENFORCEMENT_PROFILES = {
-  'llm-agent-first': { maxSiblings: 0, maxActiveSiblings: 32, maxDepth: 3, countDoneInLimit: false },
+  'llm-agent-first': { maxSiblings: 0, maxActiveSiblings: 0, maxDepth: 3, countDoneInLimit: false },
   'human-cognitive':  { maxSiblings: 7, maxActiveSiblings: 3,  maxDepth: 3, countDoneInLimit: false },
 } as const;
 

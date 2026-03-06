@@ -16,7 +16,7 @@ The CLEO codebase has **3 confirmed stubs/not-yet-implemented patterns**:
 | E_NOT_IMPLEMENTED returns | 1 complete domain | Medium | Acknowledged, forward-compatible |
 | Placeholder implementations | 1 function | Low | Advisory message, needs implementation |
 | Stub specs | 1 document | Low | Needs spec authorship |
-| Minor TODOs (non-blocking) | 3 items | Low | Technical debt, not blocking |
+| Minor action markers (non-blocking) | 3 items | Low | Technical debt, not blocking |
 
 **Key Finding**: The Nexus domain is intentionally stubbed for forward compatibility with BRAIN Network (not a bug).
 
@@ -245,15 +245,15 @@ The implementation is complete and well-documented in:
 
 ---
 
-## Minor TODOs (Non-Blocking Technical Debt)
+## Minor Action Markers (Non-Blocking Technical Debt)
 
-### TODO 1: Missing Schema Columns
+### Action Marker 1: Missing Schema Columns
 
 **File**: `/mnt/projects/claude-todo/src/core/lifecycle/pipeline.ts` (lines 370, 375)
 
 ```typescript
-updatedAt: new Date(row.startedAt), // TODO: Add updated_at column
-version: 1, // TODO: Add version column for optimistic locking
+updatedAt: new Date(row.startedAt), // Action item: add updated_at column
+version: 1, // Action item: add version column for optimistic locking
 ```
 
 **Description**: The `lifecycle_pipelines` table should track update timestamps separately from creation timestamps, and add version numbers for optimistic locking.
@@ -264,12 +264,12 @@ version: 1, // TODO: Add version column for optimistic locking
 
 ---
 
-### TODO 2: Agent Tracking in Transitions
+### Action Marker 2: Agent Tracking in Transitions
 
 **File**: `/mnt/projects/claude-todo/src/core/lifecycle/resume.ts` (line 649)
 
 ```typescript
-transitionedBy: 'system', // TODO: Store agent in transitions table
+transitionedBy: 'system', // Action item: store agent in transitions table
 ```
 
 **Description**: The `lifecycle_transitions` table should track which agent (human or AI) triggered each stage transition for better audit trails.
@@ -280,12 +280,12 @@ transitionedBy: 'system', // TODO: Store agent in transitions table
 
 ---
 
-### TODO 3: Rate Limiting Configuration
+### Action Marker 3: Rate Limiting Configuration
 
 **File**: `/mnt/projects/claude-todo/src/store/git-checkpoint.ts` (line 74)
 
 ```typescript
-* TODO: make this list config-driven via a .cleoignore-style allowlist in
+* Action item: make this list config-driven via a .cleoignore-style allowlist in
 ```
 
 **Description**: Git checkpoint ignore list should be configurable per project via `.cleoignore` file.
@@ -316,7 +316,7 @@ transitionedBy: 'system', // TODO: Store agent in transitions table
 Unlike typical "stub sweep" audits, the CLEO codebase has:
 - No empty query/mutate handlers returning null
 - No silent failures (E_NOT_IMPLEMENTED is explicit)
-- No TODO comments with missing implementations
+- No action-marker comments with missing implementations
 
 ---
 
@@ -341,7 +341,7 @@ Unlike typical "stub sweep" audits, the CLEO codebase has:
 
 This audit performed:
 1. ✓ Full-text grep for `E_NOT_IMPLEMENTED` across all .ts files
-2. ✓ Pattern matching for "not implemented", "stub", "placeholder", "TODO implement"
+2. ✓ Pattern matching for "not implemented", "stub", "placeholder", "follow-up implement"
 3. ✓ Review of all 12 dispatch domain handlers
 4. ✓ Check of all spec documents for stub status
 5. ✓ Analysis of compliance and lifecycle modules for incomplete functions

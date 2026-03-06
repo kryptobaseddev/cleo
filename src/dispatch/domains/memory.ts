@@ -38,6 +38,16 @@ import {
   memoryContradictions,
   memorySuperseded,
   memoryLink,
+  memoryUnlink,
+  // PageIndex graph operations (T5385)
+  memoryGraphAdd,
+  memoryGraphShow,
+  memoryGraphNeighbors,
+  memoryGraphRemove,
+  // Reasoning & hybrid search (T5388-T5393)
+  memoryReasonWhy,
+  memoryReasonSimilar,
+  memorySearchHybrid,
 } from '../../core/memory/engine-compat.js';
 
 // ---------------------------------------------------------------------------
@@ -188,6 +198,66 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
+        case 'graph.show': {
+          const nodeId = params?.nodeId as string;
+          if (!nodeId) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'nodeId is required', startTime);
+          }
+          const result = await memoryGraphShow({ nodeId }, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'graph.neighbors': {
+          const nodeId = params?.nodeId as string;
+          if (!nodeId) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'nodeId is required', startTime);
+          }
+          const result = await memoryGraphNeighbors(
+            { nodeId, edgeType: params?.edgeType as string | undefined },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'reason.why': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          }
+          const result = await memoryReasonWhy({ taskId }, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'reason.similar': {
+          const entryId = params?.entryId as string;
+          if (!entryId) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'entryId is required', startTime);
+          }
+          const result = await memoryReasonSimilar(
+            { entryId, limit: params?.limit as number | undefined },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
+        case 'search.hybrid': {
+          const query = params?.query as string;
+          if (!query) {
+            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+          }
+          const result = await memorySearchHybrid(
+            {
+              query,
+              ftsWeight: params?.ftsWeight as number | undefined,
+              vecWeight: params?.vecWeight as number | undefined,
+              graphWeight: params?.graphWeight as number | undefined,
+              limit: params?.limit as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'memory', operation, startTime);
       }
@@ -301,6 +371,49 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
+        case 'unlink': {
+          const taskId = params?.taskId as string;
+          const entryId = params?.entryId as string;
+          if (!taskId || !entryId) {
+            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'taskId and entryId are required', startTime);
+          }
+          const result = await memoryUnlink(
+            { taskId, entryId },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
+        case 'graph.add': {
+          const result = await memoryGraphAdd(
+            {
+              nodeId: params?.nodeId as string | undefined,
+              nodeType: params?.nodeType as string | undefined,
+              label: params?.label as string | undefined,
+              metadataJson: params?.metadataJson as string | undefined,
+              fromId: params?.fromId as string | undefined,
+              toId: params?.toId as string | undefined,
+              edgeType: params?.edgeType as string | undefined,
+              weight: params?.weight as number | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
+        case 'graph.remove': {
+          const result = await memoryGraphRemove(
+            {
+              nodeId: params?.nodeId as string | undefined,
+              fromId: params?.fromId as string | undefined,
+              toId: params?.toId as string | undefined,
+              edgeType: params?.edgeType as string | undefined,
+            },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
+        }
+
         default:
           return this.unsupported('mutate', 'memory', operation, startTime);
       }
@@ -315,8 +428,8 @@ export class MemoryHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['show', 'find', 'timeline', 'fetch', 'stats', 'contradictions', 'superseded', 'decision.find', 'pattern.find', 'pattern.stats', 'learning.find', 'learning.stats'],
-      mutate: ['observe', 'decision.store', 'pattern.store', 'learning.store', 'link'],
+      query: ['show', 'find', 'timeline', 'fetch', 'stats', 'contradictions', 'superseded', 'decision.find', 'pattern.find', 'pattern.stats', 'learning.find', 'learning.stats', 'graph.show', 'graph.neighbors', 'reason.why', 'reason.similar', 'search.hybrid'],
+      mutate: ['observe', 'decision.store', 'pattern.store', 'learning.store', 'link', 'unlink', 'graph.add', 'graph.remove'],
     };
   }
 

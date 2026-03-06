@@ -10,14 +10,14 @@ CLEO provides portable project memory, verifiable provenance, and agent-safe orc
 
 | System | Role |
 |--------|------|
-| **[BRAIN](concepts/vision.md#brain-the-memory-system)** | Memory & Cognition — persistent observations, patterns, learnings, decisions |
-| **[RCASD-IVTR+C](concepts/vision.md#rcasd-ivtrc-the-lifecycle-pipeline)** | Structured Lifecycle — 10-stage pipeline with gate enforcement |
-| **[NEXUS](concepts/vision.md#nexus-the-cross-project-network)** | Cross-Project Network — federated queries, global patterns, permissions |
-| **[LAFS](concepts/vision.md#lafs-the-agent-communication-contract)** | Agent Communication — JSON envelopes, MVI disclosure, exit codes |
+| **[BRAIN](concepts/CLEO-VISION.md#brain-the-memory-system)** | Memory & Cognition — persistent observations, patterns, learnings, decisions |
+| **[RCASD-IVTR+C](concepts/CLEO-VISION.md#rcasd-ivtrc-the-lifecycle-pipeline)** | Structured Lifecycle — 10-stage pipeline with gate enforcement |
+| **[NEXUS](concepts/CLEO-VISION.md#nexus-the-cross-project-network)** | Cross-Project Network — federated queries, global patterns, permissions |
+| **[LAFS](concepts/CLEO-VISION.md#lafs-the-agent-communication-contract)** | Agent Communication — JSON envelopes, MVI disclosure, exit codes |
 
 ## Documentation
 
-* [Vision](concepts/vision.md) — What CLEO is (canonical identity)
+* [Vision](concepts/CLEO-VISION.md) — What CLEO is (canonical identity)
 * [Verb Standards](specs/VERB-STANDARDS.md) — Canonical verb conventions
 * [Schema Authority](specs/SCHEMA-AUTHORITY.md) — Schema version management
 * [Data Integrity](specs/CLEO-DATA-INTEGRITY-SPEC.md) — Data safety guarantees

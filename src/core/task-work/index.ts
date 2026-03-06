@@ -9,7 +9,7 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { TaskFile } from '../../types/task.js';
-import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
 import { logOperation } from '../tasks/add.js';
 import { getUnresolvedDeps } from '../tasks/dependency-check.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -69,7 +69,6 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
   }
 
   const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -126,7 +125,7 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
     await saveJson(taskPath, data, { backupDir });
   }
 
-  await logOperation(logPath, 'task_start', taskId, {
+  await logOperation('task_start', taskId, {
     previousTask,
     title: task.title,
   }, accessor);
@@ -153,7 +152,6 @@ export async function startTask(taskId: string, cwd?: string, accessor?: DataAcc
  */
 export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{ previousTask: string | null }> {
   const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -194,7 +192,7 @@ export async function stopTask(cwd?: string, accessor?: DataAccessor): Promise<{
     await saveJson(taskPath, data, { backupDir });
   }
 
-  await logOperation(logPath, 'task_stop', previousTask ?? 'none', {
+  await logOperation('task_stop', previousTask ?? 'none', {
     previousTask,
   }, accessor);
 
@@ -228,3 +226,8 @@ export async function getWorkHistory(cwd?: string, accessor?: DataAccessor): Pro
   return history.reverse(); // Most recent first
 }
 
+/**
+ * Get task work history (canonical verb alias for dispatch layer).
+ * @task T5323
+ */
+export const getTaskHistory = getWorkHistory;

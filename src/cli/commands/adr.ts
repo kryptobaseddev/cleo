@@ -12,11 +12,11 @@
  *   ct adr find <query>          — fuzzy search ADRs by title, summary, keywords, topics
  *
  * MCP equivalents:
- *   cleo_mutate({domain:'admin', operation:'adr.validate'})
- *   cleo_query({domain:'admin',  operation:'adr.list',  params:{status?}})
- *   cleo_query({domain:'admin',  operation:'adr.show',  params:{adrId}})
- *   cleo_mutate({domain:'admin', operation:'adr.sync'})
- *   cleo_query({domain:'admin',  operation:'adr.find',  params:{query, topics?, keywords?, status?}})
+ *   mutate({domain:'admin', operation:'adr.validate'})
+ *   query({domain:'admin',  operation:'adr.list',  params:{status?}})
+ *   query({domain:'admin',  operation:'adr.show',  params:{adrId}})
+ *   mutate({domain:'admin', operation:'adr.sync'})
+ *   query({domain:'admin',  operation:'adr.find',  params:{query, topics?, keywords?, status?}})
  *
  * @see ADR-017 §5.1 for canonical frontmatter spec
  * @see ADR-017 §5.4 for cognitive search spec

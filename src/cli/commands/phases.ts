@@ -1,73 +1,42 @@
 /**
  * CLI phases command - phase listing with progress (separate from phase.ts).
- * @task T4538
- * @epic T4454
+ * @task T4538, T5326
+ * @epic T4454, T5323
  */
 
-// CLI-only: no dispatch route for phase listing (pipeline domain covers stage lifecycle only)
 import { Command } from 'commander';
-import {
-  listPhases,
-  showPhase,
-} from '../../core/phases/index.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the phases command group.
- * @task T4538
+ * @task T4538, T5326
  */
 export function registerPhasesCommand(program: Command): void {
   const phases = program
     .command('phases')
     .description('List phases with progress bars and statistics');
 
+  // T5326: Migrated to dispatch
   phases
     .command('list')
     .description('List all phases with progress (default)')
     .action(async () => {
-      try {
-        const result = await listPhases();
-        cliOutput(result, { command: 'phases' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'pipeline', 'phase.list', {}, { command: 'phases' });
     });
 
+  // T5326: Migrated to dispatch
   phases
     .command('show <phase>')
     .description('Show phase details and task counts')
     .action(async (phase: string) => {
-      try {
-        const result = await showPhase(phase);
-        cliOutput(result, { command: 'phases' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'pipeline', 'phase.show', { phaseId: phase }, { command: 'phases' });
     });
 
+  // T5326: Migrated to dispatch
   phases
     .command('stats')
     .description('Show detailed phase statistics')
     .action(async () => {
-      try {
-        const result = await listPhases();
-        cliOutput(result, { command: 'phases' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'pipeline', 'phase.list', {}, { command: 'phases' });
     });
 }

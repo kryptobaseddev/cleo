@@ -1,7 +1,7 @@
 # Protocol Enforcement Specification
 
 **Version**: 1.0.0
-**Status**: ACTIVE
+**Status**: ARCHIVED (Pending Epic T5492 Review against NEXUS Warp/LOOM)
 **Created**: 2026-01-28
 **Updated**: 2026-02-27
 **Author**: Protocol Specification Agent (T2688)

@@ -1,9 +1,9 @@
 # CLEO Operation Constitution
 
-**Version**: 2026.3.3
+**Version**: 2026.3.4
 **Status**: APPROVED
-**Date**: 2026-03-03
-**Task**: T5241
+**Date**: 2026-03-04
+**Task**: T5250
 **Supersedes**: CLEO-OPERATIONS-REFERENCE.md
 
 ---
@@ -22,14 +22,14 @@ CLEO exposes exactly **2 MCP tools** following the CQRS (Command Query Responsib
 
 | Tool | Gateway | Purpose |
 |------|---------|---------|
-| `cleo_query` | `query` | Read-only operations. MUST NOT modify state. Safe to retry. |
-| `cleo_mutate` | `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. |
+| `query` | `query` | Read-only operations. MUST NOT modify state. Safe to retry. |
+| `mutate` | `mutate` | State-changing operations. MAY modify data stores, sessions, or configuration. |
 
 All operations are addressed as `{domain}.{operation}` within their gateway:
 
 ```
-cleo_query  { domain: "tasks", operation: "show", params: { id: "T123" } }
-cleo_mutate { domain: "memory", operation: "observe", params: { text: "..." } }
+query  { domain: "tasks", operation: "show", params: { id: "T123" } }
+mutate { domain: "memory", operation: "observe", params: { text: "..." } }
 ```
 
 ---
@@ -48,15 +48,15 @@ CLEO defines exactly **10 canonical domains**. These are the runtime contract. C
 | `orchestrate` | Multi-agent coordination, wave planning, parallel execution | tasks.db |
 | `tools` | Skills, providers, issues, CAAMP catalog | .cleo/skills/ |
 | `admin` | Configuration, backup, migration, diagnostics, ADRs | config.json, tasks.db |
-| `nexus` | Cross-project coordination, registry, dependency graph | nexus.db |
-| `sharing` | Multi-contributor sync, remotes, snapshots | .cleo/sharing/ |
+| `nexus` | Cross-project coordination, registry, dependency graph, sharing operations | nexus.db |
+| `sticky` | Ephemeral project-wide capture, quick notes before formal task creation | brain.db |
 
 The canonical domain list is defined in `src/dispatch/types.ts` as:
 
 ```typescript
 export const CANONICAL_DOMAINS = [
   'tasks', 'session', 'memory', 'check', 'pipeline',
-  'orchestrate', 'tools', 'admin', 'nexus', 'sharing',
+  'orchestrate', 'tools', 'admin', 'nexus', 'sticky',
 ] as const;
 ```
 
@@ -97,6 +97,15 @@ All operation names MUST use canonical verbs as defined in `docs/specs/VERB-STAN
 | `fetch` | Batch retrieve by IDs | `memory.fetch` |
 | `plan` | Composite planning view | `tasks.plan` |
 | `sync` | Synchronize data | `admin.sync`, `nexus.sync` |
+| `check` | Check system liveness/health | `admin.health`, `check.coherence.check` |
+| `verify` | Verify artifact gates/frontmatter | `tools.skill.verify` |
+| `validate` | Validate compliance/schema | `pipeline.stage.validate`, `check.schema` |
+| `timeline` | Chronological context retrieval | `memory.timeline` |
+| `convert` | Transform entity type | `sticky.convert` |
+| `unlink` | Dissociate entities | `memory.unlink` |
+| `compute` | Compute derived values | Reserved — not yet in registry |
+
+> **Note**: `unlink` and `compute` are spec-ahead -- documented in the Constitution for completeness, not yet in registry.
 
 Deprecated verbs (`create`, `get`, `search`, `query` as verb) MUST NOT appear in new operations.
 
@@ -133,7 +142,7 @@ interface OperationDef {
 
 ## 6. Domain Operation Tables
 
-### 6.1 tasks (28 operations)
+### 6.1 tasks (32 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -155,16 +164,20 @@ interface OperationDef {
 | mutate | `add` | Create new task | 0 | -- | No |
 | mutate | `update` | Modify task properties (`status=done` MUST route to completion semantics) | 0 | -- | No |
 | mutate | `complete` | Canonical completion path (deps, acceptance policy, verification gates) | 0 | -- | No |
+| mutate | `cancel` | Cancel task (soft terminal state — reversible via `restore`) | 0 | `taskId` | No |
 | mutate | `delete` | Permanently remove task | 0 | -- | No |
 | mutate | `archive` | Soft-delete task to archive | 0 | -- | No |
 | mutate | `restore` | Restore task from terminal state | 0 | -- | No |
 | mutate | `reparent` | Move task to new parent | 0 | -- | No |
 | mutate | `promote` | Promote subtask to top-level | 0 | -- | No |
 | mutate | `reorder` | Reorder tasks within parent | 0 | -- | No |
-| mutate | `reopen` | Alias for `restore` (backward compat) | 0 | -- | No |
 | mutate | `relates.add` | Add task relationship | 0 | -- | No |
 | mutate | `start` | Begin working on task | 0 | -- | No |
 | mutate | `stop` | Stop working on task | 0 | -- | No |
+| query | `relates.find` | Find suggested and discovered task relationships | 1 | `taskId` | Yes |
+| query | `history` | Show task work history (time tracked per task) | 1 | -- | Yes |
+| mutate | `reopen` | tasks.reopen (mutate) - reopen completed tasks | 0 | `taskId` | No |
+| mutate | `unarchive` | tasks.unarchive (mutate) - restore archived tasks | 0 | `taskId` | No |
 
 ### 6.2 session (19 operations)
 
@@ -190,7 +203,7 @@ interface OperationDef {
 | mutate | `record.assumption` | Record an assumption in current session | 0 | -- | No |
 | mutate | `context.inject` | Inject protocol content into session context | 1 | `protocolType` | Yes |
 
-### 6.3 memory (17 operations)
+### 6.3 memory (18 operations)
 
 All memory operations target **brain.db** (SQLite with FTS5). The memory domain is the runtime interface to the BRAIN cognitive system.
 
@@ -213,8 +226,9 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 | mutate | `pattern.store` | Store reusable workflow or anti-pattern | 1 | `pattern`, `context` | No |
 | mutate | `learning.store` | Store insight or lesson learned | 1 | `insight`, `source` | No |
 | mutate | `link` | Link brain entry to task | 1 | `taskId`, `entryId` | No |
+| mutate | `unlink` | Remove link between brain entry and task | 1 | `taskId`, `entryId` | Yes |
 
-### 6.4 check (12 operations)
+### 6.4 check (19 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -230,8 +244,15 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 | query | `coherence.check` | Check cross-data coherence | 0 | -- | Yes |
 | mutate | `compliance.record` | Record compliance check result | 0 | -- | No |
 | mutate | `test.run` | Execute test suite | 0 | -- | No |
+| query | `protocol.consensus` | check.protocol.consensus (query) - Validate consensus protocol compliance | 0 | -- | Yes |
+| query | `protocol.contribution` | check.protocol.contribution (query) - Validate contribution protocol compliance | 0 | -- | Yes |
+| query | `protocol.decomposition` | check.protocol.decomposition (query) - Validate decomposition protocol compliance | 0 | -- | Yes |
+| query | `protocol.implementation` | check.protocol.implementation (query) - Validate implementation protocol compliance | 0 | -- | Yes |
+| query | `protocol.specification` | check.protocol.specification (query) - Validate specification protocol compliance | 0 | -- | Yes |
+| query | `gate.verify` | check.gate.verify (query) - View or modify verification gates | 0 | `taskId` | No |
+| query | `chain.validate` | check.chain.validate (query) — validate a WarpChain definition | 2 | `chain` | Yes |
 
-### 6.5 pipeline (24 operations)
+### 6.5 pipeline (37 operations)
 
 The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact ledger, and release orchestration.
 
@@ -261,8 +282,21 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | mutate | `release.push` | Push release to remote | 0 | -- | No |
 | mutate | `release.gates.run` | Run release gate checks | 0 | -- | No |
 | mutate | `release.rollback` | Rollback failed release | 0 | -- | No |
+| query | `phase.show` | Show phase details by slug or current phase (query) | 1 | -- | Yes |
+| query | `phase.list` | List all phases with status and task counts (query) | 1 | -- | Yes |
+| query | `chain.show` | pipeline.chain.show (query) — get chain definition by ID | 2 | `chainId` | Yes |
+| query | `chain.list` | pipeline.chain.list (query) — list all chain definitions | 2 | -- | Yes |
+| mutate | `phase.set` | Set the active phase | 1 | `phaseId` | No |
+| mutate | `phase.start` | Start a phase (pending -> active) | 1 | `phaseId` | No |
+| mutate | `phase.complete` | Complete a phase (active -> completed) | 1 | `phaseId` | No |
+| mutate | `phase.advance` | Complete current phase and start next | 1 | -- | No |
+| mutate | `phase.rename` | Rename a phase and update all task references | 1 | `oldName`, `newName` | No |
+| mutate | `phase.delete` | Delete a phase with task reassignment protection | 1 | `phaseId` | No |
+| mutate | `chain.add` | pipeline.chain.add (mutate) — store a validated chain definition | 2 | `chain` | No |
+| mutate | `chain.instantiate` | pipeline.chain.instantiate (mutate) — create chain instance for epic | 2 | `chainId`, `epicId` | No |
+| mutate | `chain.advance` | pipeline.chain.advance (mutate) — advance instance to next stage | 2 | `instanceId`, `nextStage` | No |
 
-### 6.6 orchestrate (14 operations)
+### 6.6 orchestrate (19 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -277,11 +311,16 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | query | `critical.path` | Critical path analysis | 0 | -- | Yes |
 | mutate | `start` | Start orchestration | 0 | -- | No |
 | mutate | `spawn` | Spawn sub-agent | 0 | -- | No |
+| mutate | `spawn.execute` | Execute spawn for task using adapter registry | 0 | `taskId` | No |
 | mutate | `validate` | Validate orchestration state | 0 | -- | No |
 | mutate | `parallel.start` | Begin parallel execution wave | 0 | -- | No |
 | mutate | `parallel.end` | End parallel execution wave | 0 | -- | No |
+| mutate | `handoff` | orchestrate.handoff (mutate) — composite handoff (context.inject -> session.end -> spawn) | 1 | `taskId`, `protocolType` | No |
+| query | `tessera.show` | orchestrate.tessera.show (query) — show a Tessera template by ID | 0 | `id` | Yes |
+| query | `tessera.list` | orchestrate.tessera.list (query) — list all registered Tessera templates | 0 | -- | Yes |
+| mutate | `tessera.instantiate` | orchestrate.tessera.instantiate (mutate) — instantiate a Tessera template into a chain instance | 0 | `templateId`, `epicId` | No |
 
-### 6.7 tools (30 operations)
+### 6.7 tools (32 operations)
 
 The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 
@@ -296,19 +335,21 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | query | `skill.dispatch` | Dispatch skill execution | 0 | -- | Yes |
 | query | `skill.verify` | Verify skill frontmatter | 0 | -- | Yes |
 | query | `skill.dependencies` | Show skill dependencies | 0 | -- | Yes |
+| query | `skill.spawn.providers` | List spawn-capable providers by capability | 1 | -- | Yes |
 | query | `skill.catalog.protocols` | List CAAMP protocol definitions | 2 | -- | Yes |
 | query | `skill.catalog.profiles` | List CAAMP dispatch profiles | 2 | -- | Yes |
 | query | `skill.catalog.resources` | List CAAMP shared resources | 2 | -- | Yes |
 | query | `skill.catalog.info` | Get CAAMP catalog metadata | 2 | -- | Yes |
+| query | `skill.precedence.show` | Show skills precedence mapping | 1 | -- | Yes |
+| query | `skill.precedence.resolve` | Resolve skill paths for provider | 1 | `providerId` | Yes |
 | query | `provider.list` | List registered providers | 0 | -- | Yes |
 | query | `provider.detect` | Detect available providers | 0 | -- | Yes |
 | query | `provider.inject.status` | Provider injection status | 0 | -- | Yes |
+| query | `provider.supports` | Check if provider supports capability | 1 | -- | Yes |
+| query | `provider.hooks` | List providers by hook event support | 1 | -- | Yes |
 | mutate | `issue.add.bug` | File bug report | 0 | -- | No |
 | mutate | `issue.add.feature` | File feature request | 0 | -- | No |
 | mutate | `issue.add.help` | File help request | 0 | -- | No |
-| mutate | `issue.create.bug` | Alias for `issue.add.bug` (backward compat) | 2 | -- | No |
-| mutate | `issue.create.feature` | Alias for `issue.add.feature` (backward compat) | 2 | -- | No |
-| mutate | `issue.create.help` | Alias for `issue.add.help` (backward compat) | 2 | -- | No |
 | mutate | `issue.generate.config` | Generate issue template configuration | 2 | -- | No |
 | mutate | `skill.install` | Install skill | 0 | -- | No |
 | mutate | `skill.uninstall` | Uninstall skill | 0 | -- | No |
@@ -318,14 +359,13 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `skill.refresh` | Refresh skill catalog | 0 | -- | No |
 | mutate | `provider.inject` | Inject provider configuration | 0 | -- | No |
 
-### 6.8 admin (35 operations)
+### 6.8 admin (43 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
 | query | `version` | Show CLEO version | 0 | -- | Yes |
 | query | `health` | System health check | 0 | -- | Yes |
 | query | `config.show` | Show configuration value | 0 | -- | Yes |
-| query | `config.get` | Alias for `config.show` (backward compat) | 0 | -- | Yes |
 | query | `stats` | Project statistics | 0 | -- | Yes |
 | query | `context` | Project context info | 0 | -- | Yes |
 | query | `runtime` | Runtime environment info | 0 | -- | Yes |
@@ -357,10 +397,19 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `adr.sync` | Sync ADR markdown files into architecture_decisions table | 2 | -- | Yes |
 | mutate | `adr.validate` | Validate ADR frontmatter against schema | 2 | -- | Yes |
 | mutate | `fix` | Auto-fix failed doctor checks | 0 | -- | No |
+| mutate | `backup.restore` | admin.backup.restore (mutate) - restore individual file from backup | 0 | `file` | No |
+| query | `sync.status` | Show current sync state with TodoWrite (query) | 1 | -- | Yes |
+| mutate | `sync.clear` | Clear sync state without merging (mutate) | 1 | -- | No |
+| query | `export` | admin.export (query) — export tasks to portable format (json, csv, tsv, markdown, todowrite) | 2 | -- | Yes |
+| mutate | `import` | admin.import (mutate) — import tasks from export file | 2 | `file` | No |
+| query | `snapshot.export` | admin.snapshot.export (query) — export current task state snapshot | 2 | -- | Yes |
+| mutate | `snapshot.import` | admin.snapshot.import (mutate) — import tasks from snapshot file | 2 | `file` | No |
+| query | `export.tasks` | admin.export.tasks (query) — export tasks to portable cross-project package | 2 | -- | Yes |
+| mutate | `import.tasks` | admin.import.tasks (mutate) — import tasks from cross-project export package | 2 | `file` | No |
 
-### 6.9 nexus (12 operations)
+### 6.9 nexus (31 operations)
 
-All nexus operations are tier 2 (cross-project coordination).
+All nexus operations are tier 2 (cross-project coordination) except `reconcile` (tier 1). Includes 10 sharing operations in the `share.*` sub-namespace.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -370,45 +419,60 @@ All nexus operations are tier 2 (cross-project coordination).
 | query | `query` | Resolve cross-project `project:taskId` query | 2 | `query` | Yes |
 | query | `deps` | Cross-project dependency analysis | 2 | `query` | Yes |
 | query | `graph` | Global dependency graph across all projects | 2 | -- | Yes |
+| query | `path.show` | Show critical dependency path across projects | 2 | -- | Yes |
+| query | `blockers.show` | Show blocking impact for a task query | 2 | `query` | Yes |
+| query | `orphans.list` | List orphaned cross-project dependencies | 2 | -- | Yes |
+| query | `critical-path` | Global critical path across all registered projects | 2 | -- | Yes |
+| query | `blocking` | Blocking impact analysis for a task | 2 | `query` | Yes |
+| query | `orphans` | Detect broken cross-project dependency references | 2 | -- | Yes |
+| query | `discover` | Discover related tasks across registered projects | 2 | `query` | Yes |
+| query | `search` | Search for patterns across registered projects | 2 | `query` | Yes |
+| query | `share.status` | Sharing status | 2 | -- | Yes |
+| query | `share.remotes` | List configured remotes | 2 | -- | Yes |
+| query | `share.sync.status` | Sync status | 2 | -- | Yes |
 | mutate | `init` | Initialize NEXUS (creates registry and directories) | 2 | -- | Yes |
 | mutate | `register` | Register a project in NEXUS | 2 | `path` | No |
 | mutate | `unregister` | Remove a project from NEXUS | 2 | `name` | No |
 | mutate | `sync` | Sync project metadata (task count, labels) | 2 | `name` | Yes |
 | mutate | `sync.all` | Sync all registered projects | 2 | -- | Yes |
 | mutate | `permission.set` | Update project permissions | 2 | `name`, `level` | Yes |
+| mutate | `reconcile` | Reconcile project identity with global nexus registry | 1 | -- | Yes |
+| mutate | `share.snapshot.export` | Export project snapshot | 2 | -- | No |
+| mutate | `share.snapshot.import` | Import project snapshot | 2 | -- | No |
+| mutate | `share.sync.gitignore` | Sync gitignore with CLEO paths | 2 | -- | No |
+| mutate | `share.remote.add` | Add sharing remote | 2 | -- | No |
+| mutate | `share.remote.remove` | Remove sharing remote | 2 | -- | No |
+| mutate | `share.push` | Push to sharing remote | 2 | -- | No |
+| mutate | `share.pull` | Pull from sharing remote | 2 | -- | No |
 
-### 6.10 sharing (10 operations)
+### 6.10 sticky (6 operations)
 
-All sharing operations are tier 2 (multi-contributor workflows).
+All sticky operations are tier 0 (quick capture). Sticky notes are lightweight capture entries that can be converted to tasks or memory.
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
-| query | `status` | Sharing status | 2 | -- | Yes |
-| query | `remotes` | List configured remotes | 2 | -- | Yes |
-| query | `sync.status` | Sync status | 2 | -- | Yes |
-| mutate | `snapshot.export` | Export project snapshot | 2 | -- | No |
-| mutate | `snapshot.import` | Import project snapshot | 2 | -- | No |
-| mutate | `sync.gitignore` | Sync gitignore with CLEO paths | 2 | -- | No |
-| mutate | `remote.add` | Add sharing remote | 2 | -- | No |
-| mutate | `remote.remove` | Remove sharing remote | 2 | -- | No |
-| mutate | `push` | Push to sharing remote | 2 | -- | No |
-| mutate | `pull` | Pull from sharing remote | 2 | -- | No |
+| query | `list` | List sticky notes | 0 | -- | Yes |
+| query | `show` | Show sticky note details | 0 | `stickyId` | Yes |
+| mutate | `add` | Create new sticky note | 0 | `content` | No |
+| mutate | `convert` | Convert sticky to task or memory | 0 | `stickyId`, `targetType` | No |
+| mutate | `archive` | Archive sticky note | 0 | `stickyId` | No |
+| mutate | `purge` | sticky.purge (mutate) — permanently delete sticky notes | 0 | `stickyId` | Yes |
 
 ### Summary Counts
 
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
-| tasks | 15 | 13 | 28 |
+| tasks | 17 | 15 | 32 |
 | session | 11 | 8 | 19 |
-| memory | 12 | 5 | 17 |
-| check | 10 | 2 | 12 |
-| pipeline | 10 | 14 | 24 |
-| orchestrate | 9 | 5 | 14 |
-| tools | 16 | 14 | 30 |
-| admin | 20 | 15 | 35 |
-| nexus | 6 | 6 | 12 |
-| sharing | 3 | 7 | 10 |
-| **Total** | **112** | **89** | **201** |
+| memory | 12 | 6 | 18 |
+| check | 17 | 2 | 19 |
+| pipeline | 14 | 23 | 37 |
+| orchestrate | 11 | 8 | 19 |
+| tools | 21 | 11 | 32 |
+| admin | 23 | 20 | 43 |
+| nexus | 17 | 14 | 31 |
+| sticky | 2 | 4 | 6 |
+| **Total** | **145** | **111** | **256** |
 
 ---
 
@@ -416,32 +480,32 @@ All sharing operations are tier 2 (multi-contributor workflows).
 
 Operations are organized into 3 tiers. Agents SHOULD start at tier 0 and escalate only when needed:
 
-### Tier 0 -- Core (151 operations)
+### Tier 0 -- Core (149 operations)
 
-Available to all agents from session start. Covers 80% of typical workflows.
+Available to all agents from session start. Covers 65% of typical workflows.
 
-**Domains**: tasks (26), session (17), check (12), pipeline (17), orchestrate (14), tools (20), admin (28)
+**Domains**: tasks, session, check, pipeline, orchestrate, tools, admin, sticky
 
-### Tier 1 -- Extended (28 operations)
+### Tier 1 -- Extended (51 operations)
 
 Memory, manifest, and advanced query operations. Agents escalate here when they need cognitive memory or research artifact access.
 
-**Domains**: memory (17), pipeline manifest ops (7), session debrief/chain/inject (3), admin archive.stats (1)
+**Domains**: memory plus extended operations across pipeline, session, admin, and tools
 
-### Tier 2 -- Full System (22 operations)
+### Tier 2 -- Full System (56 operations)
 
 Cross-project coordination, advanced tooling, and administrative functions. Used by orchestrator agents and system administrators.
 
-**Domains**: nexus (12), sharing (10), plus scattered admin/tools operations (adr.*, grade.*, skill.catalog.*, issue.templates, issue.validate.labels, issue.create.*, issue.generate.config, install.global)
+**Domains**: nexus plus advanced operations across admin and tools
 
 ### Tier Escalation
 
 An agent discovers tier 1+ operations via `admin.help`:
 
 ```
-cleo_query { domain: "admin", operation: "help" }                  -- tier 0 ops
-cleo_query { domain: "admin", operation: "help", params: { tier: 1 } }  -- + tier 1
-cleo_query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all ops
+query { domain: "admin", operation: "help" }                  -- tier 0 ops
+query { domain: "admin", operation: "help", params: { tier: 1 } }  -- + tier 1
+query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all ops
 ```
 
 ---
@@ -451,7 +515,7 @@ cleo_query { domain: "admin", operation: "help", params: { tier: 2 } }  -- all o
 Protocol injection is performed via `session.context.inject` (mutate gateway):
 
 ```
-cleo_mutate {
+mutate {
   domain: "session",
   operation: "context.inject",
   params: {
@@ -469,7 +533,7 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 ## 9. CLI/MCP Parity Rules
 
 1. The same `{domain}.{operation}` semantics apply to both CLI and MCP.
-2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `cleo_query tasks.show { id: "T123" }`.
+2. CLI commands map 1:1 to MCP operations where possible: `cleo show T123` = `query tasks.show { id: "T123" }`.
 3. CLI MAY provide aliases for convenience (e.g., `cleo done` for `tasks.complete`).
 4. MCP operations are the canonical names; CLI aliases are cosmetic.
 5. Both interfaces route through the shared dispatch layer (`src/dispatch/`) to `src/core/`.
@@ -480,10 +544,10 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 
 ### Request Validation
 
-1. The dispatcher validates `domain` against `CANONICAL_DOMAINS` (or legacy alias lookup).
+1. The dispatcher validates `domain` against `CANONICAL_DOMAINS`.
 2. The dispatcher validates `operation` against the registry for the resolved domain.
 3. Required parameters are validated via `validateRequiredParams()`.
-4. Invalid domain returns `E_INVALID_OPERATION`.
+4. Invalid domain returns `E_INVALID_DOMAIN`.
 5. Invalid operation returns `E_INVALID_OPERATION`.
 6. Missing required params returns `E_INVALID_INPUT`.
 

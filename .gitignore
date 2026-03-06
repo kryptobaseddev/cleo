@@ -43,6 +43,9 @@ dev/.compliance-cache/
 *.backup
 *.bak
 
+# Build-generated configuration
+src/config/build-config.ts
+
 # ============================================================
 # Operating System Files
 # ============================================================

@@ -141,6 +141,18 @@ export function registerInstallGlobalCommand(program: Command): void {
           warnings.push('MCP config update skipped (non-critical)');
         }
 
+        // Step 5: Install CLEO core skills globally
+        try {
+          if (!isDryRun) {
+            const { initCoreSkills } = await import('../../core/init.js');
+            await initCoreSkills(created, warnings);
+          } else {
+            created.push('core skills (would install/update)');
+          }
+        } catch (err) {
+          warnings.push(`Core skills installation failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
         cliOutput(
           {
             success: true,

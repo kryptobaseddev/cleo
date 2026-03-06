@@ -10,8 +10,9 @@
 import {
   getProvidersByHookEvent,
   getCommonHookEvents,
-  type HookEvent,
+  type HookEvent as CAAMPHookEvent,
 } from '@cleocode/caamp';
+import { type HookEvent, isProviderHookEvent } from './types.js';
 
 /**
  * Get all providers that support a specific hook event
@@ -20,6 +21,9 @@ import {
  * @returns Array of provider IDs that support this event
  */
 export function getHookCapableProviders(event: HookEvent): string[] {
+  if (!isProviderHookEvent(event)) {
+    return [];
+  }
   const providers = getProvidersByHookEvent(event);
   return providers.map((p) => p.id);
 }
@@ -30,9 +34,9 @@ export function getHookCapableProviders(event: HookEvent): string[] {
  * @param providerIds - Optional array of provider IDs (uses all active providers if omitted)
  * @returns Array of hook events supported by all specified providers
  */
-export function getSharedHookEvents(providerIds?: string[]): HookEvent[] {
+export function getSharedHookEvents(providerIds?: string[]): CAAMPHookEvent[] {
   return getCommonHookEvents(providerIds);
 }
 
 export { getProvidersByHookEvent, getCommonHookEvents };
-export type { HookEvent };
+export type { CAAMPHookEvent as ProviderHookEvent, HookEvent };

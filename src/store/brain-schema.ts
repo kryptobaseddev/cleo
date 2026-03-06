@@ -48,6 +48,15 @@ export const BRAIN_OBSERVATION_SOURCE_TYPES = ['agent', 'session-debrief', 'clau
 /** Memory entity types for the links table. */
 export const BRAIN_MEMORY_TYPES = ['decision', 'pattern', 'learning', 'observation'] as const;
 
+/** Sticky note status values. */
+export const BRAIN_STICKY_STATUSES = ['active', 'converted', 'archived'] as const;
+
+/** Sticky note colors. */
+export const BRAIN_STICKY_COLORS = ['yellow', 'blue', 'green', 'red', 'purple'] as const;
+
+/** Sticky note priority levels. */
+export const BRAIN_STICKY_PRIORITIES = ['low', 'medium', 'high'] as const;
+
 // === BRAIN_DECISIONS TABLE ===
 
 export const brainDecisions = sqliteTable('brain_decisions', {
@@ -138,6 +147,26 @@ export const brainObservations = sqliteTable('brain_observations', {
   index('idx_brain_observations_content_hash').on(table.contentHash),
 ]);
 
+// === BRAIN_STICKY_NOTES TABLE ===
+
+/** Ephemeral sticky notes for quick capture before formal classification. */
+export const brainStickyNotes = sqliteTable('brain_sticky_notes', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at'),
+  tagsJson: text('tags_json'),
+  status: text('status', { enum: BRAIN_STICKY_STATUSES }).notNull().default('active'),
+  convertedToJson: text('converted_to_json'),
+  color: text('color', { enum: BRAIN_STICKY_COLORS }),
+  priority: text('priority', { enum: BRAIN_STICKY_PRIORITIES }),
+  sourceType: text('source_type').default('sticky-note'),
+}, (table) => [
+  index('idx_brain_sticky_status').on(table.status),
+  index('idx_brain_sticky_created').on(table.createdAt),
+  index('idx_brain_sticky_tags').on(table.tagsJson),
+]);
+
 // === BRAIN_MEMORY_LINKS TABLE ===
 
 /** Cross-references between BRAIN entries and tasks in tasks.db. */
@@ -208,3 +237,5 @@ export type BrainPageNodeRow = typeof brainPageNodes.$inferSelect;
 export type NewBrainPageNodeRow = typeof brainPageNodes.$inferInsert;
 export type BrainPageEdgeRow = typeof brainPageEdges.$inferSelect;
 export type NewBrainPageEdgeRow = typeof brainPageEdges.$inferInsert;
+export type BrainStickyNoteRow = typeof brainStickyNotes.$inferSelect;
+export type NewBrainStickyNoteRow = typeof brainStickyNotes.$inferInsert;

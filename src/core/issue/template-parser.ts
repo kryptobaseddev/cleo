@@ -14,8 +14,11 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { getCleoDir, getProjectRoot } from '../paths.js';
+import { BUILD_CONFIG } from '../../config/build-config.js';
+import { getPackageRoot } from '../scaffold.js';
 
 const TEMPLATE_DIR = '.github/ISSUE_TEMPLATE';
+const PACKAGED_TEMPLATE_DIR = BUILD_CONFIG.templates.issueTemplatesDir;
 const CACHE_FILE = 'issue-templates.json';
 
 /** Known filename-to-subcommand mappings. */
@@ -52,6 +55,14 @@ const FALLBACK_TEMPLATES: IssueTemplate[] = [
     labels: ['enhancement'],
     subcommand: 'feature',
     fileName: 'feature_request.yml',
+  },
+  {
+    name: 'Help Question',
+    description: 'Ask a question or get help',
+    title: '[Help] ',
+    labels: ['help', 'question'],
+    subcommand: 'help',
+    fileName: 'help_question.yml',
   },
 ];
 
@@ -129,9 +140,30 @@ function parseTemplateFile(filePath: string): IssueTemplate | null {
 }
 
 /**
- * Parse all issue templates from .github/ISSUE_TEMPLATE/.
+ * Parse all issue templates from available sources.
+ * Priority:
+ *   1. Packaged templates in the CLEO installation (for npm-installed users)
+ *   2. Project's .github/ISSUE_TEMPLATE/ (for contributors working on CLEO)
  */
 export function parseIssueTemplates(projectDir?: string): IssueTemplate[] {
+  // Strategy 1: Check packaged templates (for npm-installed users)
+  try {
+    const packageRoot = getPackageRoot();
+    const packagedTemplateDir = join(packageRoot, PACKAGED_TEMPLATE_DIR);
+    if (existsSync(packagedTemplateDir)) {
+      const templates: IssueTemplate[] = [];
+      for (const file of readdirSync(packagedTemplateDir)) {
+        if (!file.endsWith('.yml') && !file.endsWith('.yaml')) continue;
+        const template = parseTemplateFile(join(packagedTemplateDir, file));
+        if (template) templates.push(template);
+      }
+      if (templates.length > 0) return templates;
+    }
+  } catch {
+    // Fall through to next strategy
+  }
+
+  // Strategy 2: Check project's .github/ISSUE_TEMPLATE/ (for contributors)
   const dir = projectDir ?? getProjectRoot();
   const templateDir = join(dir, TEMPLATE_DIR);
 

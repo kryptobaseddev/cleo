@@ -210,8 +210,8 @@ CLEO exposes two MCP tools using a CQRS (Command Query Responsibility Segregatio
 
 | Tool            | Purpose              | Side effects              |
 | --------------- | -------------------- | ------------------------- |
-| **cleo_query**  | Read-only operations | Never modifies state      |
-| **cleo_mutate** | Write operations     | Validated, logged, atomic |
+| **query**  | Read-only operations | Never modifies state      |
+| **mutate** | Write operations     | Validated, logged, atomic |
 
 Both accept the same parameter structure:
 
@@ -230,45 +230,45 @@ Both accept the same parameter structure:
 ## Workflow: Feature Implementation
 
 ```
-1. cleo_query   → domain: session,  operation: status
-2. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority }
-3. cleo_mutate  → domain: session,  operation: start     → params: { scope: "task:T####", name, autoFocus: true }
-4. cleo_mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
+1. query   → domain: session,  operation: status
+2. mutate  → domain: tasks,    operation: create    → params: { title, description, priority }
+3. mutate  → domain: session,  operation: start     → params: { scope: "task:T####", name, autoFocus: true }
+4. mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
 5.   ... do the work ...
-6. cleo_mutate  → domain: tasks,    operation: update    → params: { taskId, notes: "progress..." }
-7. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "what was done" }
-8. cleo_mutate  → domain: session,  operation: end       → params: { note: "summary" }
+6. mutate  → domain: tasks,    operation: update    → params: { taskId, notes: "progress..." }
+7. mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "what was done" }
+8. mutate  → domain: session,  operation: end       → params: { note: "summary" }
 ```
 
 ## Workflow: Bug Investigation
 
 ```
-1. cleo_query   → domain: system,   operation: dash
-2. cleo_query   → domain: tasks,    operation: find      → params: { query: "search terms" }
-3. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, priority: "high" }
-4. cleo_mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
+1. query   → domain: system,   operation: dash
+2. query   → domain: tasks,    operation: find      → params: { query: "search terms" }
+3. mutate  → domain: tasks,    operation: create    → params: { title, description, priority: "high" }
+4. mutate  → domain: session,  operation: tasks.start → params: { taskId: "T####" }
 5.   ... investigate ...
-6. cleo_mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "root cause and fix" }
+6. mutate  → domain: tasks,    operation: complete  → params: { taskId, notes: "root cause and fix" }
 ```
 
 ## Workflow: Task Decomposition
 
 ```
-1. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, type: "epic" }
-2. cleo_mutate  → domain: session,  operation: start     → params: { scope: "epic:T####", autoFocus: true }
-3. cleo_mutate  → domain: tasks,    operation: create    → params: { title, description, parent: "T####" }
+1. mutate  → domain: tasks,    operation: create    → params: { title, description, type: "epic" }
+2. mutate  → domain: session,  operation: start     → params: { scope: "epic:T####", autoFocus: true }
+3. mutate  → domain: tasks,    operation: create    → params: { title, description, parent: "T####" }
    ... repeat for each sub-task ...
-4. cleo_mutate  → domain: tasks,    operation: update    → params: { taskId: "T###", depends: ["T###"] }
-5. cleo_query   → domain: tasks,    operation: tree      → params: { taskId: "T####" }
-6. cleo_query   → domain: tasks,    operation: next
+4. mutate  → domain: tasks,    operation: update    → params: { taskId: "T###", depends: ["T###"] }
+5. query   → domain: tasks,    operation: tree      → params: { taskId: "T####" }
+6. query   → domain: tasks,    operation: next
 ```
 
 ## Workflow: GitHub Issue Filing
 
 ```
-1. cleo_mutate  → domain: issues,   operation: create_bug → params: { title, body, severity, dryRun: true }
+1. mutate  → domain: issues,   operation: create_bug → params: { title, body, severity, dryRun: true }
 2.   ... user confirms preview ...
-3. cleo_mutate  → domain: issues,   operation: create_bug → params: { title, body, severity }
+3. mutate  → domain: issues,   operation: create_bug → params: { title, body, severity }
 ```
 
 Issue types: `create_bug`, `create_feature`, `create_help`
@@ -283,35 +283,35 @@ Issue types: `create_bug`, `create_feature`, `create_help`
 | **tasks**   | `exists`      | Check task exists           | `taskId`                   |
 | **tasks**   | `tree`        | Hierarchical view           | `taskId`                   |
 | **tasks**   | `next`        | Suggested next task         | -                          |
-| **tasks**   | `deps`        | Dependency graph            | `taskId`                   |
+| **tasks**   | `depends`     | Dependency graph            | `taskId`                   |
 | **tasks**   | `blockers`    | What's blocking             | `taskId`                   |
 | **session** | `status`      | Current session             | -                          |
 | **session** | `list`        | All sessions                | -                          |
-| **session** | `focus.get`   | Current focus               | -                          |
-| **system**  | `dash`        | Project dashboard           | -                          |
-| **system**  | `version`     | CLEO version                | -                          |
-| **system**  | `doctor`      | Health check                | -                          |
-| **issues**  | `diagnostics` | System info for bug reports | -                          |
+| **tasks**   | `current`     | Current focus               | -                          |
+| **admin**   | `dash`        | Project dashboard           | -                          |
+| **admin**   | `version`     | CLEO version                | -                          |
+| **admin**   | `doctor`      | Health check                | -                          |
+| **tools**   | `issue.diagnostics` | System info for bug reports | -                    |
 
 ## Mutate Operations Reference
 
 | Domain      | Operation        | Purpose            | Required params        |
 | ----------- | ---------------- | ------------------ | ---------------------- |
-| **tasks**   | `create`         | New task           | `title`, `description` |
+| **tasks**   | `add`            | New task           | `title`, `description` |
 | **tasks**   | `update`         | Modify task        | `taskId` + fields      |
 | **tasks**   | `complete`       | Mark done          | `taskId`               |
 | **tasks**   | `delete`         | Remove task        | `taskId`               |
-| **tasks**   | `archive`        | Archive done tasks | -                      |
+| **tasks**   | `archive`        | Archive task       | `taskId`               |
 | **session** | `start`          | Begin session      | `scope`, `name`        |
-| **session** | `end`            | End session        | `note`                 |
-| **session** | `tasks.start`    | Set active task    | `taskId`               |
-| **session** | `tasks.stop`     | Clear focus        | -                      |
-| **issues**  | `create_bug`     | File bug report    | `title`, `body`        |
-| **issues**  | `create_feature` | Request feature    | `title`, `body`        |
-| **issues**  | `create_help`    | Ask question       | `title`, `body`        |
+| **session** | `end`            | End session        | `notes?`               |
+| **tasks**   | `start`          | Set active task    | `taskId`               |
+| **tasks**   | `stop`           | Clear focus        | `taskId`               |
+| **tools**   | `issue.add.bug`     | File bug report    | `title`, `body`     |
+| **tools**   | `issue.add.feature` | Request feature    | `title`, `body`     |
+| **tools**   | `issue.add.help`    | Ask question       | `title`, `body`     |
 
 <Note>
-  For the complete list of all 10 domains and 177 operations (97 query + 80
+  For the complete list of all 10 domains and 256 operations (145 query + 111
   mutate), see the [MCP Server Specification](../specs/MCP-SERVER-SPECIFICATION)
   or inspect the source of truth: `src/mcp/gateways/query.ts` and
   `src/mcp/gateways/mutate.ts`.

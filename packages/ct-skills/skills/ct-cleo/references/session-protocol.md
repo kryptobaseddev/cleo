@@ -14,10 +14,10 @@ ct session start --scope epic:T001 --auto-focus --name "Name"
 ## MCP Session Operations
 
 ```
-cleo_mutate({ domain: "session", operation: "start",
+mutate({ domain: "session", operation: "start",
   params: { scope: "epic:T001", name: "Work", autoStart: true }})
-cleo_query({ domain: "session", operation: "status" })
-cleo_mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
+query({ domain: "session", operation: "status" })
+mutate({ domain: "session", operation: "end", params: { note: "Progress" }})
 ```
 
 ## CLI Session Protocol
@@ -122,8 +122,8 @@ Skills are **context injections, NOT agents**. The orchestrator selects and inje
 ### Discovery
 
 ```
-cleo_query({ domain: "skills", operation: "list" })
-cleo_query({ domain: "skills", operation: "show", params: { name: "ct-orchestrator" }})
+query({ domain: "skills", operation: "list" })
+query({ domain: "skills", operation: "show", params: { name: "ct-orchestrator" }})
 ```
 
 ### Key Skills

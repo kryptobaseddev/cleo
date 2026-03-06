@@ -23,15 +23,6 @@ const CLEO_DIR = join(TEST_ROOT, '.cleo');
 const METRICS_DIR = join(CLEO_DIR, 'metrics');
 const MANIFEST_DIR = join(TEST_ROOT, '.cleo', 'agent-outputs');
 
-function writeTodoJson(tasks: any[]): void {
-  mkdirSync(CLEO_DIR, { recursive: true });
-  writeFileSync(
-    join(CLEO_DIR, 'todo.json'),
-    JSON.stringify({ tasks, _meta: { schemaVersion: '2.6.0' } }, null, 2),
-    'utf-8'
-  );
-}
-
 function writeManifest(entries: any[]): void {
   mkdirSync(MANIFEST_DIR, { recursive: true });
   const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
