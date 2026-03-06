@@ -416,32 +416,21 @@ GitHub URLs in generated output are resolved dynamically from `git remote origin
 
 ## CI/CD Integration
 
-| Event | Workflow | Action |
-|-------|----------|--------|
-| Tag push `v*.*.*` | `release.yml` | Build tarball, generate release notes, create GitHub Release |
-| Tag push `v*.*.*` | `npm-publish.yml` | Build, test, and publish `@cleocode/mcp-server` to npm |
-| CHANGELOG.md changed on main | `docs-update.yml` | Safety net: regenerate platform docs if missed by ship flow |
-| docs/** changed on main | `mintlify-deploy.yml` | Validate Mintlify docs (deployment via Mintlify dashboard) |
+CLEO generates platform-specific CI workflow templates via `cleo release init-ci`. The general release automation pattern is:
+
+```
+cleo release ship <version> --bump-version --create-tag --push
+    → tag push detected by CI
+    → CI: build → test → publish to registry
+```
+
+Supported CI platforms: `github-actions`, `gitlab-ci`, `circleci` (see `init-ci` command above).
+
+The generated workflow handles the CI side (build/test/publish). CLEO handles the CLEO side (changelog, version bump, tag, manifest entry). These are separate responsibilities.
 
 ---
 
-## MCP Server Publishing
-
-The MCP server npm package (`@cleocode/mcp-server`) is automatically published when a release is shipped:
-
-1. `cleo release ship --bump-version` bumps all files configured in `release.versionBump` (VERSION, package.json, README badge, etc.)
-2. `mcp-server/package.json` is updated as part of the config-driven bump (configured in `.cleo/config.json`)
-3. Release commit includes the synced `mcp-server/package.json`
-4. Git tag push triggers `.github/workflows/npm-publish.yml`
-5. GitHub Action builds, tests, and publishes to npm
-
-### Required Setup
-
-- GitHub secret `NPM_TOKEN` must be configured with npm publish access
-- npm package `@cleocode/mcp-server` must exist on the registry
-- `release.versionBump.files` must include `mcp-server/package.json` with `json` strategy
-
-### Version Bump Configuration
+## Version Bump Configuration
 
 Version bumping is config-driven via `release.versionBump` in `.cleo/config.json`. The portable library (`lib/release/version-bump.sh`) supports four strategies: `plain` (VERSION files), `json` (package.json via jq), `toml` (Cargo.toml), and `sed` (custom patterns like README badges). Files marked `optional: true` are silently skipped if not present.
 
