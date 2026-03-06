@@ -359,6 +359,31 @@ export const pipelineManifest = sqliteTable('pipeline_manifest', {
   index('idx_pipeline_manifest_content_hash').on(table.contentHash),
 ]);
 
+// === RELEASE MANIFESTS (T5580) ===
+
+export const releaseManifests = sqliteTable('release_manifests', {
+  id: text('id').primaryKey(),
+  version: text('version').notNull().unique(),
+  status: text('status').notNull().default('draft'),
+  pipelineId: text('pipeline_id').references(() => lifecyclePipelines.id),
+  epicId: text('epic_id'),
+  tasksJson: text('tasks_json').notNull().default('[]'),
+  changelog: text('changelog'),
+  notes: text('notes'),
+  previousVersion: text('previous_version'),
+  commitSha: text('commit_sha'),
+  gitTag: text('git_tag'),
+  npmDistTag: text('npm_dist_tag'),
+  createdAt: text('created_at').notNull(),
+  preparedAt: text('prepared_at'),
+  committedAt: text('committed_at'),
+  taggedAt: text('tagged_at'),
+  pushedAt: text('pushed_at'),
+}, (table) => [
+  index('idx_release_manifests_status').on(table.status),
+  index('idx_release_manifests_version').on(table.version),
+]);
+
 // === SCHEMA METADATA ===
 
 export const schemaMeta = sqliteTable('schema_meta', {
@@ -515,3 +540,5 @@ export type ManifestEntryRow = typeof manifestEntries.$inferSelect;
 export type NewManifestEntryRow = typeof manifestEntries.$inferInsert;
 export type PipelineManifestRow = typeof pipelineManifest.$inferSelect;
 export type NewPipelineManifestRow = typeof pipelineManifest.$inferInsert;
+export type ReleaseManifestRow = typeof releaseManifests.$inferSelect;
+export type NewReleaseManifestRow = typeof releaseManifests.$inferInsert;
