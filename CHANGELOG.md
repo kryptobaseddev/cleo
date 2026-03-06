@@ -7,10 +7,11 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ## [2026.3.14] - 2026-03-06
 
-This is a major stable release promoting the full `2026.3.13-beta` cycle to `@latest`. It covers 51 commits
-across 10 feature themes: Warp/BRAIN evolution, Sticky Notes domain, Zero-Legacy compliance closure,
-Unified Audit Logging, CLI-to-Dispatch migration progress, Sharing→NEXUS restructure, Memory domain
-clean break, MCP tool naming standardization, Storage hardening, and hierarchy limit removal.
+This is a major stable release promoting the full `2026.3.13-beta` cycle to `@latest`. It covers 55 commits
+across 13 feature themes: Warp/BRAIN evolution, Hook infrastructure, Sticky Notes domain, Zero-Legacy
+compliance closure, Unified Audit Logging, CLI-to-Dispatch migration progress, Sharing→NEXUS restructure,
+Memory domain clean break, MCP tool naming standardization, Storage hardening, hierarchy limit removal,
+OpenCode spawn adapter + Tessera engine, and the Conduit protocol specification.
 
 ### Warp + BRAIN Progress Update (T5373)
 
@@ -147,6 +148,79 @@ Hard cutover away from all legacy interfaces — backward-compat shims fully rem
 - ADR-019 amendment link corrected (T5340)
 - Cleanup matrix added, dead script refs retired (T5317)
 - MCP gateway names updated: `cleo_query`/`cleo_mutate` → `query`/`mutate` throughout (T5361, T5507)
+
+### OpenCode Spawn Adapter + Tessera Engine (T5236, T5239)
+
+- **OpenCode spawn adapter** — `src/core/spawn/adapters/opencode-adapter.ts` — CLEO can now spawn
+  subagents into OpenCode environments using the OpenCode CLI, with project-local agent definition sync
+  for provider-native spawning. Adds to the existing Claude Code adapter (T1114, T5236)
+- **Chain-store search API** — `ChainFindCriteria` added to `src/core/lifecycle/chain-store.ts` — query
+  Warp chains by text, category, tessera archetype, and limit
+- **Tessera engine hardening** — Major update to the Warp chain execution engine with improved gate
+  resolution, chain validation integration, and instance lifecycle tracking
+- **Default chain definition** — `src/core/lifecycle/default-chain.ts` updated with standard RCASD-IVTR+C
+  stage defaults for new chain instances
+- **Chain validation tests** — `src/core/validation/__tests__/chain-validation.test.ts` — comprehensive
+  coverage for chain structure, gate ordering, and validation edge cases
+- **API codegen** — `src/api-codegen/generate-api.ts` (575 lines) — generates typed API clients directly
+  from the dispatch registry; produces TypeScript interfaces and operation call stubs
+- **New Drizzle migration** — `drizzle/20260306001243_spooky_rage/` — schema migration for chain and
+  session-related table updates
+- **Domain test coverage expansion** — Comprehensive dispatch domain tests added:
+  - `src/dispatch/domains/__tests__/check.test.ts` — 137 lines covering all check domain operations
+  - `src/dispatch/domains/__tests__/orchestrate.test.ts` — 110 lines covering orchestrate domain
+  - `src/dispatch/domains/__tests__/pipeline.test.ts` — 229 lines covering pipeline domain ops
+  - `src/core/sessions/__tests__/index.test.ts` — 84 lines covering session lifecycle
+  - `src/core/sessions/__tests__/session-memory-bridge.test.ts` — 68 lines for session↔BRAIN bridge
+  - `src/core/hooks/__tests__/registry.test.ts` and `provider-hooks.test.ts` — hook system coverage
+- **dev/archived/ purged** — All ~50 legacy Bash scripts removed from `dev/archived/`:
+  compliance checks, benchmarks, bump/release scripts, schema tools, and lib/ Bash helpers.
+  The `dev/` directory is now TypeScript-only
+- **New dev utilities** — `dev/check-todo-hygiene.sh` and `dev/check-underscore-import-hygiene.mjs`
+  for ongoing codebase hygiene checks
+
+### NEXUS reconcile CLI (T5368)
+
+- `cleo nexus reconcile` CLI subcommand added — reconciles local project state with the NEXUS registry,
+  detecting and resolving drift between local `.cleo/` state and registered project entries
+
+### Specification Consolidation (T5239, T5492-T5506)
+
+Major doc surgery: deleted superseded specs, updated all active specs to [IMPLEMENTED]/[TARGET] markers,
+created T5492-T5506 epics for all gated/target items.
+
+**Deleted (superseded or consolidated):**
+- `CLEO-OPERATIONS-REFERENCE.md` — superseded by `CLEO-OPERATION-CONSTITUTION.md`
+- `CLEO-STRATEGIC-ROADMAP-SPEC.md` — consolidated into `docs/ROADMAP.md`
+- `VITEST-V4-MIGRATION-PLAN.md` — migration complete
+- `CAAMP-1.6.1-API-INTEGRATION.md`, `CAAMP-CLEO-INTEGRATION-REQUIREMENTS.md` — consolidated
+- `T5236-CAAMP-SPAWN-ADAPTER-DESIGN.md`, `T5237-UNIVERSAL-HOOKS-DESIGN.md` — consolidated
+
+**Updated with [IMPLEMENTED]/[TARGET] clarity:**
+- `ROADMAP.md` — [IMPLEMENTED] / [TARGET] markers with epic references
+- `VERB-STANDARDS.md` — `purge` verb added (now 38 canonical verbs)
+- `CLEO-OPERATION-CONSTITUTION.md` — synced to 256 operations
+- `MCP-SERVER-SPECIFICATION.md` — 10 canonical domains, 256 ops, MCP-only BRAIN
+- `MCP-AGENT-INTERACTION-SPEC.md` — refreshed progressive disclosure framework
+- `PORTABLE-BRAIN-SPEC.md` — portability section and NEXUS sync notes added
+- `CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md` — Bash refs removed, TypeScript docs
+- `CLEO-DATA-INTEGRITY-SPEC.md` — partially implemented status marked
+
+**New:**
+- `CAAMP-INTEGRATION-SPEC.md` — unified CAAMP integration reference with [TARGET] sections
+- `CLEO-AUTONOMOUS-RUNTIME-SPEC.md` — specification for autonomous runtime behaviors
+- `CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md` — implementation tracking map
+- `CLEO-API.md` — API reference document
+
+### Conduit Protocol Specification (T5524)
+
+- **`docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`** (429 lines) — Formal specification for the CLEO
+  Conduit protocol: the structured channel through which agents pass context, observations, and control
+  signals between CLEO operations and external systems
+- **`docs/specs/STICKY-NOTES-SPEC.md`** additions — Expanded sticky note lifecycle and promotion paths
+- Canon concept docs updated: `CLEO-CANON-INDEX.md`, `NEXUS-CORE-ASPECTS.md`, `CLEO-VISION.md`,
+  `CLEO-WORLD-MAP.md`, `CLEO-AWAKENING-STORY.md`, `CLEO-FOUNDING-STORY.md` — all reflect current
+  canon vocabulary and system state
 
 ### Breaking Changes
 
