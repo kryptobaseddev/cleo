@@ -1,5 +1,5 @@
 /**
- * Integration Tests for cleo_query Gateway
+ * Integration Tests for query Gateway
  *
  * Tests full request/response flow through:
  * Gateway -> Domain Router -> Domain Handler -> CLI Executor -> Response Formatter
@@ -17,7 +17,7 @@ import {
   type IntegrationTestContext,
 } from '../../__tests__/integration-setup.js';
 
-describe('cleo_query Gateway Integration', () => {
+describe('query Gateway Integration', () => {
   let context: IntegrationTestContext;
   let testTaskId: string;
   let testEpicId: string;

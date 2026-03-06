@@ -1,5 +1,5 @@
 /**
- * Tests for cleo_mutate Gateway
+ * Tests for mutate Gateway
  *
  * @task T2929
  */
@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MUTATE_OPERATIONS,
   validateMutateParams,
+  handleMutateRequest,
   isIdempotentOperation,
   requiresSession,
   getMutateOperationCount,
@@ -17,6 +18,9 @@ import {
   registerMutateTool,
   type MutateRequest,
 } from '../mutate.js';
+import { resolve } from '../../../dispatch/registry.js';
+
+const ADVANCED_MEMORY_MUTATE_OPS = ['graph.add', 'graph.remove'] as const;
 
 describe('MUTATE_OPERATIONS', () => {
   it('should derive total operations dynamically from registry', () => {
@@ -48,9 +52,9 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.tasks.length).toBe(15);
     expect(MUTATE_OPERATIONS.session.length).toBe(8);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(8);
-    expect(MUTATE_OPERATIONS.memory.length).toBe(6);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(8);
     expect(MUTATE_OPERATIONS.check.length).toBe(2);
-    expect(MUTATE_OPERATIONS.pipeline.length).toBe(23);
+    expect(MUTATE_OPERATIONS.pipeline.length).toBe(25);
     expect(MUTATE_OPERATIONS.admin.length).toBe(20);
     expect(MUTATE_OPERATIONS.tools.length).toBe(11);
     expect(MUTATE_OPERATIONS.nexus.length).toBe(14);  // Includes share.* operations
@@ -356,6 +360,69 @@ describe('validateMutateParams', () => {
       const result = validateMutateParams(request);
       expect(result.valid).toBe(true);
     });
+
+    it('should accept chain.gate.pass with required params', () => {
+      const request: MutateRequest = {
+        domain: 'pipeline',
+        operation: 'chain.gate.pass',
+        params: { instanceId: 'wci-1', gateId: 'gate-1' },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should reject chain.gate.fail without required params', () => {
+      const request: MutateRequest = {
+        domain: 'pipeline',
+        operation: 'chain.gate.fail',
+        params: { instanceId: 'wci-1' },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(false);
+      expect(result.error?.error?.message).toContain('instanceId and gateId');
+    });
+  });
+
+  describe('memory domain advanced operation validation', () => {
+    it('should accept graph.add as a valid memory operation', () => {
+      const request: MutateRequest = {
+        domain: 'memory',
+        operation: 'graph.add',
+        params: {
+          nodeId: 'n1',
+          nodeType: 'task',
+          label: 'demo',
+        },
+      };
+
+      const result = validateMutateParams(request);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should keep advanced memory mutate ops in MCP-dispatch parity lock', async () => {
+      for (const operation of ADVANCED_MEMORY_MUTATE_OPS) {
+        expect(MUTATE_OPERATIONS.memory).toContain(operation);
+
+        const validation = validateMutateParams({
+          domain: 'memory',
+          operation,
+          params: {},
+        });
+        expect(validation.valid).toBe(true);
+
+        const gatewayResult = await handleMutateRequest({
+          domain: 'memory',
+          operation,
+          params: {},
+        });
+        expect(gatewayResult.success).toBe(true);
+
+        const dispatchOp = resolve('mutate', 'memory', operation);
+        expect(dispatchOp, `Missing dispatch op for mutate memory.${operation}`).toBeDefined();
+      }
+    });
   });
 
 });
@@ -398,9 +465,9 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('tasks')).toBe(15);
     expect(getMutateOperationCount('session')).toBe(8);
     expect(getMutateOperationCount('orchestrate')).toBe(8);
-    expect(getMutateOperationCount('memory')).toBe(6);
+    expect(getMutateOperationCount('memory')).toBe(8);
     expect(getMutateOperationCount('check')).toBe(2);
-    expect(getMutateOperationCount('pipeline')).toBe(23);
+    expect(getMutateOperationCount('pipeline')).toBe(25);
     expect(getMutateOperationCount('admin')).toBe(20);
     expect(getMutateOperationCount('tools')).toBe(11);
     expect(getMutateOperationCount('sticky')).toBe(4);
@@ -417,6 +484,7 @@ describe('isMutateOperation', () => {
     expect(isMutateOperation('tasks', 'add')).toBe(true);
     expect(isMutateOperation('session', 'start')).toBe(true);
     expect(isMutateOperation('orchestrate', 'spawn')).toBe(true);
+    expect(isMutateOperation('memory', 'graph.add')).toBe(true);
   });
 
   it('should reject invalid operations', () => {

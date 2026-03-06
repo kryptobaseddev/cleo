@@ -40,7 +40,7 @@ describe('E2E: Error Handling Workflow', () => {
       flags: { json: true },
     });
 
-    verifyResponseFormat(result, 'cleo_query', 'tasks', 'invalid_operation');
+    verifyResponseFormat(result, 'query', 'tasks', 'invalid_operation');
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     // CLI may return E_INVALID_INPUT or E_UNKNOWN for unrecognized operations
@@ -59,7 +59,7 @@ describe('E2E: Error Handling Workflow', () => {
       },
     });
 
-    verifyResponseFormat(result, 'cleo_mutate', 'tasks', 'add');
+    verifyResponseFormat(result, 'mutate', 'tasks', 'add');
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error?.code).toMatch(/E_INVALID_INPUT|E_VALIDATION|E_INPUT_INVALID|E_UNKNOWN/);
@@ -75,7 +75,7 @@ describe('E2E: Error Handling Workflow', () => {
       flags: { json: true },
     });
 
-    verifyResponseFormat(result, 'cleo_query', 'tasks', 'show');
+    verifyResponseFormat(result, 'query', 'tasks', 'show');
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error?.code).toMatch(/E_NOT_FOUND|E_TASK_NOT_FOUND/);

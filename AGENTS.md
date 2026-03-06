@@ -83,8 +83,8 @@ CLEO uses a **dispatch-first shared-core** architecture where MCP and CLI route 
 
 ```
 MCP Gateway (2 tools) ──► src/dispatch/ ──► src/dispatch/engines/ ──► src/core/ ◄── src/cli/commands/
-     cleo_query (145 ops)                                                                  (86 commands)
-     cleo_mutate (111 ops)
+     query (153 ops)                                                                       (86 commands)
+     mutate (115 ops)
 ```
 
 - **MCP is PRIMARY**: 2 tools, 256 operations across 10 canonical domains (~1,800 tokens)
@@ -319,8 +319,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/gateways/query.ts` - 118 query operations (CANONICAL operation registry)
-- `src/mcp/gateways/mutate.ts` - 89 mutate operations (CANONICAL operation registry)
+- `src/mcp/gateways/query.ts` - 145 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 111 mutate operations (CANONICAL operation registry)
 - `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky)
 - `src/dispatch/engines/` - Engine adapters (params → core calls) — canonical location
 - `src/mcp/engine/` - Barrel re-exports from dispatch + utilities (capability-matrix, id-generator, CAAMP)
@@ -355,7 +355,7 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 - `src/store/lock.ts` - File locking
 
 ### Canonical Specifications
-- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` - All 207 MCP operations mapped to CLI equivalents (supersedes CLEO-OPERATIONS-REFERENCE.md)
+- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` - All 256 MCP operations mapped to CLI equivalents (supersedes CLEO-OPERATIONS-REFERENCE.md)
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server contract (v1.2.0)
 - `docs/specs/VERB-STANDARDS.md` - Canonical verb standards (add, show, find, etc.)
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Progressive disclosure and agent interaction patterns

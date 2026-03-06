@@ -5,11 +5,11 @@
  * to CLI execution to response.
  *
  * Scenario 1: Task Management Workflow
- * 1. Create task via cleo_mutate
- * 2. List tasks via cleo_query
- * 3. Update task via cleo_mutate
- * 4. Complete task via cleo_mutate
- * 5. Verify task in archive via cleo_query
+ * 1. Create task via mutate
+ * 2. List tasks via query
+ * 3. Update task via mutate
+ * 4. Complete task via mutate
+ * 5. Verify task in archive via query
  *
  * @task T2937
  */
@@ -36,7 +36,7 @@ describe('E2E: Task Management Workflow', () => {
   }, 30000);
 
   it('should complete full task lifecycle', async () => {
-    // Step 1: Create task via cleo_mutate
+    // Step 1: Create task via mutate
     const createResult = await context.executor.execute({
       domain: 'tasks',
       operation: 'add',
@@ -48,14 +48,14 @@ describe('E2E: Task Management Workflow', () => {
     });
 
     expect(createResult.success).toBe(true);
-    verifyResponseFormat(createResult, 'cleo_mutate', 'tasks', 'add');
+    verifyResponseFormat(createResult, 'mutate', 'tasks', 'add');
 
     const taskId = extractTaskId(createResult);
     context.createdTaskIds.push(taskId);
 
     expect(taskId).toMatch(/^T\d+$/);
 
-    // Step 2: List tasks via cleo_query
+    // Step 2: List tasks via query
     const listResult = await context.executor.execute({
       domain: 'tasks',
       operation: 'list',
@@ -63,7 +63,7 @@ describe('E2E: Task Management Workflow', () => {
     });
 
     expect(listResult.success).toBe(true);
-    verifyResponseFormat(listResult, 'cleo_query', 'tasks', 'list');
+    verifyResponseFormat(listResult, 'query', 'tasks', 'list');
 
     const tasks = listResult.data as any[];
     expect(Array.isArray(tasks)).toBe(true);
@@ -72,7 +72,7 @@ describe('E2E: Task Management Workflow', () => {
     expect(createdTask).toBeDefined();
     expect(createdTask?.title).toBe('E2E Test Task');
 
-    // Step 3: Update task via cleo_mutate
+    // Step 3: Update task via mutate
     const updateResult = await context.executor.execute({
       domain: 'tasks',
       operation: 'update',
@@ -85,7 +85,7 @@ describe('E2E: Task Management Workflow', () => {
     });
 
     expect(updateResult.success).toBe(true);
-    verifyResponseFormat(updateResult, 'cleo_mutate', 'tasks', 'update');
+    verifyResponseFormat(updateResult, 'mutate', 'tasks', 'update');
 
     // Verify update
     const showResult = await context.executor.execute({
@@ -101,7 +101,7 @@ describe('E2E: Task Management Workflow', () => {
     const notes = (showResult.data as any).notes;
     expect(Array.isArray(notes) ? notes.some((n: string) => n.includes('Updated during workflow test')) : false).toBe(true);
 
-    // Step 4: Complete task via cleo_mutate
+    // Step 4: Complete task via mutate
     const completeResult = await context.executor.execute({
       domain: 'tasks',
       operation: 'complete',
@@ -113,7 +113,7 @@ describe('E2E: Task Management Workflow', () => {
     });
 
     expect(completeResult.success).toBe(true);
-    verifyResponseFormat(completeResult, 'cleo_mutate', 'tasks', 'complete');
+    verifyResponseFormat(completeResult, 'mutate', 'tasks', 'complete');
 
     // Step 5: Verify task was completed by showing it
     const verifyResult = await context.executor.execute({
@@ -167,7 +167,7 @@ describe('E2E: Task Management Workflow', () => {
     });
 
     expect(childrenResult.success).toBe(true);
-    verifyResponseFormat(childrenResult, 'cleo_query', 'tasks', 'list');
+    verifyResponseFormat(childrenResult, 'query', 'tasks', 'list');
 
     const children = childrenResult.data as any[];
     expect(Array.isArray(children)).toBe(true);
@@ -202,7 +202,7 @@ describe('E2E: Task Management Workflow', () => {
     });
 
     expect(findResult.success).toBe(true);
-    verifyResponseFormat(findResult, 'cleo_query', 'tasks', 'find');
+    verifyResponseFormat(findResult, 'query', 'tasks', 'find');
 
     const results = findResult.data as any[];
     expect(Array.isArray(results)).toBe(true);
@@ -259,7 +259,7 @@ describe('E2E: Task Management Workflow', () => {
     });
 
     expect(depsResult.success).toBe(true);
-    verifyResponseFormat(depsResult, 'cleo_query', 'tasks', 'depends');
+    verifyResponseFormat(depsResult, 'query', 'tasks', 'depends');
 
     // deps returns {task, upstream, downstream, blockedBy}
     const deps = depsResult.data as any;

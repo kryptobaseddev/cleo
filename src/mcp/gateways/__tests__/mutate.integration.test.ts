@@ -1,5 +1,5 @@
 /**
- * Integration Tests for cleo_mutate Gateway
+ * Integration Tests for mutate Gateway
  *
  * Tests full request/response flow through:
  * Gateway -> Domain Router -> Domain Handler -> CLI Executor -> Response Formatter
@@ -20,7 +20,7 @@ import {
   type IntegrationTestContext,
 } from '../../__tests__/integration-setup.js';
 
-describe('cleo_mutate Gateway Integration', () => {
+describe('mutate Gateway Integration', () => {
   let context: IntegrationTestContext;
   let testEpicId: string;
 

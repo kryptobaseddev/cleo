@@ -4,11 +4,11 @@
  * Tests complete session management workflows.
  *
  * Scenario 2: Session Management Workflow
- * 1. Start session via cleo_mutate
- * 2. Set focus via cleo_mutate
- * 3. Check session status via cleo_query
- * 4. End session via cleo_mutate
- * 5. Verify session ended via cleo_query
+ * 1. Start session via mutate
+ * 2. Set focus via mutate
+ * 3. Check session status via query
+ * 4. End session via mutate
+ * 5. Verify session ended via query
  *
  * @task T2937
  */

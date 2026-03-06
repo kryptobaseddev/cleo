@@ -240,7 +240,7 @@ describe('LAFS Protocol Conformance (full envelope)', () => {
 describe('MCP Gateway Meta', () => {
   it('createGatewayMeta includes all LAFS fields', () => {
     const startTime = Date.now();
-    const meta = createGatewayMeta('cleo_query', 'tasks', 'list', startTime);
+    const meta = createGatewayMeta('query', 'tasks', 'list', startTime);
     expect(meta.specVersion).toBe('1.2.3');
     expect(meta.schemaVersion).toBe('2026.2.1');
     expect(meta.timestamp).toBeDefined();
@@ -254,8 +254,8 @@ describe('MCP Gateway Meta', () => {
 
   it('createGatewayMeta includes CLEO gateway extensions', () => {
     const startTime = Date.now();
-    const meta = createGatewayMeta('cleo_mutate', 'session', 'start', startTime);
-    expect(meta.gateway).toBe('cleo_mutate');
+    const meta = createGatewayMeta('mutate', 'session', 'start', startTime);
+    expect(meta.gateway).toBe('mutate');
     expect(meta.domain).toBe('session');
     expect(typeof meta.duration_ms).toBe('number');
   });
@@ -684,7 +684,7 @@ describe('Session ID in _meta (T4702)', () => {
     const origEnv = process.env['CLEO_SESSION'];
     process.env['CLEO_SESSION'] = 'gw-session-99';
     try {
-      const meta = createGatewayMeta('cleo_query', 'tasks', 'list', Date.now());
+      const meta = createGatewayMeta('query', 'tasks', 'list', Date.now());
       expect(meta.sessionId).toBe('gw-session-99');
     } finally {
       if (origEnv !== undefined) {
