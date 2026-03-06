@@ -334,6 +334,31 @@ export const manifestEntries = sqliteTable('manifest_entries', {
   index('idx_manifest_entries_status').on(table.status),
 ]);
 
+// === PIPELINE MANIFEST (T5581) ===
+
+export const pipelineManifest = sqliteTable('pipeline_manifest', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id'),
+  taskId: text('task_id'),
+  epicId: text('epic_id'),
+  type: text('type').notNull(),
+  content: text('content').notNull(),
+  contentHash: text('content_hash'),
+  status: text('status').notNull().default('active'),
+  distilled: integer('distilled', { mode: 'boolean' }).notNull().default(false),
+  brainObsId: text('brain_obs_id'),
+  sourceFile: text('source_file'),
+  metadataJson: text('metadata_json'),
+  createdAt: text('created_at').notNull(),
+  archivedAt: text('archived_at'),
+}, (table) => [
+  index('idx_pipeline_manifest_task_id').on(table.taskId),
+  index('idx_pipeline_manifest_session_id').on(table.sessionId),
+  index('idx_pipeline_manifest_distilled').on(table.distilled),
+  index('idx_pipeline_manifest_status').on(table.status),
+  index('idx_pipeline_manifest_content_hash').on(table.contentHash),
+]);
+
 // === SCHEMA METADATA ===
 
 export const schemaMeta = sqliteTable('schema_meta', {
@@ -488,3 +513,5 @@ export type AdrRelationRow = typeof adrRelations.$inferSelect;
 export type NewAdrRelationRow = typeof adrRelations.$inferInsert;
 export type ManifestEntryRow = typeof manifestEntries.$inferSelect;
 export type NewManifestEntryRow = typeof manifestEntries.$inferInsert;
+export type PipelineManifestRow = typeof pipelineManifest.$inferSelect;
+export type NewPipelineManifestRow = typeof pipelineManifest.$inferInsert;

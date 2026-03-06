@@ -243,7 +243,7 @@ export {
   readManifestEntries,
   filterEntries as filterManifestEntries,
   type ManifestEntry as ResearchManifestEntry,
-} from '../../core/memory/pipeline-manifest-compat.js';
+} from '../../core/memory/pipeline-manifest-sqlite.js';
 
 // Session context injection (moved from memory domain in T5241)
 export {

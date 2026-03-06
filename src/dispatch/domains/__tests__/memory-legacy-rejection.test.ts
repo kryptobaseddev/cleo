@@ -30,8 +30,8 @@ vi.mock('../../../core/memory/engine-compat.js', () => ({
   memoryLearningStats: vi.fn(),
 }));
 
-// Mock pipeline-manifest-compat functions (required by import)
-vi.mock('../../../core/memory/pipeline-manifest-compat.js', () => ({
+// Mock pipeline-manifest-sqlite functions (required by import)
+vi.mock('../../../core/memory/pipeline-manifest-sqlite.js', () => ({
   pipelineManifestContradictions: vi.fn(),
   pipelineManifestSuperseded: vi.fn(),
   pipelineManifestLink: vi.fn(),

@@ -10,8 +10,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock pipeline-manifest-compat functions
-vi.mock('../../../core/memory/pipeline-manifest-compat.js', () => ({
+// Mock pipeline-manifest-sqlite functions
+vi.mock('../../../core/memory/pipeline-manifest-sqlite.js', () => ({
   pipelineManifestShow: vi.fn(),
   pipelineManifestList: vi.fn(),
   pipelineManifestFind: vi.fn(),
@@ -56,7 +56,7 @@ import {
   pipelineManifestStats,
   pipelineManifestAppend,
   pipelineManifestArchive,
-} from '../../../core/memory/pipeline-manifest-compat.js';
+} from '../../../core/memory/pipeline-manifest-sqlite.js';
 
 describe('PipelineHandler manifest operations', () => {
   let handler: PipelineHandler;
