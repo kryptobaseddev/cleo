@@ -1,9 +1,18 @@
 name: Release
 
+# Triggers:
+#   1. Automatic: push a v* tag (e.g. v2026.3.14, v2026.3.14-beta.1)
+#   2. Manual break-glass: workflow_dispatch with a version input
+#      (use if the tag push triggered a failed run that needs a retry)
 on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 2026.3.14). Tag must already exist on main.'
+        required: true
 
 permissions:
   contents: write
@@ -11,7 +20,7 @@ permissions:
 
 jobs:
   release:
-    name: Build and Release
+    name: Build & Publish
     runs-on: ubuntu-latest
 
     steps:
@@ -22,238 +31,152 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
 
-      - name: Get version from tag
+      # Resolve version from tag push or manual workflow_dispatch input
+      - name: Get version
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${REF_NAME#v}"
+          fi
+          # Determine npm dist-tag from version suffix
+          if [[ "$VERSION" == *"-alpha"* ]] || [[ "$VERSION" == *"-dev"* ]]; then
+            DIST_TAG="dev"
+          elif [[ "$VERSION" == *"-beta"* ]] || [[ "$VERSION" == *"-rc"* ]]; then
+            DIST_TAG="beta"
+          else
+            DIST_TAG="latest"
+          fi
+          IS_PRERELEASE=$([[ "$VERSION" == *"-"* ]] && echo "true" || echo "false")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building release for version: $VERSION"
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION | dist-tag: $DIST_TAG | prerelease: $IS_PRERELEASE"
 
-      - name: Validate CalVer (YYYY.M.PATCH)
+      # CalVer validation: YYYY.M.PATCH (stable) or YYYY.M.PATCH-suffix (pre-release)
+      - name: Validate CalVer
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Extract base version (strip pre-release suffix)
-          BASE_VERSION=$(echo "$VERSION" | cut -d- -f1)
-          TAG_YEAR=$(echo "$BASE_VERSION" | cut -d. -f1)
-          TAG_MONTH=$(echo "$BASE_VERSION" | cut -d. -f2)
-
-          # Get current UTC year and month
+          BASE_VERSION="${VERSION%%-*}"
+          TAG_YEAR="${BASE_VERSION%%.*}"
+          TAG_MONTH="${BASE_VERSION#*.}"; TAG_MONTH="${TAG_MONTH%%.*}"
           CURRENT_YEAR=$(date -u +%Y)
           CURRENT_MONTH=$(date -u +%-m)
+          NEXT_MONTH=$(( CURRENT_MONTH == 12 ? 1 : CURRENT_MONTH + 1 ))
+          NEXT_YEAR=$(( CURRENT_MONTH == 12 ? CURRENT_YEAR + 1 : CURRENT_YEAR ))
 
-          # Calculate next month (for pre-release flexibility)
-          if [[ "$CURRENT_MONTH" -eq 12 ]]; then
-            NEXT_MONTH=1
-            NEXT_YEAR=$((CURRENT_YEAR + 1))
-          else
-            NEXT_MONTH=$((CURRENT_MONTH + 1))
-            NEXT_YEAR=$CURRENT_YEAR
-          fi
-
-          echo "Tag: ${TAG_YEAR}.${TAG_MONTH}.x"
-          echo "Now: ${CURRENT_YEAR}.${CURRENT_MONTH}"
-
-          # Check if this is a pre-release tag
-          IS_PRERELEASE=false
           if [[ "$VERSION" == *"-"* ]]; then
-            IS_PRERELEASE=true
-            echo "Pre-release detected: $(echo "$VERSION" | cut -d- -f2-)"
-          fi
-
-          if [[ "$IS_PRERELEASE" == "true" ]]; then
-            # Pre-release: year must match current or next month's year
-            if [[ "$TAG_YEAR" != "$CURRENT_YEAR" ]] && [[ "$TAG_YEAR" != "$NEXT_YEAR" ]]; then
-              echo "ERROR: Pre-release tag year ${TAG_YEAR} does not match current (${CURRENT_YEAR}) or next month's year (${NEXT_YEAR})"
+            # Pre-release: allow current or next month
+            if [[ "$TAG_YEAR" != "$CURRENT_YEAR" && "$TAG_YEAR" != "$NEXT_YEAR" ]] || \
+               [[ "$TAG_MONTH" != "$CURRENT_MONTH" && "$TAG_MONTH" != "$NEXT_MONTH" ]]; then
+              echo "ERROR: Pre-release $VERSION outside allowed CalVer range"
               exit 1
             fi
-            # Pre-release: month can be current or next month
-            if [[ "$TAG_MONTH" != "$CURRENT_MONTH" ]] && [[ "$TAG_MONTH" != "$NEXT_MONTH" ]]; then
-              echo "ERROR: Pre-release tag month ${TAG_MONTH} does not match current (${CURRENT_MONTH}) or next month (${NEXT_MONTH})"
-              exit 1
-            fi
-            echo "CalVer validated (pre-release): ${TAG_YEAR}.${TAG_MONTH} within allowed range"
+            echo "CalVer OK (pre-release): $VERSION"
           else
-            # Stable: strict year and month match required
-            if [[ "$TAG_YEAR" != "$CURRENT_YEAR" ]]; then
-              echo "ERROR: Tag year ${TAG_YEAR} does not match current year ${CURRENT_YEAR}"
+            # Stable: strict current month required
+            if [[ "$TAG_YEAR" != "$CURRENT_YEAR" || "$TAG_MONTH" != "$CURRENT_MONTH" ]]; then
+              echo "ERROR: $VERSION does not match current CalVer ${CURRENT_YEAR}.${CURRENT_MONTH}"
               exit 1
             fi
-            if [[ "$TAG_MONTH" != "$CURRENT_MONTH" ]]; then
-              echo "ERROR: Tag month ${TAG_MONTH} does not match current month ${CURRENT_MONTH}"
-              echo "CalVer requires YYYY.M.PATCH where M is the current month"
-              exit 1
-            fi
-            echo "CalVer validated (stable): ${TAG_YEAR}.${TAG_MONTH} matches current date"
+            echo "CalVer OK (stable): $VERSION"
           fi
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build TypeScript
+      - name: Build
         run: npm run build
 
       - name: Validate build output
         run: |
           for path in dist/cli/index.js dist/mcp/index.js schemas templates packages/ct-skills/skills; do
-            if [[ ! -e "$path" ]]; then
-              echo "ERROR: Required path missing: $path"
-              exit 1
-            fi
+            [[ -e "$path" ]] || { echo "ERROR: Missing required artifact: $path"; exit 1; }
           done
-          echo "All required build artifacts present"
+          echo "All build artifacts present"
 
-      - name: Build release tarball
+      # ── GitHub Release ────────────────────────────────────────────────────────
+
+      - name: Build release tarball and checksums
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          TARBALL="cleo-${VERSION}.tar.gz"
-
           mkdir -p "staging/cleo-${VERSION}"
-
-          # Copy npm-publishable components (matches package.json "files")
-          cp -r dist "staging/cleo-${VERSION}/"
-          cp -r schemas "staging/cleo-${VERSION}/"
-          cp -r templates "staging/cleo-${VERSION}/"
+          cp -r dist schemas templates package.json LICENSE README.md install.sh "staging/cleo-${VERSION}/"
           cp -r packages/ct-skills/skills "staging/cleo-${VERSION}/"
-          [[ -d completions ]] && cp -r completions "staging/cleo-${VERSION}/"
-          cp package.json "staging/cleo-${VERSION}/"
-          cp VERSION "staging/cleo-${VERSION}/"
-          cp LICENSE "staging/cleo-${VERSION}/"
-          cp README.md "staging/cleo-${VERSION}/"
-          cp install.sh "staging/cleo-${VERSION}/"
-
-          # Ensure executables have correct permissions
-          chmod +x "staging/cleo-${VERSION}/dist/cli/index.js"
-          chmod +x "staging/cleo-${VERSION}/dist/mcp/index.js"
-          chmod +x "staging/cleo-${VERSION}/install.sh"
-
-          tar -czvf "$TARBALL" -C staging "cleo-${VERSION}"
-
-          echo "Created: $TARBALL"
-          ls -lh "$TARBALL"
-
-      - name: Prepare standalone installer
-        run: |
-          chmod +x install.sh
-          echo "Standalone installer ready: $(wc -l < install.sh) lines"
-
-      - name: Generate checksums
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          TARBALL="cleo-${VERSION}.tar.gz"
-          sha256sum "$TARBALL" install.sh > SHA256SUMS
-          echo "Checksums:"
+          [[ -d completions ]] && cp -r completions "staging/cleo-${VERSION}/" || true
+          [[ -f VERSION ]] && cp VERSION "staging/cleo-${VERSION}/" || true
+          chmod +x "staging/cleo-${VERSION}/dist/cli/index.js" \
+                   "staging/cleo-${VERSION}/dist/mcp/index.js" \
+                   "staging/cleo-${VERSION}/install.sh"
+          tar -czf "cleo-${VERSION}.tar.gz" -C staging "cleo-${VERSION}"
+          sha256sum "cleo-${VERSION}.tar.gz" install.sh > SHA256SUMS
+          echo "Tarball size: $(ls -lh cleo-${VERSION}.tar.gz | awk '{print $5}')"
           cat SHA256SUMS
 
-      - name: Generate release notes
-        id: changelog
+      - name: Generate release notes from CHANGELOG
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          echo "## [${VERSION}] - $(date +%Y-%m-%d)" > release-notes.txt
-          echo "" >> release-notes.txt
-
-          # Extract from CHANGELOG.md if available
           if grep -q "## \[${VERSION}\]" CHANGELOG.md 2>/dev/null; then
-            echo "Found changelog entry for v${VERSION}"
-            # Extract section between this version and the next
-            sed -n "/## \[${VERSION}\]/,/## \[/p" CHANGELOG.md | head -n -1 | tail -n +2 >> release-notes.txt
-            echo "source=changelog" >> "$GITHUB_OUTPUT"
+            sed -n "/## \[${VERSION}\]/,/## \[/p" CHANGELOG.md | head -n -1 | tail -n +2 > release-notes.txt
+            echo "Source: CHANGELOG.md"
           else
-            echo "No CHANGELOG.md entry - generating from commits"
+            echo "### Changes" > release-notes.txt
             PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-            echo "### Changes" >> release-notes.txt
             if [[ -n "$PREV_TAG" ]]; then
               git log --pretty=format:"- %s" --no-merges "${PREV_TAG}..HEAD" >> release-notes.txt
             else
               git log --pretty=format:"- %s" --no-merges -20 >> release-notes.txt
             fi
-            echo "" >> release-notes.txt
-            echo "source=commits" >> "$GITHUB_OUTPUT"
+            echo "Source: git log"
           fi
-
-          echo ""
-          echo "=== Generated Release Notes ==="
           cat release-notes.txt
-          echo "==============================="
 
-          echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          body_path: ${{ steps.changelog.outputs.path }}
-          generate_release_notes: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          files: |
-            cleo-${{ steps.version.outputs.version }}.tar.gz
-            install.sh
+      - name: Create GitHub Release (idempotent)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
+        run: |
+          # Delete any existing release for this tag (keeps the tag itself)
+          # This makes the step idempotent — safe to re-run on workflow retries
+          gh release delete "v${VERSION}" --yes 2>/dev/null || true
+          PRERELEASE_FLAG=""
+          [[ "$IS_PRERELEASE" == "true" ]] && PRERELEASE_FLAG="--prerelease"
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.txt \
+            $PRERELEASE_FLAG \
+            "cleo-${VERSION}.tar.gz" \
+            install.sh \
             SHA256SUMS
-          fail_on_unmatched_files: true
+          echo "GitHub release v${VERSION} published"
+
+      # ── npm Publish (OIDC Trusted Publishing via release.yml) ─────────────────
+
+      - name: Publish to npm
+        run: npm publish --tag ${{ steps.version.outputs.dist_tag }} --access public
+
+      # ── MCP Registry Publish ──────────────────────────────────────────────────
+
+      - name: Update server.json version
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish-npm:
-    name: Publish to npm
-    runs-on: ubuntu-latest
-    needs: release
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-
-      - run: npm ci
-
-      - run: npm run build
-
-      - name: Verify build output
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          test -f dist/cli/index.js || { echo "CLI entry missing"; exit 1; }
-          test -f dist/mcp/index.js || { echo "MCP entry missing"; exit 1; }
-          echo "Build artifacts verified"
-
-      - name: Determine dist-tag
-        id: tag
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if [[ "$REF_NAME" == *"-alpha"* ]] || [[ "$REF_NAME" == *"-dev"* ]]; then
-            echo "tag=dev" >> $GITHUB_OUTPUT
-          elif [[ "$REF_NAME" == *"-beta"* ]] || [[ "$REF_NAME" == *"-rc"* ]]; then
-            echo "tag=beta" >> $GITHUB_OUTPUT
-          else
-            echo "tag=latest" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Publish to npm (OIDC Trusted Publishing)
-        run: npm publish --tag ${{ steps.tag.outputs.tag }} --access public
-
-  publish-mcp-registry:
-    name: Publish to MCP Registry
-    runs-on: ubuntu-latest
-    needs: publish-npm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set version in server.json from package.json
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp && mv server.tmp server.json
-          echo "Publishing MCP server version: $VERSION"
-          cat server.json
-
-      - name: Install mcp-publisher
-        run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-
-      - name: Authenticate to MCP Registry (OIDC)
-        run: ./mcp-publisher login github-oidc
+          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' \
+            server.json > server.tmp && mv server.tmp server.json
 
       - name: Publish to MCP Registry
-        run: ./mcp-publisher publish
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
