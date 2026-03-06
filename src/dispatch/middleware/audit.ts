@@ -88,16 +88,19 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
 
 /**
  * Write audit entry to SQLite audit_log table.
+ * Validates the payload with Zod before inserting.
  * Fire-and-forget — errors are logged to Pino but never thrown.
+ *
+ * @task T4848
  */
 async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<void> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
     const { auditLog } = await import('../../store/schema.js');
+    const { AuditLogInsertSchema } = await import('../../store/validation-schemas.js');
     const { randomUUID } = await import('node:crypto');
 
-    const db = await getDb(process.cwd());
-    await db.insert(auditLog).values({
+    const payload = {
       id: randomUUID(),
       timestamp: entry.timestamp,
       action: entry.operation,
@@ -116,7 +119,17 @@ async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<voi
       errorMessage: entry.error ?? null,
       // Project correlation (T5337)
       projectHash: resolveProjectHash(),
-    }).run();
+    };
+
+    // Validate payload before insert (T4848)
+    const parsed = AuditLogInsertSchema.safeParse(payload);
+    if (!parsed.success) {
+      log.warn({ issues: parsed.error.issues }, 'Audit payload failed Zod validation; skipping insert');
+      return;
+    }
+
+    const db = await getDb(process.cwd());
+    await db.insert(auditLog).values(parsed.data).run();
   } catch (err) {
     log.warn({ err }, 'Failed to write audit entry to SQLite');
   }
