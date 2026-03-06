@@ -87,15 +87,20 @@ describe('verifyBackup', () => {
   });
 
   afterEach(async () => {
-    // Close any open DB connections
+    // Close all open DB connections before cleanup — Windows locks files
     try {
-      const { closeDb } = await import('../../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
     } catch {
       // Ignore if module not loaded
     }
     delete process.env['CLEO_DIR'];
-    await rm(tempDir, { recursive: true, force: true });
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+      try { await rm(tempDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   });
 
   it('verifies identical files as valid', async () => {

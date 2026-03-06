@@ -5,7 +5,241 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ---
 
-## [Unreleased]
+## [2026.3.14] - 2026-03-06
+
+This is a major stable release promoting the full `2026.3.13-beta` cycle to `@latest`. It covers 55 commits
+across 13 feature themes: Warp/BRAIN evolution, Hook infrastructure, Sticky Notes domain, Zero-Legacy
+compliance closure, Unified Audit Logging, CLI-to-Dispatch migration progress, Sharing→NEXUS restructure,
+Memory domain clean break, MCP tool naming standardization, Storage hardening, hierarchy limit removal,
+OpenCode spawn adapter + Tessera engine, and the Conduit protocol specification.
+
+### Warp + BRAIN Progress Update (T5373)
+
+The largest single-commit feature in this cycle:
+
+- **Warp protocol chains** — Unyielding structural chains that hold Tapestries together; synthesis of composable workflow shape and LOOM quality gates (T5407)
+- **BRAIN Phases 1-2** — Already shipped in prior releases (native `brain.db`, observation storage, 3-layer retrieval API, and FTS5-backed retrieval flow)
+- **BRAIN Phase 3** — Scaffolding landed in this cycle (`sqlite-vec` extension loading and PageIndex graph tables), but semantic/vector intelligence remains gated
+- **BRAIN Phases 4-5** — Planned and not shipped in this stable release
+
+#### Universal Hook Infrastructure (T5237)
+
+A full event-driven hook system wired throughout CLEO's lifecycle. Hooks are best-effort (failures are
+logged, not propagated), priority-ordered, and dispatched in parallel via `Promise.allSettled`. All eight
+hooks feed observations into BRAIN automatically.
+
+| Hook Event | CLEO Internal Event | What It Captures | Brain Auto-Observe |
+|------------|--------------------|-----------------|--------------------|
+| `onSessionStart` | `session.start` | Session name, scope, and agent identity at session open | Yes — `discovery` type |
+| `onSessionEnd` | `session.end` | Session duration and list of tasks completed | Yes — `change` type |
+| `onToolStart` | `task.start` | Task ID and title when work begins on a task | Yes — `change` type |
+| `onToolComplete` | `task.complete` | Task ID, title, and final status (`done`/`archived`/`cancelled`) | Yes — `change` type |
+| `onFileChange` | `file.change` | File path, change type (`write`/`create`/`delete`), and size; 5-second dedup prevents noise from rapid successive writes | Yes — `change` type |
+| `onError` | `system.error` | Error code, message, domain, operation, and gateway; infinite-loop guard prevents `onError → observeBrain → onError` cycles | Yes — `discovery` type |
+| `onPromptSubmit` | `prompt.submit` | Gateway, domain, operation, and source agent when a prompt hits a gateway | Opt-in only (`CLEO_BRAIN_CAPTURE_MCP=true`) |
+| `onResponseComplete` | `response.complete` | Gateway, domain, operation, success/failure, duration (ms), and error code | Opt-in only (`CLEO_BRAIN_CAPTURE_MCP=true`) |
+
+**Infrastructure details:**
+- `src/core/hooks/registry.ts` — Singleton `HookRegistry` with `register()`, `dispatch()`, `setConfig()`, `listHandlers()` APIs
+- `src/core/hooks/types.ts` — Typed payload interfaces per event; `CLEO_TO_CAAMP_HOOK_MAP` maps internal events to CAAMP event names
+- `src/core/hooks/provider-hooks.ts` — Provider capability discovery: `getHookCapableProviders(event)`, `getSharedHookEvents(providerIds[])`
+- All five handler modules auto-register on import — no manual wiring required
+- Per-event and global enable/disable via `hooks.setConfig()`
+- `CLEO_BRAIN_CAPTURE_MCP=true` env var opts into MCP prompt/response capture (off by default — too noisy for normal operation)
+
+### Sticky Notes Domain (T5267-T5275, T5261, T5363)
+
+Complete sticky notes system shipped as a first-class MCP domain:
+
+- **Storage migration** — `sticky_notes` moved from tasks.db schema to brain.db `brain_sticky_notes` (T5267)
+- **Full MCP domain** — `sticky.add`, `sticky.find`, `sticky.show`, `sticky.pin`, `sticky.archive`, `sticky.list` (T5267-T5275)
+- **Permanent deletion** — `sticky.archive.purge` operation for hard-delete of archived stickies (T5363)
+- **Canon synthesis workflows** — Cross-session context capture and sticky-to-memory promotion (T5261)
+
+### Sharing → NEXUS Restructure (T5276)
+
+- All `sharing.*` operations fully restructured under `nexus.share.*`
+- NEXUS analysis queries exposed: cross-project analytics, dependency graphs, activity summaries (T5348)
+- Orchestrate handoff composite op added: `orchestrate.handoff` for clean agent-to-agent handoff (T5347)
+
+### Zero-Legacy Compliance Closure (T5244)
+
+Hard cutover away from all legacy interfaces — backward-compat shims fully removed:
+
+- **Registry & Dispatch** — Removed 5 backward-compat alias ops: `admin.config.get`, `tasks.reopen`,
+  `tools.issue.create.{bug,feature,help}` (T5245). Registry: 256 canonical operations (was 212 pre-refactor)
+- **MCP Gateways** — Non-canonical domain names now return `E_INVALID_DOMAIN` (T5246).
+  Removed legacy domain types: `sharing`, `validate`, `lifecycle`, `release`, `system`, `issues`, `skills`, `providers`
+- **CLI** — Removed legacy CLI aliases: `restore --reopen/--unarchive/--uncancel`, `find --search`,
+  `memory-brain recall --search` (T5249)
+- **Parity Gate CI** — `tests/integration/parity-gate.test.ts` — 7 tests that enforce canonical domain/op counts
+  as a hard CI gate (T5251)
+
+### Unified Audit Logging (T5318, T5317)
+
+- **Unified audit log architecture** — Single structured logger replaces scattered JSONL fallbacks (T5318)
+- **Startup instrumentation** — Server startup events, project hash, and bootstrap state recorded on init (T5284)
+- **JSONL fallbacks removed** — `todo-log.jsonl` / `tasks-log.jsonl` runtime paths decommissioned;
+  runtime now uses SQLite audit log + structured logger exclusively (T5317)
+- **Logs cleanup** — `logs.cleanup` wired to lifecycle prune operation (T5339)
+- **Health checks** — `audit_log` table checks added to doctor --comprehensive (T5338)
+- **MCP startup errors** — Startup errors now route through the structured logger (T5336)
+
+### CLI-to-Dispatch Migration Progress (T5323)
+
+- Dispatch migration progressed with targeted command coverage and test hardening
+- `cancel` and `unlink` were wired through dispatch (previously missing)
+- Verb standards were audited and aligned to `docs/specs/VERB-STANDARDS.md`
+- Remaining migration scope is tracked in open T5323 child phases for next cycle
+
+### Memory Domain Clean Break (T5241)
+
+- `search` verb eliminated — `find` is canonical everywhere in memory domain
+- All legacy `brain.*` operation aliases removed from registry
+- `memory.*` naming finalized: `memory.find`, `memory.timeline`, `memory.fetch`, `memory.observe`
+- Clean break from all pre-cutover operation names
+
+### MCP Tool Naming Standardization (T5507)
+
+- `cleo_query` / `cleo_mutate` renamed to `query` / `mutate` throughout all source, docs, tests, and configs
+- Backward-compat normalization layer in `src/dispatch/adapters/mcp.ts` accepts both forms during transition
+- All 10 canonical MCP domain names enforced at gateway level
+
+### Storage & Migration Hardening
+
+- **drizzle-brain in npm package** — `drizzle-brain/` migrations now correctly included in published package (T5319)
+- **Legacy JSON task paths removed** — All `tasks.json` runtime read/write paths eliminated (T5284)
+- **Legacy migration imports decommissioned** — CLI/core/system use `core/system/storage-preflight` (T5305)
+- **Dead migration script removed** — `dev/archived/todo-migration.ts` deleted (T5303)
+- **21 test files migrated** — All `tasks.json` fixture usage replaced with `tasks.db` helpers
+- **Upgrade path decoupled** — Runtime migration path delinked from legacy preflight (T5305)
+
+### Hierarchy: maxActiveSiblings Limit Removed (T5413)
+
+- The default 32 sibling limit has been removed — no artificial cap on concurrent sibling tasks
+- Projects requiring a limit can configure `maxActiveSiblings` explicitly in `.cleo/config.json`
+
+### Build System
+
+- **Centralized build config** — `src/config/build-config.ts` provides single source of truth for build metadata
+- **Package issue templates** — GitHub issue templates added for bug reports and feature requests
+
+### Bug Fixes
+
+- Resolve stale test assertions and SQLite regression in inject-generate (T5298)
+- Eliminate critical tasks.json legacy references across upgrade, doctor, and system commands (T5293-T5297)
+- Stabilize hooks and SQLite fixtures in test suite (T5317)
+- Migrate release engine tests from tasks.json to SQLite (T5251)
+- Include drizzle-brain migrations in npm package (T5319)
+- Stabilize CI test performance and parity gate timing (T5311)
+- Wire logs cleanup to prune lifecycle correctly (T5339)
+- Add audit_log health checks to comprehensive doctor (T5338)
+- Pass projectHash correctly to logger initialization (T5335)
+- Reconcile tasks.json checks in upgrade path (T5299)
+- Remove marker debt and add active gate enforcement (T5320-T5322)
+- Drop unused logOperation path arg (T4460)
+
+### Documentation
+
+- CLEO-OPERATION-CONSTITUTION.md: +7 verbs (check/verify/validate/timeline/convert/unlink/compute), +6 ops (T5250)
+- VERB-STANDARDS.md: `convert` verb added, verb count enforced at 37 (T5250)
+- Nexus ops table synced to current implementation (T5350)
+- Tessera ops canonicalized in framework docs (T5346)
+- ADR-019 amendment link corrected (T5340)
+- Cleanup matrix added, dead script refs retired (T5317)
+- MCP gateway names updated: `cleo_query`/`cleo_mutate` → `query`/`mutate` throughout (T5361, T5507)
+
+### OpenCode Spawn Adapter + Tessera Engine (T5236, T5239)
+
+- **OpenCode spawn adapter** — `src/core/spawn/adapters/opencode-adapter.ts` — CLEO can now spawn
+  subagents into OpenCode environments using the OpenCode CLI, with project-local agent definition sync
+  for provider-native spawning. Adds to the existing Claude Code adapter (T1114, T5236)
+- **Chain-store search API** — `ChainFindCriteria` added to `src/core/lifecycle/chain-store.ts` — query
+  Warp chains by text, category, tessera archetype, and limit
+- **Tessera engine hardening** — Major update to the Warp chain execution engine with improved gate
+  resolution, chain validation integration, and instance lifecycle tracking
+- **Default chain definition** — `src/core/lifecycle/default-chain.ts` updated with standard RCASD-IVTR+C
+  stage defaults for new chain instances
+- **Chain validation tests** — `src/core/validation/__tests__/chain-validation.test.ts` — comprehensive
+  coverage for chain structure, gate ordering, and validation edge cases
+- **API codegen** — `src/api-codegen/generate-api.ts` (575 lines) — generates typed API clients directly
+  from the dispatch registry; produces TypeScript interfaces and operation call stubs
+- **New Drizzle migration** — `drizzle/20260306001243_spooky_rage/` — schema migration for chain and
+  session-related table updates
+- **Domain test coverage expansion** — Comprehensive dispatch domain tests added:
+  - `src/dispatch/domains/__tests__/check.test.ts` — 137 lines covering all check domain operations
+  - `src/dispatch/domains/__tests__/orchestrate.test.ts` — 110 lines covering orchestrate domain
+  - `src/dispatch/domains/__tests__/pipeline.test.ts` — 229 lines covering pipeline domain ops
+  - `src/core/sessions/__tests__/index.test.ts` — 84 lines covering session lifecycle
+  - `src/core/sessions/__tests__/session-memory-bridge.test.ts` — 68 lines for session↔BRAIN bridge
+  - `src/core/hooks/__tests__/registry.test.ts` and `provider-hooks.test.ts` — hook system coverage
+- **dev/archived/ purged** — All ~50 legacy Bash scripts removed from `dev/archived/`:
+  compliance checks, benchmarks, bump/release scripts, schema tools, and lib/ Bash helpers.
+  The `dev/` directory is now TypeScript-only
+- **New dev utilities** — `dev/check-todo-hygiene.sh` and `dev/check-underscore-import-hygiene.mjs`
+  for ongoing codebase hygiene checks
+
+### NEXUS reconcile CLI (T5368)
+
+- `cleo nexus reconcile` CLI subcommand added — reconciles local project state with the NEXUS registry,
+  detecting and resolving drift between local `.cleo/` state and registered project entries
+
+### Specification Consolidation (T5239, T5492-T5506)
+
+Major doc surgery: deleted superseded specs, updated all active specs to [IMPLEMENTED]/[TARGET] markers,
+created T5492-T5506 epics for all gated/target items.
+
+**Deleted (superseded or consolidated):**
+- `CLEO-OPERATIONS-REFERENCE.md` — superseded by `CLEO-OPERATION-CONSTITUTION.md`
+- `CLEO-STRATEGIC-ROADMAP-SPEC.md` — consolidated into `docs/ROADMAP.md`
+- `VITEST-V4-MIGRATION-PLAN.md` — migration complete
+- `CAAMP-1.6.1-API-INTEGRATION.md`, `CAAMP-CLEO-INTEGRATION-REQUIREMENTS.md` — consolidated
+- `T5236-CAAMP-SPAWN-ADAPTER-DESIGN.md`, `T5237-UNIVERSAL-HOOKS-DESIGN.md` — consolidated
+
+**Updated with [IMPLEMENTED]/[TARGET] clarity:**
+- `ROADMAP.md` — [IMPLEMENTED] / [TARGET] markers with epic references
+- `VERB-STANDARDS.md` — `purge` verb added (now 38 canonical verbs)
+- `CLEO-OPERATION-CONSTITUTION.md` — synced to 256 operations
+- `MCP-SERVER-SPECIFICATION.md` — 10 canonical domains, 256 ops, MCP-only BRAIN
+- `MCP-AGENT-INTERACTION-SPEC.md` — refreshed progressive disclosure framework
+- `PORTABLE-BRAIN-SPEC.md` — portability section and NEXUS sync notes added
+- `CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md` — Bash refs removed, TypeScript docs
+- `CLEO-DATA-INTEGRITY-SPEC.md` — partially implemented status marked
+
+**New:**
+- `CAAMP-INTEGRATION-SPEC.md` — unified CAAMP integration reference with [TARGET] sections
+- `CLEO-AUTONOMOUS-RUNTIME-SPEC.md` — specification for autonomous runtime behaviors
+- `CLEO-AUTONOMOUS-RUNTIME-IMPLEMENTATION-MAP.md` — implementation tracking map
+- `CLEO-API.md` — API reference document
+
+### Conduit Protocol Specification (T5524)
+
+- **`docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md`** (429 lines) — Formal specification for the CLEO
+  Conduit protocol: the structured channel through which agents pass context, observations, and control
+  signals between CLEO operations and external systems
+- **`docs/specs/STICKY-NOTES-SPEC.md`** additions — Expanded sticky note lifecycle and promotion paths
+- Canon concept docs updated: `CLEO-CANON-INDEX.md`, `NEXUS-CORE-ASPECTS.md`, `CLEO-VISION.md`,
+  `CLEO-WORLD-MAP.md`, `CLEO-AWAKENING-STORY.md`, `CLEO-FOUNDING-STORY.md` — all reflect current
+  canon vocabulary and system state
+
+### Breaking Changes
+
+> Clients on `2026.3.13-beta.1` (@beta) must migrate before upgrading to `@latest`.
+
+| Old | New | Since |
+|-----|-----|-------|
+| MCP tool `cleo_query` | `query` | T5507 |
+| MCP tool `cleo_mutate` | `mutate` | T5507 |
+| `admin.config.get` | `admin.config.show` | T5245 |
+| `tasks.reopen` | `tasks.restore` | T5245 |
+| `tools.issue.create.*` | `tools.issue.add.*` | T5245 |
+| `sharing.*` | `nexus.share.*` | T5276 |
+| Non-canonical domain names | Returns `E_INVALID_DOMAIN` | T5246 |
+| `restore --reopen/--unarchive/--uncancel` CLI flags | Use `restore` directly | T5249 |
+| `find --search` CLI alias | Use `find` | T5249 |
+| tasks.json runtime paths | SQLite-only via tasks.db | T5284 |
+| JSONL audit log fallbacks | Structured logger + SQLite | T5317 |
+| 32 maxActiveSiblings default | No default (unlimited) | T5413 |
 
 ---
 
@@ -39,7 +273,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 ### Documentation
 
 - Updated canonical docs for completion hardening semantics:
-  - `docs/concepts/vision.md`
+  - `docs/concepts/CLEO-VISION.md`
   - `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
   - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md`
   - `docs/guides/task-fields.md`
@@ -124,7 +358,7 @@ CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`
 
 ### Documentation
 - Updated `README.md` and `AGENTS.md` operation counts/content to match current dispatch and gateway reality (T5149).
-- Updated BRAIN docs to shipped status: `docs/concepts/vision.md` and `docs/specs/CLEO-BRAIN-SPECIFICATION.md` now reflect approved v1.2.0 and shipped `brain.db` baseline (T5144).
+- Updated BRAIN docs to shipped status: `docs/concepts/CLEO-VISION.md` and `docs/specs/CLEO-BRAIN-SPECIFICATION.md` now reflect approved v1.2.0 and shipped `brain.db` baseline (T5144).
 - Promoted and refreshed roadmap/features documentation: canonical `docs/ROADMAP.md`, canonical `docs/FEATURES.json`, generated `docs/FEATURES.md`, and TypeScript-based `dev/generate-features.ts` generator.
 - Added/updated protocol and lifecycle documentation artifacts from completion sweep and compliance follow-through (T5239).
 

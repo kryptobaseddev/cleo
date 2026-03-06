@@ -1,8 +1,8 @@
 /**
- * Orchestrate Domain Operations (12 operations)
+ * Orchestrate Domain Operations (13 operations)
  *
  * Query operations: 7
- * Mutate operations: 5
+ * Mutate operations: 6
  */
 
 /**
@@ -144,6 +144,23 @@ export interface OrchestrateSpawnResult {
     protocolsInjected: string[];
     dependencies: string[];
   };
+}
+
+// orchestrate.handoff
+export interface OrchestrateHandoffParams {
+  taskId: string;
+  protocolType: string;
+  note?: string;
+  nextAction?: string;
+  variant?: string;
+  tier?: 0 | 1 | 2;
+  idempotencyKey?: string;
+}
+export interface OrchestrateHandoffResult {
+  taskId: string;
+  predecessorSessionId: string;
+  endedSessionId: string;
+  protocolType: string;
 }
 
 // orchestrate.validate

@@ -6,24 +6,23 @@
  * @task T4475
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, mkdtempSync } from 'fs';
+import { existsSync,mkdirSync,mkdtempSync,rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { closeLogger,initLogger } from '../../../core/logger.js';
+import { closeDb,resetDbState } from '../../../store/sqlite.js';
 import {
-  lifecycleStatus,
-  lifecycleHistory,
-  lifecycleGates,
-  lifecyclePrerequisites,
   lifecycleCheck,
-  lifecycleProgress,
-  lifecycleSkip,
-  lifecycleReset,
-  lifecycleGatePass,
   lifecycleGateFail,
+  lifecycleGatePass,
+  lifecycleHistory,
+  lifecyclePrerequisites,
+  lifecycleProgress,
+  lifecycleReset,
+  lifecycleSkip,
+  lifecycleStatus
 } from '../lifecycle-engine.js';
-import { closeDb, resetDbState } from '../../../store/sqlite.js';
-import { initLogger, closeLogger } from '../../../core/logger.js';
 
 let TEST_ROOT = '';
 let RCSD_DIR = '';

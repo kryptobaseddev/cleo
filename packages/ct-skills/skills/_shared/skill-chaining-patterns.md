@@ -37,7 +37,7 @@ The orchestrator delegates work to a subagent via `orchestrate.spawn` with skill
 
 ```
 # 1. Generate fully-resolved spawn prompt via MCP
-cleo_mutate({ domain: "orchestrate", operation: "spawn", params: { taskId: "T1234" }})
+mutate({ domain: "orchestrate", operation: "spawn", params: { taskId: "T1234" }})
 
 # 2. Provider adapter executes the prompt using its native mechanism
 #    - Claude Code: Task tool with cleo-subagent type

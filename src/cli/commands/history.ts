@@ -1,14 +1,15 @@
 /**
- * CLI history command - completion timeline and productivity analytics.
+ * CLI history command - completion timeline, audit log, and task work history.
  * @task T4538
  * @epic T4454
+ * @task T5323
  */
 
 import { Command } from 'commander';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 export function registerHistoryCommand(program: Command): void {
-  program
+  const history = program
     .command('history')
     .description('Completion timeline and productivity analytics')
     .option('--days <n>', 'Show last N days', '30')
@@ -21,5 +22,12 @@ export function registerHistoryCommand(program: Command): void {
         since: opts['since'],
         until: opts['until'],
       }, { command: 'history' });
+    });
+
+  history
+    .command('work')
+    .description('Show task work history (time tracked per task)')
+    .action(async () => {
+      await dispatchFromCli('query', 'tasks', 'history', {}, { command: 'history' });
     });
 }

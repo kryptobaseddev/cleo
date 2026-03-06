@@ -23,7 +23,7 @@ CLEO's BRAIN cognitive architecture is defined across **6+ scattered documents**
 - **Retrieval strategy conflict**: cognitive-architecture.mdx defines "Vectorless RAG"; BRAIN Spec and Strategic Roadmap plan SQLite-vec vector embeddings
 - **Pipeline stage mismatch (resolved)**: ADR-006 schema listed 9 stages with "adr" as a stage; now resolved to 9 pipeline stages + contribution cross-cutting, with `architecture_decision` replacing "adr" (see ADR-014, T4863)
 - **Incomplete domain mapping**: ADR-007 Section 4.2 lists 10 future operations across 5 BRAIN dimensions; the BRAIN Spec defines 30+ operations
-- **Undefined framework relationship**: The 5 Canonical Pillars (vision.mdx) and 5 BRAIN Dimensions (BRAIN Spec) are never formally related
+- **Undefined framework relationship**: The 5 Canonical Pillars (CLEO-VISION.mdx) and 5 BRAIN Dimensions (BRAIN Spec) are never formally related
 - **Reasoning domain placement unresolved**: The BRAIN Spec defines `cleo reason *` commands, but no domain in ADR-007 naturally owns reasoning as a cross-cutting capability
 
 This ADR serves as the **single bridging document** that resolves these conflicts and connects the BRAIN system across all existing specifications.
@@ -38,7 +38,7 @@ CLEO operates under **two complementary frameworks** at different abstraction le
 
 | Framework | Authority | Abstraction | Defines | Mutability |
 |-----------|-----------|-------------|---------|------------|
-| **5 Canonical Pillars** | vision.mdx, PORTABLE-BRAIN-SPEC.md | Product contract | WHAT CLEO promises to users and agents | Immutable (constitutional) |
+| **5 Canonical Pillars** | CLEO-VISION.mdx, PORTABLE-BRAIN-SPEC.md | Product contract | WHAT CLEO promises to users and agents | Immutable (constitutional) |
 | **5 BRAIN Dimensions** | CLEO-BRAIN-SPECIFICATION.md | Capability model | HOW CLEO delivers on those promises | Evolves with implementation |
 
 **The Pillars define identity. The BRAIN dimensions define capability.**
@@ -441,7 +441,7 @@ CHECK(stage_name IN ('research', 'consensus', 'architecture_decision',
 ## 7. Document Authority Hierarchy
 
 ```
-1. docs/concepts/vision.mdx                    (Constitutional identity — IMMUTABLE)
+1. docs/concepts/CLEO-VISION.mdx                    (Constitutional identity — IMMUTABLE)
 2. docs/specs/PORTABLE-BRAIN-SPEC.md           (Product contract — 5 Pillars)
 3. .cleo/adrs/ADR-006-canonical-sqlite-storage.md  (Storage architecture — ACCEPTED)
 4. .cleo/adrs/ADR-007-domain-consolidation.md  (Domain model — 9 domains)

@@ -5,7 +5,7 @@
 **Accepted**: 2026-02-22
 **Related Tasks**: T4797, T4781, T4813, T4863, T4800
 **Amended By**: ADR-017, ADR-020
-**Summary**: Defines the canonical shared-core + CQRS dispatch architecture. src/core/ is the single source of truth for all business logic. CLI and MCP are thin wrappers that parse/translate then delegate to core. Introduces the dispatch layer (cleo_query/cleo_mutate) as the uniform interface.
+**Summary**: Defines the canonical shared-core + CQRS dispatch architecture. src/core/ is the single source of truth for all business logic. CLI and MCP are thin wrappers that parse/translate then delegate to core. Introduces the dispatch layer (query/mutate) as the uniform interface.
 **Keywords**: architecture, shared-core, cqrs, dispatch, mcp, cli, core, canonical
 **Topics**: admin, orchestrate, tools, naming
 
@@ -355,8 +355,8 @@ src/
     ├── index.ts               # MCP module entry
     │
     ├── gateways/              # MCP Tool Entry Points
-    │   ├── query.ts           # cleo_query gateway (75 operations)
-    │   └── mutate.ts          # cleo_mutate gateway (65 operations)
+    │   ├── query.ts           # query gateway (75 operations)
+    │   └── mutate.ts          # mutate gateway (65 operations)
     │
     ├── domains/               # DEPRECATED: Domain handlers
     │   ├── tasks.ts           # → Migrate to dispatch/domains/
@@ -411,7 +411,7 @@ src/
 │                         ENTRY POINTS                                 │
 ├─────────────────────────┬───────────────────────────────────────────┤
 │   CLI Command           │   MCP Gateway                             │
-│   (e.g., cleo show T1)  │   (cleo_query)                            │
+│   (e.g., cleo show T1)  │   (query)                                 │
 └───────────┬─────────────┴───────────────┬───────────────────────────┘
             │                             │
             ▼                             ▼
@@ -504,7 +504,7 @@ src/
 │                         ENTRY POINTS                                 │
 ├─────────────────────────┬───────────────────────────────────────────┤
 │   CLI Command           │   MCP Gateway                             │
-│   (e.g., cleo add ...)  │   (cleo_mutate)                           │
+│   (e.g., cleo add ...)  │   (mutate)                                │
 └───────────┬─────────────┴───────────────┬───────────────────────────┘
             │                             │
             ▼                             ▼
@@ -1109,7 +1109,7 @@ export class CliAdapter {
 // src/mcp/gateways/query.ts
 
 export const queryGateway = {
-  name: 'cleo_query',
+  name: 'query',
   description: 'Query CLEO data (read-only)',
   inputSchema: QueryParamsSchema,
   async handler(params: QueryParams): Promise<QueryResult> {

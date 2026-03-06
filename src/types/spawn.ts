@@ -35,6 +35,9 @@ export interface CLEOSpawnContext {
   
   /** CAAMP-compatible spawn options */
   options: CAAMPSpawnOptions;
+
+  /** Project root or working directory for provider-specific files and process execution */
+  workingDirectory?: string;
   
   /** Token resolution information for the prompt */
   tokenResolution?: TokenResolution;

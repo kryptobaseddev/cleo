@@ -98,7 +98,7 @@ export interface ValidateReportResult {
 }
 
 /**
- * Run comprehensive validation report on tasks.json — checks business rules,
+ * Run comprehensive validation report on tasks database — checks business rules,
  * dependencies, checksums, data integrity, and schema compliance.
  * @task T4795
  */
@@ -134,9 +134,9 @@ export async function coreValidateReport(
   }
   const duplicateIds = [...idCounts.entries()].filter(([, c]) => c > 1).map(([id]) => id);
   if (duplicateIds.length > 0) {
-    addError('duplicate_ids_todo', `Duplicate task IDs in tasks.json: ${duplicateIds.join(', ')}`);
+    addError('duplicate_ids_todo', `Duplicate task IDs in tasks database: ${duplicateIds.join(', ')}`);
   } else {
-    addOk('duplicate_ids_todo', 'No duplicate task IDs in tasks.json');
+    addOk('duplicate_ids_todo', 'No duplicate task IDs in tasks database');
   }
 
   // 2b. Cross-file duplicates with archive
@@ -146,7 +146,7 @@ export async function coreValidateReport(
     const todoIds = new Set(data.tasks.map((t) => t.id));
     const crossDups = [...todoIds].filter((id) => archiveIds.has(id));
     if (crossDups.length > 0) {
-      addError('duplicate_ids_cross', `IDs exist in both tasks.json and archive: ${crossDups.join(', ')}`);
+      addError('duplicate_ids_cross', `IDs exist in both tasks database and archive: ${crossDups.join(', ')}`);
     } else {
       addOk('duplicate_ids_cross', 'No cross-file duplicate IDs');
     }

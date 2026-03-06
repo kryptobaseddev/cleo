@@ -3,8 +3,7 @@
  *
  * Commands:
  *   cleo memory store --type <type> --content <text> --context <text>
- *   cleo memory recall <query>
- *   cleo memory search <query> --type <type>
+ *   cleo memory find <query> [--type pattern|learning]
  *   cleo memory stats
  *
  * @task T4770
@@ -12,18 +11,8 @@
  */
 
 import { Command } from 'commander';
-import { getProjectRoot } from '../../core/paths.js';
-import {
-  storePattern,
-  searchPatterns,
-  patternStats,
-  type PatternType,
-} from '../../core/memory/patterns.js';
-import {
-  storeLearning,
-  searchLearnings,
-  learningStats,
-} from '../../core/memory/learnings.js';
+import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
 export function registerMemoryBrainCommand(program: Command): void {
   const memory = program
@@ -45,114 +34,61 @@ export function registerMemoryBrainCommand(program: Command): void {
     .option('--linked-task <id>', 'Task ID to link this memory to')
     .option('--json', 'Output as JSON')
     .action(async (opts: Record<string, unknown>) => {
-      const root = getProjectRoot();
       const memType = opts['type'] as string;
 
-      try {
-        if (memType === 'pattern') {
-          const result = await storePattern(root, {
-            type: (opts['patternType'] as PatternType) || 'workflow',
-            pattern: opts['content'] as string,
-            context: (opts['context'] as string) || 'Unspecified context',
-            impact: opts['impact'] as 'low' | 'medium' | 'high' | undefined,
-            examples: opts['linkedTask'] ? [opts['linkedTask'] as string] : [],
-          });
-
-          if (opts['json']) {
-            console.log(JSON.stringify({ success: true, result }, null, 2));
-          } else {
-            console.log(`Pattern stored: ${result.id} (${result.type})`);
-            console.log(`  Pattern: ${result.pattern}`);
-            console.log(`  Frequency: ${result.frequency}`);
-          }
-        } else if (memType === 'learning') {
-          const result = await storeLearning(root, {
-            insight: opts['content'] as string,
-            source: (opts['source'] as string) || 'manual',
-            confidence: (opts['confidence'] as number) ?? 0.5,
-            actionable: !!opts['actionable'],
-            applicableTypes: opts['linkedTask'] ? [opts['linkedTask'] as string] : [],
-          });
-
-          if (opts['json']) {
-            console.log(JSON.stringify({ success: true, result }, null, 2));
-          } else {
-            console.log(`Learning stored: ${result.id}`);
-            console.log(`  Insight: ${result.insight}`);
-            console.log(`  Confidence: ${result.confidence}`);
-          }
-        } else {
-          console.error(`Unknown memory type: ${memType}. Use 'pattern' or 'learning'.`);
-          process.exit(1);
-        }
-      } catch (err: unknown) {
-        console.error(`Error: ${(err as Error).message}`);
+      if (memType === 'pattern') {
+        await dispatchFromCli('mutate', 'memory', 'pattern.store', {
+          type: opts['patternType'] || 'workflow',
+          pattern: opts['content'],
+          context: opts['context'] || 'Unspecified context',
+          impact: opts['impact'],
+          examples: opts['linkedTask'] ? [opts['linkedTask']] : [],
+        }, { command: 'memory', operation: 'memory.pattern.store' });
+      } else if (memType === 'learning') {
+        await dispatchFromCli('mutate', 'memory', 'learning.store', {
+          insight: opts['content'],
+          source: opts['source'] || 'manual',
+          confidence: opts['confidence'] ?? 0.5,
+          actionable: !!opts['actionable'],
+          applicableTypes: opts['linkedTask'] ? [opts['linkedTask']] : [],
+        }, { command: 'memory', operation: 'memory.learning.store' });
+      } else {
+        console.error(`Unknown memory type: ${memType}. Use 'pattern' or 'learning'.`);
         process.exit(1);
       }
     });
 
-  // -- recall / search --
+  // -- find (cross-table FTS5 search, or type-specific with --type) --
   memory
-    .command('recall <query>')
-    .alias('search')
-    .description('Search BRAIN memory for patterns and learnings')
-    .option('--type <type>', 'Filter by memory type: pattern or learning')
+    .command('find <query>')
+    .description('Search BRAIN memory (all tables, or filter by --type pattern|learning)')
+    .option('--type <type>', 'Filter by memory type: pattern or learning (default: all)')
     .option('--pattern-type <type>', 'Filter patterns by type: workflow, blocker, success, failure, optimization')
     .option('--min-confidence <n>', 'Minimum confidence for learnings', parseFloat)
     .option('--actionable', 'Only show actionable learnings')
-    .option('--limit <n>', 'Maximum results per category', parseInt)
+    .option('--limit <n>', 'Maximum results', parseInt)
     .option('--json', 'Output as JSON')
     .action(async (query: string, opts: Record<string, unknown>) => {
-      const root = getProjectRoot();
       const memType = opts['type'] as string | undefined;
-      const limit = (opts['limit'] as number) || 10;
 
-      const results: { patterns: unknown[]; learnings: unknown[] } = {
-        patterns: [],
-        learnings: [],
-      };
-
-      if (!memType || memType === 'pattern') {
-        results.patterns = await searchPatterns(root, {
+      if (memType === 'pattern') {
+        await dispatchFromCli('query', 'memory', 'pattern.find', {
           query,
-          type: opts['patternType'] as PatternType | undefined,
-          limit,
-        });
-      }
-
-      if (!memType || memType === 'learning') {
-        results.learnings = await searchLearnings(root, {
+          type: opts['patternType'],
+          limit: opts['limit'],
+        }, { command: 'memory', operation: 'memory.find' });
+      } else if (memType === 'learning') {
+        await dispatchFromCli('query', 'memory', 'learning.find', {
           query,
-          minConfidence: opts['minConfidence'] as number | undefined,
+          minConfidence: opts['minConfidence'],
           actionableOnly: !!opts['actionable'],
-          limit,
-        });
-      }
-
-      if (opts['json']) {
-        console.log(JSON.stringify({ success: true, results }, null, 2));
+          limit: opts['limit'],
+        }, { command: 'memory', operation: 'memory.find' });
       } else {
-        const totalResults =
-          results.patterns.length + results.learnings.length;
-
-        if (totalResults === 0) {
-          console.log('No matching memories found.');
-          return;
-        }
-
-        if (results.patterns.length > 0) {
-          console.log(`\nPatterns (${results.patterns.length}):`);
-          for (const p of results.patterns as Array<{ id: string; type: string; pattern: string; frequency: number }>) {
-            console.log(`  ${p.id} [${p.type}] (freq: ${p.frequency}) ${p.pattern}`);
-          }
-        }
-
-        if (results.learnings.length > 0) {
-          console.log(`\nLearnings (${results.learnings.length}):`);
-          for (const l of results.learnings as Array<{ id: string; insight: string; confidence: number }>) {
-            console.log(`  ${l.id} (conf: ${l.confidence}) ${l.insight}`);
-          }
-        }
+        await dispatchFromCli('query', 'memory', 'find', {
+          query,
+          limit: opts['limit'],
+        }, { command: 'memory', operation: 'memory.find' });
       }
     });
 
@@ -161,35 +97,32 @@ export function registerMemoryBrainCommand(program: Command): void {
     .command('stats')
     .description('Show BRAIN memory statistics')
     .option('--json', 'Output as JSON')
-    .action(async (opts: Record<string, unknown>) => {
-      const root = getProjectRoot();
+    .action(async () => {
+      // Fetch both pattern and learning stats via dispatch
+      const pResponse = await dispatchRaw('query', 'memory', 'pattern.stats', {});
+      const lResponse = await dispatchRaw('query', 'memory', 'learning.stats', {});
 
-      const pStats = await patternStats(root);
-      const lStats = await learningStats(root);
+      const result: Record<string, unknown> = {};
+      if (pResponse.success) result['patterns'] = pResponse.data;
+      if (lResponse.success) result['learnings'] = lResponse.data;
 
-      if (opts['json']) {
-        console.log(JSON.stringify({
-          success: true,
-          result: { patterns: pStats, learnings: lStats },
-        }, null, 2));
-      } else {
-        console.log('BRAIN Memory Statistics');
-        console.log('======================');
-        console.log(`\nPatterns: ${pStats.total} total`);
-        if (pStats.total > 0) {
-          for (const [type, count] of Object.entries(pStats.byType)) {
-            if (count > 0) console.log(`  ${type}: ${count}`);
-          }
-          if (pStats.highestFrequency) {
-            console.log(`  Most common: "${pStats.highestFrequency.pattern}" (${pStats.highestFrequency.frequency}x)`);
-          }
-        }
-        console.log(`\nLearnings: ${lStats.total} total`);
-        if (lStats.total > 0) {
-          console.log(`  Actionable: ${lStats.actionable}`);
-          console.log(`  Avg confidence: ${lStats.averageConfidence}`);
-          console.log(`  High confidence (>0.8): ${lStats.highConfidence}`);
-        }
+      if (!pResponse.success && !lResponse.success) {
+        handleRawError(pResponse, { command: 'memory', operation: 'memory.stats' });
+        return;
       }
+
+      cliOutput(result, { command: 'memory', operation: 'memory.stats' });
+    });
+
+  // -- observe (save observation to brain.db) --
+  memory
+    .command('observe <text>')
+    .description('Save an observation to brain.db')
+    .option('--title <title>', 'Short title for the observation')
+    .action(async (text: string, opts: Record<string, unknown>) => {
+      await dispatchFromCli('mutate', 'memory', 'observe', {
+        text,
+        title: opts['title'],
+      }, { command: 'memory', operation: 'memory.observe' });
     });
 }

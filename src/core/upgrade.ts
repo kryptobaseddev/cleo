@@ -14,20 +14,11 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { join } from 'node:path';
 import { getCleoDirAbsolute, getCleoHome, getProjectRoot } from './paths.js';
-import { checkStorageMigration, type PreflightResult } from './migration/preflight.js';
+import { checkStorageMigration, type PreflightResult } from './system/storage-preflight.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
-import { MigrationLogger } from './migration/logger.js';
 import { forceCheckpointBeforeOperation, acquireLock, type ReleaseFn } from '../store/index.js';
-import {
-  createMigrationState,
-  updateMigrationPhase,
-  updateMigrationProgress,
-  addMigrationWarning,
-  completeMigration,
-  failMigration,
-} from './migration/state.js';
 import { ensureCleoStructure, ensureConfig, ensureGitignore, ensureProjectContext, ensureProjectInfo, ensureCleoGitRepo, ensureSqliteDb, removeCleoFromRootGitignore } from './scaffold.js';
 import { initAgentDefinition, initMcpServer, initCoreSkills, initNexusRegistration } from './init.js';
 import { ensureGitHooks } from './hooks.js';
@@ -104,19 +95,12 @@ export async function runUpgrade(options: {
   const dbPath = join(cleoDir, 'tasks.db');
   const dbExists = existsSync(dbPath);
   
-  // Check if JSON files have actual data (not just empty files)
-  const todoPath = join(cleoDir, 'todo.json');
-  const hasJsonData = existsSync(todoPath) && (() => {
-    try {
-      const data = JSON.parse(readFileSync(todoPath, 'utf-8'));
-      return (data.tasks?.length ?? 0) > 0;
-    } catch {
-      return false;
-    }
-  })();
+  const legacyRecordCount = preflight.details.todoJsonTaskCount
+    + preflight.details.archiveJsonTaskCount
+    + preflight.details.sessionsJsonCount;
   
   // Migration needed only if: no DB exists AND JSON has data
-  const needsMigration = !dbExists && hasJsonData;
+  const needsMigration = !dbExists && legacyRecordCount > 0;
   // Cleanup needed if: DB exists AND stale JSON files exist
   const needsCleanup = dbExists && preflight.migrationNeeded;
 
@@ -158,6 +142,15 @@ export async function runUpgrade(options: {
         await forceCheckpointBeforeOperation('storage-migration', options.cwd);
 
         // Initialize migration state tracking
+        const { MigrationLogger } = await import('./migration/logger.js');
+        const {
+          createMigrationState,
+          updateMigrationPhase,
+          updateMigrationProgress,
+          addMigrationWarning,
+          completeMigration,
+          failMigration,
+        } = await import('./migration/state.js');
         const logger = new MigrationLogger(cleoDir);
         await createMigrationState(cleoDir, {
           todoJson: { path: join(cleoDir, 'todo.json'), checksum: '' },
@@ -428,7 +421,7 @@ export async function runUpgrade(options: {
   // If tasks.db exists and there are stale legacy files, safely backup and delete them
   // so they don't trigger false positives or cause confusion.
   if (needsCleanup) {
-    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', 'tasks.json', '.sequence', '.sequence.json'];
+    const staleJsonFiles = ['todo.json', 'sessions.json', 'todo-archive.json', '.sequence', '.sequence.json'];
     const foundStale = staleJsonFiles.filter(f => existsSync(join(cleoDir, f)));
 
     if (foundStale.length > 0) {
@@ -467,81 +460,6 @@ export async function runUpgrade(options: {
           });
         }
       }
-    }
-  }
-
-  // ── Step 2c: Audit log JSONL-to-SQLite migration (T4837) ──────────
-  // Migrate existing tasks-log.jsonl entries to the audit_log SQLite table.
-  // Runs after tables are created/migrated. Safe to run repeatedly (idempotent via id PK).
-  if (existsSync(dbPath) && !isDryRun) {
-    try {
-      const { getDb } = await import('../store/sqlite.js');
-      const auditSchema = await import('../store/schema.js');
-      const { count } = await import('drizzle-orm');
-      const db = await getDb(options.cwd);
-
-      // Check if audit_log table exists and is empty
-      const auditCount = await db
-        .select({ count: count() })
-        .from(auditSchema.auditLog)
-        .get();
-
-      if ((auditCount?.count ?? 0) === 0) {
-        // Check for JSONL log files
-        const tasksLogPath = join(cleoDir, 'tasks-log.jsonl');
-        const todoLogPath = join(cleoDir, 'todo-log.jsonl');
-        const logPath = existsSync(tasksLogPath) ? tasksLogPath : existsSync(todoLogPath) ? todoLogPath : null;
-
-        if (logPath) {
-          const logContent = readFileSync(logPath, 'utf-8').trim();
-          if (logContent) {
-            const lines = logContent.split('\n').filter(l => l.trim());
-            let imported = 0;
-
-            for (const line of lines) {
-              try {
-                const entry = JSON.parse(line);
-                const epoch = Math.floor(Date.now() / 1000);
-                const rand = Math.random().toString(36).slice(2, 8);
-
-                await db.insert(auditSchema.auditLog).values({
-                  id: (entry.id as string) ?? `log-${epoch}-${rand}`,
-                  timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
-                  action: (entry.action as string) ?? (entry.operation as string) ?? 'unknown',
-                  taskId: (entry.taskId as string) ?? 'unknown',
-                  actor: (entry.actor as string) ?? 'system',
-                  detailsJson: entry.details ? JSON.stringify(entry.details) : '{}',
-                  beforeJson: entry.before ? JSON.stringify(entry.before) : null,
-                  afterJson: entry.after ? JSON.stringify(entry.after) : null,
-                }).onConflictDoNothing().run();
-                imported++;
-              } catch {
-                // Skip malformed entries
-              }
-            }
-
-            if (imported > 0) {
-              actions.push({
-                action: 'audit_log_migration',
-                status: 'applied',
-                details: `Imported ${imported} audit log entries from ${logPath.split('/').pop()} to SQLite`,
-              });
-            }
-          }
-        }
-      }
-    } catch {
-      // Audit log migration is best-effort
-    }
-  } else if (existsSync(dbPath) && isDryRun) {
-    const tasksLogPath = join(cleoDir, 'tasks-log.jsonl');
-    const todoLogPath = join(cleoDir, 'todo-log.jsonl');
-    if (existsSync(tasksLogPath) || existsSync(todoLogPath)) {
-      actions.push({
-        action: 'audit_log_migration',
-        status: 'preview',
-        details: 'Would import JSONL audit log entries to SQLite audit_log table',
-      });
     }
   }
 
@@ -785,7 +703,7 @@ export async function runUpgrade(options: {
     try {
       const nexusCreated: string[] = [];
       const nexusWarnings: string[] = [];
-      await initNexusRegistration(projectRootForMaint, basename(projectRootForMaint), nexusCreated, nexusWarnings);
+      await initNexusRegistration(projectRootForMaint, nexusCreated, nexusWarnings);
       if (nexusCreated.length > 0) {
         actions.push({ action: 'nexus_registration', status: 'applied', details: nexusCreated.join(', ') });
       }

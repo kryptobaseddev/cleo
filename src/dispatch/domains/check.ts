@@ -29,7 +29,17 @@ import {
   validateTestCoverage,
   validateCoherenceCheck,
   validateTestRun,
+  validateProtocolConsensus,
+  validateProtocolContribution,
+  validateProtocolDecomposition,
+  validateProtocolImplementation,
+  validateProtocolSpecification,
+  validateGateVerify,
 } from '../lib/engine.js';
+
+import { validateChain } from '../../core/validation/chain-validation.js';
+import { listInstanceGateResults, showChain, showInstance } from '../../core/lifecycle/chain-store.js';
+import type { WarpChain } from '../../types/warp-chain.js';
 
 // ---------------------------------------------------------------------------
 // CheckHandler
@@ -120,6 +130,162 @@ export class CheckHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
         }
 
+        // Protocol validation operations (T5327)
+        case 'protocol.consensus': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+            votingMatrixFile: params?.votingMatrixFile as string | undefined,
+          };
+          const result = await validateProtocolConsensus(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.contribution': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+          };
+          const result = await validateProtocolContribution(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.decomposition': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+            epicId: params?.epicId as string | undefined,
+          };
+          const result = await validateProtocolDecomposition(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.implementation': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+          };
+          const result = await validateProtocolImplementation(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'protocol.specification': {
+          const mode = (params?.mode as 'task' | 'manifest') ?? 'task';
+          const protocolParams = {
+            mode,
+            taskId: params?.taskId as string | undefined,
+            manifestFile: params?.manifestFile as string | undefined,
+            strict: params?.strict as boolean | undefined,
+            specFile: params?.specFile as string | undefined,
+          };
+          const result = await validateProtocolSpecification(protocolParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        case 'gate.verify': {
+          const taskId = params?.taskId as string;
+          if (!taskId) {
+            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+          }
+          const gateParams = {
+            taskId,
+            gate: params?.gate as string | undefined,
+            value: params?.value as boolean | undefined,
+            agent: params?.agent as string | undefined,
+            all: params?.all as boolean | undefined,
+            reset: params?.reset as boolean | undefined,
+          };
+          const result = await validateGateVerify(gateParams, this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'check', operation, startTime);
+        }
+
+        // T5405: WarpChain validation
+        case 'chain.validate': {
+          const chain = params?.chain as WarpChain;
+          if (!chain) {
+            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'chain is required', startTime);
+          }
+          const chainResult = validateChain(chain);
+          return this.wrapEngineResult(
+            { success: chainResult.errors.length === 0, data: chainResult },
+            'query', 'check', operation, startTime,
+          );
+        }
+
+        case 'chain.gate': {
+          const instanceId = params?.instanceId as string;
+          const gateId = params?.gateId as string | undefined;
+
+          if (!instanceId) {
+            return this.errorResponse('query', 'check', operation, 'E_INVALID_INPUT', 'instanceId is required', startTime);
+          }
+
+          const instance = await showInstance(instanceId, this.projectRoot);
+          if (!instance) {
+            return this.errorResponse('query', 'check', operation, 'E_NOT_FOUND', `Chain instance "${instanceId}" not found`, startTime);
+          }
+
+          const chain = await showChain(instance.chainId, this.projectRoot);
+          if (!chain) {
+            return this.errorResponse('query', 'check', operation, 'E_NOT_FOUND', `Chain "${instance.chainId}" not found`, startTime);
+          }
+
+          const gateResults = await listInstanceGateResults(instanceId, this.projectRoot);
+
+          if (gateId) {
+            const gateExists = chain.gates.some((gate) => gate.id === gateId);
+            const matches = gateResults.filter((result) => result.gateId === gateId);
+            const latest = matches[matches.length - 1];
+
+            return this.wrapEngineResult({
+              success: gateExists,
+              data: {
+                instanceId,
+                gateId,
+                gateExists,
+                evaluations: matches.length,
+                latest: latest ?? null,
+                passed: latest ? latest.passed : null,
+              },
+            }, 'query', 'check', operation, startTime);
+          }
+
+          const summary = gateResults.reduce(
+            (acc, result) => {
+              if (result.passed) {
+                acc.passed += 1;
+              } else {
+                acc.failed += 1;
+              }
+              return acc;
+            },
+            { passed: 0, failed: 0 },
+          );
+
+          return this.wrapEngineResult({
+            success: true,
+            data: {
+              instanceId,
+              chainId: instance.chainId,
+              totalDefinedGates: chain.gates.length,
+              totalEvaluations: gateResults.length,
+              ...summary,
+            },
+          }, 'query', 'check', operation, startTime);
+        }
+
         default:
           return this.unsupported('query', 'check', operation, startTime);
       }
@@ -182,6 +348,10 @@ export class CheckHandler implements DomainHandler {
         'schema', 'protocol', 'task', 'manifest', 'output',
         'compliance.summary', 'compliance.violations',
         'test.status', 'test.coverage', 'coherence.check',
+        // T5327: Protocol validation operations
+        'protocol.consensus', 'protocol.contribution', 'protocol.decomposition',
+        'protocol.implementation', 'protocol.specification', 'gate.verify',
+        'chain.validate', 'chain.gate',
       ],
       mutate: ['compliance.record', 'test.run'],
     };

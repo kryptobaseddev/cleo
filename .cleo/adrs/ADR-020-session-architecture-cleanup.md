@@ -32,7 +32,7 @@ Three plan documents guided this work:
 
 ### 2.1 Sessions in the BRAIN Memory Model
 
-The CLEO vision document (`docs/concepts/vision.md`) defines sessions as a BRAIN memory type:
+The CLEO vision document (`docs/concepts/CLEO-VISION.md`) defines sessions as a BRAIN memory type:
 
 > **Sessions** — Handoff notes, briefings, and continuity context — Per-session
 
@@ -263,7 +263,7 @@ This ADR amends three existing decisions:
 
 ## 6. References
 
-- Vision document: `docs/concepts/vision.md` (BRAIN memory types, sessions as continuity context)
+- Vision document: `docs/concepts/CLEO-VISION.md` (BRAIN memory types, sessions as continuity context)
 - Plan: `mossy-wondering-moth.md` (handoff/briefing pipeline fix)
 - Plan: `scalable-pondering-mccarthy.md` (session identity architecture overhaul)
 - Plan: `goofy-mixing-hopper.md` (session architecture cleanup, Drizzle-first)

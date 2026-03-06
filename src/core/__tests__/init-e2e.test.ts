@@ -46,6 +46,10 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     } else {
       delete process.env['CLEO_DIR'];
     }
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
 
@@ -178,11 +182,16 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(existsSync(preCommitHook)).toBe(true);
 
     // Verify hooks are executable (mode includes 0o111)
+    // Windows doesn't support Unix permission bits — skip mode check there
     const commitMsgStat = await stat(commitMsgHook);
-    expect(commitMsgStat.mode & 0o111).toBeGreaterThan(0);
+    if (process.platform !== 'win32') {
+      expect(commitMsgStat.mode & 0o111).toBeGreaterThan(0);
+    }
 
     const preCommitStat = await stat(preCommitHook);
-    expect(preCommitStat.mode & 0o111).toBeGreaterThan(0);
+    if (process.platform !== 'win32') {
+      expect(preCommitStat.mode & 0o111).toBeGreaterThan(0);
+    }
 
     // Verify reported in created
     expect(result.created.join(',')).toContain('git hooks');

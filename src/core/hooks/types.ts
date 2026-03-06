@@ -14,10 +14,49 @@ import type { HookEvent as CAAMPHookEvent } from '@cleocode/caamp';
 export { getProvidersByHookEvent, getCommonHookEvents } from '@cleocode/caamp';
 
 /**
- * HookEvent type re-exported from CAAMP 1.6.0
- * CAAMP defines events - CLEO provides execution
+ * CAAMP-defined hook events supported by provider capability discovery.
  */
-export type HookEvent = CAAMPHookEvent;
+export type ProviderHookEvent = CAAMPHookEvent;
+
+/**
+ * CLEO-local coordination events used by the autonomous runtime.
+ *
+ * These are internal lifecycle signals for worker orchestration and are not
+ * surfaced through CAAMP's provider capability registry.
+ */
+export const INTERNAL_HOOK_EVENTS = [
+  'onWorkAvailable',
+  'onAgentSpawn',
+  'onAgentComplete',
+  'onCascadeStart',
+  'onPatrol',
+] as const;
+
+export type InternalHookEvent = typeof INTERNAL_HOOK_EVENTS[number];
+
+/**
+ * Full CLEO hook event union.
+ *
+ * CAAMP defines provider-facing events; CLEO extends the registry with local
+ * coordination events for autonomous execution.
+ */
+export type HookEvent = ProviderHookEvent | InternalHookEvent;
+
+const INTERNAL_HOOK_EVENT_SET = new Set<string>(INTERNAL_HOOK_EVENTS);
+
+/**
+ * Type guard for CAAMP/provider-discoverable hook events.
+ */
+export function isProviderHookEvent(event: HookEvent): event is ProviderHookEvent {
+  return !INTERNAL_HOOK_EVENT_SET.has(event);
+}
+
+/**
+ * Type guard for CLEO-local coordination hook events.
+ */
+export function isInternalHookEvent(event: HookEvent): event is InternalHookEvent {
+  return INTERNAL_HOOK_EVENT_SET.has(event);
+}
 
 /**
  * Base interface for all hook payloads
@@ -143,6 +182,177 @@ export interface HookConfig {
 }
 
 /**
+ * Payload for onFileChange hook
+ * Fired when a tracked file is written, created, or deleted
+ */
+export interface OnFileChangePayload extends HookPayload {
+  /** Absolute or project-relative path of the changed file */
+  filePath: string;
+
+  /** Kind of filesystem change */
+  changeType: 'write' | 'create' | 'delete';
+
+  /** File size in bytes after the change (absent for deletes) */
+  sizeBytes?: number;
+}
+
+/**
+ * Payload for onError hook
+ * Fired when an operation fails with a structured error
+ */
+export interface OnErrorPayload extends HookPayload {
+  /** Numeric exit code or string error code */
+  errorCode: number | string;
+
+  /** Human-readable error message */
+  message: string;
+
+  /** Domain where the error occurred */
+  domain?: string;
+
+  /** Operation that failed */
+  operation?: string;
+
+  /** Gateway (query / mutate) that received the error */
+  gateway?: string;
+
+  /** Optional stack trace */
+  stack?: string;
+}
+
+/**
+ * Payload for onPromptSubmit hook
+ * Fired when an agent submits a prompt through a gateway
+ */
+export interface OnPromptSubmitPayload extends HookPayload {
+  /** Gateway that received the prompt (query / mutate) */
+  gateway: string;
+
+  /** Target domain */
+  domain: string;
+
+  /** Target operation */
+  operation: string;
+
+  /** Optional source identifier (e.g. agent name) */
+  source?: string;
+}
+
+/**
+ * Payload for onResponseComplete hook
+ * Fired when a gateway operation finishes (success or failure)
+ */
+export interface OnResponseCompletePayload extends HookPayload {
+  /** Gateway that handled the operation */
+  gateway: string;
+
+  /** Target domain */
+  domain: string;
+
+  /** Target operation */
+  operation: string;
+
+  /** Whether the operation succeeded */
+  success: boolean;
+
+  /** Wall-clock duration in milliseconds */
+  durationMs?: number;
+
+  /** Error code if the operation failed */
+  errorCode?: string;
+}
+
+/**
+ * Payload for onWorkAvailable hook
+ * Fired when the system detects ready work on a Loom/Tapestry
+ */
+export interface OnWorkAvailablePayload extends HookPayload {
+  /** IDs of tasks now ready for execution */
+  taskIds: string[];
+
+  /** Optional epic / Loom identifier */
+  epicId?: string;
+
+  /** Optional chain or tessera instance identifier */
+  chainId?: string;
+
+  /** Why the work became available */
+  reason?: 'dependency-cleared' | 'new-task' | 'retry' | 'manual' | 'patrol';
+}
+
+/**
+ * Payload for onAgentSpawn hook
+ * Fired when a worker session/process is launched
+ */
+export interface OnAgentSpawnPayload extends HookPayload {
+  /** Worker or session identifier */
+  agentId: string;
+
+  /** Worker role / archetype name */
+  role: string;
+
+  /** Provider or adapter used to launch the worker */
+  adapterId?: string;
+
+  /** Optional task assignment at spawn time */
+  taskId?: string;
+}
+
+/**
+ * Payload for onAgentComplete hook
+ * Fired when a worker finishes its assigned run
+ */
+export interface OnAgentCompletePayload extends HookPayload {
+  /** Worker or session identifier */
+  agentId: string;
+
+  /** Worker role / archetype name */
+  role: string;
+
+  /** Completion status for the run */
+  status: 'complete' | 'partial' | 'blocked' | 'failed';
+
+  /** Optional task assignment that was completed */
+  taskId?: string;
+
+  /** Optional summary or manifest reference */
+  summary?: string;
+}
+
+/**
+ * Payload for onCascadeStart hook
+ * Fired when autonomous execution begins flowing through a chain or wave
+ */
+export interface OnCascadeStartPayload extends HookPayload {
+  /** Identifier for the cascade / execution wave */
+  cascadeId: string;
+
+  /** Optional chain identifier */
+  chainId?: string;
+
+  /** Optional tessera template / instance identifier */
+  tesseraId?: string;
+
+  /** Task IDs participating in the cascade */
+  taskIds?: string[];
+}
+
+/**
+ * Payload for onPatrol hook
+ * Fired when a watcher performs a periodic health/sweep cycle
+ */
+export interface OnPatrolPayload extends HookPayload {
+  /** Watcher / patrol identifier */
+  watcherId: string;
+
+  /** Patrol category */
+  patrolType: 'health' | 'sweep' | 'refinery' | 'watcher' | 'custom';
+
+  /** Optional scope being patrolled */
+  scope?: string;
+}
+
+/**
  * Mapping from CLEO internal lifecycle events to CAAMP hook events
  * This is where CLEO connects its lifecycle to CAAMP's event definitions
  */
@@ -151,6 +361,21 @@ export const CLEO_TO_CAAMP_HOOK_MAP = {
   'session.end': 'onSessionEnd',
   'task.start': 'onToolStart',
   'task.complete': 'onToolComplete',
+  'file.change': 'onFileChange',
+  'system.error': 'onError',
+  'prompt.submit': 'onPromptSubmit',
+  'response.complete': 'onResponseComplete',
+} as const;
+
+/**
+ * Internal CLEO lifecycle events that drive autonomous coordination.
+ */
+export const CLEO_INTERNAL_HOOK_MAP = {
+  'agent.work.available': 'onWorkAvailable',
+  'agent.spawn': 'onAgentSpawn',
+  'agent.complete': 'onAgentComplete',
+  'cascade.start': 'onCascadeStart',
+  'watcher.patrol': 'onPatrol',
 } as const;
 
 /**
@@ -158,3 +383,8 @@ export const CLEO_TO_CAAMP_HOOK_MAP = {
  * These are the internal events CLEO fires that get mapped to CAAMP events
  */
 export type CLEOLifecycleEvent = keyof typeof CLEO_TO_CAAMP_HOOK_MAP;
+
+/**
+ * Type for autonomous CLEO lifecycle events.
+ */
+export type CLEOAutonomousLifecycleEvent = keyof typeof CLEO_INTERNAL_HOOK_MAP;

@@ -694,7 +694,7 @@ MCP Track (independent, parallel with CLI phases)
 ### 10.1 Document Authority Hierarchy
 
 ```
-docs/concepts/vision.mdx                        (immutable identity - HIGHEST)
+docs/concepts/CLEO-VISION.mdx                        (immutable identity - HIGHEST)
     │
     ├── docs/specs/PORTABLE-BRAIN-SPEC.md       (product contract)
     │
@@ -733,7 +733,7 @@ docs/concepts/vision.mdx                        (immutable identity - HIGHEST)
 
 | Document | Path | Relationship |
 |----------|------|-------------|
-| Vision Charter | `docs/concepts/vision.mdx` | Immutable identity (highest authority) |
+| Vision Charter | `docs/concepts/CLEO-VISION.mdx` | Immutable identity (highest authority) |
 | Portable Brain Spec | `docs/specs/PORTABLE-BRAIN-SPEC.md` | Product contract |
 | Strategic Roadmap | `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | Phase execution plan |
 | Migration Doctrine | `docs/specs/CLEO-MIGRATION-DOCTRINE.md` | Migration strategy (updated by this spec) |
@@ -769,5 +769,5 @@ docs/concepts/vision.mdx                        (immutable identity - HIGHEST)
 ---
 
 **Document Status**: DRAFT
-**Authority**: End-to-end V2 architecture. Defers to `docs/concepts/vision.mdx` (immutable identity) and `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract) for product definition.
+**Authority**: End-to-end V2 architecture. Defers to `docs/concepts/CLEO-VISION.mdx` (immutable identity) and `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract) for product definition.
 **Next Review**: After Phase 1 foundation tasks complete.

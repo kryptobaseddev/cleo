@@ -40,7 +40,7 @@ test_system_version() {
     echo ""
     echo "Testing: System Version Query (QUICK-START.md)"
 
-    local request='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"system","operation":"version"}}}'
+    local request='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"domain":"system","operation":"version"}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -61,7 +61,7 @@ test_task_find() {
     echo ""
     echo "Testing: Task Find Operation (README.md)"
 
-    local request='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"tasks","operation":"find","params":{"query":"validation"}}}}'
+    local request='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"find","params":{"query":"validation"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -82,7 +82,7 @@ test_task_get() {
     echo ""
     echo "Testing: Task Get Operation (task-management.md)"
 
-    local request='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"tasks","operation":"get","params":{"taskId":"T3074"}}}}'
+    local request='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"get","params":{"taskId":"T3074"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -103,7 +103,7 @@ test_session_status() {
     echo ""
     echo "Testing: Session Status Query (USAGE-GUIDE.md)"
 
-    local request='{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"session","operation":"status"}}}'
+    local request='{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"domain":"session","operation":"status"}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -124,7 +124,7 @@ test_task_exists() {
     echo ""
     echo "Testing: Task Exists Check (task-management.md)"
 
-    local request='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"tasks","operation":"exists","params":{"taskId":"T3074"}}}}'
+    local request='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"exists","params":{"taskId":"T3074"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -145,7 +145,7 @@ test_task_deps() {
     echo ""
     echo "Testing: Task Dependencies Query (task-management.md)"
 
-    local request='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"tasks","operation":"deps","params":{"taskId":"T3074","direction":"both"}}}}'
+    local request='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"deps","params":{"taskId":"T3074","direction":"both"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -166,7 +166,7 @@ test_lifecycle_status() {
     echo ""
     echo "Testing: Lifecycle Status Check (USAGE-GUIDE.md)"
 
-    local request='{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"lifecycle","operation":"status","params":{"taskId":"T3074"}}}}'
+    local request='{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"domain":"lifecycle","operation":"status","params":{"taskId":"T3074"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 
@@ -188,7 +188,7 @@ test_error_format() {
     echo "Testing: Error Response Format (README.md)"
 
     # Use non-existent task to trigger error
-    local request='{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"cleo_query","arguments":{"domain":"tasks","operation":"get","params":{"taskId":"T9999999"}}}}'
+    local request='{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query","arguments":{"domain":"tasks","operation":"get","params":{"taskId":"T9999999"}}}}'
 
     local response=$(echo "$request" | node "$MCP_SERVER" 2>/dev/null || echo '{"error":"failed"}')
 

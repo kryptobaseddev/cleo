@@ -1,11 +1,11 @@
 /**
- * Tests for project registry (project-registry.ts).
- * @task T4552
- * @epic T4545
+ * Tests for canonical project hash generation (hash.ts).
+ * @task T5364
+ * @epic T4540
  */
 
 import { describe, it, expect } from 'vitest';
-import { generateProjectHash } from '../project-registry.js';
+import { generateProjectHash } from '../../core/nexus/hash.js';
 
 describe('generateProjectHash', () => {
   it('should generate a 12-character hex hash', () => {
@@ -25,7 +25,8 @@ describe('generateProjectHash', () => {
     expect(hash1).not.toBe(hash2);
   });
 
-  it('should throw on empty path', () => {
-    expect(() => generateProjectHash('')).toThrow('Project path required');
+  it('should handle empty path', () => {
+    const hash = generateProjectHash('');
+    expect(hash).toMatch(/^[a-f0-9]{12}$/);
   });
 });

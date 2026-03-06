@@ -4,7 +4,7 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Command } from 'commander';
 import { registerDocsCommand } from '../commands/docs.js';
 

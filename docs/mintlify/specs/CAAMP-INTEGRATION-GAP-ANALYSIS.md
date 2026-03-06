@@ -270,7 +270,7 @@ Rationale:
     ├── Native engine (task/session/config/validation)
     ├── CAAMP adapter layer (wraps CAAMP for CLEO-specific needs)
     ├── CLI adapter (Bash fallback)
-    └── MCP gateway (cleo_query / cleo_mutate)
+    └── MCP gateway (query / mutate)
 ```
 
 ### 6.4 Node.js Engine Bump

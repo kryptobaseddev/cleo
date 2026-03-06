@@ -6,7 +6,7 @@
 
 import type { TaskRow } from '../../store/schema.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { readJsonFile, getDataPath } from '../../store/file-utils.js';
+
 import { depsReady } from './deps-ready.js';
 
 // Internal task record — subset of Drizzle TaskRow for plan computation
@@ -120,12 +120,12 @@ function findEpicId(task: TaskRecord, taskMap: Map<string, TaskRecord>): string 
 
 
 /**
- * Get current phase from tasks.json.
+ * Get current phase from tasks.
  */
-function getCurrentPhase(projectRoot: string): string | null {
-  const taskPath = getDataPath(projectRoot, 'tasks.json');
-  const todoMeta = readJsonFile<{ project?: { currentPhase?: string | null } }>(taskPath);
-  return todoMeta?.project?.currentPhase ?? null;
+async function getCurrentPhase(projectRoot: string): Promise<string | null> {
+  const accessor = await getAccessor(projectRoot);
+  const data = await accessor.loadTaskFile();
+  return data?.project?.currentPhase ?? null;
 }
 
 /**
@@ -169,7 +169,7 @@ function calculateEpicCompletion(epicId: string, taskMap: Map<string, TaskRecord
 export async function coreTaskPlan(projectRoot: string): Promise<PlanResult> {
   const allTasks = await loadAllTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
-  const currentPhase = getCurrentPhase(projectRoot);
+  const currentPhase = await getCurrentPhase(projectRoot);
 
   // ========================================================================
   // 1. In-Progress Epics (epics with active status)

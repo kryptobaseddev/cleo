@@ -7,19 +7,24 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from
 import { join } from 'node:path';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
+import { loadConfig } from '../config.js';
+import { pruneAuditLog } from '../audit-prune.js';
 
 export interface CleanupResult {
   target: string;
   deleted: number;
   items: string[];
   dryRun: boolean;
+  prunedRows?: number;
+  archivedRows?: number;
+  archivePath?: string;
 }
 
 /** Cleanup stale data (sessions, backups, logs). */
-export function cleanupSystem(
+export async function cleanupSystem(
   projectRoot: string,
   params: { target: string; olderThan?: string; dryRun?: boolean },
-): CleanupResult {
+): Promise<CleanupResult> {
   if (!params.target) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'target is required (sessions|backups|logs|archive)');
   }
@@ -27,6 +32,10 @@ export function cleanupSystem(
   const cleoDir = join(projectRoot, '.cleo');
   const dryRun = params.dryRun ?? false;
   const items: string[] = [];
+
+  let prunedRows: number | undefined;
+  let archivedRows: number | undefined;
+  let archivePath: string | undefined;
 
   switch (params.target) {
     case 'sessions': {
@@ -88,6 +97,15 @@ export function cleanupSystem(
       break;
     }
     case 'logs': {
+      if (!dryRun) {
+        const config = await loadConfig(projectRoot);
+        const pruneResult = await pruneAuditLog(cleoDir, config.logging);
+        prunedRows = pruneResult.rowsDeleted;
+        archivedRows = pruneResult.rowsArchived;
+        archivePath = pruneResult.archivePath;
+      }
+
+      // Remove legacy rotated JSON audit files
       const auditPattern = /^audit-log-.*\.json$/;
       if (existsSync(cleoDir)) {
         for (const file of readdirSync(cleoDir)) {
@@ -105,5 +123,13 @@ export function cleanupSystem(
       throw new CleoError(ExitCode.INVALID_INPUT, `Invalid cleanup target: ${params.target}`);
   }
 
-  return { target: params.target, deleted: dryRun ? 0 : items.length, items, dryRun };
+  return {
+    target: params.target,
+    deleted: dryRun ? 0 : items.length,
+    items,
+    dryRun,
+    prunedRows,
+    archivedRows,
+    archivePath,
+  };
 }

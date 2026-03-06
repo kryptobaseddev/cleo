@@ -113,13 +113,13 @@ describe('Group 1: Registry completeness', () => {
     }
   });
 
-  it('registry has the expected operation count (112 query, 89 mutate)', () => {
+  it('registry has the expected operation count', () => {
     const queryCount = OPERATIONS.filter(o => o.gateway === 'query').length;
     const mutateCount = OPERATIONS.filter(o => o.gateway === 'mutate').length;
 
-    expect(queryCount).toBe(112);
-    expect(mutateCount).toBe(89);
-    expect(OPERATIONS.length).toBe(201);
+    expect(queryCount).toBe(145);
+    expect(mutateCount).toBe(111);
+    expect(OPERATIONS.length).toBe(256);
   });
 
   it('all operations have valid gateway values', () => {
@@ -774,7 +774,6 @@ describe('Group 6: Per-domain operation coverage', () => {
   it('all canonical domains have at least one registered operation', () => {
     const activeDomains = getActiveDomains();
     // The 10 canonical domains from CANONICAL_DOMAINS
-    // Not all may have operations yet (e.g., sharing may be empty)
     // Verify that the active domains are a subset of canonical domains
     for (const domain of activeDomains) {
       expect(
@@ -821,8 +820,8 @@ describe('Group 6: Per-domain operation coverage', () => {
     }
   });
 
-  it('core domains (tasks, session, admin) have both query and mutate operations', () => {
-    const coreDomains: CanonicalDomain[] = ['tasks', 'session', 'admin'];
+  it('core domains (tasks, session, admin, nexus) have both query and mutate operations', () => {
+    const coreDomains: CanonicalDomain[] = ['tasks', 'session', 'admin', 'nexus'];
 
     for (const domain of coreDomains) {
       const domainOps = getByDomain(domain);
@@ -832,6 +831,17 @@ describe('Group 6: Per-domain operation coverage', () => {
       expect(queryOps.length, `Domain "${domain}" has no query operations`).toBeGreaterThan(0);
       expect(mutateOps.length, `Domain "${domain}" has no mutate operations`).toBeGreaterThan(0);
     }
+  });
+
+  it('nexus domain includes share.* sub-operations', () => {
+    const nexusOps = getByDomain('nexus');
+    const shareQueryOps = nexusOps.filter(o => o.operation.startsWith('share.') && o.gateway === 'query');
+    const shareMutateOps = nexusOps.filter(o => o.operation.startsWith('share.') && o.gateway === 'mutate');
+
+    expect(shareQueryOps.length).toBeGreaterThan(0);
+    expect(shareMutateOps.length).toBeGreaterThan(0);
+    expect(shareQueryOps.map(o => o.operation)).toContain('share.status');
+    expect(shareMutateOps.map(o => o.operation)).toContain('share.snapshot.export');
   });
 
   it('resolve() returns correct domain for each registered operation', () => {

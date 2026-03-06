@@ -29,7 +29,7 @@ export type GatewayMetaRecord = GatewayMeta & Record<string, unknown>;
 /**
  * Create a fully typed GatewayMeta for MCP domain responses.
  *
- * @param gateway - Gateway name (e.g., 'cleo_query', 'cleo_mutate')
+ * @param gateway - Gateway name (e.g., 'query', 'mutate')
  * @param domain - Domain name (e.g., 'tasks', 'session')
  * @param operation - Operation name (e.g., 'show', 'list')
  * @param startTime - Timestamp from Date.now() at start of request

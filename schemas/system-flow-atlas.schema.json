@@ -101,7 +101,7 @@
           "tools",
           "admin",
           "nexus",
-          "sharing"
+          "sticky"
         ]
       },
       "minItems": 10,

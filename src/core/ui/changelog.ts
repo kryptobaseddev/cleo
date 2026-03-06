@@ -10,10 +10,8 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { getCleoDir } from '../paths.js';
-import { readJson } from '../../store/json.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { getAccessor } from '../../store/data-accessor.js';
 
 /** Label-to-category mapping for changelog sections. */
 const LABEL_CATEGORIES: Record<string, string> = {
@@ -68,13 +66,11 @@ export async function discoverReleaseTasks(
     const archiveData = await accessor.loadArchive();
     if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>> });
   } else {
-    const taskPath = join(getCleoDir(cwd), 'todo.json');
-    const archivePath = join(getCleoDir(cwd), 'todo-archive.json');
-    for (const path of [taskPath, archivePath]) {
-      if (!existsSync(path)) continue;
-      const data = await readJson<{ tasks: Array<Record<string, unknown>> }>(path);
-      if (data?.tasks) dataSources.push(data);
-    }
+    const dataAccessor = await getAccessor(cwd);
+    const taskData = await dataAccessor.loadTaskFile();
+    if (taskData?.tasks) dataSources.push({ tasks: taskData.tasks as unknown as Array<Record<string, unknown>> });
+    const archiveData = await dataAccessor.loadArchive();
+    if (archiveData?.archivedTasks) dataSources.push({ tasks: archiveData.archivedTasks as unknown as Array<Record<string, unknown>> });
   }
 
   for (const data of dataSources) {

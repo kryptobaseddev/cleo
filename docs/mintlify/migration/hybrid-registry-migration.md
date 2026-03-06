@@ -1,3 +1,5 @@
+> **SUPERSEDED**: This migration guide describes the pre-v0.69 transition from single to hybrid JSON registry. As of 2026.3, the registry backend is SQLite (`~/.cleo/nexus.db`). The JSON-to-SQLite migration is automatic. See [CLEO NEXUS Specification](../../specs/CLEO-NEXUS-SPECIFICATION.md) for current architecture.
+
 # Migration Guide: Hybrid Registry Architecture
 
 **Version**: 0.68.0

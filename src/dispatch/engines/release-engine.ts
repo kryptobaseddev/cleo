@@ -10,7 +10,7 @@
  * @task T4788
  */
 
-import { resolveProjectRoot, readJsonFile, getDataPath } from '../../core/platform.js';
+import { resolveProjectRoot } from '../../core/platform.js';
 import { getAccessor } from '../../store/data-accessor.js';
 import {
   prepareRelease,
@@ -53,25 +53,16 @@ async function hasManifestEntry(version: string, projectRoot?: string): Promise<
 }
 
 /**
- * Load tasks via DataAccessor (SQLite or JSON depending on engine config).
- * When projectRoot is explicitly provided (e.g., in tests), uses direct
- * JSON read to avoid requiring full CLEO initialization.
+ * Load tasks via DataAccessor (SQLite).
  */
 async function loadTasks(projectRoot?: string): Promise<ReleaseTaskRecord[]> {
-  if (projectRoot) {
-    const taskPath = getDataPath(projectRoot, 'todo.json');
-    const taskData = readJsonFile<{ tasks: ReleaseTaskRecord[] }>(taskPath);
-    return taskData?.tasks ?? [];
-  }
+  const root = projectRoot ?? resolveProjectRoot();
   try {
-    const accessor = await getAccessor();
+    const accessor = await getAccessor(root);
     const taskFile = await accessor.loadTaskFile();
     return (taskFile?.tasks as ReleaseTaskRecord[]) ?? [];
-  } catch {
-    const root = resolveProjectRoot();
-    const taskPath = getDataPath(root, 'todo.json');
-    const taskData = readJsonFile<{ tasks: ReleaseTaskRecord[] }>(taskPath);
-    return taskData?.tasks ?? [];
+  } catch (error: unknown) {
+    throw new Error(`Failed to load task data: ${(error as Error).message}`);
   }
 }
 

@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkStorageMigration } from '../migration/preflight.js';
+import { checkStorageMigration } from '../system/storage-preflight.js';
 import { runUpgrade } from '../upgrade.js';
 import { acquireLock } from '../../store/lock.js';
 
@@ -23,7 +23,7 @@ describe('checkStorageMigration', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   it('detects JSON data with no config (v1→v2 upgrade)', () => {
@@ -87,6 +87,16 @@ describe('checkStorageMigration', () => {
     expect(result.summary).toContain('No data found');
   });
 
+  it('ignores legacy tasks.json for stale-file migration checks', () => {
+    writeFileSync(join(cleoDir, 'tasks.json'), JSON.stringify({ tasks: [] }));
+    writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ storage: { engine: 'sqlite' } }));
+    writeFileSync(join(cleoDir, 'tasks.db'), Buffer.alloc(4096));
+
+    const result = checkStorageMigration(tmpDir);
+    expect(result.migrationNeeded).toBe(false);
+    expect(result.summary).toContain('SQLite storage active');
+  });
+
   it('counts archive tasks in total', () => {
     writeFileSync(join(cleoDir, 'todo.json'), JSON.stringify({
       tasks: [],
@@ -117,8 +127,18 @@ describe('runUpgrade locking (T4723)', () => {
     mkdirSync(cleoDir, { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    // Close ALL SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* module may not be loaded */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   });
 
   it('should succeed when no concurrent migration', async () => {
@@ -259,8 +279,18 @@ describe('runUpgrade structural parity', () => {
     mkdirSync(cleoDir, { recursive: true });
   });
 
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    // Close ALL SQLite connections before cleanup — Windows locks open files
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* module may not be loaded */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   });
 
   it('creates missing config.json during upgrade', async () => {
@@ -269,5 +299,40 @@ describe('runUpgrade structural parity', () => {
 
     expect(existsSync(join(cleoDir, 'config.json'))).toBe(true);
     expect(result.actions.some((a) => a.action === 'config_file' && a.status === 'applied')).toBe(true);
+  });
+
+  it('does not treat tasks.json as stale cleanup target', async () => {
+    writeFileSync(join(cleoDir, 'tasks.db'), Buffer.alloc(4096));
+    writeFileSync(join(cleoDir, 'tasks.json'), JSON.stringify({ tasks: [] }));
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
+
+    expect(result.success).toBe(true);
+    expect(result.actions.some((a) => a.action === 'stale_json_cleanup')).toBe(false);
+    expect(existsSync(join(cleoDir, 'tasks.json'))).toBe(true);
+  });
+
+  it('detects migration from archive data without todo.json', async () => {
+    writeFileSync(join(cleoDir, 'todo-archive.json'), JSON.stringify({
+      tasks: [{ id: 'T2', title: 'Archived Task', status: 'done' }],
+    }));
+    writeFileSync(join(cleoDir, 'config.json'), '{}');
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
+
+    expect(result.success).toBe(true);
+    expect(result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview')).toBe(true);
+  });
+
+  it('detects migration from sessions data without todo.json', async () => {
+    writeFileSync(join(cleoDir, 'sessions.json'), JSON.stringify({
+      sessions: [{ id: 'S1', startedAt: '2026-01-01T00:00:00.000Z' }],
+    }));
+    writeFileSync(join(cleoDir, 'config.json'), '{}');
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: true });
+
+    expect(result.success).toBe(true);
+    expect(result.actions.some((a) => a.action === 'storage_migration' && a.status === 'preview')).toBe(true);
   });
 });

@@ -8,7 +8,12 @@
  * @phase 1C
  */
 
-import type { Provider } from '@cleocode/caamp';
+import {
+  getProvidersBySpawnCapability,
+  getSpawnCapableProviders,
+  providerSupportsById,
+  type Provider,
+} from '@cleocode/caamp';
 import type { CLEOSpawnAdapter } from '../../types/spawn.js';
 
 /**
@@ -92,7 +97,7 @@ export class SpawnAdapterRegistry {
    * @returns Promise resolving to array of spawn-capable adapters
    */
   async listSpawnCapable(): Promise<CLEOSpawnAdapter[]> {
-    const { getSpawnCapableProviders, providerSupportsById } = await import('@cleocode/caamp');
+    await initializeDefaultAdapters();
     const providers = getSpawnCapableProviders();
     return providers
       .filter((p: Provider) => providerSupportsById(p.id, 'spawn.supportsSubagents'))
@@ -110,7 +115,7 @@ export class SpawnAdapterRegistry {
    * @returns True if the provider supports spawning
    */
   async canProviderSpawn(providerId: string): Promise<boolean> {
-    const { providerSupportsById } = await import('@cleocode/caamp');
+    await initializeDefaultAdapters();
     return providerSupportsById(providerId, 'spawn.supportsSubagents');
   }
 
@@ -136,7 +141,6 @@ export class SpawnAdapterRegistry {
 export function getProvidersWithSpawnCapability(
   capability: SpawnCapability,
 ): Provider[] {
-  const { getProvidersBySpawnCapability } = require('@cleocode/caamp');
   return getProvidersBySpawnCapability(capability);
 }
 
@@ -166,11 +170,13 @@ export const spawnRegistry = new SpawnAdapterRegistry();
  * @returns Promise that resolves when initialization is complete
  */
 export async function initializeDefaultAdapters(): Promise<void> {
-  // Import and register Claude Code adapter
-  const { ClaudeCodeSpawnAdapter } = await import('./adapters/claude-code-adapter.js');
-  spawnRegistry.register(new ClaudeCodeSpawnAdapter());
+  if (!spawnRegistry.hasAdapterForProvider('claude-code')) {
+    const { ClaudeCodeSpawnAdapter } = await import('./adapters/claude-code-adapter.js');
+    spawnRegistry.register(new ClaudeCodeSpawnAdapter());
+  }
 
-  // Import and register Subprocess adapter (when implemented)
-  // const { SubprocessSpawnAdapter } = await import('./adapters/subprocess-adapter.js');
-  // spawnRegistry.register(new SubprocessSpawnAdapter());
+  if (!spawnRegistry.hasAdapterForProvider('opencode')) {
+    const { OpenCodeSpawnAdapter } = await import('./adapters/opencode-adapter.js');
+    spawnRegistry.register(new OpenCodeSpawnAdapter());
+  }
 }

@@ -14,7 +14,7 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 export function registerValidateCommand(program: Command): void {
   program
     .command('validate')
-    .description('Validate tasks.json against schema and business rules')
+    .description('Validate task data against schema and business rules')
     .option('--strict', 'Treat warnings as errors')
     .action(async (opts: Record<string, unknown>) => {
       await dispatchFromCli('query', 'check', 'schema', {

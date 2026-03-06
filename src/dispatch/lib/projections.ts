@@ -24,15 +24,14 @@ export const PROJECTIONS: Record<MviTier, ProjectionConfig> = {
     maxDepth: 2,
   },
   standard: {
-    allowedDomains: ['tasks', 'session', 'admin', 'memory', 'check', 'pipeline', 'tools', 'validate'],
+    allowedDomains: ['tasks', 'session', 'admin', 'memory', 'check', 'pipeline', 'tools', 'sticky'],
     excludeFields: ['metadata._internal', 'auditLog'],
     maxDepth: 4,
   },
   orchestrator: {
     allowedDomains: [
       'tasks', 'session', 'admin', 'memory', 'check', 'pipeline',
-      'orchestrate', 'tools', 'sharing', 'nexus', 'validate',
-      'lifecycle', 'release', 'system',
+      'orchestrate', 'tools', 'nexus', 'sticky',
     ],
     maxDepth: 8,
   },

@@ -7,7 +7,7 @@ import {
 import {
   validateAgainstSchema,
   checkSchema,
-} from '../schema.js';
+} from '../json-schema-validator.js';
 
 describe('core schema validation', () => {
   it('validates config data through canonical AJV path', () => {

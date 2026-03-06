@@ -1,18 +1,12 @@
 /**
  * CLI specification command - specification protocol validation.
+ * Routes through dispatch layer to check.protocol.specification.
  * @task T4537
  * @epic T4454
  */
 
-// CLI-only: protocol validation is separate from pipeline.stage.record lifecycle
 import { Command } from 'commander';
-import {
-  validateSpecificationTask,
-  checkSpecificationManifest,
-} from '../../core/validation/protocols/specification.js';
-import { formatError } from '../../core/output.js';
-import { cliOutput } from '../renderers/index.js';
-import { CleoError } from '../../core/errors.js';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the specification command group.
@@ -29,19 +23,12 @@ export function registerSpecificationCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--spec-file <file>', 'Path to specification file')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await validateSpecificationTask(taskId, {
-          strict: opts['strict'] as boolean | undefined,
-          specFile: opts['specFile'] as string | undefined,
-        });
-        cliOutput(result, { command: 'specification' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.specification', {
+        mode: 'task',
+        taskId,
+        strict: opts['strict'] as boolean | undefined,
+        specFile: opts['specFile'] as string | undefined,
+      }, { command: 'specification' });
     });
 
   specification
@@ -50,18 +37,11 @@ export function registerSpecificationCommand(program: Command): void {
     .option('--strict', 'Exit with error code on violations')
     .option('--spec-file <file>', 'Path to specification file')
     .action(async (manifestFile: string, opts: Record<string, unknown>) => {
-      try {
-        const result = await checkSpecificationManifest(manifestFile, {
-          strict: opts['strict'] as boolean | undefined,
-          specFile: opts['specFile'] as string | undefined,
-        });
-        cliOutput(result, { command: 'specification' });
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli('query', 'check', 'protocol.specification', {
+        mode: 'manifest',
+        manifestFile,
+        strict: opts['strict'] as boolean | undefined,
+        specFile: opts['specFile'] as string | undefined,
+      }, { command: 'specification' });
     });
 }

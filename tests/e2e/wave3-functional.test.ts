@@ -57,7 +57,8 @@ describe('Session Engine — full dispatch path', () => {
   });
 
   afterEach(async () => {
-    sqliteModule?.closeDb();
+    const { closeAllDatabases } = await import('../../src/store/sqlite.js');
+    await closeAllDatabases();
     delete process.env['CLEO_DIR'];
     await rm(testDir, { recursive: true, force: true });
   });

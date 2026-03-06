@@ -8,7 +8,8 @@
  * @epic T5237
  */
 
-import type { HookEvent } from '@cleocode/caamp';
+import type { ProviderHookEvent, HookEvent } from '../../core/hooks/types.js';
+import { isProviderHookEvent } from '../../core/hooks/types.js';
 import { type EngineResult, engineSuccess } from './_error.js';
 
 /**
@@ -17,7 +18,7 @@ import { type EngineResult, engineSuccess } from './_error.js';
 interface ProviderHookInfo {
   id: string;
   name?: string;
-  supportedHooks: HookEvent[];
+  supportedHooks: ProviderHookEvent[];
 }
 
 /**
@@ -32,6 +33,13 @@ interface ProviderHookInfo {
 export async function queryHookProviders(
   event: HookEvent,
 ): Promise<EngineResult<{ event: HookEvent; providers: ProviderHookInfo[] }>> {
+  if (!isProviderHookEvent(event)) {
+    return engineSuccess({
+      event,
+      providers: [],
+    });
+  }
+
   const { getProvidersByHookEvent } = await import('@cleocode/caamp');
   const providers = getProvidersByHookEvent(event);
 
@@ -40,7 +48,7 @@ export async function queryHookProviders(
     providers: providers.map((p) => ({
       id: (p as { id: string }).id,
       name: (p as { name?: string }).name,
-      supportedHooks: ((p as { capabilities?: { hooks?: { supported?: HookEvent[] } } }).capabilities?.hooks?.supported) ?? [],
+      supportedHooks: ((p as { capabilities?: { hooks?: { supported?: ProviderHookEvent[] } } }).capabilities?.hooks?.supported) ?? [],
     })),
   });
 }
@@ -56,7 +64,7 @@ export async function queryHookProviders(
  */
 export async function queryCommonHooks(
   providerIds?: string[],
-): Promise<EngineResult<{ providerIds?: string[]; commonEvents: HookEvent[] }>> {
+): Promise<EngineResult<{ providerIds?: string[]; commonEvents: ProviderHookEvent[] }>> {
   const { getCommonHookEvents } = await import('@cleocode/caamp');
   const commonEvents = getCommonHookEvents(providerIds);
 

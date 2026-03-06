@@ -4,8 +4,8 @@
  * @task T3080
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { BackgroundJobManager, BackgroundJob } from '../background-jobs.js';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { BackgroundJobManager } from '../background-jobs.js';
 
 describe('BackgroundJobManager', () => {
   let manager: BackgroundJobManager;

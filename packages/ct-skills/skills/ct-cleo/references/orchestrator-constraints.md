@@ -19,13 +19,13 @@
 
 ```
 # Analyze dependency waves
-cleo_query({ domain: "orchestrate", operation: "analyze", params: { epicId: "T001" }})
+query({ domain: "orchestrate", operation: "analyze", params: { epicId: "T001" }})
 
 # Get ready tasks
-cleo_query({ domain: "orchestrate", operation: "ready", params: { epicId: "T001" }})
+query({ domain: "orchestrate", operation: "ready", params: { epicId: "T001" }})
 
 # Get next task suggestion
-cleo_query({ domain: "orchestrate", operation: "next", params: { epicId: "T001" }})
+query({ domain: "orchestrate", operation: "next", params: { epicId: "T001" }})
 ```
 
 ### CLI Spawn Operations

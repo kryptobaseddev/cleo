@@ -14,7 +14,8 @@
  */
 
 import { getAccessor } from '../../store/data-accessor.js';
-import { readJsonFile as storeReadJsonFile, readLogFileEntries, getDataPath } from '../../store/file-utils.js';
+import { cancelTask } from './cancel-ops.js';
+import { readJsonFile as storeReadJsonFile, getDataPath } from '../../store/file-utils.js';
 import { TASK_STATUSES } from '../../store/status-registry.js';
 import { depsReady } from './deps-ready.js';
 import {
@@ -201,12 +202,12 @@ export async function coreTaskNext(
   }>;
   totalCandidates: number;
 }> {
+  const accessor = await getAccessor(projectRoot);
   const allTasks = await loadAllTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
-  const taskPath = getDataPath(projectRoot, 'tasks.json');
-  const todoMeta = storeReadJsonFile<{ project?: { currentPhase?: string | null } }>(taskPath);
-  const currentPhase = todoMeta?.project?.currentPhase;
+  const taskFile = await accessor.loadTaskFile();
+  const currentPhase = taskFile.project?.currentPhase ?? null;
 
   const candidates = allTasks.filter((t) =>
     t.status === 'pending' && depsReady(t.depends, taskMap),
@@ -474,7 +475,7 @@ export async function coreTaskRelatesAdd(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const fromTask = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -634,7 +635,7 @@ export async function coreTaskRestore(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -687,11 +688,49 @@ export async function coreTaskRestore(
 }
 
 // ============================================================================
+// taskCancel
+// ============================================================================
+
+/**
+ * Cancel a task (sets status to 'cancelled', a soft terminal state).
+ * Use restore to reverse. Use delete for permanent removal.
+ * @task T4529
+ */
+export async function coreTaskCancel(
+  projectRoot: string,
+  taskId: string,
+  params?: { reason?: string },
+): Promise<{ task: string; cancelled: boolean; reason?: string; cancelledAt: string }> {
+  const accessor = await getAccessor(projectRoot);
+  const current = await accessor.loadTaskFile();
+  if (!current || !current.tasks) {
+    throw new Error('No valid task data found');
+  }
+
+  const { tasks: updatedTasks, result } = cancelTask(taskId, current.tasks as Parameters<typeof cancelTask>[1], params?.reason);
+
+  if (!result.success) {
+    throw new Error(result.error!.message);
+  }
+
+  current.tasks = updatedTasks as typeof current.tasks;
+
+  const cancelledTask = updatedTasks.find((t) => t.id === taskId);
+  if (cancelledTask && accessor.upsertSingleTask) {
+    await accessor.upsertSingleTask(cancelledTask as Parameters<typeof accessor.upsertSingleTask>[0]);
+  } else {
+    await accessor.saveTaskFile(current);
+  }
+
+  return { task: taskId, cancelled: true, reason: result.reason, cancelledAt: result.cancelledAt! };
+}
+
+// ============================================================================
 // taskUnarchive
 // ============================================================================
 
 /**
- * Move an archived task back to tasks.json.
+ * Move an archived task back to active tasks.
  * @task T4790
  */
 export async function coreTaskUnarchive(
@@ -702,7 +741,7 @@ export async function coreTaskUnarchive(
   const accessor = await getAccessor(projectRoot);
   const taskFile = await accessor.loadTaskFile();
   if (!taskFile || !taskFile.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const archive = await accessor.loadArchive();
@@ -716,7 +755,7 @@ export async function coreTaskUnarchive(
   }
 
   if (taskFile.tasks.some((t) => t.id === taskId)) {
-    throw new Error(`Task '${taskId}' already exists in tasks.json`);
+    throw new Error(`Task '${taskId}' already exists in active tasks`);
   }
 
   const task = archive.archivedTasks[taskIndex] as TaskRecord & { _archive?: Record<string, unknown> };
@@ -764,7 +803,7 @@ export async function coreTaskReorder(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId);
@@ -828,7 +867,7 @@ export async function coreTaskReparent(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const taskMap = new Map(current.tasks.map((t) => [t.id, t]));
@@ -928,7 +967,7 @@ export async function coreTaskPromote(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -976,7 +1015,7 @@ export async function coreTaskReopen(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   const task = current.tasks.find((t) => t.id === taskId) as TaskRecord | undefined;
@@ -1388,24 +1427,61 @@ export async function coreTaskHistory(
   taskId: string,
   limit?: number,
 ): Promise<Array<Record<string, unknown>>> {
-  const logPath = getDataPath(projectRoot, 'tasks-log.jsonl');
-  const entries = readLogFileEntries(logPath);
+  try {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { auditLog } = await import('../../store/schema.js');
+    const { sql } = await import('drizzle-orm');
 
-  const taskEntries = entries.filter((entry) => {
-    if (entry.taskId === taskId) return true;
-    if (entry.id === taskId) return true;
-    if (typeof entry.details === 'string' && entry.details.includes(taskId)) return true;
-    if (typeof entry.message === 'string' && entry.message.includes(taskId)) return true;
-    return false;
-  });
+    const db = await getDb(projectRoot);
+    const maxRows = limit && limit > 0 ? limit : 100;
 
-  taskEntries.sort((a, b) => {
-    const timeA = String(a.timestamp ?? a.date ?? '');
-    const timeB = String(b.timestamp ?? b.date ?? '');
-    return timeB.localeCompare(timeA);
-  });
+    const rows = await db.all<{
+      id: string;
+      timestamp: string;
+      action: string;
+      task_id: string;
+      actor: string;
+      details_json: string | null;
+      before_json: string | null;
+      after_json: string | null;
+      domain: string | null;
+      operation: string | null;
+      session_id: string | null;
+      request_id: string | null;
+      duration_ms: number | null;
+      success: number | null;
+      source: string | null;
+      gateway: string | null;
+      error_message: string | null;
+    }>(
+      sql`SELECT * FROM ${auditLog}
+          WHERE ${auditLog.taskId} = ${taskId}
+          ORDER BY ${auditLog.timestamp} DESC
+          LIMIT ${maxRows}`,
+    );
 
-  return limit && limit > 0 ? taskEntries.slice(0, limit) : taskEntries;
+    return rows.map((row) => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      operation: row.operation ?? row.action,
+      action: row.action,
+      taskId: row.task_id,
+      actor: row.actor,
+      details: row.details_json ? JSON.parse(row.details_json) : {},
+      before: row.before_json ? JSON.parse(row.before_json) : undefined,
+      after: row.after_json ? JSON.parse(row.after_json) : undefined,
+      domain: row.domain,
+      sessionId: row.session_id,
+      requestId: row.request_id,
+      durationMs: row.duration_ms,
+      success: row.success === null ? undefined : row.success === 1,
+      source: row.source,
+      gateway: row.gateway,
+      error: row.error_message,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // ============================================================================
@@ -1614,7 +1690,7 @@ export async function coreTaskImport(
   const accessor = await getAccessor(projectRoot);
   const current = await accessor.loadTaskFile();
   if (!current || !current.tasks) {
-    throw new Error('No valid tasks.json found');
+    throw new Error('No valid task data found');
   }
 
   let importData: unknown;

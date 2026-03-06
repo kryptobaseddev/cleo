@@ -5,9 +5,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
   startOrchestration,
   analyzeEpic,
@@ -19,19 +16,13 @@ import {
   getOrchestratorContext,
 } from '../index.js';
 import type { Task } from '../../../types/task.js';
+import { createTestDb, seedTasks, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../../store/data-accessor.js';
 
-let testDir: string;
-let cleoDir: string;
+let env: TestDbEnv;
+let accessor: DataAccessor;
 
-const makeTodoFile = (tasks: Task[]) => ({
-  version: '2.10.0',
-  project: { name: 'Test', phases: {} },
-  lastUpdated: '2026-01-01T00:00:00Z',
-  _meta: { schemaVersion: '2.10.0', specVersion: '0.1.0', checksum: 'abc123', configVersion: '2.0.0' },
-  tasks,
-});
-
-const epicTasks: Task[] = [
+const epicTaskPartials: Array<Partial<Task> & { id: string }> = [
   { id: 'T001', title: 'Epic', status: 'active', priority: 'high', type: 'epic', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'T002', title: 'Implement auth', status: 'done', priority: 'high', type: 'task', parentId: 'T001', createdAt: '2026-01-01T00:00:00Z' },
   { id: 'T003', title: 'Build UI', status: 'pending', priority: 'medium', type: 'task', parentId: 'T001', depends: ['T002'], createdAt: '2026-01-01T00:00:00Z' },
@@ -40,45 +31,41 @@ const epicTasks: Task[] = [
 ];
 
 beforeEach(async () => {
-  testDir = await mkdtemp(join(tmpdir(), 'cleo-orch-'));
-  cleoDir = join(testDir, '.cleo');
-  await mkdir(cleoDir, { recursive: true });
-  await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
-  process.env['CLEO_DIR'] = cleoDir;
+  env = await createTestDb();
+  accessor = env.accessor;
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_DIR'];
-  await rm(testDir, { recursive: true, force: true });
+  await env.cleanup();
 });
 
-async function writeTodo(tasks: Task[] = epicTasks) {
-  await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(makeTodoFile(tasks)));
+async function writeTodo(tasks?: Array<Partial<Task> & { id: string }>) {
+  await seedTasks(accessor, tasks ?? epicTaskPartials);
 }
 
 describe('startOrchestration', () => {
   it('creates orchestrator session for epic', async () => {
     await writeTodo();
-    const session = await startOrchestration('T001');
+    const session = await startOrchestration('T001', env.tempDir, accessor);
     expect(session.epicId).toBe('T001');
     expect(session.status).toBe('active');
   });
 
   it('rejects non-epic tasks', async () => {
     await writeTodo();
-    await expect(startOrchestration('T002')).rejects.toThrow('not an epic');
+    await expect(startOrchestration('T002', env.tempDir, accessor)).rejects.toThrow('not an epic');
   });
 
   it('rejects non-existent tasks', async () => {
     await writeTodo();
-    await expect(startOrchestration('T999')).rejects.toThrow('not found');
+    await expect(startOrchestration('T999', env.tempDir, accessor)).rejects.toThrow('not found');
   });
 });
 
 describe('analyzeEpic', () => {
   it('analyzes dependency structure', async () => {
     await writeTodo();
-    const result = await analyzeEpic('T001');
+    const result = await analyzeEpic('T001', env.tempDir, accessor);
     expect(result.epicId).toBe('T001');
     expect(result.totalTasks).toBe(4);
     expect(result.completedTasks).toContain('T002');
@@ -89,9 +76,7 @@ describe('analyzeEpic', () => {
 describe('getReadyTasks', () => {
   it('returns tasks with all deps met', async () => {
     await writeTodo();
-    const ready = await getReadyTasks('T001');
-    // T003 depends on T002 (done), so it should be ready
-    // T004 has no deps, should be ready
+    const ready = await getReadyTasks('T001', env.tempDir, accessor);
     const readyIds = ready.filter(r => r.ready).map(r => r.taskId);
     expect(readyIds).toContain('T003');
     expect(readyIds).toContain('T004');
@@ -99,7 +84,7 @@ describe('getReadyTasks', () => {
 
   it('marks blocked tasks with blockers', async () => {
     await writeTodo();
-    const ready = await getReadyTasks('T001');
+    const ready = await getReadyTasks('T001', env.tempDir, accessor);
     const t005 = ready.find(r => r.taskId === 'T005');
     expect(t005?.ready).toBe(false);
     expect(t005?.blockers).toContain('T003');
@@ -109,7 +94,7 @@ describe('getReadyTasks', () => {
 describe('getNextTask', () => {
   it('returns next ready task', async () => {
     await writeTodo();
-    const next = await getNextTask('T001');
+    const next = await getNextTask('T001', env.tempDir, accessor);
     expect(next).not.toBeNull();
     expect(next!.ready).toBe(true);
   });
@@ -118,7 +103,7 @@ describe('getNextTask', () => {
 describe('prepareSpawn', () => {
   it('prepares spawn context', async () => {
     await writeTodo();
-    const context = await prepareSpawn('T003');
+    const context = await prepareSpawn('T003', env.tempDir, accessor);
     expect(context.taskId).toBe('T003');
     expect(context.protocol).toBe('implementation');
     expect(context.prompt).toContain('T003');
@@ -170,7 +155,7 @@ describe('resolveTokens', () => {
 describe('getOrchestratorContext', () => {
   it('returns context summary', async () => {
     await writeTodo();
-    const ctx = await getOrchestratorContext('T001');
+    const ctx = await getOrchestratorContext('T001', env.tempDir, accessor);
     expect(ctx.epicId).toBe('T001');
     expect(ctx.totalTasks).toBe(4);
     expect(ctx.completed).toBe(1);

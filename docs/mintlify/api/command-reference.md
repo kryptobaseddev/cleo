@@ -61,7 +61,7 @@ Complete reference for all CLEO CLI commands, optimized for both LLM agents and 
 | --position | | number | | Position within sibling group |
 | --dry-run | | boolean | false | Preview without making changes |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=add params={title, ...}
+**MCP Equivalent**: `mutate` domain=tasks operation=add params={title, ...}
 
 **Example**:
 ```bash
@@ -87,7 +87,7 @@ cleo add "Implement auth module" -p high --parent T001 --depends T002,T003
 |------|------|----------|-------------|
 | taskId | string | yes | Task ID (e.g. T001) |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=show params={taskId}
+**MCP Equivalent**: `query` domain=tasks operation=show params={taskId}
 
 **Example**:
 ```bash
@@ -122,7 +122,7 @@ cleo show T042
 | --limit | number | | Max results |
 | --offset | number | | Skip first N results |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=list params={status, parentId, ...}
+**MCP Equivalent**: `query` domain=tasks operation=list params={status, parentId, ...}
 
 **Example**:
 ```bash
@@ -158,7 +158,7 @@ cleo list --status pending --parent T001 --limit 10
 | --limit | number | 20 | Max results |
 | --offset | number | | Skip first N results |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=find params={query, id, ...}
+**MCP Equivalent**: `query` domain=tasks operation=find params={query, id, ...}
 
 **Example**:
 ```bash
@@ -209,7 +209,7 @@ cleo find --id 42
 | --parent | | string | Set parent ID |
 | --no-auto-complete | | boolean | Disable auto-complete for epic |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=update params={taskId, ...}
+**MCP Equivalent**: `mutate` domain=tasks operation=update params={taskId, ...}
 
 **Example**:
 ```bash
@@ -241,7 +241,7 @@ cleo update T042 --add-labels "backend,auth" --add-depends T050
 | --notes | string | Completion notes |
 | --changeset | string | Changeset reference |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=complete params={taskId, notes}
+**MCP Equivalent**: `mutate` domain=tasks operation=complete params={taskId, notes}
 
 **Example**:
 ```bash
@@ -275,7 +275,7 @@ cleo complete T042 --notes "Auth module shipped"
 | --force | boolean | false | Force delete even with dependents or children |
 | --cascade | boolean | false | Delete children recursively |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=delete params={taskId, force, cascade}
+**MCP Equivalent**: `mutate` domain=tasks operation=delete params={taskId, force, cascade}
 
 **Example**:
 ```bash
@@ -309,7 +309,7 @@ cleo delete T042 --cascade
 | --files | | string | | Comma-separated file paths |
 | --blocks | -B | string | | Tasks this bug blocks (comma-separated) |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=add params={title, type="bug", origin="bug-report", ...}
+**MCP Equivalent**: `mutate` domain=tasks operation=add params={title, type="bug", origin="bug-report", ...}
 
 **Example**:
 ```bash
@@ -335,7 +335,7 @@ cleo bug "Login fails with 500 error" --severity critical --blocks T042
 | --no-cancelled | boolean | false | Exclude cancelled tasks |
 | --dry-run | boolean | false | Preview without changes |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=archive params={before, taskIds}
+**MCP Equivalent**: `mutate` domain=tasks operation=archive params={before, taskIds}
 
 **Example**:
 ```bash
@@ -365,7 +365,7 @@ cleo archive --tasks T010,T011,T012
 | --preserve-status | boolean | false | Keep the original task status |
 | --dry-run | boolean | false | Preview without changes |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=unarchive params={taskId, status}
+**MCP Equivalent**: `mutate` domain=tasks operation=unarchive params={taskId, status}
 
 ---
 
@@ -389,7 +389,7 @@ cleo archive --tasks T010,T011,T012
 | --reason | string | | Reason for reopening |
 | --dry-run | boolean | false | Preview without changes |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=reopen params={taskId, status, reason}
+**MCP Equivalent**: `mutate` domain=tasks operation=reopen params={taskId, status, reason}
 
 ---
 
@@ -413,7 +413,7 @@ cleo archive --tasks T010,T011,T012
 | --notes | string | | Note about restoration |
 | --dry-run | boolean | false | Preview without changes |
 
-**MCP Equivalent**: `cleo_mutate` domain=system operation=uncancel params={taskId, cascade}
+**MCP Equivalent**: `mutate` domain=system operation=uncancel params={taskId, cascade}
 
 ---
 
@@ -435,7 +435,7 @@ cleo archive --tasks T010,T011,T012
 |------|------|---------|-------------|
 | --no-type-update | boolean | false | Skip auto-updating type from subtask to task |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=promote params={taskId}
+**MCP Equivalent**: `mutate` domain=tasks operation=promote params={taskId}
 
 ---
 
@@ -457,7 +457,7 @@ cleo archive --tasks T010,T011,T012
 |------|------|----------|-------------|
 | --to | string | yes | Target parent task ID (or "" for root) |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=reparent params={taskId, parentId}
+**MCP Equivalent**: `mutate` domain=tasks operation=reparent params={taskId, parentId}
 
 **Errors**: Exit 11 (depth exceeded), Exit 12 (sibling limit), Exit 14 (circular reference)
 
@@ -485,7 +485,7 @@ cleo archive --tasks T010,T011,T012
 | --top | boolean | Move to first position |
 | --bottom | boolean | Move to last position |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=reorder params={taskId, position}
+**MCP Equivalent**: `mutate` domain=tasks operation=reorder params={taskId, position}
 
 ---
 
@@ -507,7 +507,7 @@ cleo archive --tasks T010,T011,T012
 | --focus | string | no | Set initial focus task ID |
 | --agent | string | no | Agent identifier |
 
-**MCP Equivalent**: `cleo_mutate` domain=session operation=start params={scope, name, autoStart}
+**MCP Equivalent**: `mutate` domain=session operation=start params={scope, name, autoStart}
 
 **Example**:
 ```bash
@@ -529,7 +529,7 @@ cleo session start --scope epic:T001 --auto-focus --name "Auth work"
 | --session | string | Specific session ID to end |
 | --note | string | End note |
 
-**MCP Equivalent**: `cleo_mutate` domain=session operation=end params={sessionId, note}
+**MCP Equivalent**: `mutate` domain=session operation=end params={sessionId, note}
 
 **Example**:
 ```bash
@@ -544,7 +544,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 
 **Usage**: `cleo session status`
 
-**MCP Equivalent**: `cleo_query` domain=session operation=status
+**MCP Equivalent**: `query` domain=session operation=status
 
 **Exit**: 100 (NO_DATA) if no active session.
 
@@ -563,7 +563,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 | --status | string | Filter: active, ended, orphaned |
 | --limit | number | Max results |
 
-**MCP Equivalent**: `cleo_query` domain=session operation=list params={status, limit}
+**MCP Equivalent**: `query` domain=session operation=list params={status, limit}
 
 ---
 
@@ -579,7 +579,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 |------|------|----------|-------------|
 | sessionId | string | yes | Session ID to resume |
 
-**MCP Equivalent**: `cleo_mutate` domain=session operation=resume params={sessionId}
+**MCP Equivalent**: `mutate` domain=session operation=resume params={sessionId}
 
 ---
 
@@ -595,7 +595,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 |------|------|-------------|
 | --max-age | number | Max age in hours for active sessions |
 
-**MCP Equivalent**: `cleo_mutate` domain=session operation=gc params={maxAge}
+**MCP Equivalent**: `mutate` domain=session operation=gc params={maxAge}
 
 ---
 
@@ -611,7 +611,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 |------|------|-------------|
 | --scope | string | Filter by scope (epic:T### or global) |
 
-**MCP Equivalent**: `cleo_query` domain=session operation=handoff.show params={scope}
+**MCP Equivalent**: `query` domain=session operation=handoff.show params={scope}
 
 ---
 
@@ -623,7 +623,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 
 **Usage**: `cleo current`
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=current
+**MCP Equivalent**: `query` domain=tasks operation=current
 
 ---
 
@@ -639,7 +639,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 |------|------|----------|-------------|
 | taskId | string | yes | Task ID to start |
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=start params={taskId}
+**MCP Equivalent**: `mutate` domain=tasks operation=start params={taskId}
 
 ---
 
@@ -649,7 +649,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 
 **Usage**: `cleo stop`
 
-**MCP Equivalent**: `cleo_mutate` domain=tasks operation=stop
+**MCP Equivalent**: `mutate` domain=tasks operation=stop
 
 ---
 
@@ -668,7 +668,7 @@ cleo session end --note "Completed auth tasks T042-T045"
 | --explain | | boolean | false | Show detailed scoring reasoning |
 | --count | -n | number | 1 | Show top N suggestions |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=next params={explain, count}
+**MCP Equivalent**: `query` domain=tasks operation=next params={explain, count}
 
 **Example**:
 ```bash
@@ -694,7 +694,7 @@ cleo next --explain -n 3
 |------|------|---------|-------------|
 | --auto-focus | boolean | false | Automatically set focus to recommended task |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=analyze params={autoStart}
+**MCP Equivalent**: `query` domain=tasks operation=analyze params={autoStart}
 
 ---
 
@@ -710,7 +710,7 @@ cleo next --explain -n 3
 |------|------|---------|-------------|
 | --analyze | boolean | false | Show full blocking chain analysis |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=blockers params={analyze}
+**MCP Equivalent**: `query` domain=tasks operation=blockers params={analyze}
 
 ---
 
@@ -728,7 +728,7 @@ cleo next --explain -n 3
 | --verbose | -v | boolean | false | Show detailed breakdowns |
 | --quiet | -q | boolean | false | Suppress decorative output |
 
-**MCP Equivalent**: `cleo_query` domain=system operation=stats params={period}
+**MCP Equivalent**: `query` domain=system operation=stats params={period}
 
 ---
 
@@ -747,7 +747,7 @@ cleo next --explain -n 3
 | --until | string | | End date (YYYY-MM-DD) |
 | --no-chart | boolean | false | Disable bar charts |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=history params={days, since, until}
+**MCP Equivalent**: `query` domain=tasks operation=history params={days, since, until}
 
 ---
 
@@ -768,7 +768,7 @@ cleo next --explain -n 3
 | --verbose | -v | boolean | false | Show full task details |
 | --quiet | -q | boolean | false | Suppress decorative output |
 
-**MCP Equivalent**: `cleo_query` domain=system operation=dash params={compact, period}
+**MCP Equivalent**: `query` domain=system operation=dash params={compact, period}
 
 ---
 
@@ -778,7 +778,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo plan`
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=compute
+**MCP Equivalent**: `query` domain=tasks operation=compute
 
 ---
 
@@ -798,7 +798,7 @@ cleo next --explain -n 3
 | --max-blocked | number | 10 | Maximum blocked tasks to show |
 | --max-epics | number | 5 | Maximum active epics to show |
 
-**MCP Equivalent**: `cleo_query` domain=session operation=briefing.show params={scope, maxNext, maxBugs, maxBlocked, maxEpics}
+**MCP Equivalent**: `query` domain=session operation=briefing.show params={scope, maxNext, maxBugs, maxBlocked, maxEpics}
 
 ---
 
@@ -810,7 +810,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo deps overview`
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=deps params={subcommand: "overview"}
+**MCP Equivalent**: `query` domain=tasks operation=deps params={subcommand: "overview"}
 
 ---
 
@@ -826,7 +826,7 @@ cleo next --explain -n 3
 |------|------|----------|-------------|
 | taskId | string | yes | Task ID |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=depends params={taskId}
+**MCP Equivalent**: `query` domain=tasks operation=depends params={taskId}
 
 ---
 
@@ -842,7 +842,7 @@ cleo next --explain -n 3
 |------|------|----------|-------------|
 | epicId | string | no | Optional epic ID scope |
 
-**MCP Equivalent**: `cleo_query` domain=orchestrate operation=waves params={epicId}
+**MCP Equivalent**: `query` domain=orchestrate operation=waves params={epicId}
 
 ---
 
@@ -852,7 +852,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo deps critical-path <taskId>`
 
-**MCP Equivalent**: `cleo_query` domain=orchestrate operation=critical-path params={taskId}
+**MCP Equivalent**: `query` domain=orchestrate operation=critical-path params={taskId}
 
 ---
 
@@ -890,7 +890,7 @@ cleo next --explain -n 3
 |------|------|----------|-------------|
 | rootId | string | no | Root task ID (whole tree if omitted) |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=tree params={rootId}
+**MCP Equivalent**: `query` domain=tasks operation=tree params={rootId}
 
 ---
 
@@ -1006,7 +1006,7 @@ cleo next --explain -n 3
 | --findings | | string | no | Comma-separated findings |
 | --sources | | string | no | Comma-separated sources |
 
-**MCP Equivalent**: `cleo_mutate` domain=research operation=inject params={taskId, topic, findings}
+**MCP Equivalent**: `mutate` domain=research operation=inject params={taskId, topic, findings}
 
 ---
 
@@ -1016,7 +1016,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo research show <id>`
 
-**MCP Equivalent**: `cleo_query` domain=research operation=show params={id}
+**MCP Equivalent**: `query` domain=research operation=show params={id}
 
 ---
 
@@ -1034,7 +1034,7 @@ cleo next --explain -n 3
 | --status | -s | string | Filter by status: pending, complete, partial |
 | --limit | -l | number | Limit results |
 
-**MCP Equivalent**: `cleo_query` domain=research operation=list params={taskId, status}
+**MCP Equivalent**: `query` domain=research operation=list params={taskId, status}
 
 ---
 
@@ -1044,7 +1044,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo research link <researchId> <taskId>`
 
-**MCP Equivalent**: `cleo_mutate` domain=research operation=link params={researchId, taskId}
+**MCP Equivalent**: `mutate` domain=research operation=link params={researchId, taskId}
 
 ---
 
@@ -1070,7 +1070,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo research pending`
 
-**MCP Equivalent**: `cleo_query` domain=research operation=pending
+**MCP Equivalent**: `query` domain=research operation=pending
 
 ---
 
@@ -1080,7 +1080,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo research stats`
 
-**MCP Equivalent**: `cleo_query` domain=research operation=stats
+**MCP Equivalent**: `query` domain=research operation=stats
 
 ---
 
@@ -1108,7 +1108,7 @@ cleo next --explain -n 3
 | --task | -t | string | Filter by linked task |
 | --limit | -l | number | Limit results |
 
-**MCP Equivalent**: `cleo_query` domain=research operation=manifest.read params={status, agentType, taskId}
+**MCP Equivalent**: `query` domain=research operation=manifest.read params={status, agentType, taskId}
 
 ---
 
@@ -1118,7 +1118,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo research archive`
 
-**MCP Equivalent**: `cleo_mutate` domain=research operation=manifest.archive
+**MCP Equivalent**: `mutate` domain=research operation=manifest.archive
 
 ---
 
@@ -1130,7 +1130,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo orchestrate start <epicId>`
 
-**MCP Equivalent**: `cleo_mutate` domain=orchestrate operation=startup params={epicId}
+**MCP Equivalent**: `mutate` domain=orchestrate operation=startup params={epicId}
 
 ---
 
@@ -1140,7 +1140,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo orchestrate analyze <epicId>`
 
-**MCP Equivalent**: `cleo_query` domain=orchestrate operation=analyze params={epicId}
+**MCP Equivalent**: `query` domain=orchestrate operation=analyze params={epicId}
 
 ---
 
@@ -1150,7 +1150,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo orchestrate ready <epicId>`
 
-**MCP Equivalent**: `cleo_query` domain=orchestrate operation=ready params={epicId}
+**MCP Equivalent**: `query` domain=orchestrate operation=ready params={epicId}
 
 ---
 
@@ -1160,7 +1160,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo orchestrate next <epicId>`
 
-**MCP Equivalent**: `cleo_query` domain=orchestrate operation=next params={epicId}
+**MCP Equivalent**: `query` domain=orchestrate operation=next params={epicId}
 
 ---
 
@@ -1170,7 +1170,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo orchestrate spawn <taskId>`
 
-**MCP Equivalent**: `cleo_mutate` domain=orchestrate operation=spawn params={taskId}
+**MCP Equivalent**: `mutate` domain=orchestrate operation=spawn params={taskId}
 
 ---
 
@@ -1187,7 +1187,7 @@ cleo next --explain -n 3
 | --file | string | Output file path to validate |
 | --manifest | boolean | Check manifest entry was appended |
 
-**MCP Equivalent**: `cleo_mutate` domain=orchestrate operation=validate params={taskId, file}
+**MCP Equivalent**: `mutate` domain=orchestrate operation=validate params={taskId, file}
 
 ---
 
@@ -1197,7 +1197,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo orchestrate context <epicId>`
 
-**MCP Equivalent**: `cleo_query` domain=orchestrate operation=context params={epicId}
+**MCP Equivalent**: `query` domain=orchestrate operation=context params={epicId}
 
 ---
 
@@ -1209,7 +1209,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo lifecycle show <epicId>`
 
-**MCP Equivalent**: `cleo_query` domain=lifecycle operation=status params={epicId}
+**MCP Equivalent**: `query` domain=lifecycle operation=status params={epicId}
 
 ---
 
@@ -1219,7 +1219,7 @@ cleo next --explain -n 3
 
 **Usage**: `cleo lifecycle start <epicId> <stage>`
 
-**MCP Equivalent**: `cleo_mutate` domain=lifecycle operation=progress params={epicId, stage}
+**MCP Equivalent**: `mutate` domain=lifecycle operation=progress params={epicId, stage}
 
 ---
 
@@ -1249,7 +1249,7 @@ cleo next --explain -n 3
 |------|------|----------|-------------|
 | --reason | string | yes | Reason for skipping |
 
-**MCP Equivalent**: `cleo_mutate` domain=lifecycle operation=skip params={epicId, stage, reason}
+**MCP Equivalent**: `mutate` domain=lifecycle operation=skip params={epicId, stage, reason}
 
 ---
 
@@ -1261,7 +1261,7 @@ cleo next --explain -n 3
 
 **Exit**: 80 (LIFECYCLE_GATE_FAILED) if gate check fails.
 
-**MCP Equivalent**: `cleo_query` domain=lifecycle operation=check params={epicId, stage}
+**MCP Equivalent**: `query` domain=lifecycle operation=check params={epicId, stage}
 
 ---
 
@@ -1287,7 +1287,7 @@ cleo next --explain -n 3
 | --notes | string | Release notes |
 | --target-date | string | Target release date (ISO) |
 
-**MCP Equivalent**: `cleo_mutate` domain=release operation=prepare params={version, tasks}
+**MCP Equivalent**: `mutate` domain=release operation=prepare params={version, tasks}
 
 ---
 
@@ -1322,7 +1322,7 @@ cleo next --explain -n 3
 | --push | boolean | false | Push to remote |
 | --dry-run | boolean | false | Preview without changes |
 
-**MCP Equivalent**: `cleo_mutate` domain=release operation=commit params={version, bumpVersion, createTag, push}
+**MCP Equivalent**: `mutate` domain=release operation=commit params={version, bumpVersion, createTag, push}
 
 **Example**:
 ```bash
@@ -1354,7 +1354,7 @@ cleo release ship v1.2.0 --bump-version --dry-run  # Preview first
 
 **Usage**: `cleo release changelog <version>`
 
-**MCP Equivalent**: `cleo_mutate` domain=release operation=changelog params={version}
+**MCP Equivalent**: `mutate` domain=release operation=changelog params={version}
 
 ---
 
@@ -1366,7 +1366,7 @@ cleo release ship v1.2.0 --bump-version --dry-run  # Preview first
 
 **Usage**: `cleo version`
 
-**MCP Equivalent**: `cleo_query` domain=system operation=version
+**MCP Equivalent**: `query` domain=system operation=version
 
 ---
 
@@ -1391,7 +1391,7 @@ cleo release ship v1.2.0 --bump-version --dry-run  # Preview first
 | --detect | boolean | Auto-detect project configuration |
 | --update-docs | boolean | Update agent documentation injections |
 
-**MCP Equivalent**: `cleo_mutate` domain=system operation=init params={name, force}
+**MCP Equivalent**: `mutate` domain=system operation=init params={name, force}
 
 ---
 
@@ -1401,7 +1401,7 @@ cleo release ship v1.2.0 --bump-version --dry-run  # Preview first
 
 **Usage**: `cleo doctor`
 
-**MCP Equivalent**: `cleo_query` domain=system operation=doctor
+**MCP Equivalent**: `query` domain=system operation=doctor
 
 **Checks**: jq installed, git installed, CLEO directories, data files, schema version, Node.js version, platform.
 
@@ -1423,7 +1423,7 @@ cleo release ship v1.2.0 --bump-version --dry-run  # Preview first
 | --fix | boolean | false | Auto-fix simple issues |
 | --dry-run | boolean | false | Preview fixes without applying |
 
-**MCP Equivalent**: `cleo_query` domain=validate operation=schema
+**MCP Equivalent**: `query` domain=validate operation=schema
 
 **Checks**: JSON syntax, duplicate IDs, cross-file duplicates, active task limit, dependency integrity, circular deps, blocked task reasons, completion timestamps, schema version, required fields, focus consistency, checksum, stale tasks.
 
@@ -1435,7 +1435,7 @@ cleo release ship v1.2.0 --bump-version --dry-run  # Preview first
 
 **Usage**: `cleo config get <key>`
 
-**MCP Equivalent**: `cleo_query` domain=system operation=config.get params={key}
+**MCP Equivalent**: `query` domain=system operation=config.get params={key}
 
 **Example**:
 ```bash
@@ -1456,7 +1456,7 @@ cleo config get hierarchy.maxDepth
 |------|------|-------------|
 | --global | boolean | Set in global config instead of project config |
 
-**MCP Equivalent**: `cleo_mutate` domain=system operation=config.set params={key, value, global}
+**MCP Equivalent**: `mutate` domain=system operation=config.set params={key, value, global}
 
 **Example**:
 ```bash
@@ -1472,7 +1472,7 @@ cleo config set lifecycle.mode advisory --global
 
 **Usage**: `cleo config list`
 
-**MCP Equivalent**: `cleo_query` domain=system operation=config
+**MCP Equivalent**: `query` domain=system operation=config
 
 ---
 
@@ -1488,7 +1488,7 @@ cleo config set lifecycle.mode advisory --global
 |------|------|-------------|
 | --session | string | Check specific session ID |
 
-**MCP Equivalent**: `cleo_query` domain=system operation=context params={session}
+**MCP Equivalent**: `query` domain=system operation=context params={session}
 
 ---
 
@@ -1533,7 +1533,7 @@ cleo config set lifecycle.mode advisory --global
 | --since | | string | | Filter entries since date |
 | --quiet | -q | boolean | false | Suppress decorative output |
 
-**MCP Equivalent**: `cleo_query` domain=system operation=log params={limit, operation, task}
+**MCP Equivalent**: `query` domain=system operation=log params={limit, operation, task}
 
 ---
 
@@ -1550,7 +1550,7 @@ cleo labels stats       # Detailed label statistics
 
 **Alias**: `cleo tags`
 
-**MCP Equivalent**: `cleo_query` domain=system operation=labels
+**MCP Equivalent**: `query` domain=system operation=labels
 
 ---
 
@@ -1573,7 +1573,7 @@ cleo labels stats       # Detailed label statistics
 | --include-archive | boolean | false | Search archive file too |
 | --verbose | boolean | false | Show which file contains the task |
 
-**MCP Equivalent**: `cleo_query` domain=tasks operation=exists params={taskId, includeArchive}
+**MCP Equivalent**: `query` domain=tasks operation=exists params={taskId, includeArchive}
 
 **Exit**: 0 = exists, 4 = not found
 
@@ -1597,7 +1597,7 @@ cleo exists T042 && echo "found" || echo "not found"
 | --include-history | boolean | false | Include release history |
 | --upcoming-only | boolean | false | Only show upcoming/planned releases |
 
-**MCP Equivalent**: `cleo_query` domain=system operation=roadmap params={includeHistory}
+**MCP Equivalent**: `query` domain=system operation=roadmap params={includeHistory}
 
 ---
 
@@ -1621,7 +1621,7 @@ cleo exists T042 && echo "found" || echo "not found"
 
 ## MCP Domain/Operation Mapping
 
-CLEO exposes two MCP tools: `cleo_query` (read-only) and `cleo_mutate` (writes).
+CLEO exposes two MCP tools: `query` (read-only) and `mutate` (writes).
 
 ### Tasks Domain
 

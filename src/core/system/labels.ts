@@ -3,11 +3,9 @@
  * @task T4783
  */
 
-import { readJson } from '../../store/json.js';
-import { getTaskPath } from '../paths.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
-import type { TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 export interface LabelsResult {
@@ -22,11 +20,10 @@ export async function getLabels(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<LabelsResult> {
-  const data = accessor
-    ? await accessor.loadTaskFile()
-    : await readJson<TaskFile>(getTaskPath(cwd));
+  const dataAccessor = accessor ?? await getAccessor(cwd);
+  const data = await dataAccessor.loadTaskFile();
   if (!data) {
-    throw new CleoError(ExitCode.CONFIG_ERROR, 'No todo.json found');
+    throw new CleoError(ExitCode.CONFIG_ERROR, 'No task data found');
   }
 
   const tasks = data.tasks ?? [];

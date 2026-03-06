@@ -13,11 +13,11 @@
 
 import { join, basename } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile, access } from 'node:fs/promises';
 import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task } from '../../types/task.js';
+import { getAccessor } from '../../store/data-accessor.js';
 import {
   readRegistry,
   nexusGetProject,
@@ -123,15 +123,9 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
   }
 
   if (projectName === '.') {
-    // Current directory
     try {
-      await access(join(process.cwd(), '.cleo', 'tasks.json'));
-      return process.cwd();
-    } catch {
-      // Fall back to legacy todo.json
-    }
-    try {
-      await access(join(process.cwd(), '.cleo', 'todo.json'));
+      const accessor = await getAccessor(process.cwd());
+      await accessor.loadTaskFile();
       return process.cwd();
     } catch {
       throw new CleoError(
@@ -155,24 +149,18 @@ export async function resolveProjectPath(projectName: string): Promise<string> {
 }
 
 /**
- * Read tasks from a project's task file (tasks.json or legacy todo.json).
+ * Read tasks from a project's task database.
  */
 async function readProjectTasks(projectPath: string): Promise<Task[]> {
-  const tasksPath = join(projectPath, '.cleo', 'tasks.json');
-  const legacyPath = join(projectPath, '.cleo', 'todo.json');
+  const tasksDbPath = join(projectPath, '.cleo', 'tasks.db');
   try {
-    let raw: string;
-    try {
-      raw = await readFile(tasksPath, 'utf-8');
-    } catch {
-      raw = await readFile(legacyPath, 'utf-8');
-    }
-    const data = JSON.parse(raw) as { tasks: Task[] };
-    return data.tasks ?? [];
+    const accessor = await getAccessor(projectPath);
+    const taskFile = await accessor.loadTaskFile();
+    return taskFile.tasks ?? [];
   } catch {
     throw new CleoError(
       ExitCode.NOT_FOUND,
-      `Project task file not found: ${tasksPath}`,
+      `Project task data not found: ${tasksDbPath}`,
     );
   }
 }
@@ -221,7 +209,7 @@ async function resolveWildcard(taskId: string): Promise<NexusResolvedTask[]> {
         results.push({ ...match, _project: project.name });
       }
     } catch {
-      // Skip projects with unreadable todo.json
+      // Skip projects with unreadable task data
     }
   }
 

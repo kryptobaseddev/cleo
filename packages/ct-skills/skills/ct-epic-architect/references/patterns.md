@@ -273,7 +273,7 @@ For code modernization, architectural improvements, and tech debt reduction:
 - "Auth stuff"
 - "Part 1"
 - "Fix things"
-- "TODO"
+- "TBD item"
 
 ### Numbered Sequences
 

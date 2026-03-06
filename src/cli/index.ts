@@ -15,7 +15,7 @@ class GroupedHelp extends Help {
   private domainGroups: Record<string, string[]> = {
     'Tasks': [
       'add', 'list', 'show', 'find', 'complete', 'update', 'delete',
-      'archive', 'start', 'stop', 'current', 'next', 'focus',
+      'archive', 'start', 'stop', 'current', 'next',
       'archive-stats', 'restore', 'reorder', 'reparent', 'relates',
       'tree', 'deps', 'labels', 'tags', 'blockers', 'exists', 'stats', 'history'
     ],
@@ -23,7 +23,7 @@ class GroupedHelp extends Help {
       'session', 'briefing', 'phase', 'checkpoint', 'safestop'
     ],
     'Memory': [
-      'memory', 'memory-brain', 'observe', 'context', 'inject', 'sync'
+      'memory', 'memory-brain', 'observe', 'context', 'inject', 'sync', 'sticky', 'note'
     ],
     'Check': [
       'validate', 'verify', 'compliance', 'doctor', 'analyze'
@@ -41,7 +41,7 @@ class GroupedHelp extends Help {
       'research', 'extract', 'web', 'docs'
     ],
     'Nexus': [
-      'nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'sharing', 'export', 'import'
+      'nexus', 'init', 'remote', 'push', 'pull', 'snapshot', 'export', 'import'
     ],
     'Admin': [
       'config', 'backup', 'export-tasks', 'import-tasks',
@@ -188,7 +188,6 @@ import { registerCompleteCommand } from './commands/complete.js';
 import { registerUpdateCommand } from './commands/update.js';
 import { registerDeleteCommand } from './commands/delete.js';
 import { registerArchiveCommand } from './commands/archive.js';
-import { registerFocusCommand } from './commands/focus.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerStopCommand } from './commands/stop.js';
 import { registerCurrentCommand } from './commands/current.js';
@@ -271,9 +270,6 @@ import { registerOpsCommand } from './commands/ops.js';
 // T4882: Multi-contributor snapshot
 import { registerSnapshotCommand } from './commands/snapshot.js';
 
-// T4883: Config-driven sharing allowlist
-import { registerSharingCommand } from './commands/sharing.js';
-
 // T4884: .cleo/.git remote push/pull
 import { registerRemoteCommand } from './commands/remote.js';
 
@@ -290,8 +286,11 @@ import { registerMemoryBrainCommand } from './commands/memory-brain.js';
 // T5143: Claude-mem to brain.db migration
 import { registerMigrateClaudeMemCommand } from './commands/migrate-claude-mem.js';
 
+// T5281: Sticky notes command
+import { registerStickyCommand } from './commands/sticky.js';
+
 // Core: pre-flight migration check (@task T4699)
-import { checkStorageMigration } from '../core/migration/preflight.js';
+import { checkStorageMigration } from '../core/system/storage-preflight.js';
 
 // T4665: Output format resolution (LAFS middleware)
 import { resolveFormat } from './middleware/output-format.js';
@@ -301,8 +300,8 @@ import { setFormatContext } from './format-context.js';
 import { resolveFieldContext, setFieldContext } from './field-context.js';
 
 // Centralized pino logger
-import { initLogger } from '../core/logger.js';
 import { loadConfig as loadCoreConfig } from '../core/config.js';
+import { initCliLogger } from './logger-bootstrap.js';
 
 // Startup guard: fail fast if Node.js version is below minimum
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../core/platform.js';
@@ -381,9 +380,6 @@ registerCurrentCommand(program);
 
 // T4916: Session briefing command
 registerBriefingCommand(program);
-
-// T4462: Focus commands (backward-compat aliases)
-registerFocusCommand(program);
 
 // T4463: Session commands
 registerSessionCommand(program);
@@ -481,9 +477,6 @@ registerOpsCommand(program);
 // T4882: Multi-contributor snapshot export/import
 registerSnapshotCommand(program);
 
-// T4883: Config-driven sharing allowlist
-registerSharingCommand(program);
-
 // T4884: .cleo/.git remote push/pull
 registerRemoteCommand(program);
 
@@ -500,6 +493,9 @@ registerMemoryBrainCommand(program);
 // T5143: Claude-mem to brain.db migration
 registerMigrateClaudeMemCommand(program);
 
+// T5281: Sticky notes command
+registerStickyCommand(program);
+
 // Initialize centralized pino logger before any command runs.
 // Best-effort: if config loading fails, commands still work (logger falls back to stderr).
 let loggerInitialized = false;
@@ -508,7 +504,12 @@ program.hook('preAction', async () => {
   loggerInitialized = true;
   try {
     const config = await loadCoreConfig();
-    initLogger(join(process.cwd(), '.cleo'), config.logging);
+    initCliLogger(process.cwd(), config.logging);
+
+    // Fire-and-forget audit log pruning (T5339, ADR-024 section 2.3)
+    const { pruneAuditLog } = await import('../core/audit-prune.js');
+    pruneAuditLog(join(process.cwd(), '.cleo'), config.logging)
+      .catch(() => { /* non-blocking */ });
   } catch {
     // Logger init is best-effort — fallback stderr logger will be used
   }

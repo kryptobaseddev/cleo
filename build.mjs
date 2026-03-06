@@ -8,8 +8,27 @@
  */
 
 import * as esbuild from 'esbuild';
+import { spawnSync } from 'node:child_process';
+import { chmod } from 'node:fs/promises';
 
 const isWatch = process.argv.includes('--watch');
+
+/**
+ * Generate build configuration from package.json
+ * Must run before TypeScript compilation
+ */
+function generateBuildConfig() {
+  console.log('Generating build configuration...');
+  const result = spawnSync('node', ['dev/generate-build-config.js'], {
+    stdio: 'inherit',
+    encoding: 'utf-8',
+  });
+  
+  if (result.status !== 0) {
+    console.error('Failed to generate build configuration');
+    process.exit(1);
+  }
+}
 
 /** @type {esbuild.BuildOptions} */
 const buildOptions = {
@@ -35,7 +54,8 @@ const buildOptions = {
   packages: 'external',
 };
 
-import { chmod } from 'node:fs/promises';
+// Generate build config before compilation
+generateBuildConfig();
 
 if (isWatch) {
   const ctx = await esbuild.context(buildOptions);

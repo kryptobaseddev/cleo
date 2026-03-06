@@ -8,7 +8,7 @@ import { readJsonRequired, saveJson, computeChecksum } from '../../store/json.js
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Task, TaskFile } from '../../types/task.js';
-import { getTaskPath, getLogPath, getBackupDir } from '../paths.js';
+import { getTaskPath, getBackupDir } from '../paths.js';
 import { logOperation } from './add.js';
 import { getDependents, getUnresolvedDeps } from './dependency-check.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -119,7 +119,6 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
  */
 export async function completeTask(options: CompleteTaskOptions, cwd?: string, accessor?: DataAccessor): Promise<CompleteTaskResult> {
   const taskPath = getTaskPath(cwd);
-  const logPath = getLogPath(cwd);
   const backupDir = getBackupDir(cwd);
 
   const data = accessor
@@ -295,7 +294,7 @@ export async function completeTask(options: CompleteTaskOptions, cwd?: string, a
     }, cwd);
   } else {
     await saveJson(taskPath, data, { backupDir });
-    await logOperation(logPath, 'task_completed', options.taskId, {
+    await logOperation('task_completed', options.taskId, {
       title: task.title,
       previousStatus: before.status,
     });

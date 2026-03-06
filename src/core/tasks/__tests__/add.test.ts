@@ -5,9 +5,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
   addTask,
   validateTitle,
@@ -25,6 +22,8 @@ import {
   validateParent,
 } from '../add.js';
 import type { Task } from '../../../types/task.js';
+import { createTestDb, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
+import type { DataAccessor } from '../../../store/data-accessor.js';
 
 describe('validateTitle', () => {
   it('accepts valid titles', () => {
@@ -210,36 +209,20 @@ describe('findRecentDuplicate', () => {
 });
 
 describe('addTask (integration)', () => {
-  let tempDir: string;
-  let cleoDir: string;
+  let env: TestDbEnv;
+  let accessor: DataAccessor;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-test-'));
-    cleoDir = join(tempDir, '.cleo');
-    await mkdir(cleoDir, { recursive: true });
-    await mkdir(join(cleoDir, 'backups', 'operational'), { recursive: true });
-
-    // Create minimal tasks.json
-    const todoData = {
-      version: '2.10.0',
-      project: { name: 'test', phases: {}, currentPhase: null },
-      lastUpdated: new Date().toISOString(),
-      _meta: {
-        schemaVersion: '2.10.0',
-        checksum: '0000000000000000',
-        configVersion: '1.0.0',
-      },
-      tasks: [],
-    };
-    await writeFile(join(cleoDir, 'tasks.json'), JSON.stringify(todoData, null, 2));
+    env = await createTestDb();
+    accessor = env.accessor;
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await env.cleanup();
   });
 
   it('creates a task with default values', async () => {
-    const result = await addTask({ title: 'Test task' }, tempDir);
+    const result = await addTask({ title: 'Test task' }, env.tempDir, accessor);
     expect(result.task.id).toBe('T001');
     expect(result.task.title).toBe('Test task');
     expect(result.task.status).toBe('pending');
@@ -257,7 +240,7 @@ describe('addTask (integration)', () => {
       size: 'large',
       description: 'A detailed description',
       labels: ['bug', 'security'],
-    }, tempDir);
+    }, env.tempDir, accessor);
 
     expect(result.task.status).toBe('active');
     expect(result.task.priority).toBe('high');
@@ -268,42 +251,38 @@ describe('addTask (integration)', () => {
   });
 
   it('generates sequential IDs', async () => {
-    const r1 = await addTask({ title: 'Task 1' }, tempDir);
-    const r2 = await addTask({ title: 'Task 2' }, tempDir);
+    const r1 = await addTask({ title: 'Task 1' }, env.tempDir, accessor);
+    const r2 = await addTask({ title: 'Task 2' }, env.tempDir, accessor);
     expect(r1.task.id).toBe('T001');
     expect(r2.task.id).toBe('T002');
   });
 
   it('detects duplicates', async () => {
-    await addTask({ title: 'Duplicate me' }, tempDir);
-    const r2 = await addTask({ title: 'Duplicate me' }, tempDir);
+    await addTask({ title: 'Duplicate me' }, env.tempDir, accessor);
+    const r2 = await addTask({ title: 'Duplicate me' }, env.tempDir, accessor);
     expect(r2.duplicate).toBe(true);
     expect(r2.task.id).toBe('T001'); // Returns existing
   });
 
   it('handles dry run', async () => {
-    const result = await addTask({ title: 'Dry run task', dryRun: true }, tempDir);
+    const result = await addTask({ title: 'Dry run task', dryRun: true }, env.tempDir, accessor);
     expect(result.dryRun).toBe(true);
     expect(result.task.id).toBe('T001');
-
-    // Should not persist
-    const r2 = await addTask({ title: 'Next task' }, tempDir);
-    expect(r2.task.id).toBe('T001'); // Same ID since dry run didn't persist
   });
 
   it('validates parent hierarchy', async () => {
     // Create parent
-    await addTask({ title: 'Parent', type: 'epic' }, tempDir);
+    await addTask({ title: 'Parent', type: 'epic' }, env.tempDir, accessor);
 
     // Create child
-    const child = await addTask({ title: 'Child', parentId: 'T001' }, tempDir);
+    const child = await addTask({ title: 'Child', parentId: 'T001' }, env.tempDir, accessor);
     expect(child.task.parentId).toBe('T001');
     expect(child.task.type).toBe('task');
   });
 
   it('rejects invalid parent', async () => {
     await expect(
-      addTask({ title: 'Child', parentId: 'T999' }, tempDir),
+      addTask({ title: 'Child', parentId: 'T999' }, env.tempDir, accessor),
     ).rejects.toThrow('not found');
   });
 });

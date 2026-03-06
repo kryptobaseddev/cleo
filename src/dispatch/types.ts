@@ -128,7 +128,7 @@ export interface ParamDef {
  */
 export const CANONICAL_DOMAINS = [
   'tasks', 'session', 'memory', 'check', 'pipeline',
-  'orchestrate', 'tools', 'admin', 'nexus', 'sharing',
+  'orchestrate', 'tools', 'admin', 'nexus', 'sticky',
 ] as const;
 
 export type CanonicalDomain = (typeof CANONICAL_DOMAINS)[number];

@@ -25,12 +25,21 @@ import {
   orchestrateCriticalPath,
   orchestrateStartup,
   orchestrateSpawn,
+  orchestrateHandoff,
   orchestrateSpawnExecute,
   orchestrateValidate,
   orchestrateParallelStart,
   orchestrateParallelEnd,
   orchestrateCheck,
 } from '../lib/engine.js';
+
+import {
+  showTessera,
+  listTesseraTemplates,
+  instantiateTessera,
+} from '../../core/lifecycle/tessera-engine.js';
+import { showChain } from '../../core/lifecycle/chain-store.js';
+import type { WarpChain } from '../../types/warp-chain.js';
 
 // ---------------------------------------------------------------------------
 // OrchestrateHandler
@@ -123,6 +132,53 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', operation, startTime);
         }
 
+        case 'tessera.show': {
+          const id = params?.id as string;
+          if (!id) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
+              'id is required', startTime);
+          }
+          const template = showTessera(id);
+          if (!template) {
+            return this.errorResponse('query', operation, 'E_NOT_FOUND',
+              `Tessera template "${id}" not found`, startTime);
+          }
+          return {
+            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+            success: true,
+            data: template,
+          };
+        }
+
+        case 'tessera.list': {
+          const templates = listTesseraTemplates();
+          return {
+            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+            success: true,
+            data: { templates, count: templates.length },
+          };
+        }
+
+        case 'chain.plan': {
+          const chainId = params?.chainId as string;
+          if (!chainId) {
+            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
+              'chainId is required', startTime);
+          }
+
+          const chain = await showChain(chainId, this.projectRoot);
+          if (!chain) {
+            return this.errorResponse('query', operation, 'E_NOT_FOUND',
+              `Chain "${chainId}" not found`, startTime);
+          }
+
+          return {
+            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+            success: true,
+            data: this.buildChainPlan(chain),
+          };
+        }
+
         default:
           return this.errorResponse('query', operation, 'E_INVALID_OPERATION',
             `Unknown orchestrate query: ${operation}`, startTime);
@@ -159,6 +215,30 @@ export class OrchestrateHandler implements DomainHandler {
           const protocolType = params?.protocolType as string | undefined;
           const tier = params?.tier as 0 | 1 | 2 | undefined;
           const result = await orchestrateSpawn(taskId, protocolType, this.projectRoot, tier);
+          return this.wrapEngineResult(result, 'mutate', operation, startTime);
+        }
+
+        case 'handoff': {
+          const taskId = params?.taskId as string;
+          const protocolType = params?.protocolType as string;
+          if (!taskId) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'taskId is required', startTime);
+          }
+          if (!protocolType) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'protocolType is required', startTime);
+          }
+          const tier = params?.tier as 0 | 1 | 2 | undefined;
+          const result = await orchestrateHandoff({
+            taskId,
+            protocolType,
+            note: params?.note as string | undefined,
+            nextAction: params?.nextAction as string | undefined,
+            variant: params?.variant as string | undefined,
+            tier,
+            idempotencyKey: params?.idempotencyKey as string | undefined,
+          }, this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
@@ -220,6 +300,35 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
+        case 'tessera.instantiate': {
+          const templateId = params?.templateId as string;
+          const epicId = params?.epicId as string;
+          if (!templateId) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'templateId is required', startTime);
+          }
+          if (!epicId) {
+            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
+              'epicId is required', startTime);
+          }
+          const template = showTessera(templateId);
+          if (!template) {
+            return this.errorResponse('mutate', operation, 'E_NOT_FOUND',
+              `Tessera template "${templateId}" not found`, startTime);
+          }
+          const variables = (params?.variables as Record<string, unknown>) ?? {};
+          const instance = await instantiateTessera(
+            template,
+            { templateId, epicId, variables: { epicId, ...variables } },
+            this.projectRoot,
+          );
+          return {
+            _meta: dispatchMeta('mutate', 'orchestrate', operation, startTime),
+            success: true,
+            data: instance,
+          };
+        }
+
         default:
           return this.errorResponse('mutate', operation, 'E_INVALID_OPERATION',
             `Unknown orchestrate mutation: ${operation}`, startTime);
@@ -234,10 +343,12 @@ export class OrchestrateHandler implements DomainHandler {
       query: [
         'status', 'next', 'ready', 'analyze', 'context',
         'waves', 'bootstrap', 'unblock.opportunities', 'critical.path',
+        'tessera.show', 'tessera.list', 'chain.plan',
       ],
       mutate: [
-        'start', 'spawn', 'spawn.execute', 'validate',
+        'start', 'spawn', 'handoff', 'spawn.execute', 'validate',
         'parallel.start', 'parallel.end', 'verify',
+        'tessera.instantiate',
       ],
     };
   }
@@ -299,5 +410,64 @@ export class OrchestrateHandler implements DomainHandler {
       message,
       startTime,
     );
+  }
+
+  private buildChainPlan(chain: WarpChain): {
+    chainId: string;
+    entryPoint: string;
+    exitPoints: string[];
+    waves: Array<{ wave: number; stageIds: string[] }>;
+    totalStages: number;
+    totalGates: number;
+  } {
+    const indegree = new Map<string, number>();
+    const adjacency = new Map<string, string[]>();
+
+    for (const stage of chain.shape.stages) {
+      indegree.set(stage.id, 0);
+      adjacency.set(stage.id, []);
+    }
+
+    for (const link of chain.shape.links) {
+      const edges = adjacency.get(link.from);
+      if (edges) {
+        edges.push(link.to);
+      }
+      indegree.set(link.to, (indegree.get(link.to) ?? 0) + 1);
+    }
+
+    const queue = Array.from(indegree.entries())
+      .filter(([, count]) => count === 0)
+      .map(([stageId]) => stageId);
+    const waves: Array<{ wave: number; stageIds: string[] }> = [];
+    const remainingInDegree = new Map(indegree);
+    let waveNumber = 1;
+
+    while (queue.length > 0) {
+      const currentWave = [...queue];
+      queue.length = 0;
+
+      waves.push({ wave: waveNumber, stageIds: currentWave });
+      waveNumber += 1;
+
+      for (const stageId of currentWave) {
+        for (const to of adjacency.get(stageId) ?? []) {
+          const next = (remainingInDegree.get(to) ?? 0) - 1;
+          remainingInDegree.set(to, next);
+          if (next === 0) {
+            queue.push(to);
+          }
+        }
+      }
+    }
+
+    return {
+      chainId: chain.id,
+      entryPoint: chain.shape.entryPoint,
+      exitPoints: chain.shape.exitPoints,
+      waves,
+      totalStages: chain.shape.stages.length,
+      totalGates: chain.gates.length,
+    };
   }
 }

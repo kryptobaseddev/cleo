@@ -4,11 +4,11 @@
  * @task T4457
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp,readFile,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { atomicWrite, atomicWriteJson, safeReadFile } from '../atomic.js';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it } from 'vitest';
+import { atomicWrite,atomicWriteJson,safeReadFile } from '../atomic.js';
 
 describe('atomicWrite', () => {
   let tempDir: string;

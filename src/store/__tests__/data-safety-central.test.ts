@@ -17,13 +17,13 @@
  * @epic T4732
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import type { TaskFile } from '../../types/task.js';
-import type { DataAccessor, ArchiveFile } from '../data-accessor.js';
+import { join } from 'node:path';
+import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest';
 import type { Session } from '../../types/session.js';
+import type { TaskFile } from '../../types/task.js';
+import type { ArchiveFile,DataAccessor } from '../data-accessor.js';
 
 // Mock git-checkpoint to prevent real git operations
 vi.mock('../git-checkpoint.js', () => ({

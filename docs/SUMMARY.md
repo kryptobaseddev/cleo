@@ -3,7 +3,7 @@
 ## Core
 
 * [CLEO](INDEX.md)
-* [Vision](concepts/vision.md)
+* [Vision](concepts/CLEO-VISION.md)
 
 ## Specifications
 

@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { matchesPattern, syncGitignore, getSharingStatus } from '../sharing/index.js';
+import { matchesPattern, syncGitignore, getSharingStatus } from '../nexus/sharing/index.js';
 
 describe('sharing', () => {
   describe('matchesPattern', () => {

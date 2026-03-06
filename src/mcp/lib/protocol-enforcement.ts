@@ -253,7 +253,7 @@ export class ProtocolEnforcer {
     next: () => Promise<DomainResponse>
   ): Promise<DomainResponse> {
     // Only enforce on mutate operations that may create outputs
-    if (request.gateway !== 'cleo_mutate') {
+    if (request.gateway !== 'mutate') {
       return next();
     }
 

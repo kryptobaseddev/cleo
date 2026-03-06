@@ -4,7 +4,7 @@
  * @epic T4545
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerExportTasksCommand } from '../commands/export-tasks.js';
 
