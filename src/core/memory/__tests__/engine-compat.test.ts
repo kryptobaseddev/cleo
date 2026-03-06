@@ -45,7 +45,11 @@ describe('Memory Engine Compat', () => {
     mkdirSync(join(testRoot, '.cleo'), { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    try {
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     if (existsSync(testRoot)) {
       rmSync(testRoot, { recursive: true, force: true });
     }

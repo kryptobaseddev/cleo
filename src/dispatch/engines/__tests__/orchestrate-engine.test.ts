@@ -64,8 +64,8 @@ describe('Orchestrate Engine', () => {
 
   afterEach(async () => {
     try {
-      const { closeDb } = await import('../../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
     } catch { /* ignore */ }
     await rm(TEST_ROOT, { recursive: true, force: true });
   });

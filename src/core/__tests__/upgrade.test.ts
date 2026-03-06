@@ -128,10 +128,10 @@ describe('runUpgrade locking (T4723)', () => {
   });
 
   afterEach(async () => {
-    // Close SQLite connections before cleanup — Windows locks open files
+    // Close ALL SQLite connections before cleanup — Windows locks open files
     try {
-      const { closeDb } = await import('../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
     } catch { /* module may not be loaded */ }
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -275,10 +275,10 @@ describe('runUpgrade structural parity', () => {
   });
 
   afterEach(async () => {
-    // Close SQLite connections before cleanup — Windows locks open files
+    // Close ALL SQLite connections before cleanup — Windows locks open files
     try {
-      const { closeDb } = await import('../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
     } catch { /* module may not be loaded */ }
     rmSync(tmpDir, { recursive: true, force: true });
   });

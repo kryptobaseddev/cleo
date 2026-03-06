@@ -334,7 +334,7 @@ export class MigrationLogger {
    * Get the path to the log file relative to cleoDir.
    */
   getRelativeLogPath(): string {
-    return relative(this.cleoDir, this.logPath);
+    return relative(this.cleoDir, this.logPath).replaceAll('\\', '/');
   }
 
   /**

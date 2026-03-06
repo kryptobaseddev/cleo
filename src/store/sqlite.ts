@@ -474,3 +474,29 @@ export function getNativeDb(): DatabaseSync | null {
  */
 export { schema };
 export type { SqliteRemoteDatabase };
+
+/**
+ * Close ALL database singletons (tasks.db, brain.db, nexus.db).
+ *
+ * Must be called before deleting temp directories on Windows, where
+ * SQLite holds exclusive file handles on .db, .db-wal, and .db-shm files.
+ * Safe to call even if some databases were never opened.
+ *
+ * @task T5508
+ */
+export async function closeAllDatabases(): Promise<void> {
+  // Close tasks.db
+  closeDb();
+
+  // Close brain.db (dynamic import to avoid circular deps)
+  try {
+    const { closeBrainDb } = await import('./brain-sqlite.js');
+    closeBrainDb();
+  } catch { /* module may not be loaded */ }
+
+  // Close nexus.db (dynamic import to avoid circular deps)
+  try {
+    const { closeNexusDb } = await import('./nexus-sqlite.js');
+    closeNexusDb();
+  } catch { /* module may not be loaded */ }
+}

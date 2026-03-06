@@ -75,7 +75,8 @@ describe('getProjectInfo', () => {
     await writeFile(infoPath, JSON.stringify(data));
 
     const info = await getProjectInfo(tempDir);
-    const expectedName = tempDir.split('/').pop()!;
+    const { basename } = await import('node:path');
+    const expectedName = basename(tempDir);
 
     expect(info.projectName).toBe(expectedName);
   });

@@ -38,10 +38,10 @@ export async function handleFileChange(
 
   const { observeBrain } = await import('../../memory/brain-retrieval.js');
 
-  // Convert absolute paths to relative
-  const relativePath = isAbsolute(payload.filePath)
+  // Convert absolute paths to relative, normalize to forward slashes
+  const relativePath = (isAbsolute(payload.filePath)
     ? relative(projectRoot, payload.filePath)
-    : payload.filePath;
+    : payload.filePath).replaceAll('\\', '/');
 
   try {
     await observeBrain(projectRoot, {

@@ -87,10 +87,10 @@ describe('verifyBackup', () => {
   });
 
   afterEach(async () => {
-    // Close any open DB connections
+    // Close all open DB connections before cleanup — Windows locks files
     try {
-      const { closeDb } = await import('../../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
     } catch {
       // Ignore if module not loaded
     }

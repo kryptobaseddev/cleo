@@ -287,8 +287,8 @@ describe('Task CRUD Data Parity (T4796)', () => {
     closeLogger();
     delete process.env['CLEO_DIR'];
     try {
-      const { closeDb } = await import('../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
     } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
@@ -487,8 +487,8 @@ describe('Session Engine Delegation (T4796)', () => {
     closeLogger();
     delete process.env['CLEO_DIR'];
     try {
-      const { closeDb } = await import('../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
     } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
@@ -612,6 +612,10 @@ describe('Lifecycle Engine Parity (T4796)', () => {
   afterEach(async () => {
     closeLogger();
     delete process.env['CLEO_DIR'];
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
 

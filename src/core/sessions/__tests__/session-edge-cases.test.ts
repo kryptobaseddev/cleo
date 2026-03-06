@@ -31,6 +31,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  try {
+    const { closeAllDatabases } = await import('../../../store/sqlite.js');
+    await closeAllDatabases();
+  } catch { /* ignore */ }
   await rm(tempDir, { recursive: true, force: true });
 });
 

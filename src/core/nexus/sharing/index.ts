@@ -90,7 +90,7 @@ function collectCleoFiles(cleoDir: string): string[] {
         if (stat.isDirectory()) {
           walk(fullPath);
         } else {
-          files.push(relPath);
+          files.push(relPath.replaceAll('\\', '/'));
         }
       } catch {
         // Skip files we can't stat (e.g. broken symlinks)

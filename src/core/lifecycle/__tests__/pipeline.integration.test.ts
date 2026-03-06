@@ -190,10 +190,10 @@ describe('RCSD Pipeline Integration', () => {
   });
 
   afterEach(async () => {
-    // Close SQLite connections before cleanup — Windows locks open files
+    // Close ALL SQLite connections before cleanup — Windows locks open files
     try {
-      const { closeDb } = await import('../../../store/sqlite.js');
-      closeDb();
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
     } catch { /* module may not be loaded */ }
     delete process.env['CLEO_DIR'];
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
@@ -1111,6 +1111,10 @@ describe('T4798 Epic Completion Validation', () => {
   });
 
   afterEach(async () => {
+    try {
+      const { closeAllDatabases } = await import('../../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     delete process.env['CLEO_DIR'];
     delete process.env['LIFECYCLE_ENFORCEMENT_MODE'];
     await rm(testDir, { recursive: true, force: true });

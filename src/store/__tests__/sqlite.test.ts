@@ -248,6 +248,7 @@ describe('SQLite store', () => {
         const db3 = await getDb(tempDir1);
         expect(db3).not.toBe(db2);
       } finally {
+        close();
         await rm(tempDir1, { recursive: true, force: true });
         await rm(tempDir2, { recursive: true, force: true });
         // Restore CLEO_DIR
@@ -275,6 +276,7 @@ describe('SQLite store', () => {
         // Should be same instance
         expect(db1).toBe(db2);
       } finally {
+        close();
         await rm(tempDir1, { recursive: true, force: true });
         // Restore CLEO_DIR
         if (originalCleoDir) {

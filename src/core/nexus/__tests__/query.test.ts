@@ -17,7 +17,7 @@ import {
 } from '../query.js';
 import { nexusRegister } from '../registry.js';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState } from '../../../store/sqlite.js';
+import { resetDbState, closeAllDatabases } from '../../../store/sqlite.js';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 
 let testDir: string;
@@ -70,7 +70,7 @@ afterEach(async () => {
   delete process.env['NEXUS_CACHE_DIR'];
   delete process.env['NEXUS_REGISTRY_FILE'];
   delete process.env['NEXUS_CURRENT_PROJECT'];
-  resetDbState();
+  await closeAllDatabases();
   await rm(testDir, { recursive: true, force: true });
 });
 

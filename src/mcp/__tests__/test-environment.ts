@@ -17,6 +17,7 @@ import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
+import { fileURLToPath } from 'url';
 
 const execAsync = promisify(exec);
 
@@ -69,7 +70,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
   // Prefer the project's own built CLI so tests run against current source.
   // Fall back to CLEO_CLI_PATH env var or the globally installed 'cleo'.
   const projectCli = path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
+    path.dirname(fileURLToPath(import.meta.url)),
     '..', '..', '..', 'dist', 'cli', 'index.js'
   );
   const defaultCliPath = await fs.access(projectCli).then(
@@ -184,6 +185,13 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
  * Destroy the test environment and clean up all temporary files.
  */
 export async function destroyTestEnvironment(env: TestEnvironment): Promise<void> {
+  // Close all SQLite database connections before cleanup.
+  // On Windows, SQLite holds exclusive file handles on .db/.db-wal/.db-shm
+  // files, causing EBUSY errors during recursive directory removal.
+  try {
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
+    await closeAllDatabases();
+  } catch { /* module may not be loaded */ }
   try {
     await fs.rm(env.projectRoot, { recursive: true, force: true });
   } catch (error) {

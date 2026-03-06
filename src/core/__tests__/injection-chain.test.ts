@@ -111,6 +111,10 @@ describe('E2E: injection chain validation (T4694)', () => {
     } else {
       delete process.env['CLEO_HOME'];
     }
+    try {
+      const { closeAllDatabases } = await import('../../store/sqlite.js');
+      await closeAllDatabases();
+    } catch { /* ignore */ }
     await rm(testDir, { recursive: true, force: true });
   });
 

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterEach,beforeEach,describe,expect,it } from 'vitest';
 import { seedTasks } from '../../../store/__tests__/test-db-helper.js';
 import { createSqliteDataAccessor } from '../../../store/sqlite-data-accessor.js';
-import { resetDbState } from '../../../store/sqlite.js';
+import { resetDbState, closeAllDatabases } from '../../../store/sqlite.js';
 import {
   canExecute,
   canRead,
@@ -53,7 +53,7 @@ afterEach(async () => {
   delete process.env['NEXUS_CACHE_DIR'];
   delete process.env['NEXUS_REGISTRY_FILE'];
   delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
-  resetDbState();
+  await closeAllDatabases();
   await rm(testDir, { recursive: true, force: true });
 });
 
