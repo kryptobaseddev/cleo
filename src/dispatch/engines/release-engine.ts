@@ -357,7 +357,8 @@ export async function releaseShip(
       // Manifest may not exist yet if prepare hasn't been called; proceed
     }
 
-    const epicCheck = await checkEpicCompleteness(releaseTaskIds, projectRoot);
+    const epicAccessor = await getAccessor(cwd);
+    const epicCheck = await checkEpicCompleteness(releaseTaskIds, projectRoot, epicAccessor);
     if (epicCheck.hasIncomplete) {
       const incomplete = epicCheck.epics
         .filter((e) => e.missingChildren.length > 0)

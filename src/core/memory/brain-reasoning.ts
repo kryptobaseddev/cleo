@@ -10,6 +10,8 @@
  */
 
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { readJsonRequired } from '../../store/json.js';
+import { getTaskPath } from '../paths.js';
 import { getBrainAccessor } from '../../store/brain-accessor.js';
 import { searchSimilar } from './brain-similarity.js';
 import { searchBrain } from './brain-search.js';
@@ -49,7 +51,9 @@ const MAX_DEPTH = 10;
  * deps) are reported as root causes.
  */
 export async function reasonWhy(taskId: string, projectRoot: string, taskAccessor?: DataAccessor): Promise<CausalTrace> {
-  const data = await taskAccessor!.loadTaskFile() as TaskFile;
+  const data = taskAccessor
+    ? (await taskAccessor.loadTaskFile() as TaskFile)
+    : await readJsonRequired<TaskFile>(getTaskPath(projectRoot));
   const taskMap = new Map(data.tasks.map(t => [t.id, t]));
 
   const completedStatuses = new Set(['done', 'cancelled']);

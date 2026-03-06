@@ -466,13 +466,13 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 | session | 11 | 8 | 19 |
 | memory | 12 | 6 | 18 |
 | check | 17 | 2 | 19 |
-| pipeline | 14 | 23 | 37 |
+| pipeline | 14 | 24 | 38 |
 | orchestrate | 11 | 8 | 19 |
 | tools | 21 | 11 | 32 |
 | admin | 23 | 20 | 43 |
 | nexus | 17 | 14 | 31 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **145** | **111** | **256** |
+| **Total** | **145** | **112** | **257** |
 
 ---
 

@@ -65,6 +65,13 @@ vi.mock('../../../store/schema.js', () => ({
   auditLog: { _: 'mock_audit_log_table' },
 }));
 
+// Mock validation-schemas so Zod check passes without real validation
+vi.mock('../../../store/validation-schemas.js', () => ({
+  AuditLogInsertSchema: {
+    safeParse: vi.fn((data: unknown) => ({ success: true, data })),
+  },
+}));
+
 import { createAudit } from '../audit.js';
 
 describe('createAudit middleware', () => {
