@@ -9,10 +9,12 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { readJson, saveJson } from '../../store/json.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -247,6 +249,20 @@ export async function generateReleaseChangelog(
 
   release.changelog = changelog;
   await writeReleases(index, cwd);
+
+  // Write or update CHANGELOG.md with section-aware merge
+  const changelogPath = join(cwd ?? process.cwd(), 'CHANGELOG.md');
+  let existingChangelogContent = '';
+  try {
+    existingChangelogContent = await readFile(changelogPath, 'utf8');
+  } catch {
+    // File doesn't exist yet — start fresh
+  }
+  const { customBlocks } = parseChangelogBlocks(existingChangelogContent);
+
+  // Build the changelog body (content after the ## header line)
+  const changelogBody = sections.slice(2).join('\n'); // skip header + blank line
+  await writeChangelogSection(normalizedVersion, changelogBody, customBlocks, changelogPath);
 
   return {
     version: normalizedVersion,
