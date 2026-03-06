@@ -27,6 +27,9 @@ import {
   type ReleaseTaskRecord,
 } from '../../core/release/release-manifest.js';
 
+import { writeChangelogSection } from '../../core/release/changelog-writer.js';
+import { checkEpicCompleteness, checkDoubleListing } from '../../core/release/guards.js';
+
 import { engineError, type EngineResult } from './_error.js';
 
 /**
@@ -298,5 +301,186 @@ export async function releasePush(
     return engineError('E_GENERAL', `Git push failed: ${message}`, {
       details: { exitCode: execError.status },
     });
+  }
+}
+
+/**
+ * release.ship - Composite release operation
+ *
+ * Sequence: validate gates → epic completeness → double-listing check →
+ * write CHANGELOG → git commit/tag/push → record provenance
+ *
+ * @task T5582
+ * @epic T5576
+ */
+export async function releaseShip(
+  params: {
+    version: string;
+    epicId: string;
+    remote?: string;
+    dryRun?: boolean;
+  },
+  projectRoot?: string,
+): Promise<EngineResult> {
+  const { version, epicId, remote, dryRun = false } = params;
+
+  if (!version) {
+    return engineError('E_INVALID_INPUT', 'version is required');
+  }
+  if (!epicId) {
+    return engineError('E_INVALID_INPUT', 'epicId is required');
+  }
+
+  const cwd = projectRoot ?? resolveProjectRoot();
+
+  try {
+    // Step 1: Run release gates
+    const gatesResult = await runReleaseGates(
+      version,
+      () => loadTasks(projectRoot),
+      projectRoot,
+    );
+
+    if (gatesResult && !gatesResult.allPassed) {
+      const failedGates = gatesResult.gates.filter((g) => g.status === 'failed');
+      return engineError('E_LIFECYCLE_GATE_FAILED', `Release gates failed for ${version}: ${failedGates.map((g) => g.name).join(', ')}`, {
+        details: { gates: gatesResult.gates, failedCount: gatesResult.failedCount },
+      });
+    }
+
+    // Step 2: Check epic completeness — load release tasks from manifest
+    let releaseTaskIds: string[] = [];
+    try {
+      const manifest = await showManifestRelease(version, projectRoot);
+      releaseTaskIds = (manifest as { tasks?: string[] }).tasks ?? [];
+    } catch {
+      // Manifest may not exist yet if prepare hasn't been called; proceed
+    }
+
+    const epicCheck = await checkEpicCompleteness(releaseTaskIds, projectRoot);
+    if (epicCheck.hasIncomplete) {
+      const incomplete = epicCheck.epics
+        .filter((e) => e.missingChildren.length > 0)
+        .map((e) => `${e.epicId}: missing ${e.missingChildren.map((c) => c.id).join(', ')}`)
+        .join('; ');
+      return engineError('E_LIFECYCLE_GATE_FAILED', `Epic completeness check failed: ${incomplete}`, {
+        details: { epics: epicCheck.epics },
+      });
+    }
+
+    // Step 3: Check for double-listing
+    const allReleases = await listManifestReleases(projectRoot);
+    const existingReleases = (
+      (allReleases as { releases?: Array<{ version: string; tasks?: string[] }> }).releases ?? []
+    ).filter((r) => r.version !== version);
+
+    const doubleCheck = checkDoubleListing(
+      releaseTaskIds,
+      existingReleases.map((r) => ({ version: r.version, tasks: r.tasks ?? [] })),
+    );
+    if (doubleCheck.hasDoubleListing) {
+      const dupes = doubleCheck.duplicates
+        .map((d) => `${d.taskId} (in ${d.releases.join(', ')})`)
+        .join('; ');
+      return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, {
+        details: { duplicates: doubleCheck.duplicates },
+      });
+    }
+
+    // Step 4: Write CHANGELOG section
+    const changelogResult = await generateReleaseChangelog(
+      version,
+      () => loadTasks(projectRoot),
+      projectRoot,
+    );
+    const changelogPath = `${cwd}/CHANGELOG.md`;
+    const generatedContent = (changelogResult as { changelog?: string }).changelog ?? '';
+    await writeChangelogSection(version, generatedContent, [], changelogPath);
+
+    if (dryRun) {
+      return {
+        success: true,
+        data: {
+          version,
+          epicId,
+          dryRun: true,
+          wouldDo: [
+            'git add CHANGELOG.md',
+            `git commit -m "release: ship v${version} (T${epicId})"`,
+            `git tag v${version}`,
+            `git push ${remote ?? 'origin'} --follow-tags`,
+            'markReleasePushed(...)',
+          ],
+        },
+      };
+    }
+
+    // Step 5: Git operations
+    const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
+
+    try {
+      execFileSync('git', ['add', 'CHANGELOG.md'], gitCwd);
+    } catch (err: unknown) {
+      const msg = (err as { message?: string }).message ?? String(err);
+      return engineError('E_GENERAL', `git add failed: ${msg}`);
+    }
+
+    try {
+      execFileSync(
+        'git',
+        ['commit', '-m', `release: ship v${version} (T${epicId})`],
+        gitCwd,
+      );
+    } catch (err: unknown) {
+      const msg = (err as { stderr?: string; message?: string }).stderr
+        ?? (err as { message?: string }).message
+        ?? String(err);
+      return engineError('E_GENERAL', `git commit failed: ${msg}`);
+    }
+
+    let commitSha: string | undefined;
+    try {
+      commitSha = execFileSync('git', ['rev-parse', 'HEAD'], gitCwd).toString().trim();
+    } catch {
+      // Non-fatal
+    }
+
+    const gitTag = `v${version.replace(/^v/, '')}`;
+    try {
+      execFileSync('git', ['tag', gitTag], gitCwd);
+    } catch (err: unknown) {
+      const msg = (err as { stderr?: string; message?: string }).stderr
+        ?? (err as { message?: string }).message
+        ?? String(err);
+      return engineError('E_GENERAL', `git tag failed: ${msg}`);
+    }
+
+    try {
+      execFileSync('git', ['push', remote ?? 'origin', '--follow-tags'], gitCwd);
+    } catch (err: unknown) {
+      const execError = err as { status?: number; stderr?: string; message?: string };
+      const msg = (execError.stderr ?? execError.message ?? '').slice(0, 500);
+      return engineError('E_GENERAL', `git push failed: ${msg}`, {
+        details: { exitCode: execError.status },
+      });
+    }
+
+    // Step 6: Record provenance
+    const pushedAt = new Date().toISOString();
+    await markReleasePushed(version, pushedAt, projectRoot, { commitSha, gitTag });
+
+    return {
+      success: true,
+      data: {
+        version,
+        epicId,
+        commitSha,
+        gitTag,
+        pushedAt,
+        changelog: changelogPath,
+      },
+    };
+  } catch (err: unknown) {
+    return engineError('E_GENERAL', (err as Error).message ?? String(err));
   }
 }

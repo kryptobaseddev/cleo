@@ -39,6 +39,8 @@ import {
   releaseRollback,
 } from '../lib/engine.js';
 
+import { releaseShip } from '../engines/release-engine.js';
+
 import {
   showPhase,
   listPhases,
@@ -178,7 +180,7 @@ export class PipelineHandler implements DomainHandler {
         'stage.gate.pass', 'stage.gate.fail',
         'release.prepare', 'release.changelog', 'release.commit',
         'release.tag', 'release.push', 'release.gates.run',
-        'release.rollback',
+        'release.rollback', 'release.ship',
         'manifest.append', 'manifest.archive',
         'phase.set', 'phase.start', 'phase.complete',
         'phase.advance', 'phase.rename', 'phase.delete',
@@ -416,6 +418,22 @@ export class PipelineHandler implements DomainHandler {
         const reason = params?.reason as string | undefined;
         const result = await releaseRollback(version, reason, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'release.rollback', startTime);
+      }
+
+      case 'ship': {
+        const version = params?.version as string;
+        const epicId = params?.epicId as string;
+        if (!version || !epicId) {
+          return this.errorResponse('mutate', 'release.ship', 'E_INVALID_INPUT',
+            'version and epicId are required', startTime);
+        }
+        const remote = params?.remote as string | undefined;
+        const dryRun = params?.dryRun as boolean | undefined;
+        const result = await releaseShip(
+          { version, epicId, remote, dryRun },
+          this.projectRoot,
+        );
+        return this.wrapEngineResult(result, 'mutate', 'release.ship', startTime);
       }
 
       default:
