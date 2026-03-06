@@ -229,18 +229,26 @@ The CI pipeline SHALL reject any release where the tag's year and month do not m
 
 ### 8.3 Workflow Architecture
 
-The release pipeline uses a single-workflow design in `.github/workflows/release.yml` with three sequential jobs:
+The release pipeline uses a single-workflow design in `.github/workflows/release.yml` with one consolidated "Build & Publish" job. All steps execute sequentially in a single job — the project is built once and all publishing follows.
 
 ```
 git tag vYYYY.M.PATCH → git push origin vYYYY.M.PATCH
     ↓
 release.yml (triggered by tag push matching v[0-9]+.[0-9]+.[0-9]+*)
-    ├── Job 1: release         — Build, validate, create GitHub Release
-    ├── Job 2: publish-npm     — npm publish via OIDC (needs: release)
-    └── Job 3: publish-mcp    — MCP Registry publish (needs: publish-npm)
+    └── Job: Build & Publish
+        ├── Resolve version + determine dist-tag (from tag or workflow_dispatch input)
+        ├── Validate CalVer
+        ├── npm ci + npm run build  (once)
+        ├── Validate build artifacts
+        ├── Build release tarball + checksums
+        ├── Generate release notes from CHANGELOG
+        ├── Create GitHub Release  (idempotent: gh release delete-then-create)
+        ├── npm publish via OIDC
+        ├── Update server.json version
+        └── Publish to MCP Registry via mcp-publisher (OIDC)
 ```
 
-A manual fallback workflow exists at `.github/workflows/npm-publish.yml` for re-publishing without creating a new release. It requires explicit dist-tag selection (dev/beta/latest).
+A `workflow_dispatch` trigger is available as a break-glass option to retry a failed release without pushing a new tag. It accepts a `version` input; the tag must already exist on main.
 
 ### 8.4 npm Authentication (OIDC Trusted Publishing)
 
@@ -273,8 +281,7 @@ GitHub Releases are automatically marked as prerelease when the tag contains a h
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `ci.yml` | Push to `main`/`develop`, PRs to both | Type check, test, build, verify |
-| `release.yml` | Tag push `v*.*.*` | GitHub Release + npm + MCP Registry |
-| `npm-publish.yml` | Manual dispatch only | Backup re-publish with explicit dist-tag |
+| `release.yml` | Tag push `v*.*.*` or `workflow_dispatch` | GitHub Release + npm publish + MCP Registry (single consolidated job) |
 
 ### 8.7 Branch Strategy
 
