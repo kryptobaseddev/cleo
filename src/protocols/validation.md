@@ -237,6 +237,6 @@ See: `src/protocols/contribution.md` for attribution requirements.
 
 ## References
 
-- **Specification**: `docs/specs/PROTOCOL-ENFORCEMENT-SPEC.md`
+- **Specification**: `docs/specs/PROTOCOL-ENFORCEMENT-SPEC.md` *(ARCHIVED — modernization tracked in T5492)*
 - **Implementation**: `lib/protocol-validation.sh`
 - **Tests**: `tests/unit/protocol-validation.bats`

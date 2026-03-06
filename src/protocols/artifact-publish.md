@@ -544,15 +544,15 @@ Release Protocol                    Artifact Publish Protocol
       {
         "type": "npm-package",
         "enabled": true,
-        "package": "mcp-server/package.json",
-        "buildCommand": "cd mcp-server && npm run build",
+        "package": "package.json",
+        "buildCommand": "npm run build",
         "options": { "access": "public" },
         "credentials": { "envVar": "NPM_TOKEN", "required": true }
       },
       {
         "type": "generic-tarball",
         "enabled": true,
-        "buildCommand": "tar czf cleo-0.85.0.tar.gz --exclude=.git ."
+        "buildCommand": "tar czf my-project-0.85.0.tar.gz --exclude=.git ."
       }
     ]
   }
