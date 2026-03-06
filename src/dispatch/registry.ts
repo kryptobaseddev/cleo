@@ -1863,6 +1863,16 @@ export const OPERATIONS: OperationDef[] = [
   },
   {
     gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'release.ship',
+    description: 'Ship a release: validate gates → write CHANGELOG → git commit/tag/push → record provenance',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['version', 'epicId'],
+  },
+  {
+    gateway: 'mutate',
     domain: 'admin',
     operation: 'init',
     description: 'admin.init (mutate)',

@@ -89,6 +89,15 @@ jobs:
             echo "CalVer OK (stable): $VERSION"
           fi
 
+      # Sync package.json version from tag — prevents "cannot publish over previously published" errors
+      # when a developer forgets to bump package.json before pushing the tag.
+      - name: Sync package.json version from tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          jq --arg v "$VERSION" '.version = $v' package.json > package.tmp && mv package.tmp package.json
+          echo "package.json version synced to $VERSION"
+
       - name: Install dependencies
         run: npm ci
 
@@ -159,6 +168,20 @@ jobs:
             install.sh \
             SHA256SUMS
           echo "GitHub release v${VERSION} published"
+
+      # ── CHANGELOG gate ────────────────────────────────────────────────────────
+
+      - name: Verify CHANGELOG section
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! grep -qF "## [${VERSION}]" CHANGELOG.md; then
+            echo "ERROR: CHANGELOG.md does not contain a section for version ${VERSION}"
+            echo "Expected to find: ## [${VERSION}]"
+            echo "Run the release.ship operation locally before pushing the tag."
+            exit 1
+          fi
+          echo "CHANGELOG section verified for v${VERSION}"
 
       # ── npm Publish (OIDC Trusted Publishing via release.yml) ─────────────────
 
