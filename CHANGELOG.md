@@ -1,5 +1,23 @@
 # Changelog
 
+## [v2026.3.18] (2026-03-07)
+
+### Features
+- **Create normalizeTaskId() SSoT utility with validation and tests**: Create SSoT utility function `normalizeTaskId()` in src/core/tasks/task-id-utils.ts that accepts any task ID format and returns canonical "T1234". ... (T5587)
+- **Implement normalization across all task operations**: Implement normalizeTaskId() across all identified operations. Update task lookup functions to normalize input before querying database. Ensure epic... (T5589)
+- **Implement automatic PR creation for protected branches**: Implement automatic PR creation when branch protection blocks direct push. Use GitHub CLI (gh) if available, or provide clear manual instructions. ... (T5591)
+- **Implement multi-channel release support (@latest/@beta/@alpha)**: Add release channel support to pipeline: @latest for main branch, @beta for develop branch, @alpha for feature branches. Update release gates to va... (T5592)
+
+### Bug Fixes
+- **MCP response payload optimization — ranked blockedTasks, compact admin help, domain pagination**: Reduce MCP response sizes and improve data quality across domains:
+- admin help: compact domain-grouped format by default (~85% token reduction), v... (T5584)
+
+### Documentation
+- **Audit all operations accepting task IDs for normalization**: Audit all dispatch operations and CLI commands that accept taskId, epicId, parentId, or any task reference parameter. List all locations that need ... (T5588)
+- **Research GitFlow integration and branch protection detection**: Research and document GitFlow workflow integration for CLEO releases. Map out: feature/* → develop (beta) → main (stable) flow. Document branch det... (T5590)
+- **Add agent guidance and workflow visualization to release command**: Enhance release.ship output with clear agent guidance and next steps. Add --guided flag for step-by-step mode. Show progress through workflow stage... (T5593)
+---
+
 ## [2026.3.17] - 2026-03-07
 
 ### Added

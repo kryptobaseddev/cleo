@@ -274,29 +274,36 @@ export async function generateReleaseChangelog(
     // Fix A: Skip epics entirely — they are parent containers, not deliverables
     if (task.type === 'epic') return 'changes'; // Will be filtered out by the caller
 
-    const labels = task.labels ?? [];
-    const titleLower = stripConventionalPrefix(task.title).toLowerCase();
-    const rawTitleLower = task.title.toLowerCase();
+    // Priority 1: task.type field is the most authoritative signal
+    const taskType = (task.type ?? '').toLowerCase();
+    if (taskType === 'test') return 'tests';
+    if (taskType === 'fix' || taskType === 'bugfix') return 'fixes';
+    if (taskType === 'feat' || taskType === 'feature') return 'features';
+    if (taskType === 'docs' || taskType === 'doc') return 'docs';
+    if (taskType === 'chore' || taskType === 'refactor') return 'chores';
 
-    // Fix B: Check for conventional commit prefix in raw title first (most reliable signal)
+    // Priority 2: conventional commit prefix in raw title
     if (/^feat(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'features';
     if (/^fix(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'fixes';
     if (/^docs?(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'docs';
     if (/^test(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'tests';
     if (/^(chore|refactor|style|ci|build|perf)(\([^)]+\))?:/.test(task.title.toLowerCase())) return 'chores';
 
-    // Fix C: Check labels for strong category signals
-    if (labels.some((l) => ['feat', 'feature', 'enhancement', 'add'].includes(l.toLowerCase()))) return 'features';
-    if (labels.some((l) => ['fix', 'bug', 'bugfix', 'regression'].includes(l.toLowerCase()))) return 'fixes';
-    if (labels.some((l) => ['docs', 'documentation'].includes(l.toLowerCase()))) return 'docs';
+    // Priority 3: labels for strong category signals
+    const labels = task.labels ?? [];
     if (labels.some((l) => ['test', 'testing'].includes(l.toLowerCase()))) return 'tests';
+    if (labels.some((l) => ['fix', 'bug', 'bugfix', 'regression'].includes(l.toLowerCase()))) return 'fixes';
+    if (labels.some((l) => ['feat', 'feature', 'enhancement', 'add'].includes(l.toLowerCase()))) return 'features';
+    if (labels.some((l) => ['docs', 'documentation'].includes(l.toLowerCase()))) return 'docs';
     if (labels.some((l) => ['chore', 'refactor', 'cleanup', 'maintenance'].includes(l.toLowerCase()))) return 'chores';
 
-    // Keyword scan on the cleaned title
-    if (titleLower.startsWith('add ') || titleLower.includes('implement') || titleLower.startsWith('create ') || titleLower.startsWith('introduce ')) return 'features';
-    if (titleLower.includes('bug') || titleLower.startsWith('fix') || titleLower.includes('regression') || titleLower.includes('broken')) return 'fixes';
-    if (titleLower.startsWith('doc') || titleLower.includes('documentation') || titleLower.includes('readme') || titleLower.includes('changelog')) return 'docs';
+    // Priority 4: keyword scan on the cleaned title
+    const titleLower = stripConventionalPrefix(task.title).toLowerCase();
+    const rawTitleLower = task.title.toLowerCase();
     if (titleLower.startsWith('test') || (titleLower.includes('test') && titleLower.includes('add'))) return 'tests';
+    if (titleLower.includes('bug') || titleLower.startsWith('fix') || titleLower.includes('regression') || titleLower.includes('broken')) return 'fixes';
+    if (titleLower.startsWith('add ') || titleLower.includes('implement') || titleLower.startsWith('create ') || titleLower.startsWith('introduce ')) return 'features';
+    if (titleLower.startsWith('doc') || titleLower.includes('documentation') || titleLower.includes('readme') || titleLower.includes('changelog')) return 'docs';
     if (titleLower.startsWith('chore') || titleLower.includes('refactor') || titleLower.includes('cleanup') || titleLower.includes('migrate') || titleLower.includes('upgrade') || titleLower.includes('remove ') || titleLower.startsWith('audit')) return 'chores';
 
     // Raw title scan for backward compat
@@ -315,6 +322,12 @@ export async function generateReleaseChangelog(
     if (task.labels?.some((l) => l.toLowerCase() === 'epic')) continue;
     // Heuristic: titles starting with "EPIC:" are epics even without type field
     if (/^epic:/i.test(task.title.trim())) continue;
+
+    // Filter out research/internal/spike/audit tasks — not user-facing deliverables
+    const labelsLower = (task.labels ?? []).map((l) => l.toLowerCase());
+    if (labelsLower.some((l) => ['research', 'internal', 'spike', 'audit'].includes(l))) continue;
+    if (['spike', 'research'].includes((task.type ?? '').toLowerCase())) continue;
+    if (/^(research|investigate|audit|spike)\s/i.test(task.title.trim())) continue;
 
     const category = categorizeTask(task);
     const entry = buildEntry(task);
@@ -542,11 +555,13 @@ export async function tagRelease(
 /**
  * Run release validation gates.
  * @task T4788
+ * @task T5586
  */
 export async function runReleaseGates(
   version: string,
   loadTasksFn: () => Promise<ReleaseTaskRecord[]>,
   cwd?: string,
+  opts?: { dryRun?: boolean },
 ): Promise<{
   version: string;
   allPassed: boolean;
@@ -622,24 +637,38 @@ export async function runReleaseGates(
   }
 
   // GD1: Clean working tree (CHANGELOG.md and VERSION are allowed to be dirty)
-  let workingTreeClean = true;
-  let dirtyFiles: string[] = [];
-  try {
-    const porcelain = execFileSync('git', ['status', '--porcelain'], {
-      cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe',
+  // Skipped in dry-run mode — dry-run makes no commits so tree cleanliness is irrelevant.
+  // Untracked files (?? lines) are excluded from the dirty check — they do not affect git
+  // commit/tag operations and must not block releases.
+  if (opts?.dryRun) {
+    gates.push({
+      name: 'clean_working_tree',
+      status: 'passed',
+      message: 'Skipped in dry-run mode',
     });
-    dirtyFiles = porcelain.split('\n').filter(l => l.trim())
-      .map(l => l.slice(3).trim())
-      .filter(f => f !== 'CHANGELOG.md' && f !== 'VERSION' && f !== 'package.json');
-    workingTreeClean = dirtyFiles.length === 0;
-  } catch { /* git not available — skip */ }
-  gates.push({
-    name: 'clean_working_tree',
-    status: workingTreeClean ? 'passed' : 'failed',
-    message: workingTreeClean
-      ? 'Working tree clean (excluding CHANGELOG.md, VERSION, package.json)'
-      : `Uncommitted changes in: ${dirtyFiles.slice(0, 5).join(', ')}${dirtyFiles.length > 5 ? ` (+${dirtyFiles.length - 5} more)` : ''}`,
-  });
+  } else {
+    let workingTreeClean = true;
+    let dirtyFiles: string[] = [];
+    try {
+      const porcelain = execFileSync('git', ['status', '--porcelain'], {
+        cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe',
+      });
+      dirtyFiles = porcelain.split('\n')
+        .filter(l => l.trim())
+        // Exclude untracked files (?? prefix) — they don't affect commits or tags
+        .filter(l => !l.startsWith('?? '))
+        .map(l => l.slice(3).trim())
+        .filter(f => f !== 'CHANGELOG.md' && f !== 'VERSION' && f !== 'package.json');
+      workingTreeClean = dirtyFiles.length === 0;
+    } catch { /* git not available — skip */ }
+    gates.push({
+      name: 'clean_working_tree',
+      status: workingTreeClean ? 'passed' : 'failed',
+      message: workingTreeClean
+        ? 'Working tree clean (excluding CHANGELOG.md, VERSION, package.json)'
+        : `Uncommitted changes in: ${dirtyFiles.slice(0, 5).join(', ')}${dirtyFiles.length > 5 ? ` (+${dirtyFiles.length - 5} more)` : ''}`,
+    });
+  }
 
   // GD2: Branch target — use GitFlow config if available, else defaults
   const isPreRelease = normalizedVersion.includes('-');
@@ -892,6 +921,7 @@ export async function pushRelease(
   const targetRemote = remote ?? pushPolicy?.remote ?? 'origin';
 
   // Check requireCleanTree
+  // Untracked files (?? lines) are excluded — they do not affect push operations.
   if (pushPolicy?.requireCleanTree) {
     const statusOutput = execFileSync('git', ['status', '--porcelain'], {
       cwd: projectRoot,
@@ -899,7 +929,11 @@ export async function pushRelease(
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    if (statusOutput.trim().length > 0) {
+    const trackedDirty = statusOutput
+      .split('\n')
+      .filter(l => l.trim() && !l.startsWith('?? '))
+      .join('\n');
+    if (trackedDirty.trim().length > 0) {
       throw new Error(
         'Git working tree is not clean. Commit or stash changes before pushing (config: release.push.requireCleanTree=true).'
       );
