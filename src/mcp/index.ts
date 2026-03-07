@@ -74,20 +74,66 @@ async function main(): Promise<void> {
   }
 
   try {
-    // MCP-first bootstrap: ensure global CLEO home baseline exists.
+    // ── Startup health check: unified global + project diagnostics ──
+    // Replaces the old global-bootstrap.ts ad-hoc scaffolding with the
+    // central health-check system from health.ts. Auto-repairs global
+    // ~/.cleo/ infrastructure and detects project init/upgrade needs.
+    let startupState: 'healthy' | 'needs_init' | 'needs_upgrade' = 'healthy';
     try {
-      const { ensureGlobalBootstrap } = await import('../core/global-bootstrap.js');
-      ensureGlobalBootstrap();
-    } catch (bootstrapErr) {
+      const { startupHealthCheck } = await import('../core/system/health.js');
+      const healthResult = await startupHealthCheck();
+      startupState = healthResult.state;
+
+      // Log each check result at appropriate level
+      for (const check of healthResult.checks) {
+        const logData = { check: check.check, repaired: check.repaired ?? false };
+        if (check.status === 'fail') {
+          startupLog.error(logData, `Startup check failed: ${check.message}`);
+        } else if (check.status === 'warn' || check.repaired) {
+          startupLog.warn(logData, `Startup check: ${check.message}`);
+        } else {
+          startupLog.debug(logData, `Startup check: ${check.message}`);
+        }
+      }
+
+      // Log overall state
+      if (startupState === 'needs_init') {
+        startupLog.warn(
+          { state: startupState, globalHealthy: healthResult.globalHealthy },
+          'Project not initialized — MCP server will operate in degraded mode. Run: cleo init',
+        );
+      } else if (startupState === 'needs_upgrade') {
+        startupLog.warn(
+          { state: startupState, failures: healthResult.failures.map(f => f.check) },
+          'Project health check detected issues — run: cleo upgrade',
+        );
+      } else {
+        startupLog.info({ state: startupState }, 'Startup health check passed');
+      }
+
+      // Log system info once at startup for diagnostics and error correlation
+      startupLog.info(
+        {
+          platform: healthResult.system.platform,
+          arch: healthResult.system.arch,
+          osType: healthResult.system.osType,
+          osRelease: healthResult.system.osRelease,
+          nodeVersion: healthResult.system.nodeVersion,
+          totalMemory: healthResult.system.totalMemory,
+          hostname: healthResult.system.hostname,
+        },
+        'System info captured',
+      );
+    } catch (healthErr) {
       startupLog.warn(
         {
-          err: bootstrapErr,
+          err: healthErr,
           errorMessage:
-            bootstrapErr instanceof Error
-              ? bootstrapErr.message
-              : String(bootstrapErr),
+            healthErr instanceof Error
+              ? healthErr.message
+              : String(healthErr),
         },
-        'Global bootstrap warning',
+        'Startup health check warning (non-fatal)',
       );
     }
 

@@ -8,12 +8,24 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
+import { getAgentsHome, isProjectInitialized } from '../paths.js';
+import { getSystemInfo, type SystemInfo } from '../platform.js';
 import { checkStorageMigration } from './storage-preflight.js';
 import { checkCleoGitignore, checkVitalFilesTracked, checkCoreFilesNotIgnored, checkLegacyAgentOutputs, checkNodeVersion, type CheckResult } from '../validation/doctor/checks.js';
 import { getAccessor } from '../../store/data-accessor.js';
-import { checkProjectInfo, checkProjectContext } from '../scaffold.js';
+import {
+  checkProjectInfo,
+  checkProjectContext,
+  checkCleoStructure,
+  checkConfig,
+  checkSqliteDb,
+  checkGlobalHome,
+  checkGlobalTemplates,
+  checkLogDir,
+  ensureGlobalScaffold,
+  ensureCleoStructure,
+} from '../scaffold.js';
 import { checkGitHooks, type HookCheckResult } from '../hooks.js';
 import { checkGlobalSchemas, type CheckResult as SchemaCheckResult } from '../schema-management.js';
 import { checkInjection } from '../injection.js';
@@ -564,11 +576,16 @@ export async function coreDoctorReport(
       : '.cleo/.git not found — run: cleo init',
   });
 
-  // 5c. Shared module checks: git hooks, global schemas, project-info, injection
+  // 5c. Global scaffold checks: home, templates, schemas
+  checks.push(mapCheckResult(checkGlobalHome()));
+  checks.push(mapCheckResult(checkGlobalTemplates()));
+  checks.push(mapSchemaCheckResult(checkGlobalSchemas()));
+
+  // 5d. Project scaffold checks: log dir, structure, git hooks, project-info, injection
+  checks.push(mapCheckResult(checkLogDir(projectRoot)));
+
   const hookResults = await checkGitHooks(projectRoot);
   checks.push(mapHookResults(hookResults));
-
-  checks.push(mapSchemaCheckResult(checkGlobalSchemas()));
 
   checks.push(mapCheckResult(checkProjectInfo(projectRoot)));
 
@@ -578,7 +595,7 @@ export async function coreDoctorReport(
   checks.push(mapCheckResult(checkInjection(projectRoot)));
 
   // Agent definition presence check
-  const agentDefPath = join(homedir(), '.agents', 'agents', 'cleo-subagent');
+  const agentDefPath = join(getAgentsHome(), 'agents', 'cleo-subagent');
   checks.push({
     check: 'agent_definition',
     status: existsSync(agentDefPath) ? 'ok' : 'warning',
@@ -591,10 +608,21 @@ export async function coreDoctorReport(
   // 6. Environment - Node.js version validation
   checks.push(mapCheckResult(checkNodeVersion()));
 
+  const sysInfo = getSystemInfo();
   checks.push({
     check: 'platform',
     status: 'ok',
-    message: `${process.platform} ${process.arch}`,
+    message: `${sysInfo.osType} ${sysInfo.osRelease} (${sysInfo.platform}/${sysInfo.arch}), Node ${sysInfo.nodeVersion}`,
+    details: {
+      platform: sysInfo.platform,
+      arch: sysInfo.arch,
+      osType: sysInfo.osType,
+      osRelease: sysInfo.osRelease,
+      nodeVersion: sysInfo.nodeVersion,
+      totalMemory: sysInfo.totalMemory,
+      freeMemory: sysInfo.freeMemory,
+      hostname: sysInfo.hostname,
+    },
   });
 
   // Summary
@@ -622,7 +650,7 @@ export interface FixResult {
 export async function runDoctorFixes(
   projectRoot: string,
 ): Promise<FixResult[]> {
-  const { ensureCleoStructure, ensureGitignore, ensureConfig, ensureProjectInfo, ensureProjectContext, ensureCleoGitRepo } = await import('../scaffold.js');
+  const { ensureCleoStructure, ensureGitignore, ensureConfig, ensureProjectInfo, ensureProjectContext, ensureCleoGitRepo, ensureGlobalHome, ensureGlobalTemplates } = await import('../scaffold.js');
   const { ensureGitHooks } = await import('../hooks.js');
   const { ensureGlobalSchemas } = await import('../schema-management.js');
   const { ensureInjection } = await import('../injection.js');
@@ -674,6 +702,19 @@ export async function runDoctorFixes(
       const r = await ensureCleoStructure(projectRoot);
       return { check: 'cleo_structure', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
     },
+    global_home: async () => {
+      const r = await ensureGlobalHome();
+      return { check: 'global_home', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    global_templates: async () => {
+      const r = await ensureGlobalTemplates();
+      return { check: 'global_templates', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    log_dir: async () => {
+      // Log dir is part of REQUIRED_CLEO_SUBDIRS, so ensureCleoStructure fixes it
+      const r = await ensureCleoStructure(projectRoot);
+      return { check: 'log_dir', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
   };
 
   for (const check of failedChecks) {
@@ -693,4 +734,257 @@ export async function runDoctorFixes(
   }
 
   return results;
+}
+
+// ============================================================================
+// Startup Health Check (MCP + CLI unified entry point)
+// ============================================================================
+
+/**
+ * Outcome of a startup health check. Tells the caller exactly what state
+ * the system is in so it can route to init, upgrade, or proceed normally.
+ */
+export type StartupState = 'healthy' | 'needs_init' | 'needs_upgrade';
+
+export interface StartupHealthCheck {
+  check: string;
+  status: 'pass' | 'warn' | 'fail';
+  message: string;
+  repaired?: boolean;
+}
+
+export interface StartupHealthResult {
+  /** Overall system state after health check + auto-repair. */
+  state: StartupState;
+  /** True if the global ~/.cleo scaffold is healthy (after auto-repair). */
+  globalHealthy: boolean;
+  /** True if the project .cleo/ scaffold is present and healthy. */
+  projectHealthy: boolean;
+  /** Individual check results for logging/diagnostics. */
+  checks: StartupHealthCheck[];
+  /** Checks that failed and could not be auto-repaired. */
+  failures: StartupHealthCheck[];
+  /** Host system snapshot for diagnostics, error reports, and logging. */
+  system: SystemInfo;
+}
+
+/**
+ * Unified startup health check for MCP server and CLI entry points.
+ *
+ * This is the single entry point for startup diagnostics. It follows a
+ * three-phase approach:
+ *
+ * Phase 1: Global scaffold (~/.cleo/) — always auto-repaired.
+ *   The global home is CLEO infrastructure, not project data. It is safe
+ *   to create/repair unconditionally on every startup.
+ *
+ * Phase 2: Project detection — determines if this is an initialized project.
+ *   Uses isProjectInitialized() from paths.ts as the SSoT for detection.
+ *
+ * Phase 3: Project health — lightweight checks on the project scaffold.
+ *   If the project is initialized, runs check* functions to detect drift.
+ *   Auto-repairs safe items (missing subdirs via ensureCleoStructure).
+ *   Flags items requiring full upgrade (missing DB, config issues).
+ *
+ * Design principles:
+ *   - SSoT: All checks delegate to scaffold.ts check* functions
+ *   - DRY: No duplicated health-check logic
+ *   - SRP: This function only diagnoses and does safe auto-repair
+ *   - Graceful: Never throws. All errors are captured as check results.
+ *   - Logged: Returns structured results for the caller to log via pino
+ *
+ * @param projectRoot - Absolute path to the project root (defaults to cwd)
+ */
+export async function startupHealthCheck(
+  projectRoot?: string,
+): Promise<StartupHealthResult> {
+  const root = projectRoot ?? process.cwd();
+  const system = getSystemInfo();
+  const checks: StartupHealthCheck[] = [];
+  const failures: StartupHealthCheck[] = [];
+  let globalHealthy = true;
+  let projectHealthy = true;
+
+  // ── Phase 1: Global scaffold (~/.cleo/) ──────────────────────────
+  // Always auto-repair. This is infrastructure, not project data.
+  try {
+    // Check current state first (read-only)
+    const globalHomeCheck = checkGlobalHome();
+    const globalTemplateCheck = checkGlobalTemplates();
+    const globalSchemaCheck = checkGlobalSchemas();
+
+    const globalNeedsRepair =
+      globalHomeCheck.status !== 'passed' ||
+      globalTemplateCheck.status !== 'passed' ||
+      !globalSchemaCheck.ok;
+
+    if (globalNeedsRepair) {
+      // Auto-repair: ensureGlobalScaffold is idempotent and safe
+      const scaffoldResult = await ensureGlobalScaffold();
+
+      checks.push({
+        check: 'global_home',
+        status: 'pass',
+        message: scaffoldResult.home.action === 'skipped'
+          ? 'Global home already current'
+          : `Global home ${scaffoldResult.home.action}: ${scaffoldResult.home.details ?? ''}`,
+        repaired: scaffoldResult.home.action !== 'skipped',
+      });
+
+      checks.push({
+        check: 'global_schemas',
+        status: 'pass',
+        message: `Schemas: ${scaffoldResult.schemas.installed} installed, ${scaffoldResult.schemas.updated} updated of ${scaffoldResult.schemas.total}`,
+        repaired: scaffoldResult.schemas.installed > 0 || scaffoldResult.schemas.updated > 0,
+      });
+
+      checks.push({
+        check: 'global_templates',
+        status: 'pass',
+        message: scaffoldResult.templates.action === 'skipped'
+          ? 'Templates already current'
+          : `Templates ${scaffoldResult.templates.action}: ${scaffoldResult.templates.details ?? ''}`,
+        repaired: scaffoldResult.templates.action !== 'skipped',
+      });
+    } else {
+      checks.push(
+        { check: 'global_home', status: 'pass', message: 'Global home healthy' },
+        { check: 'global_schemas', status: 'pass', message: `All ${globalSchemaCheck.installed} schemas current` },
+        { check: 'global_templates', status: 'pass', message: 'Templates present' },
+      );
+    }
+  } catch (err) {
+    // Global scaffold failure is non-fatal but degrades the system
+    globalHealthy = false;
+    const msg = err instanceof Error ? err.message : String(err);
+    const failCheck: StartupHealthCheck = {
+      check: 'global_scaffold',
+      status: 'fail',
+      message: `Global scaffold repair failed: ${msg}`,
+    };
+    checks.push(failCheck);
+    failures.push(failCheck);
+  }
+
+  // ── Phase 2: Project detection ───────────────────────────────────
+  if (!isProjectInitialized(root)) {
+    checks.push({
+      check: 'project_initialized',
+      status: 'fail',
+      message: 'Project not initialized (.cleo/ or tasks.db missing)',
+    });
+
+    return {
+      state: 'needs_init',
+      globalHealthy,
+      projectHealthy: false,
+      checks,
+      failures,
+      system,
+    };
+  }
+
+  checks.push({
+    check: 'project_initialized',
+    status: 'pass',
+    message: 'Project initialized',
+  });
+
+  // ── Phase 3: Lightweight project health checks ───────────────────
+  // Run read-only check* functions to detect drift. Only auto-repair
+  // safe structural items (missing subdirs). Flag everything else.
+
+  const structureCheck = checkCleoStructure(root);
+  const configCheck = checkConfig(root);
+  const dbCheck = checkSqliteDb(root);
+  const logDirCheck = checkLogDir(root);
+
+  // Structure: auto-repairable (missing subdirs are safe to create)
+  if (structureCheck.status !== 'passed') {
+    try {
+      await ensureCleoStructure(root);
+      checks.push({
+        check: 'cleo_structure',
+        status: 'pass',
+        message: 'Structure repaired: missing subdirectories created',
+        repaired: true,
+      });
+    } catch (err) {
+      projectHealthy = false;
+      const msg = err instanceof Error ? err.message : String(err);
+      const failCheck: StartupHealthCheck = {
+        check: 'cleo_structure',
+        status: 'fail',
+        message: `Structure repair failed: ${msg}`,
+      };
+      checks.push(failCheck);
+      failures.push(failCheck);
+    }
+  } else {
+    checks.push({ check: 'cleo_structure', status: 'pass', message: 'Structure healthy' });
+  }
+
+  // Config: NOT auto-repairable on startup (requires explicit init/upgrade)
+  if (configCheck.status === 'failed') {
+    projectHealthy = false;
+    const failCheck: StartupHealthCheck = {
+      check: 'config',
+      status: 'fail',
+      message: configCheck.message,
+    };
+    checks.push(failCheck);
+    failures.push(failCheck);
+  } else {
+    checks.push({
+      check: 'config',
+      status: configCheck.status === 'warning' ? 'warn' : 'pass',
+      message: configCheck.message,
+    });
+  }
+
+  // SQLite DB: NOT auto-repairable on startup
+  if (dbCheck.status === 'failed') {
+    projectHealthy = false;
+    const failCheck: StartupHealthCheck = {
+      check: 'sqlite_db',
+      status: 'fail',
+      message: dbCheck.message,
+    };
+    checks.push(failCheck);
+    failures.push(failCheck);
+  } else {
+    checks.push({
+      check: 'sqlite_db',
+      status: dbCheck.status === 'warning' ? 'warn' : 'pass',
+      message: dbCheck.message,
+    });
+  }
+
+  // Log directory: auto-repairable (part of ensureCleoStructure above,
+  // but verify explicitly since it was just added to REQUIRED_CLEO_SUBDIRS)
+  if (logDirCheck.status !== 'passed') {
+    // ensureCleoStructure above should have created it, but check again
+    checks.push({
+      check: 'log_dir',
+      status: 'warn',
+      message: logDirCheck.message,
+    });
+  } else {
+    checks.push({ check: 'log_dir', status: 'pass', message: 'Log directory present' });
+  }
+
+  // Determine overall state
+  const hasFailures = failures.length > 0;
+  const state: StartupState = hasFailures && !projectHealthy
+    ? 'needs_upgrade'
+    : 'healthy';
+
+  return {
+    state,
+    globalHealthy,
+    projectHealthy,
+    checks,
+    failures,
+    system,
+  };
 }

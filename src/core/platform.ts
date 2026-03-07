@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { tmpdir, type as osType, release as osRelease, totalmem, freemem, hostname, homedir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -204,6 +204,59 @@ export function getNodeUpgradeInstructions(): {
   const recommended = instructions[0] ?? `https://nodejs.org/en/download/`;
 
   return { platform, arch, instructions, recommended };
+}
+
+// =============================================================================
+// System Info Snapshot
+// =============================================================================
+
+/** Structured snapshot of the host system for diagnostics, error reports, and logging. */
+export interface SystemInfo {
+  /** OS platform (linux, darwin, win32, etc.) */
+  platform: string;
+  /** CPU architecture (x64, arm64, etc.) */
+  arch: string;
+  /** OS type (Linux, Darwin, Windows_NT, etc.) */
+  osType: string;
+  /** OS kernel release version */
+  osRelease: string;
+  /** Node.js version (without 'v' prefix) */
+  nodeVersion: string;
+  /** Total system memory in bytes */
+  totalMemory: number;
+  /** Free system memory in bytes */
+  freeMemory: number;
+  /** Machine hostname (useful for multi-machine correlation) */
+  hostname: string;
+  /** User home directory path */
+  homeDir: string;
+}
+
+/**
+ * Gather a snapshot of the host system.
+ *
+ * This is the SSoT for system information. Use this instead of
+ * scattering `process.platform` / `os.type()` calls throughout
+ * the codebase.
+ *
+ * Use cases:
+ *   - Logger base context (every log entry carries platform info)
+ *   - Error reports and issue submission
+ *   - Doctor diagnostics
+ *   - Startup health check results
+ */
+export function getSystemInfo(): SystemInfo {
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    osType: osType(),
+    osRelease: osRelease(),
+    nodeVersion: process.version.replace('v', ''),
+    totalMemory: totalmem(),
+    freeMemory: freemem(),
+    hostname: hostname(),
+    homeDir: homedir(),
+  };
 }
 
 // =============================================================================
