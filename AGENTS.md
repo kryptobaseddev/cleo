@@ -2,18 +2,17 @@
 @~/.cleo/templates/CLEO-INJECTION.md
 @.cleo/project-context.json
 
-# CLEO Contributor Project — Dev Channel Required
+# CLEO Contributor Project — Dev Channel Available
 
-This project IS the CLEO source repository. The production `@cleocode/cleo@latest`
-MCP server and `cleo` CLI are STALE relative to the current branch.
+This project IS the CLEO source repository. Two CLEO channels are available:
 
-**ALWAYS use `cleo-dev` CLI and the local `cleo-dev` MCP server** when:
-- Testing new operations or features added on the `develop` branch
-- Running the release pipeline (`cleo-dev release ship ...`)
-- Dogfooding any code change that hasn't yet been published to npm
+- **`cleo-dev`** (local dev build) — reflects the current branch, may include unreleased operations
+- **`cleo`** (production `@cleocode/cleo@latest`) — stable published version
 
-**Never use `cleo` (production) to test unreleased code on this repo.**
-The published `@latest` lags `develop` by at least one release cycle.
+**Dev channel status**: unavailable (Dynamic require of "node:child_process" is not supported)
+
+Use `cleo` (production) until the dev build is fixed.
+To install the dev channel: `./install.sh --dev`
 <!-- CAAMP:END -->
 # Repository Guidelines
 

@@ -126,7 +126,7 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'blockers': {
-          const result = await taskBlockers(this.projectRoot, params as { analyze?: boolean });
+          const result = await taskBlockers(this.projectRoot, params as { analyze?: boolean; limit?: number });
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
@@ -154,7 +154,8 @@ export class TasksHandler implements DomainHandler {
 
         case 'analyze': {
           const taskId = params?.taskId as string | undefined;
-          const result = await taskAnalyze(this.projectRoot, taskId);
+          const tierLimit = params?.tierLimit as number | undefined;
+          const result = await taskAnalyze(this.projectRoot, taskId, { tierLimit });
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 

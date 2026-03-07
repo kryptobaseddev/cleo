@@ -272,7 +272,7 @@ export async function coreTaskNext(
  */
 export async function coreTaskBlockers(
   projectRoot: string,
-  params?: { analyze?: boolean },
+  params?: { analyze?: boolean; limit?: number },
 ): Promise<{
   blockedTasks: Array<{
     id: string;
@@ -283,10 +283,13 @@ export async function coreTaskBlockers(
   }>;
   criticalBlockers: Array<{ id: string; title: string; blocksCount: number }>;
   summary: string;
+  total: number;
+  limit: number;
 }> {
   const allTasks = await loadAllTasks(projectRoot);
   const taskMap = new Map(allTasks.map((t) => [t.id, t]));
   const analyze = params?.analyze ?? false;
+  const effectiveLimit = params?.limit ?? 20;
 
   const blockedTasks = allTasks.filter((t) => t.status === 'blocked');
 
@@ -320,8 +323,11 @@ export async function coreTaskBlockers(
       })),
   ];
 
+  const total = blockerInfos.length;
+  const pagedBlockerInfos = blockerInfos.slice(0, effectiveLimit);
+
   const blockerCounts = new Map<string, number>();
-  for (const info of blockerInfos) {
+  for (const info of pagedBlockerInfos) {
     for (const depId of info.blockingChain) {
       blockerCounts.set(depId, (blockerCounts.get(depId) ?? 0) + 1);
     }
@@ -336,11 +342,13 @@ export async function coreTaskBlockers(
     });
 
   return {
-    blockedTasks: blockerInfos,
+    blockedTasks: pagedBlockerInfos,
     criticalBlockers,
-    summary: blockerInfos.length === 0
+    summary: total === 0
       ? 'No blocked tasks found'
-      : `${blockerInfos.length} blocked task(s)`,
+      : `${total} blocked task(s)`,
+    total,
+    limit: effectiveLimit,
   };
 }
 
@@ -525,6 +533,7 @@ export async function coreTaskRelatesAdd(
 export async function coreTaskAnalyze(
   projectRoot: string,
   taskId?: string,
+  params?: { tierLimit?: number },
 ): Promise<{
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
   bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
@@ -539,8 +548,10 @@ export async function coreTaskAnalyze(
     blocked: number;
     avgLeverage: number;
   };
+  tierLimit: number;
 }> {
   const allTasks = await loadAllTasks(projectRoot);
+  const effectiveTierLimit = params?.tierLimit ?? 10;
 
   const tasks = taskId
     ? allTasks.filter((t) => t.id === taskId || t.parentId === taskId)
@@ -606,9 +617,9 @@ export async function coreTaskAnalyze(
     recommended,
     bottlenecks,
     tiers: {
-      critical: critical.map(({ id, title, leverage }) => ({ id, title, leverage })),
-      high: high.map(({ id, title, leverage }) => ({ id, title, leverage })),
-      normal: normal.slice(0, 10).map(({ id, title, leverage }) => ({ id, title, leverage })),
+      critical: critical.slice(0, effectiveTierLimit).map(({ id, title, leverage }) => ({ id, title, leverage })),
+      high: high.slice(0, effectiveTierLimit).map(({ id, title, leverage }) => ({ id, title, leverage })),
+      normal: normal.slice(0, effectiveTierLimit).map(({ id, title, leverage }) => ({ id, title, leverage })),
     },
     metrics: {
       totalTasks: tasks.length,
@@ -616,6 +627,7 @@ export async function coreTaskAnalyze(
       blocked: blocked.length,
       avgLeverage,
     },
+    tierLimit: effectiveTierLimit,
   };
 }
 
