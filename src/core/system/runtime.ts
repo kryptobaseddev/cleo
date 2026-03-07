@@ -7,8 +7,8 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
+import { getCleoHome } from '../paths.js';
 import { promisify } from 'node:util';
 
 type RuntimeChannel = 'stable' | 'beta' | 'dev';
@@ -152,7 +152,7 @@ export async function getRuntimeDiagnostics(options?: { detailed?: boolean }): P
   const scriptPath = process.argv[1] ?? '';
   const invocationName = basename(scriptPath || process.argv0 || 'cleo');
   const envChannel = normalizeChannel(process.env['CLEO_CHANNEL']);
-  const dataRoot = process.env['CLEO_HOME'] ?? join(homedir(), '.cleo');
+  const dataRoot = getCleoHome();
 
   const versionInfo = await parseVersionFile(dataRoot);
   const packageInfo = await getPackageInfo(versionInfo?.source);

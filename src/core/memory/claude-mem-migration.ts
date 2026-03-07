@@ -9,9 +9,8 @@
  */
 
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
+import { getClaudeMemDbPath } from '../paths.js';
 // underscore-import: node:sqlite type alias is required for createRequire interop.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { getBrainDb, getBrainNativeDb } from '../../store/brain-sqlite.js';
@@ -126,7 +125,7 @@ export async function migrateClaudeMem(
   projectRoot: string,
   options: ClaudeMemMigrationOptions = {},
 ): Promise<ClaudeMemMigrationResult> {
-  const sourcePath = options.sourcePath ?? join(homedir(), '.claude-mem', 'claude-mem.db');
+  const sourcePath = options.sourcePath ?? getClaudeMemDbPath();
   const dryRun = options.dryRun ?? false;
   const batchSize = options.batchSize ?? 100;
 

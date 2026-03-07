@@ -12,6 +12,7 @@
 import { resolve, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
+import { getPlatformPaths } from './system/platform-paths.js';
 
 /**
  * Check if a CLEO project is initialized at the given root.
@@ -25,10 +26,12 @@ export function isProjectInitialized(projectRoot?: string): boolean {
 
 /**
  * Get the global CLEO home directory.
- * Respects CLEO_HOME env var, defaults to ~/.cleo.
+ * Respects CLEO_HOME env var; otherwise uses the OS-appropriate data path
+ * via env-paths (XDG_DATA_HOME on Linux, Library/Application Support on macOS,
+ * %LOCALAPPDATA% on Windows).
  */
 export function getCleoHome(): string {
-  return process.env['CLEO_HOME'] ?? join(homedir(), '.cleo');
+  return getPlatformPaths().data;
 }
 
 /**
@@ -282,4 +285,83 @@ export function isAbsolutePath(path: string): boolean {
   // UNC path
   if (path.startsWith('\\\\')) return true;
   return false;
+}
+
+// ============================================================================
+// OS-Aware Global Paths (via env-paths)
+// ============================================================================
+
+/**
+ * Get the OS log directory for CLEO global logs.
+ * Linux: ~/.local/state/cleo | macOS: ~/Library/Logs/cleo | Windows: %LOCALAPPDATA%\cleo\Log
+ */
+export function getCleoLogDir(): string {
+  return getPlatformPaths().log;
+}
+
+/**
+ * Get the OS cache directory for CLEO.
+ * Linux: ~/.cache/cleo | macOS: ~/Library/Caches/cleo | Windows: %LOCALAPPDATA%\cleo\Cache
+ */
+export function getCleoCacheDir(): string {
+  return getPlatformPaths().cache;
+}
+
+/**
+ * Get the OS temp directory for CLEO ephemeral files.
+ */
+export function getCleoTempDir(): string {
+  return getPlatformPaths().temp;
+}
+
+/**
+ * Get the OS config directory for CLEO.
+ * Linux: ~/.config/cleo | macOS: ~/Library/Preferences/cleo | Windows: %APPDATA%\cleo\Config
+ */
+export function getCleoConfigDir(): string {
+  return getPlatformPaths().config;
+}
+
+// ============================================================================
+// Third-Party Tool Paths (OS-aware)
+// ============================================================================
+
+/**
+ * Get the global agents hub directory.
+ * Respects AGENTS_HOME env var, defaults to ~/.agents.
+ */
+export function getAgentsHome(): string {
+  return process.env['AGENTS_HOME'] ?? join(homedir(), '.agents');
+}
+
+/**
+ * Get the Claude Code global directory.
+ * Respects CLAUDE_HOME env var, defaults to ~/.claude.
+ */
+export function getClaudeDir(): string {
+  return process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude');
+}
+
+/**
+ * Get the Claude Code agents directory (~/.claude/agents by default).
+ */
+export function getClaudeAgentsDir(): string {
+  return join(getClaudeDir(), 'agents');
+}
+
+/**
+ * Get the Claude Code settings.json path.
+ * Respects CLAUDE_SETTINGS env var, defaults to ~/.claude/settings.json.
+ */
+export function getClaudeSettingsPath(): string {
+  return process.env['CLAUDE_SETTINGS'] ?? join(getClaudeDir(), 'settings.json');
+}
+
+/**
+ * Get the claude-mem SQLite database path.
+ * Respects CLAUDE_MEM_DB env var, defaults to ~/.claude-mem/claude-mem.db.
+ * This is a third-party tool path; homedir() is correct here (no env-paths standard).
+ */
+export function getClaudeMemDbPath(): string {
+  return process.env['CLAUDE_MEM_DB'] ?? join(homedir(), '.claude-mem', 'claude-mem.db');
 }

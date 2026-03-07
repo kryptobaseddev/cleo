@@ -15,7 +15,7 @@
 
 import { existsSync, lstatSync, realpathSync, readlinkSync } from 'node:fs';
 import { join, resolve, delimiter } from 'node:path';
-import { homedir } from 'node:os';
+import { getAgentsHome } from '../paths.js';
 
 /** Source type classification for a skill directory. */
 export type SkillSourceType = 'embedded' | 'caamp' | 'project-link' | 'global-link';
@@ -34,8 +34,7 @@ export interface SkillSearchPath {
  * @task T4552
  */
 function getCaampCanonical(): string {
-  const agentsHome = process.env['AGENTS_HOME'] ?? join(homedir(), '.agents');
-  return join(agentsHome, 'skills');
+  return join(getAgentsHome(), 'skills');
 }
 
 /**

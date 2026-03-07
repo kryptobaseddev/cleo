@@ -9,7 +9,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { platform, release, arch } from 'node:os';
+import { getCleoHome } from '../paths.js';
+import { getSystemInfo } from '../system/platform-paths.js';
 
 /**
  * Collect system diagnostics for bug reports.
@@ -28,13 +29,15 @@ export function collectDiagnostics(): Record<string, string> {
 
   const cleoLocation = getVersion('which', ['cleo']);
   const ghVersion = getVersion('gh', ['--version']).split('\n')[0] ?? 'not installed';
+  const sysInfo = getSystemInfo();
 
   return {
     cleoVersion: '2026.2.1',
     nodeVersion: process.version,
-    os: `${platform()} ${release()} ${arch()}`,
+    os: `${sysInfo.platform} ${sysInfo.release} ${sysInfo.arch}`,
+    arch: sysInfo.arch,
     shell: process.env['SHELL'] ?? 'unknown',
-    cleoHome: process.env['CLEO_HOME'] ?? `${process.env['HOME']}/.cleo`,
+    cleoHome: getCleoHome(),
     ghVersion,
     installLocation: cleoLocation || 'not found',
   };
@@ -50,7 +53,7 @@ export function formatDiagnosticsTable(diag: Record<string, string>): string {
     '|-----------|---------|',
     `| CLEO | ${diag.cleoVersion} |`,
     `| Node.js | ${diag.nodeVersion} |`,
-    `| OS | ${diag.os} |`,
+    `| OS | ${diag.os}${diag.arch ? ` (${diag.arch})` : ''} |`,
     `| Shell | ${diag.shell} |`,
     `| gh CLI | ${diag.ghVersion} |`,
     `| Install | ${diag.installLocation} |`,

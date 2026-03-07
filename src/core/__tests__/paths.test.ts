@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import envPaths from 'env-paths';
 import {
   getCleoHome,
   getCleoDir,
@@ -37,9 +38,9 @@ describe('getCleoHome', () => {
     }
   });
 
-  it('defaults to ~/.cleo', () => {
+  it('defaults to OS-appropriate env-paths data dir', () => {
     delete process.env['CLEO_HOME'];
-    expect(getCleoHome()).toBe(join(homedir(), '.cleo'));
+    expect(getCleoHome()).toBe(envPaths('cleo', { suffix: '' }).data);
   });
 
   it('respects CLEO_HOME env var', () => {
@@ -169,7 +170,8 @@ describe('path helper functions', () => {
   it('getGlobalConfigPath returns correct path', () => {
     const origHome = process.env['CLEO_HOME'];
     delete process.env['CLEO_HOME'];
-    expect(getGlobalConfigPath()).toBe(join(homedir(), '.cleo', 'config.json'));
+    const expectedBase = envPaths('cleo', { suffix: '' }).data;
+    expect(getGlobalConfigPath()).toBe(join(expectedBase, 'config.json'));
     if (origHome !== undefined) process.env['CLEO_HOME'] = origHome;
     else delete process.env['CLEO_HOME'];
   });

@@ -10,7 +10,7 @@
 
 import { existsSync, mkdirSync, symlinkSync, unlinkSync, readlinkSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { homedir } from 'node:os';
+import { getClaudeAgentsDir } from '../../paths.js';
 import { getAgentsDir } from './config.js';
 
 // ============================================================================
@@ -19,7 +19,7 @@ import { getAgentsDir } from './config.js';
 
 /** Installation target directory. */
 function getAgentInstallDir(): string {
-  return join(homedir(), '.claude', 'agents');
+  return getClaudeAgentsDir();
 }
 
 /**
