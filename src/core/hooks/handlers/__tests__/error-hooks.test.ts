@@ -104,7 +104,7 @@ describe('error hook handlers', () => {
     );
   });
 
-  it('rethrows non-schema errors', async () => {
+  it('suppresses non-schema errors to prevent re-entrant hook firing', async () => {
     observeBrainMock.mockRejectedValue(new Error('database is locked'));
 
     await expect(
@@ -115,6 +115,6 @@ describe('error hook handlers', () => {
         domain: 'tasks',
         operation: 'add',
       }),
-    ).rejects.toThrow('database is locked');
+    ).resolves.toBeUndefined();
   });
 });

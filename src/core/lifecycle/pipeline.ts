@@ -513,7 +513,7 @@ export async function advanceStage(
   
   // Record transition
   await db.insert(schema.lifecycleTransitions).values({
-    id: `${pipeline.id}_${now.getTime()}`,
+    id: `${pipeline.id}_${now.getTime()}_${Math.random().toString(36).slice(2, 7)}`,
     pipelineId: pipeline.id,
     fromStageId: currentStageRecord.id,
     toStageId: targetStageRecord.id,

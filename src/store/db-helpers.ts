@@ -150,6 +150,47 @@ export async function updateDependencies(
 }
 
 /**
+ * Batch-update dependencies for multiple tasks in two bulk SQL operations.
+ * Replaces per-task updateDependencies() loops with:
+ * 1. Single DELETE for all task IDs
+ * 2. Single INSERT for all dependency rows
+ *
+ * Callers are responsible for wrapping this in a transaction if needed.
+ */
+export async function batchUpdateDependencies(
+  db: DrizzleDb,
+  tasks: Array<{ taskId: string; deps: string[] }>,
+  validIds?: Set<string>,
+): Promise<void> {
+  if (tasks.length === 0) return;
+
+  const allTaskIds = tasks.map(t => t.taskId);
+
+  // Single DELETE: remove all existing dependencies for these tasks
+  await db.delete(schema.taskDependencies)
+    .where(inArray(schema.taskDependencies.taskId, allTaskIds))
+    .run();
+
+  // Collect all valid dependency rows
+  const allDepRows: Array<{ taskId: string; dependsOn: string }> = [];
+  for (const { taskId, deps } of tasks) {
+    for (const depId of deps) {
+      if (!validIds || validIds.has(depId)) {
+        allDepRows.push({ taskId, dependsOn: depId });
+      }
+    }
+  }
+
+  // Single INSERT for all dependency rows
+  if (allDepRows.length > 0) {
+    await db.insert(schema.taskDependencies)
+      .values(allDepRows)
+      .onConflictDoNothing()
+      .run();
+  }
+}
+
+/**
  * Batch-load dependencies for a list of tasks and apply them in-place.
  * Uses inArray for efficient querying. Optionally filters by a set of valid IDs.
  */
