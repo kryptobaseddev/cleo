@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { saveJson } from '../store/json.js';
-import { getCleoDirAbsolute, getConfigPath } from './paths.js';
+import { getCleoDirAbsolute, getConfigPath, getCleoHome, getCleoTemplatesDir } from './paths.js';
 import { generateProjectHash } from './nexus/hash.js';
 
 const execFileAsync = promisify(execFile);
@@ -52,6 +52,7 @@ export const REQUIRED_CLEO_SUBDIRS = [
   'backups/operational',
   'backups/safety',
   'agent-outputs',
+  'logs',
   'rcasd',
   'adrs',
 ] as const;
@@ -327,6 +328,7 @@ export async function ensureProjectInfo(
   const { readSchemaVersionFromFile } = await import('./validation/schema-integrity.js');
   const { SQLITE_SCHEMA_VERSION } = await import('../store/sqlite.js');
   const configSchemaVersion = readSchemaVersionFromFile('config.schema.json') ?? cleoVersion;
+  const projectContextSchemaVersion = readSchemaVersionFromFile('project-context.schema.json') ?? '1.0.0';
 
   const projectInfo = {
     $schema: './schemas/project-info.schema.json',
@@ -338,6 +340,7 @@ export async function ensureProjectInfo(
     schemas: {
       config: configSchemaVersion,
       sqlite: SQLITE_SCHEMA_VERSION,
+      projectContext: projectContextSchemaVersion,
     },
     injection: {
       'CLAUDE.md': null,
@@ -389,11 +392,27 @@ export async function ensureProjectContext(
   }
 
   const { detectProjectType } = await import('../store/project-detect.js');
-  const info = detectProjectType(projectRoot);
-  const context = {
-    ...info,
-    detectedAt: new Date().toISOString(),
-  };
+  const context = detectProjectType(projectRoot);
+
+  // Validate against schema before writing (best-effort, never blocks write)
+  try {
+    const schemaPath = join(dirname(fileURLToPath(import.meta.url)), '../../schemas/project-context.schema.json');
+    if (existsSync(schemaPath)) {
+      const AjvModule = await import('ajv');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Ajv = (AjvModule as any).default ?? AjvModule;
+      const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
+      const ajv = new Ajv({ strict: false });
+      const valid = ajv.validate(schema, context);
+      if (!valid) {
+        // eslint-disable-next-line no-console
+        console.warn('[CLEO] project-context.json schema validation warnings:', ajv.errors);
+      }
+    }
+  } catch {
+    // Schema validation is best-effort — never block the write
+  }
+
   await writeFile(contextPath, JSON.stringify(context, null, 2));
 
   return {
@@ -766,6 +785,211 @@ export function checkSqliteDb(projectRoot: string): CheckResult {
     status: 'passed',
     message: `tasks.db exists (${stat.size} bytes)`,
     details: { path: dbPath, exists: true, size: stat.size },
+    fix: null,
+  };
+}
+
+// ── Global (~/.cleo) scaffold functions ──────────────────────────────
+
+/**
+ * Required subdirectories under the global ~/.cleo/ home.
+ * These are infrastructure directories managed by CLEO itself,
+ * not project-specific data.
+ */
+export const REQUIRED_GLOBAL_SUBDIRS = [
+  'schemas',
+  'templates',
+] as const;
+
+/**
+ * Ensure the global ~/.cleo/ home directory and its required
+ * subdirectories exist. Idempotent: skips directories that already exist.
+ *
+ * This is the SSoT for global home scaffolding, replacing raw mkdirSync
+ * calls that were previously scattered across global-bootstrap.ts.
+ */
+export async function ensureGlobalHome(): Promise<ScaffoldResult> {
+  const cleoHome = getCleoHome();
+  const alreadyExists = existsSync(cleoHome);
+
+  await mkdir(cleoHome, { recursive: true });
+
+  for (const subdir of REQUIRED_GLOBAL_SUBDIRS) {
+    await mkdir(join(cleoHome, subdir), { recursive: true });
+  }
+
+  return {
+    action: alreadyExists ? 'skipped' : 'created',
+    path: cleoHome,
+    details: alreadyExists
+      ? 'Global home already existed, ensured subdirs'
+      : `Created ~/.cleo/ with ${REQUIRED_GLOBAL_SUBDIRS.length} subdirectories`,
+  };
+}
+
+/**
+ * Ensure the global CLEO injection template is installed.
+ * Delegates to injection.ts for the template content, but owns the
+ * filesystem write to maintain SSoT for scaffolding.
+ *
+ * Idempotent: skips if the template already exists with correct content.
+ */
+export async function ensureGlobalTemplates(): Promise<ScaffoldResult> {
+  // Lazy import to avoid circular dependency (injection imports scaffold)
+  const { getInjectionTemplateContent } = await import('./injection.js');
+
+  const templatesDir = getCleoTemplatesDir();
+  const injectionPath = join(templatesDir, 'CLEO-INJECTION.md');
+
+  // Ensure directory exists (idempotent via ensureGlobalHome, but defensive)
+  await mkdir(templatesDir, { recursive: true });
+
+  const templateContent = getInjectionTemplateContent();
+  if (!templateContent) {
+    return {
+      action: 'skipped',
+      path: injectionPath,
+      details: 'Bundled injection template not found; skipped',
+    };
+  }
+
+  if (existsSync(injectionPath)) {
+    const existing = readFileSync(injectionPath, 'utf-8');
+    if (existing === templateContent) {
+      return { action: 'skipped', path: injectionPath, details: 'Template already current' };
+    }
+    // Content differs — repair
+    await writeFile(injectionPath, templateContent, 'utf-8');
+    return { action: 'repaired', path: injectionPath, details: 'Updated injection template to match bundled version' };
+  }
+
+  await writeFile(injectionPath, templateContent, 'utf-8');
+  return { action: 'created', path: injectionPath };
+}
+
+/**
+ * Perform a complete global scaffold operation: ensure home, schemas,
+ * and templates are all present and current. This is the single entry
+ * point for global infrastructure scaffolding.
+ *
+ * Used by:
+ *   - MCP startup (via startupHealthCheck in health.ts)
+ *   - init (for first-time global setup)
+ *   - upgrade (for global repair)
+ */
+export async function ensureGlobalScaffold(): Promise<{
+  home: ScaffoldResult;
+  schemas: { installed: number; updated: number; total: number };
+  templates: ScaffoldResult;
+}> {
+  // Lazy import to avoid circular dependency
+  const { ensureGlobalSchemas } = await import('./schema-management.js');
+
+  const home = await ensureGlobalHome();
+  const schemas = ensureGlobalSchemas();
+  const templates = await ensureGlobalTemplates();
+
+  return { home, schemas, templates };
+}
+
+// ── Global check* functions (read-only diagnostics) ──────────────────
+
+/**
+ * Check that the global ~/.cleo/ home and its required subdirectories exist.
+ * Read-only: no side effects.
+ */
+export function checkGlobalHome(): CheckResult {
+  const cleoHome = getCleoHome();
+
+  if (!existsSync(cleoHome)) {
+    return {
+      id: 'global_home',
+      category: 'global',
+      status: 'failed',
+      message: 'Global ~/.cleo/ directory not found',
+      details: { path: cleoHome, exists: false },
+      fix: 'cleo init (or restart MCP server)',
+    };
+  }
+
+  const missingDirs = REQUIRED_GLOBAL_SUBDIRS.filter(
+    dir => !existsSync(join(cleoHome, dir)),
+  );
+
+  if (missingDirs.length > 0) {
+    return {
+      id: 'global_home',
+      category: 'global',
+      status: 'warning',
+      message: `Global home exists but missing subdirs: ${missingDirs.join(', ')}`,
+      details: { path: cleoHome, exists: true, missingDirs },
+      fix: 'cleo upgrade --include-global',
+    };
+  }
+
+  return {
+    id: 'global_home',
+    category: 'global',
+    status: 'passed',
+    message: 'Global ~/.cleo/ home and subdirectories present',
+    details: { path: cleoHome, exists: true, subdirs: REQUIRED_GLOBAL_SUBDIRS.length },
+    fix: null,
+  };
+}
+
+/**
+ * Check that the global injection template is present and current.
+ * Read-only: no side effects.
+ */
+export function checkGlobalTemplates(): CheckResult {
+  const templatesDir = getCleoTemplatesDir();
+  const injectionPath = join(templatesDir, 'CLEO-INJECTION.md');
+
+  if (!existsSync(injectionPath)) {
+    return {
+      id: 'global_templates',
+      category: 'global',
+      status: 'failed',
+      message: 'CLEO-INJECTION.md template not found in global templates',
+      details: { path: injectionPath, exists: false },
+      fix: 'cleo init (or restart MCP server)',
+    };
+  }
+
+  return {
+    id: 'global_templates',
+    category: 'global',
+    status: 'passed',
+    message: 'Global injection template present',
+    details: { path: injectionPath, exists: true },
+    fix: null,
+  };
+}
+
+/**
+ * Check that the project log directory exists.
+ * Read-only: no side effects.
+ */
+export function checkLogDir(projectRoot: string): CheckResult {
+  const logDir = join(getCleoDirAbsolute(projectRoot), 'logs');
+
+  if (!existsSync(logDir)) {
+    return {
+      id: 'log_dir',
+      category: 'scaffold',
+      status: 'warning',
+      message: 'Log directory .cleo/logs/ not found',
+      details: { path: logDir, exists: false },
+      fix: 'cleo upgrade',
+    };
+  }
+
+  return {
+    id: 'log_dir',
+    category: 'scaffold',
+    status: 'passed',
+    message: 'Log directory .cleo/logs/ present',
+    details: { path: logDir, exists: true },
     fix: null,
   };
 }

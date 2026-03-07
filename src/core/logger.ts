@@ -10,9 +10,8 @@
  */
 
 import pino from 'pino';
-import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { join, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
 
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;
@@ -55,8 +54,16 @@ export function initLogger(
   const dest = join(cleoDir, config.filePath);
   currentLogDir = dirname(dest);
 
-  // Ensure directory exists
-  mkdirSync(currentLogDir, { recursive: true });
+  // Log directory should already exist via ensureCleoStructure() which
+  // creates all REQUIRED_CLEO_SUBDIRS including 'logs'. The pino-roll
+  // transport has mkdir: true as a safety net for edge cases where the
+  // logger is initialized before scaffold (e.g. early startup fallback).
+  if (!existsSync(currentLogDir)) {
+    // Emit to stderr — safe for MCP (protocol is stdout only)
+    process.stderr.write(
+      `[cleo:logger] Log directory missing: ${currentLogDir} — pino-roll will create it\n`,
+    );
+  }
 
   // Use pino-roll transport for automatic rotation and retention.
   // pino.transport() runs in a worker thread; sync: true ensures
@@ -76,9 +83,13 @@ export function initLogger(
     },
   });
 
-  // Build base object: projectHash appears in every log entry when provided.
-  // Pino merges base with pid/hostname by default; we add projectHash alongside.
-  const base: Record<string, unknown> = {};
+  // Build base object: projectHash and platform info appear in every log entry.
+  // Pino merges base with pid/hostname by default; we add our fields alongside.
+  const base: Record<string, unknown> = {
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version,
+  };
   if (projectHash) {
     base.projectHash = projectHash;
   }
