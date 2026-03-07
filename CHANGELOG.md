@@ -23,6 +23,13 @@
 - EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
 - EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
 ---
+## [v2026.3.15] (2026-03-07)
+
+### Other
+- EPIC: Metrics Value Proof System - Real Token Tracking and Validation (T2847)
+- EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
+- EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
+---
 
 ## [v2026.3.16] (2026-03-07)
 
