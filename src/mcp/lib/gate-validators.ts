@@ -27,7 +27,13 @@ import {
 } from './verification-gates.js';
 import { ErrorSeverity } from './exit-codes.js';
 import { ProtocolEnforcer } from './protocol-enforcement.js';
-import { TASK_STATUSES, MANIFEST_STATUSES } from '../../store/status-registry.js';
+import {
+  TASK_STATUSES,
+  MANIFEST_STATUSES,
+  LIFECYCLE_STAGE_STATUSES,
+  SESSION_STATUSES,
+  ADR_STATUSES,
+} from '../../store/status-registry.js';
 
 /**
  * Layer 1: Schema Validation
@@ -149,10 +155,27 @@ export async function validateLayer1Schema(
     }
   }
 
-  // Status validation
+  // Status validation — domain-aware (mirrors dispatch/lib/security.ts sanitizer)
   if (context.params?.status) {
     const status = context.params.status as string;
-    if (!(TASK_STATUSES as readonly string[]).includes(status)) {
+
+    const validStatuses: readonly string[] = (() => {
+      if (context.domain === 'pipeline' && context.operation === 'stage.record') {
+        return LIFECYCLE_STAGE_STATUSES;
+      }
+      if (context.domain === 'admin' && context.operation?.startsWith('adr.')) {
+        return ADR_STATUSES;
+      }
+      if (context.domain === 'session') {
+        return SESSION_STATUSES;
+      }
+      if (context.domain === 'pipeline' && context.operation?.startsWith('manifest.')) {
+        return MANIFEST_STATUSES;
+      }
+      return TASK_STATUSES;
+    })();
+
+    if (!(validStatuses as readonly string[]).includes(status)) {
       violations.push({
         layer: GateLayer.SCHEMA,
         severity: ErrorSeverity.ERROR,
@@ -160,8 +183,8 @@ export async function validateLayer1Schema(
         message: `Invalid status: ${status}`,
         field: 'status',
         value: status,
-        constraint: `Must be one of: ${TASK_STATUSES.join(', ')}`,
-        fix: `Use one of: ${TASK_STATUSES.join(', ')}`,
+        constraint: `Must be one of: ${validStatuses.join(', ')}`,
+        fix: `Use one of: ${validStatuses.join(', ')}`,
       });
     }
   }

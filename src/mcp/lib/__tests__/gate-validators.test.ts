@@ -264,6 +264,80 @@ describe('Gate Validators', () => {
     });
   });
 
+  describe('status validation — domain-aware', () => {
+    it('accepts in_progress for pipeline.stage.record', async () => {
+      const result = await validateLayer1Schema({
+        domain: 'pipeline', operation: 'stage.record', gateway: 'mutate',
+        params: { taskId: 'T1234', stage: 'research', status: 'in_progress' },
+      });
+      expect(result.passed).toBe(true);
+    });
+
+    it('accepts all LIFECYCLE_STAGE_STATUSES for pipeline.stage.record', async () => {
+      for (const s of ['not_started', 'in_progress', 'blocked', 'completed', 'skipped', 'failed']) {
+        const r = await validateLayer1Schema({
+          domain: 'pipeline', operation: 'stage.record', gateway: 'mutate',
+          params: { status: s },
+        });
+        expect(r.passed, `${s} should pass`).toBe(true);
+      }
+    });
+
+    it('rejects task status for pipeline.stage.record', async () => {
+      const result = await validateLayer1Schema({
+        domain: 'pipeline', operation: 'stage.record', gateway: 'mutate',
+        params: { status: 'pending' },
+      });
+      expect(result.passed).toBe(false);
+      expect(result.violations[0].code).toBe('E_INVALID_STATUS');
+    });
+
+    it('accepts proposed for admin.adr.list', async () => {
+      const result = await validateLayer1Schema({
+        domain: 'admin', operation: 'adr.list', gateway: 'query',
+        params: { status: 'proposed' },
+      });
+      expect(result.passed).toBe(true);
+    });
+
+    it('accepts accepted/superseded/deprecated for admin.adr.find', async () => {
+      for (const s of ['accepted', 'superseded', 'deprecated']) {
+        const r = await validateLayer1Schema({
+          domain: 'admin', operation: 'adr.find', gateway: 'query',
+          params: { status: s },
+        });
+        expect(r.passed, `${s} should pass`).toBe(true);
+      }
+    });
+
+    it('accepts orphaned/suspended/ended for session.find', async () => {
+      for (const s of ['orphaned', 'suspended', 'ended']) {
+        const r = await validateLayer1Schema({
+          domain: 'session', operation: 'find', gateway: 'query',
+          params: { status: s },
+        });
+        expect(r.passed, `${s} should pass`).toBe(true);
+      }
+    });
+
+    it('accepts partial for pipeline.manifest.list', async () => {
+      const result = await validateLayer1Schema({
+        domain: 'pipeline', operation: 'manifest.list', gateway: 'query',
+        params: { status: 'partial' },
+      });
+      expect(result.passed).toBe(true);
+    });
+
+    it('still rejects in_progress for tasks domain', async () => {
+      const result = await validateLayer1Schema({
+        domain: 'tasks', operation: 'update', gateway: 'mutate',
+        params: { status: 'in_progress' },
+      });
+      expect(result.passed).toBe(false);
+      expect(result.violations[0].code).toBe('E_INVALID_STATUS');
+    });
+  });
+
   describe('validateLayer2Semantic', () => {
     it('should pass valid semantics', async () => {
       const context: OperationContext = {
