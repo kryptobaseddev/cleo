@@ -150,7 +150,6 @@ docs/node_modules/
 # The code is preserved in archive/bash-legacy/ for reference.
 /scripts/
 /lib/
-/tests/
 
 # ============================================================
 # KEEP THESE TRACKED
