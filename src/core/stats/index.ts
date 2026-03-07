@@ -89,6 +89,7 @@ export async function getProjectStats(opts: {
   const active = tasks.filter(t => t.status === 'active').length;
   const done = tasks.filter(t => t.status === 'done').length;
   const blocked = tasks.filter(t => t.status === 'blocked').length;
+  const cancelled = tasks.filter(t => t.status === 'cancelled').length;
   const totalActive = tasks.length;
 
   const cutoff = new Date(Date.now() - periodDays * 86400000).toISOString();
@@ -116,13 +117,54 @@ export async function getProjectStats(opts: {
     ? Math.round((completedInPeriod / createdInPeriod) * 10000) / 100
     : 0;
 
-  // All-time from audit_log
-  const totalCreated = entries.filter(isCreate).length;
-  const totalCompleted = entries.filter(isComplete).length;
-  const totalArchived = entries.filter(isArchive).length;
+  // All-time from direct DB counts (audit_log is incomplete — started after task creation history)
+  let totalCreated = 0;
+  let totalCompleted = 0;
+  let totalCancelled = 0;
+  let totalArchived = 0;
+  let archivedCompleted = 0;
+  let archivedCount = 0;
+  try {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { count: dbCount, eq: dbEq, and: dbAnd } = await import('drizzle-orm');
+    const { tasks: tasksTable } = await import('../../store/schema.js');
+    const db = await getDb(opts.cwd);
+    const statusRows = await db
+      .select({ status: tasksTable.status, c: dbCount() })
+      .from(tasksTable)
+      .groupBy(tasksTable.status)
+      .all();
+    const statusMap: Record<string, number> = {};
+    for (const row of statusRows) {
+      statusMap[row.status] = row.c;
+    }
+    archivedCount = statusMap['archived'] ?? 0;
+    totalCreated = Object.values(statusMap).reduce((sum, n) => sum + n, 0);
+    totalCancelled = (statusMap['cancelled'] ?? 0);
+    totalArchived = archivedCount;
+
+    // Count archived tasks that were completed (archiveReason = 'completed')
+    const archivedDoneRow = await db
+      .select({ c: dbCount() })
+      .from(tasksTable)
+      .where(dbAnd(dbEq(tasksTable.status, 'archived'), dbEq(tasksTable.archiveReason, 'completed')))
+      .get();
+    archivedCompleted = archivedDoneRow?.c ?? 0;
+    // totalCompleted = currently done (not yet archived) + archived-as-completed
+    totalCompleted = (statusMap['done'] ?? 0) + archivedCompleted;
+  } catch {
+    // fallback to audit_log counts if DB unavailable
+    totalCreated = entries.filter(isCreate).length;
+    totalCompleted = entries.filter(isComplete).length;
+    totalArchived = entries.filter(isArchive).length;
+  }
 
   return {
-    currentState: { pending, active, done, blocked, totalActive },
+    currentState: {
+      pending, active, done, blocked, cancelled, totalActive,
+      archived: archivedCount,
+      grandTotal: totalActive + archivedCount,
+    },
     completionMetrics: {
       periodDays,
       completedInPeriod,
@@ -134,7 +176,7 @@ export async function getProjectStats(opts: {
       completedInPeriod,
       archivedInPeriod,
     },
-    allTime: { totalCreated, totalCompleted, totalArchived },
+    allTime: { totalCreated, totalCompleted, totalCancelled, totalArchived, archivedCompleted },
   };
 }
 
@@ -233,7 +275,25 @@ export async function getDashboard(opts: {
   const active = tasks.filter(t => t.status === 'active').length;
   const done = tasks.filter(t => t.status === 'done').length;
   const blocked = tasks.filter(t => t.status === 'blocked').length;
+  const cancelled = tasks.filter(t => t.status === 'cancelled').length;
   const total = tasks.length;
+
+  // Query archived count directly from DB (loadTaskFile excludes archived rows)
+  let archived = 0;
+  try {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { count: dbCount, eq: dbEq } = await import('drizzle-orm');
+    const { tasks: tasksTable } = await import('../../store/schema.js');
+    const db = await getDb(opts.cwd);
+    const row = await db
+      .select({ c: dbCount() })
+      .from(tasksTable)
+      .where(dbEq(tasksTable.status, 'archived'))
+      .get();
+    archived = row?.c ?? 0;
+  } catch {
+    // archived count unavailable; grandTotal will equal total
+  }
 
   const project = data.project?.name ?? 'Unknown Project';
   const currentPhase = data.project?.currentPhase ?? null;
@@ -245,7 +305,7 @@ export async function getDashboard(opts: {
   }
 
   const highPriority = tasks
-    .filter(t => (t.priority === 'critical' || t.priority === 'high') && t.status !== 'done')
+    .filter(t => (t.priority === 'critical' || t.priority === 'high') && t.status !== 'done' && t.status !== 'cancelled')
     .sort((a, b) => {
       const pDiff = (PRIORITY_ORDER[a.priority ?? 'low'] ?? 9) - (PRIORITY_ORDER[b.priority ?? 'low'] ?? 9);
       if (pDiff !== 0) return pDiff;
@@ -262,9 +322,10 @@ export async function getDashboard(opts: {
     })
     .map(r => r.task);
 
-  // Label aggregation
+  // Label aggregation (active tasks only — exclude cancelled)
   const labelMap: Record<string, number> = {};
   for (const t of tasks) {
+    if (t.status === 'cancelled') continue;
     for (const label of t.labels ?? []) {
       labelMap[label] = (labelMap[label] ?? 0) + 1;
     }
@@ -277,7 +338,7 @@ export async function getDashboard(opts: {
   return {
     project,
     currentPhase,
-    summary: { pending, active, blocked, done, total },
+    summary: { pending, active, blocked, done, cancelled, total, archived, grandTotal: total + archived },
     focus: { currentTask: focusId, task: focusTask },
     highPriority: { count: highPriority.length, tasks: highPriority.slice(0, 5) },
     blockedTasks: {
