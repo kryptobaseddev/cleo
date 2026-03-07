@@ -26,14 +26,14 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["node", "python", "rust", "go", "ruby", "elixir", "java", "php", "deno", "bun", "unknown"]
+        "enum": ["node", "python", "rust", "go", "ruby", "elixir", "java", "php", "deno", "bun", "dotnet", "bash", "unknown"]
       },
       "minItems": 1,
       "description": "All detected project types"
     },
     "primaryType": {
       "type": "string",
-      "enum": ["node", "python", "rust", "go", "ruby", "elixir", "java", "php", "deno", "bun", "unknown"],
+      "enum": ["node", "python", "rust", "go", "ruby", "elixir", "java", "php", "deno", "bun", "dotnet", "bash", "unknown"],
       "description": "Primary project type"
     },
     "monorepo": {
@@ -48,7 +48,7 @@
       "properties": {
         "framework": {
           "type": "string",
-          "enum": ["bats", "jest", "vitest", "playwright", "cypress", "mocha", "ava", "uvu", "tap", "node:test", "deno", "bun", "pytest", "go", "cargo", "custom"],
+          "enum": ["bats", "jest", "vitest", "playwright", "cypress", "mocha", "ava", "uvu", "tap", "node:test", "deno", "bun", "pytest", "go", "cargo", "rspec", "junit", "custom"],
           "description": "Detected testing framework"
         },
         "command": {

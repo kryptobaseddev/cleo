@@ -36,9 +36,10 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { readJson } from '../store/json.js';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { getCleoDirAbsolute, getProjectRoot } from './paths.js';
+import { getCleoDirAbsolute, getProjectRoot, getAgentsHome } from './paths.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
+import { CleoError } from './errors.js';
+import { ExitCode } from '../types/exit-codes.js';
 
 // Shared utility imports
 import {
@@ -97,7 +98,7 @@ export async function initAgentDefinition(
     return;
   }
 
-  const globalAgentsDir = join(homedir(), '.agents', 'agents', 'cleo-subagent');
+  const globalAgentsDir = join(getAgentsHome(), 'agents', 'cleo-subagent');
   await mkdir(dirname(globalAgentsDir), { recursive: true });
 
   try {
@@ -353,6 +354,19 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
 
   const cleoDir = getCleoDirAbsolute();
   const projRoot = getProjectRoot();
+
+  // Guard: fail if project already initialized (unless --force)
+  const alreadyInitialized = existsSync(cleoDir) && (
+    existsSync(join(cleoDir, 'tasks.db')) || existsSync(join(cleoDir, 'config.json'))
+  );
+  if (alreadyInitialized && !opts.force) {
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      'Project already initialized. DANGER ZONE: use --force to wipe and re-init.',
+      { fix: 'cleo init --force' }
+    );
+  }
+
   const force = !!opts.force;
 
   const created: string[] = [];
@@ -472,6 +486,16 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     created.push('project-info.json');
   }
 
+  // Project context detection (always run during init)
+  try {
+    const detectResult = await ensureProjectContext(projRoot, { force: !!opts.detect });
+    if (detectResult.action !== 'skipped') {
+      created.push('project-context.json');
+    }
+  } catch (err) {
+    warnings.push(`Project detection failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // T4682: Inject into agent instruction files via CAAMP (AGENTS.md hub pattern)
   try {
     const injectionResult = await ensureInjection(projRoot);
@@ -500,18 +524,6 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
   const rootGitignoreResult = await removeCleoFromRootGitignore(projRoot);
   if (rootGitignoreResult.removed) {
     warnings.push('.cleo/ was found in root .gitignore and has been removed. CLEO uses .cleo/.gitignore for selective tracking.');
-  }
-
-  // T4687: Project detection (--detect flag)
-  if (opts.detect) {
-    try {
-      const detectResult = await ensureProjectContext(projRoot, { force: true });
-      if (detectResult.action !== 'skipped') {
-        created.push('project-context.json');
-      }
-    } catch (err) {
-      warnings.push(`Project detection failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   return {

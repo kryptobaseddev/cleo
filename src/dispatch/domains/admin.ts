@@ -588,6 +588,12 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'detect': {
+          const { ensureProjectContext } = await import('../../core/scaffold.js');
+          const result = await ensureProjectContext(this.projectRoot, { force: true });
+          return this.wrapEngineResult({ success: true, data: result }, 'mutate', 'admin', operation, startTime);
+        }
+
         default:
           return this.unsupported('mutate', 'admin', operation, startTime);
       }
@@ -611,7 +617,7 @@ export class AdminHandler implements DomainHandler {
       mutate: [
         'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
         'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
-        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks',
+        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks', 'detect',
       ],
     };
   }
