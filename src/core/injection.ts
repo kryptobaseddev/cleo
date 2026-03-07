@@ -18,6 +18,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { getCleoHome, getAgentsHome } from './paths.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
 
@@ -183,7 +184,6 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
  * Non-blocking best-effort: returns { available: false } on any failure.
  */
 function probeDevCli(devCli: string): { available: boolean; version?: string; error?: string } {
-  const { execFileSync } = require('node:child_process') as typeof import('node:child_process');
   const pathDirs = (process.env['PATH'] ?? '').split(':').filter(Boolean);
   const onPath = pathDirs.some(dir => existsSync(join(dir, devCli)));
   if (!onPath) return { available: false, error: 'not on PATH' };

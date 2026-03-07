@@ -9,10 +9,10 @@ This project IS the CLEO source repository. Two CLEO channels are available:
 - **`cleo-dev`** (local dev build) — reflects the current branch, may include unreleased operations
 - **`cleo`** (production `@cleocode/cleo@latest`) — stable published version
 
-**Dev channel status**: unavailable (Dynamic require of "node:child_process" is not supported)
+**Dev channel status**: healthy (`cleo-dev --version`: 2026.3.15)
 
-Use `cleo` (production) until the dev build is fixed.
-To install the dev channel: `./install.sh --dev`
+Prefer `cleo-dev` when working on unreleased features or testing new operations.
+Fall back to `cleo` if the dev build is broken or returns errors.
 <!-- CAAMP:END -->
 # Repository Guidelines
 
