@@ -74,16 +74,17 @@ export async function deleteTask(options: DeleteTaskOptions, cwd?: string, acces
     if (options.cascade) {
       // Recursively find all descendants
       const toDelete = new Set<string>([options.taskId]);
-      const findDescendants = (parentId: string) => {
+      const queue: string[] = [options.taskId];
+      while (queue.length > 0) {
+        const parentId = queue.shift()!;
         for (const t of data.tasks) {
           if (t.parentId === parentId && !toDelete.has(t.id)) {
             toDelete.add(t.id);
             cascadeDeleted.push(t.id);
-            findDescendants(t.id);
+            queue.push(t.id);
           }
         }
-      };
-      findDescendants(options.taskId);
+      }
     } else if (options.force) {
       // Orphan children by clearing their parentId
       for (const child of children) {

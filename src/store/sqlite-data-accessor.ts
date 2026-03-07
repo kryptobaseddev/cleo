@@ -16,11 +16,11 @@ import type { DataAccessor, ArchiveFile } from './data-accessor.js';
 import type { TaskFile, Task, ProjectMeta, TaskWorkState, FileMeta } from '../types/task.js';
 import type { Session } from '../types/session.js';
 import type { ArchiveFields } from './db-helpers.js';
-import { getDb, closeDb } from './sqlite.js';
+import { getDb, closeDb, getNativeTasksDb } from './sqlite.js';
 import * as schema from './schema.js';
 import { computeChecksum } from './json.js';
 import { rowToTask, taskToRow, archivedTaskToRow, rowToSession } from './converters.js';
-import { upsertTask, upsertSession, updateDependencies, loadDependenciesForTasks, loadRelationsForTasks } from './db-helpers.js';
+import { upsertTask, upsertSession, updateDependencies, batchUpdateDependencies, loadDependenciesForTasks, loadRelationsForTasks } from './db-helpers.js';
 
 /**
  * Generate a unique audit log entry ID.
@@ -278,24 +278,44 @@ export async function createSqliteDataAccessor(cwd?: string): Promise<DataAccess
         .all();
       const validDepIds = new Set([...archiveIds, ...activeRows.map(r => r.id)]);
 
-      for (const task of data.archivedTasks) {
-        const row = archivedTaskToRow(task);
+      // Wrap all upserts + dependency updates in a single transaction
+      const nativeDb = getNativeTasksDb();
+      if (!nativeDb) {
+        throw new Error('Native database not initialized');
+      }
 
-        // Extract archive-specific fields if they exist on the task object
-        const taskAny = task as Task & {
-          archivedAt?: string;
-          archiveReason?: string;
-          cycleTimeDays?: number;
-        };
+      nativeDb.prepare('BEGIN IMMEDIATE').run();
+      try {
+        // Collect dependency data for batch update
+        const depBatch: Array<{ taskId: string; deps: string[] }> = [];
 
-        const archiveFields = {
-          archivedAt: taskAny.archivedAt ?? row.completedAt ?? new Date().toISOString(),
-          archiveReason: taskAny.archiveReason ?? 'completed',
-          cycleTimeDays: taskAny.cycleTimeDays ?? null,
-        };
+        for (const task of data.archivedTasks) {
+          const row = archivedTaskToRow(task);
 
-        await upsertTask(db, row, archiveFields);
-        await updateDependencies(db, task.id, task.depends ?? [], validDepIds);
+          // Extract archive-specific fields if they exist on the task object
+          const taskAny = task as Task & {
+            archivedAt?: string;
+            archiveReason?: string;
+            cycleTimeDays?: number;
+          };
+
+          const archiveFields = {
+            archivedAt: taskAny.archivedAt ?? row.completedAt ?? new Date().toISOString(),
+            archiveReason: taskAny.archiveReason ?? 'completed',
+            cycleTimeDays: taskAny.cycleTimeDays ?? null,
+          };
+
+          await upsertTask(db, row, archiveFields);
+          depBatch.push({ taskId: task.id, deps: task.depends ?? [] });
+        }
+
+        // Single batch operation for all dependency updates
+        await batchUpdateDependencies(db, depBatch, validDepIds);
+
+        nativeDb.prepare('COMMIT').run();
+      } catch (err) {
+        nativeDb.prepare('ROLLBACK').run();
+        throw err;
       }
     },
 
