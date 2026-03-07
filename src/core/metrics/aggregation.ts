@@ -12,8 +12,7 @@ import { existsSync, appendFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { homedir } from 'node:os';
-import { getCleoDir } from '../paths.js';
+import { getCleoDir, getCleoHome } from '../paths.js';
 import {
   getCompliancePath,
   getSessionsMetricsPath,
@@ -25,7 +24,7 @@ function getProjectMetricsDir(cwd?: string): string {
 }
 
 function getGlobalMetricsDir(): string {
-  return join(homedir(), '.cleo', 'metrics');
+  return join(getCleoHome(), 'metrics');
 }
 
 function getGlobalPath(): string {

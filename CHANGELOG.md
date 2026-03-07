@@ -1,5 +1,48 @@
 # Changelog
 
+## [v2026.3.16] (2026-03-07)
+
+### Features
+- Phase 2: Core Module - src/core/sticky/ implementation (T5269)
+- Phase 6: CLI Commands - cleo sticky implementation (T5273)
+- WS-A2: Add task-hooks handler test coverage (T5375)
+- WS-A3: Add 4 missing hook payload types to types.ts (T5376)
+- WS-A4: Implement onError hook dispatch and handler (T5377)
+- WS-A5: Add error-hooks test coverage (T5378)
+- WS-A6: Implement onFileChange hook dispatch and handler (T5379)
+- WS-A7: Add file-hooks test coverage (T5380)
+- WS-A8: Implement onPromptSubmit + onResponseComplete dispatch and handler (T5381)
+- WS-A9: Add mcp-hooks test coverage (T5382)
+
+### Documentation
+- Phase 8: Documentation - User guides and technical specs (T5275)
+- Team Eta: Documentation - Constitution, Atlas, Verb Standards (T5283)
+
+### Tests
+- Phase 7: Testing - Unit and integration test suite (T5274)
+- Team Zeta: Test updates - all domain tests passing (T5282)
+
+### Chores
+- Team Gamma: Refactor core modules - sharing→nexus (T5279)
+
+### Other
+- EPIC: Session Architecture Cleanup — Drizzle-First, Zero Legacy (T5037)
+- EPIC: Dispatch Registry Sync — 40+ Missing Operations Causing E_INVALID_OPERATION (T5239)
+- Phase 1: Database Schema - brain_sticky_notes table in brain.db (T5268)
+- Phase 3: Domain Operations - sticky.* in registry (T5270)
+- Phase 4: VERB-STANDARDS - Document sticky note verbs (T5271)
+- Phase 5: ct-stickynote Skill - Installable skill package (T5272)
+- Team Alpha: Merge sharing→nexus domain handlers (T5277)
+- Team Beta: Update registry - rename sharing→nexus.share (T5278)
+- Team Delta: Create sticky domain - new 10th domain (T5280)
+- Team Epsilon: CLI updates - sharing aliases + sticky commands (T5281)
+- Resolve SN-005: Final Synthesis Review Findings (T5345)
+- WS-A1: Fix task-hooks.ts missing brain schema error guards (T5374)
+- WS-C1: Define WarpChain type system (T5407)
+- WS3: The Impulse — Runtime Motion Substrate (T5522)
+- WS4: Watchers — Patrol Substrate (T5523)
+---
+
 All notable changes to CLEO are documented in this file.
 CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`.
 
