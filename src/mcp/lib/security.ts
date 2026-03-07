@@ -17,6 +17,7 @@ import {
   MANIFEST_STATUSES,
   LIFECYCLE_STAGE_STATUSES,
 } from '../../store/status-registry.js';
+import { normalizeTaskId } from '../../core/tasks/id-generator.js';
 
 /**
  * Security validation error thrown when input fails sanitization
@@ -31,11 +32,6 @@ export class SecurityError extends Error {
     this.name = 'SecurityError';
   }
 }
-
-/**
- * Task ID pattern: T followed by one or more digits
- */
-const TASK_ID_PATTERN = /^T[0-9]+$/;
 
 /**
  * Maximum task ID numeric value (prevent absurdly large IDs)
@@ -62,8 +58,8 @@ const DEFAULT_MAX_CONTENT_LENGTH = 64 * 1024;
  * @returns Sanitized task ID
  * @throws SecurityError if ID is invalid
  */
-export function sanitizeTaskId(id: string): string {
-  if (typeof id !== 'string') {
+export function sanitizeTaskId(value: unknown): string {
+  if (typeof value !== 'string') {
     throw new SecurityError(
       'Task ID must be a string',
       'E_INVALID_TASK_ID',
@@ -71,36 +67,26 @@ export function sanitizeTaskId(id: string): string {
     );
   }
 
-  // Trim whitespace
-  const trimmed = id.trim();
-
-  if (trimmed.length === 0) {
+  const normalized = normalizeTaskId(value);
+  if (normalized === null) {
     throw new SecurityError(
-      'Task ID cannot be empty',
+      `Invalid task ID format: ${value}`,
       'E_INVALID_TASK_ID',
       'taskId'
     );
   }
 
-  if (!TASK_ID_PATTERN.test(trimmed)) {
-    throw new SecurityError(
-      `Invalid task ID format: "${trimmed}". Must match pattern T[0-9]+ (e.g., T123)`,
-      'E_INVALID_TASK_ID',
-      'taskId'
-    );
-  }
-
-  // Check numeric portion isn't absurdly large
-  const numericPart = parseInt(trimmed.slice(1), 10);
+  // Validate numeric value isn't absurdly large
+  const numericPart = parseInt(normalized.slice(1), 10);
   if (numericPart > MAX_TASK_ID_NUMBER) {
     throw new SecurityError(
-      `Task ID numeric value exceeds maximum (${MAX_TASK_ID_NUMBER}): ${trimmed}`,
+      `Task ID exceeds maximum value: ${value}`,
       'E_INVALID_TASK_ID',
       'taskId'
     );
   }
 
-  return trimmed;
+  return normalized;
 }
 
 /**
@@ -442,7 +428,8 @@ export function sanitizeParams(
     // Task ID fields
     if (
       typeof value === 'string' &&
-      (key === 'taskId' || key === 'parent' || key === 'epicId')
+      (key === 'taskId' || key === 'parent' || key === 'epicId' ||
+       key === 'parentId' || key === 'newParentId' || key === 'relatedId' || key === 'targetId')
     ) {
       // Allow empty string for 'parent' field (means "promote to root" / remove parent)
       if (key === 'parent' && value === '') {
@@ -452,8 +439,8 @@ export function sanitizeParams(
       continue;
     }
 
-    // Task ID arrays (depends)
-    if (key === 'depends' && Array.isArray(value)) {
+    // Task ID arrays (depends, addDepends, removeDepends)
+    if ((key === 'depends' || key === 'addDepends' || key === 'removeDepends') && Array.isArray(value)) {
       sanitized[key] = value.map((v) => {
         if (typeof v === 'string') {
           return sanitizeTaskId(v);

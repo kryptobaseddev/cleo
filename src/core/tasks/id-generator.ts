@@ -94,3 +94,19 @@ export function generateNextIdFromSet(existingIds: Set<string>): string {
 export function isValidTaskId(id: string): boolean {
   return TASK_ID_PATTERN.test(id);
 }
+
+/**
+ * Normalize a task ID input to canonical T#### format.
+ *
+ * Accepts various loose formats (lowercase prefix, bare digits,
+ * underscore-suffixed descriptors) and returns the canonical form,
+ * or null if the input cannot be parsed as a task ID.
+ */
+export function normalizeTaskId(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (trimmed === '') return null;
+  const match = trimmed.match(/^[Tt]?(\d+)(?:_.*)?$/);
+  if (!match) return null;
+  return `T${match[1]}`;
+}
