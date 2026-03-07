@@ -540,7 +540,7 @@ export async function taskNext(
  */
 export async function taskBlockers(
   projectRoot: string,
-  params?: { analyze?: boolean }
+  params?: { analyze?: boolean; limit?: number }
 ): Promise<EngineResult<{
   blockedTasks: Array<{
     id: string;
@@ -555,6 +555,8 @@ export async function taskBlockers(
     blocksCount: number;
   }>;
   summary: string;
+  total: number;
+  limit: number;
 }>> {
   try {
     const result = await coreTaskBlockers(projectRoot, params);
@@ -680,7 +682,8 @@ export async function taskRelatesAdd(
  */
 export async function taskAnalyze(
   projectRoot: string,
-  taskId?: string
+  taskId?: string,
+  params?: { tierLimit?: number }
 ): Promise<EngineResult<{
   recommended: { id: string; title: string; leverage: number; reason: string } | null;
   bottlenecks: Array<{ id: string; title: string; blocksCount: number }>;
@@ -695,9 +698,10 @@ export async function taskAnalyze(
     blocked: number;
     avgLeverage: number;
   };
+  tierLimit: number;
 }>> {
   try {
-    const result = await coreTaskAnalyze(projectRoot, taskId);
+    const result = await coreTaskAnalyze(projectRoot, taskId, params);
     return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

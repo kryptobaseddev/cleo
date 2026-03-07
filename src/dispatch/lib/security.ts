@@ -9,6 +9,7 @@
  */
 
 import { resolve, normalize, relative, isAbsolute } from 'path';
+import { normalizeTaskId } from '../../core/tasks/id-generator.js';
 import {
   TASK_PRIORITIES,
 } from '../../store/schema.js';
@@ -33,11 +34,6 @@ export class SecurityError extends Error {
 }
 
 /**
- * Task ID pattern: T followed by one or more digits
- */
-const TASK_ID_PATTERN = /^T[0-9]+$/;
-
-/**
  * Maximum task ID numeric value (prevent absurdly large IDs)
  */
 const MAX_TASK_ID_NUMBER = 999999;
@@ -55,8 +51,8 @@ const DEFAULT_MAX_CONTENT_LENGTH = 64 * 1024;
 /**
  * Sanitize and validate a task ID
  */
-export function sanitizeTaskId(id: string): string {
-  if (typeof id !== 'string') {
+export function sanitizeTaskId(value: unknown): string {
+  if (typeof value !== 'string') {
     throw new SecurityError(
       'Task ID must be a string',
       'E_INVALID_TASK_ID',
@@ -64,34 +60,25 @@ export function sanitizeTaskId(id: string): string {
     );
   }
 
-  const trimmed = id.trim();
-
-  if (trimmed.length === 0) {
+  const normalized = normalizeTaskId(value);
+  if (normalized === null) {
     throw new SecurityError(
-      'Task ID cannot be empty',
+      `Invalid task ID format: ${value}`,
       'E_INVALID_TASK_ID',
       'taskId'
     );
   }
 
-  if (!TASK_ID_PATTERN.test(trimmed)) {
-    throw new SecurityError(
-      `Invalid task ID format: "${trimmed}". Must match pattern T[0-9]+ (e.g., T123)`,
-      'E_INVALID_TASK_ID',
-      'taskId'
-    );
-  }
-
-  const numericPart = parseInt(trimmed.slice(1), 10);
+  const numericPart = parseInt(normalized.slice(1), 10);
   if (numericPart > MAX_TASK_ID_NUMBER) {
     throw new SecurityError(
-      `Task ID numeric value exceeds maximum (${MAX_TASK_ID_NUMBER}): ${trimmed}`,
+      `Task ID exceeds maximum value: ${value}`,
       'E_INVALID_TASK_ID',
       'taskId'
     );
   }
 
-  return trimmed;
+  return normalized;
 }
 
 /**
@@ -373,7 +360,8 @@ export function sanitizeParams(
 
     if (
       typeof value === 'string' &&
-      (key === 'taskId' || key === 'parent' || key === 'epicId')
+      (key === 'taskId' || key === 'parent' || key === 'epicId' ||
+       key === 'parentId' || key === 'newParentId' || key === 'relatedId' || key === 'targetId')
     ) {
       if (key === 'parent' && value === '') {
         continue;
@@ -382,7 +370,7 @@ export function sanitizeParams(
       continue;
     }
 
-    if (key === 'depends' && Array.isArray(value)) {
+    if ((key === 'depends' || key === 'addDepends' || key === 'removeDepends') && Array.isArray(value)) {
       sanitized[key] = value.map((v) => {
         if (typeof v === 'string') {
           return sanitizeTaskId(v);

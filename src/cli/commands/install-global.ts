@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { getCleoHome } from '../../core/paths.js';
+import { getCleoHome, getAgentsHome } from '../../core/paths.js';
 
 export function registerInstallGlobalCommand(program: Command): void {
   program
@@ -54,7 +54,7 @@ export function registerInstallGlobalCommand(program: Command): void {
         }
 
         // Step 2: Create/refresh ~/.agents/AGENTS.md
-        const globalAgentsDir = join(homedir(), '.agents');
+        const globalAgentsDir = getAgentsHome();
         const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
 
         try {

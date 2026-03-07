@@ -470,6 +470,14 @@ export function getNativeDb(): DatabaseSync | null {
 }
 
 /**
+ * Get the underlying node:sqlite DatabaseSync instance for tasks.db.
+ * Alias for getNativeDb() — mirrors getBrainNativeDb() naming convention.
+ */
+export function getNativeTasksDb(): DatabaseSync | null {
+  return _nativeDb;
+}
+
+/**
  * Re-export schema for external use.
  */
 export { schema };

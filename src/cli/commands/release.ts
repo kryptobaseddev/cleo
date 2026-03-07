@@ -48,10 +48,11 @@ export function registerReleaseCommand(program: Command): void {
    * Requires --epic <id>. Use --dry-run to preview without writing anything.
    *
    * Flags:
-   *   --epic <id>     Epic task ID referenced in commit message (required)
-   *   --dry-run       Preview all actions without writing anything
-   *   --no-push       Skip git push (commit and tag only)
-   *   --remote <r>    Override git remote (default: origin)
+   *   --epic <id>       Epic task ID referenced in commit message (required)
+   *   --dry-run         Preview all actions without writing anything
+   *   --no-push         Skip git push (commit and tag only)
+   *   --no-bump         Skip version file bumping (default: bump if configured)
+   *   --remote <r>      Override git remote (default: origin)
    */
   release
     .command('ship <version>')
@@ -59,6 +60,7 @@ export function registerReleaseCommand(program: Command): void {
     .requiredOption('--epic <id>', 'Epic task ID for commit message (e.g. T5576)')
     .option('--dry-run', 'Preview all actions without writing anything')
     .option('--no-push', 'Commit and tag but skip git push')
+    .option('--no-bump', 'Skip version file bumping (default: bump if configured)')
     .option('--remote <remote>', 'Git remote to push to (default: origin)')
     .action(async (version: string, opts: Record<string, unknown>) => {
       await dispatchFromCli('mutate', 'pipeline', 'release.ship', {
@@ -66,6 +68,7 @@ export function registerReleaseCommand(program: Command): void {
         epicId: opts['epic'],
         dryRun: opts['dryRun'],
         push: opts['push'] !== false,
+        bump: opts['bump'] !== false,
         remote: opts['remote'],
       }, { command: 'release' });
     });
@@ -89,5 +92,12 @@ export function registerReleaseCommand(program: Command): void {
     .description('Generate changelog for a release')
     .action(async (version: string) => {
       await dispatchFromCli('mutate', 'pipeline', 'release.changelog', { version }, { command: 'release' });
+    });
+
+  release
+    .command('cancel <version>')
+    .description('Cancel and remove a release in draft or prepared state')
+    .action(async (version: string) => {
+      await dispatchFromCli('mutate', 'pipeline', 'release.cancel', { version }, { command: 'release' });
     });
 }

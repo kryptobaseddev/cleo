@@ -62,6 +62,8 @@ export interface DashboardData {
     done: number;
     cancelled: number;
     total: number;
+    archived: number;
+    grandTotal: number;
   };
   taskWork: {
     currentTask: string | null;
@@ -74,6 +76,7 @@ export interface DashboardData {
   };
   blockedTasks: {
     count: number;
+    limit: number;
     tasks: TaskRecord[];
   };
   recentCompletions: TaskRecord[];
@@ -89,6 +92,8 @@ export interface StatsData {
     blocked: number;
     cancelled: number;
     totalActive: number;
+    archived: number;
+    grandTotal: number;
   };
   byPriority: Record<string, number>;
   byType: Record<string, number>;
@@ -107,7 +112,9 @@ export interface StatsData {
   allTime: {
     totalCreated: number;
     totalCompleted: number;
+    totalCancelled: number;
     totalArchived: number;
+    archivedCompleted: number;
   };
   cycleTimes: {
     averageDays: number | null;
@@ -263,10 +270,11 @@ const HELP_TOPICS: Record<string, HelpData> = {
  */
 export async function systemDash(
   projectRoot: string,
+  params?: { blockedTasksLimit?: number },
 ): Promise<EngineResult<DashboardData>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await getDashboard({ cwd: projectRoot }, accessor);
+    const result = await getDashboard({ cwd: projectRoot, blockedTasksLimit: params?.blockedTasksLimit }, accessor);
     // Add missing fields that core doesn't produce
     const data = result as Record<string, unknown>;
     const summary = data.summary as Record<string, number>;
@@ -280,8 +288,10 @@ export async function systemDash(
           active: summary.active,
           blocked: summary.blocked,
           done: summary.done,
-          cancelled: (summary as Record<string, number>).cancelled ?? 0,
+          cancelled: summary.cancelled ?? 0,
           total: summary.total,
+          archived: summary.archived ?? 0,
+          grandTotal: summary.grandTotal ?? summary.total,
         },
         taskWork: (data.focus ?? data.taskWork) as DashboardData['taskWork'],
         activeSession: (data as Record<string, unknown>).activeSession as string | null ?? null,
@@ -313,17 +323,19 @@ export async function systemStats(
     const taskData = await accessor.loadTaskFile();
     const tasks = (taskData as { tasks: TaskRecord[] })?.tasks ?? [];
 
+    // Distribution breakdowns: active tasks only (exclude cancelled — not actionable work)
+    const activeTasks = tasks.filter(t => t.status !== 'cancelled');
     const byPriority: Record<string, number> = {};
-    for (const t of tasks) {
+    for (const t of activeTasks) {
       byPriority[t.priority] = (byPriority[t.priority] ?? 0) + 1;
     }
     const byType: Record<string, number> = {};
-    for (const t of tasks) {
+    for (const t of activeTasks) {
       const type = t.type || 'task';
       byType[type] = (byType[type] ?? 0) + 1;
     }
     const byPhase: Record<string, number> = {};
-    for (const t of tasks) {
+    for (const t of activeTasks) {
       const phase = t.phase || 'unassigned';
       byPhase[phase] = (byPhase[phase] ?? 0) + 1;
     }
@@ -358,6 +370,8 @@ export async function systemStats(
           blocked: currentState.blocked,
           cancelled: tasks.filter(t => t.status === 'cancelled').length,
           totalActive: currentState.totalActive,
+          archived: currentState.archived ?? 0,
+          grandTotal: currentState.grandTotal ?? currentState.totalActive,
         },
         byPriority,
         byType,
