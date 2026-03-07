@@ -2305,6 +2305,16 @@ export const OPERATIONS: OperationDef[] = [
     sessionRequired: false,
     requiredParams: ['file'],
   },
+  {
+    gateway: 'mutate' as const,
+    domain: 'admin',
+    operation: 'detect',
+    description: 'Refresh project-context.json — re-detect project type, framework, and LLM hints',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
 
   // ---------------------------------------------------------------------------
   // nexus.share — multi-contributor operations

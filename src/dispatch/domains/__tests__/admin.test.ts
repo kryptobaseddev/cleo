@@ -28,6 +28,11 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
+// Mock scaffold for admin.detect
+vi.mock('../../../core/scaffold.js', () => ({
+  ensureProjectContext: vi.fn().mockResolvedValue({ action: 'repaired', path: '/mock/project/.cleo/project-context.json' }),
+}));
+
 // Mock registry OPERATIONS for help tests
 vi.mock('../../registry.js', () => ({
   OPERATIONS: [
@@ -91,7 +96,7 @@ describe('AdminHandler', () => {
       expect(ops.mutate).toEqual([
         'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
         'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
-        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks',
+        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks', 'detect',
       ]);
     });
   });
@@ -425,6 +430,12 @@ describe('AdminHandler', () => {
       expect(res.success).toBe(false);
       expect(res.error?.code).toBe('E_INVALID_INPUT');
       expect(systemSequenceRepair).not.toHaveBeenCalled();
+    });
+
+    it('admin.detect refreshes project-context.json', async () => {
+      const res = await handler.mutate('detect', {});
+      expect(res.success).toBe(true);
+      expect(res.data).toMatchObject({ action: expect.stringMatching(/created|repaired|skipped/) });
     });
 
     it('should return E_INVALID_OPERATION for unknown mutate', async () => {
