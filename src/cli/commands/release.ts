@@ -48,10 +48,10 @@ export function registerReleaseCommand(program: Command): void {
    * Requires --epic <id>. Use --dry-run to preview without writing anything.
    *
    * Flags:
-   *   --epic <id>     Epic task ID referenced in commit message (required)
-   *   --dry-run       Preview all actions without writing anything
-   *   --no-push       Skip git push (commit and tag only)
-   *   --remote <r>    Override git remote (default: origin)
+   *   --epic <id>       Epic task ID referenced in commit message (required)
+   *   --dry-run         Preview all actions without writing anything
+   *   --no-push         Skip git push (commit and tag only)
+   *   --remote <r>      Override git remote (default: origin)
    */
   release
     .command('ship <version>')

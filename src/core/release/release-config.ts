@@ -59,6 +59,11 @@ export interface ReleaseConfig {
     slsaLevel: number;
     requireSignedCommits: boolean;
   };
+  gitflow?: GitFlowConfig;
+  channels?: ChannelConfig;
+  push?: {
+    mode?: PushMode;
+  };
 }
 
 /** Release gate definition. */
@@ -145,4 +150,87 @@ export function getChangelogConfig(cwd?: string): {
 } {
   const config = loadReleaseConfig(cwd);
   return { format: config.changelogFormat, file: config.changelogFile };
+}
+
+// ---------------------------------------------------------------------------
+// GitFlow, channel, and push-mode types + helpers (T5586)
+// ---------------------------------------------------------------------------
+
+/** GitFlow branch configuration. */
+export interface GitFlowConfig {
+  enabled: boolean;
+  branches: {
+    main: string;
+    develop: string;
+    featurePrefix: string;
+    hotfixPrefix: string;
+    releasePrefix: string;
+  };
+}
+
+/** Channel-to-branch mapping for npm dist-tag resolution. */
+export interface ChannelConfig {
+  main: string;
+  develop: string;
+  feature: string;
+  custom?: Record<string, string>;
+}
+
+/** Push mode: direct push vs PR creation vs auto-detect. */
+export type PushMode = 'direct' | 'pr' | 'auto';
+
+/** Return the default GitFlow branch configuration. */
+export function getDefaultGitFlowConfig(): GitFlowConfig {
+  return {
+    enabled: true,
+    branches: {
+      main: 'main',
+      develop: 'develop',
+      featurePrefix: 'feature/',
+      hotfixPrefix: 'hotfix/',
+      releasePrefix: 'release/',
+    },
+  };
+}
+
+/** Merge caller-supplied GitFlow config with defaults. */
+export function getGitFlowConfig(config: ReleaseConfig): GitFlowConfig {
+  const defaults = getDefaultGitFlowConfig();
+  if (!config.gitflow) return defaults;
+  return {
+    enabled: config.gitflow.enabled ?? defaults.enabled,
+    branches: {
+      main: config.gitflow.branches?.main ?? defaults.branches.main,
+      develop: config.gitflow.branches?.develop ?? defaults.branches.develop,
+      featurePrefix: config.gitflow.branches?.featurePrefix ?? defaults.branches.featurePrefix,
+      hotfixPrefix: config.gitflow.branches?.hotfixPrefix ?? defaults.branches.hotfixPrefix,
+      releasePrefix: config.gitflow.branches?.releasePrefix ?? defaults.branches.releasePrefix,
+    },
+  };
+}
+
+/** Return the default channel configuration. */
+export function getDefaultChannelConfig(): ChannelConfig {
+  return {
+    main: 'latest',
+    develop: 'beta',
+    feature: 'alpha',
+  };
+}
+
+/** Merge caller-supplied channel config with defaults. */
+export function getChannelConfig(config: ReleaseConfig): ChannelConfig {
+  const defaults = getDefaultChannelConfig();
+  if (!config.channels) return defaults;
+  return {
+    main: config.channels.main ?? defaults.main,
+    develop: config.channels.develop ?? defaults.develop,
+    feature: config.channels.feature ?? defaults.feature,
+    custom: config.channels.custom,
+  };
+}
+
+/** Return the configured push mode, defaulting to 'auto'. */
+export function getPushMode(config: ReleaseConfig): PushMode {
+  return config.push?.mode ?? 'auto';
 }
