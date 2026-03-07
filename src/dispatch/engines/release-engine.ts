@@ -450,7 +450,7 @@ export async function releaseShip(
 
     const gitTag = `v${version.replace(/^v/, '')}`;
     try {
-      execFileSync('git', ['tag', gitTag], gitCwd);
+      execFileSync('git', ['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
     } catch (err: unknown) {
       const msg = (err as { stderr?: string; message?: string }).stderr
         ?? (err as { message?: string }).message
