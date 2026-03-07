@@ -1,5 +1,13 @@
 # Changelog
 
+## [v2026.3.19] (2026-03-07)
+
+Fix release pipeline: wire version bump as step 0 so VERSION + package.json + CHANGELOG.md land in one commit before the tag.
+
+### Other
+- Wire --bump-version into releaseShip() pipeline and fix release notes content (T5617)
+---
+
 ## [v2026.3.18] (2026-03-07)
 
 ### Features
