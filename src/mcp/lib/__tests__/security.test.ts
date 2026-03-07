@@ -41,9 +41,13 @@ describe('Security Module', () => {
       expect(() => sanitizeTaskId('  ')).toThrow(SecurityError);
     });
 
+    it('should normalize bare numeric and lowercase prefix task IDs', () => {
+      expect(sanitizeTaskId('1234')).toBe('T1234');
+      expect(sanitizeTaskId('t1234')).toBe('T1234');
+      expect(sanitizeTaskId('T1234')).toBe('T1234');
+    });
+
     it('should reject malformed task IDs', () => {
-      expect(() => sanitizeTaskId('123')).toThrow(SecurityError);
-      expect(() => sanitizeTaskId('t123')).toThrow(SecurityError);
       expect(() => sanitizeTaskId('T')).toThrow(SecurityError);
       expect(() => sanitizeTaskId('Task123')).toThrow(SecurityError);
       expect(() => sanitizeTaskId('T-123')).toThrow(SecurityError);
@@ -54,6 +58,10 @@ describe('Security Module', () => {
     it('should reject excessively large task IDs', () => {
       expect(() => sanitizeTaskId('T1000000')).toThrow(SecurityError);
       expect(() => sanitizeTaskId('T9999999')).toThrow(SecurityError);
+    });
+
+    it('should reject excessively large task IDs via normalization', () => {
+      expect(() => sanitizeTaskId('1000000')).toThrow(SecurityError);
     });
 
     it('should throw SecurityError with correct code', () => {
@@ -390,6 +398,42 @@ describe('Security Module', () => {
     it('should sanitize depends arrays', () => {
       const result = sanitizeParams({ depends: ['T1', 'T2', 'T3'] });
       expect(result?.depends).toEqual(['T1', 'T2', 'T3']);
+    });
+
+    it('should normalize bare numeric task IDs in params', () => {
+      const result = sanitizeParams({ taskId: '1234' });
+      expect(result?.taskId).toBe('T1234');
+    });
+
+    it('should sanitize parentId fields', () => {
+      const result = sanitizeParams({ parentId: '1234' });
+      expect(result?.parentId).toBe('T1234');
+    });
+
+    it('should sanitize newParentId, relatedId, targetId fields', () => {
+      expect(sanitizeParams({ newParentId: 'T5' })?.newParentId).toBe('T5');
+      expect(sanitizeParams({ relatedId: '99' })?.relatedId).toBe('T99');
+      expect(sanitizeParams({ targetId: 't50' })?.targetId).toBe('T50');
+    });
+
+    it('should normalize depends array elements', () => {
+      const result = sanitizeParams({ depends: ['1', 't2', 'T3'] });
+      expect(result?.depends).toEqual(['T1', 'T2', 'T3']);
+    });
+
+    it('should normalize addDepends array elements', () => {
+      const result = sanitizeParams({ addDepends: ['1'] });
+      expect(result?.addDepends).toEqual(['T1']);
+    });
+
+    it('should normalize removeDepends array elements', () => {
+      const result = sanitizeParams({ removeDepends: ['t5', '10'] });
+      expect(result?.removeDepends).toEqual(['T5', 'T10']);
+    });
+
+    it('should preserve empty string parent (remove parent)', () => {
+      const result = sanitizeParams({ parent: '' });
+      expect(result?.parent).toBe('');
     });
 
     it('should reject invalid task IDs in params', () => {
