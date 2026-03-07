@@ -18,7 +18,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
-import { getCleoHome } from './paths.js';
+import { getCleoHome, getAgentsHome } from './paths.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -136,6 +136,13 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     agentsMdLines.push('@.cleo/project-context.json');
   }
 
+  // Contributor project warning (ADR-029): inject dev-channel guidance when
+  // this project IS the CLEO source repo, so agents use cleo-dev not @latest.
+  const contributorBlock = buildContributorInjectionBlock(projectRoot);
+  if (contributorBlock) {
+    agentsMdLines.push(contributorBlock);
+  }
+
   const agentsAction = await inject(agentsMdPath, agentsMdLines.join('\n'));
   actions.push(`AGENTS.md CLEO content (${agentsAction})`);
 
@@ -153,7 +160,7 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
 
   // Step 4: Create global ~/.agents/AGENTS.md hub if it doesn't exist
   try {
-    const globalAgentsDir = join(homedir(), '.agents');
+    const globalAgentsDir = getAgentsHome();
     const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
     await mkdir(globalAgentsDir, { recursive: true });
     await inject(globalAgentsMd, '@~/.cleo/templates/CLEO-INJECTION.md');
@@ -166,6 +173,45 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     path: agentsMdPath,
     details: actions.join('; '),
   };
+}
+
+// ── Contributor project injection block (ADR-029) ────────────────────
+
+/**
+ * Build the inline contributor warning block to inject into AGENTS.md.
+ * Returns null if this is not a contributor project.
+ *
+ * The block tells LLM agents to use cleo-dev instead of the production
+ * @cleocode/cleo@latest package, preventing the "wrong tooling" trap where
+ * agents test unreleased features against the stale published version.
+ */
+export function buildContributorInjectionBlock(projectRoot: string): string | null {
+  const configPath = join(projectRoot, '.cleo', 'config.json');
+  if (!existsSync(configPath)) return null;
+  try {
+    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as {
+      contributor?: { isContributorProject?: boolean; devCli?: string };
+    };
+    if (!config.contributor?.isContributorProject) return null;
+    const devCli = config.contributor.devCli ?? 'cleo-dev';
+    return [
+      '',
+      '# CLEO Contributor Project — Dev Channel Required',
+      '',
+      `This project IS the CLEO source repository. The production \`@cleocode/cleo@latest\``,
+      `MCP server and \`cleo\` CLI are STALE relative to the current branch.`,
+      '',
+      `**ALWAYS use \`${devCli}\` CLI and the local \`cleo-dev\` MCP server** when:`,
+      `- Testing new operations or features added on the \`develop\` branch`,
+      `- Running the release pipeline (\`cleo-dev release ship ...\`)`,
+      `- Dogfooding any code change that hasn't yet been published to npm`,
+      '',
+      `**Never use \`cleo\` (production) to test unreleased code on this repo.**`,
+      `The published \`@latest\` lags \`develop\` by at least one release cycle.`,
+    ].join('\n');
+  } catch {
+    return null;
+  }
 }
 
 // ── Check injection health ───────────────────────────────────────────

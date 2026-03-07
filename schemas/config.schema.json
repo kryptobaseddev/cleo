@@ -2458,6 +2458,29 @@
         }
       }
     },
+    "contributor": {
+      "type": "object",
+      "description": "Contributor/dev-mode settings. Auto-populated when CLEO detects it is running inside its own source repository (ADR-016 §2.3, ADR-029).",
+      "additionalProperties": false,
+      "properties": {
+        "isContributorProject": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when this project IS the CLEO source repository. Detected automatically by fingerprinting src/mcp/, src/dispatch/, src/core/ and package.json#name. When true, agents MUST use cleo-dev CLI and local MCP server instead of production @cleocode/cleo@latest."
+        },
+        "devCli": {
+          "type": "string",
+          "default": "cleo-dev",
+          "description": "The CLI command for the local dev build (ADR-016 §2.3). Injected into agent context when isContributorProject is true."
+        },
+        "verifiedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "default": null,
+          "description": "ISO 8601 timestamp when contributor status was last auto-verified."
+        }
+      }
+    },
     "tools": {
       "type": "object",
       "description": "External tool dependencies and installation commands. Replaces hardcoded tool assumptions.",
