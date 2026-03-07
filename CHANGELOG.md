@@ -1,67 +1,47 @@
 # Changelog
 
-## [2026.3.16] (2026-03-07)
+## [2026.3.16] - 2026-03-07
 
-## v2026.3.16 (2026-03-07)
+### Performance
+- **Batch saveArchive() transaction + bulk dependency updates (T5584)** — Wrapped saveArchive() in `BEGIN IMMEDIATE/COMMIT` SQLite transaction; replaced N×M individual dependency updates with single batch DELETE + INSERT via `batchUpdateDependencies()`.
 
-Performance & safety fixes: batch saveArchive() transaction, iterative findDescendants BFS, hook error hardening, lifecycle_transitions ID uniqueness fix
+### Fixed
+- **Lifecycle transition ID uniqueness (T5584)** — Appended random nonce to `lifecycle_transitions.id`; rapid stage advances within the same millisecond no longer cause UNIQUE constraint failures. Root cause of CI failures across all platforms.
+- **Hook error loop hardening (T5584)** — Blanket `try-catch` around `observeBrain()` in `error-hooks.ts`; all errors silently suppressed to prevent re-entrant hook firing.
+- **Changelog double-write bug (T5584)** — `releaseShip` was calling `writeChangelogSection` twice with the full changelog string (including header) as body; removed the redundant call.
 
-### Bug Fixes
-- fix: MCP response payload optimization — ranked blockedTasks, compact admin help, domain pagination (T5584)
+### Changed
+- **Iterative findDescendants — stack safety (T5584)** — Replaced recursive closure in task deletion with iterative queue-based BFS; eliminates call-stack overflow risk for deep task hierarchies.
+
 ---
 
-## [2026.3.15] (2026-03-07)
+## [2026.3.15] - 2026-03-06
 
-## v2026.3.15 (2026-03-07)
+This release consolidates the CLEO release engine, migrates pipeline and release manifests to SQLite, adds contributor project detection, and hardens MCP payloads and CI.
 
-### Other
-- EPIC: Metrics Value Proof System - Real Token Tracking and Validation (T2847)
-- EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
-- EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
----
-## [v2026.3.15] (2026-03-07)
+### Added
+- **Release engine consolidation (T5582)** — `release.ship` composite MCP operation + CI CHANGELOG gate; the release pipeline is now a first-class CLEO operation
+- **Changelog writer (T5579)** — Section-aware changelog merge with custom-log block support
+- **Release manifests → SQLite (T5580)** — `releases.json` migrated to `release_manifests` SQLite table with provenance wiring
+- **Pipeline manifest → SQLite (T5581)** — JSONL pipeline manifest migrated to `pipeline_manifest` SQLite table for transactional writes
+- **Release pipeline E2E tests (T5583)** — Full end-to-end coverage of the release pipeline operations
+- **Contributor project detection (T5576, ADR-029)** — Auto-detects CLEO source repo, routes to `cleo-dev` MCP channel; `ensureContributorMcp` writes project-level `.mcp.json`
+- **Project context detection (T5363)** — `admin.detect` operation; validation and hardening of project context scaffolding
+- **CI/CD consolidation (T5508)** — Release workflow consolidated to single job; ADR-016 updated with OIDC trusted publisher docs
 
-### Other
-- EPIC: Metrics Value Proof System - Real Token Tracking and Validation (T2847)
-- EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
-- EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
----
-## [v2026.3.15] (2026-03-07)
+### Changed
+- **Legacy release cleanup (T5578)** — Deleted legacy release index + provenance; all release ops now require DataAccessor
+- **Startup scaffolding refactor (T4783)** — Health-check system unified; startup flow split between global (postinstall) and project (`cleo init`)
+- **CAAMP 1.7.0** — env-paths upgraded to OS-aware platform paths
+- **MCP payload optimization (T5584)** — Reduced response sizes, ranked `blockedTasks` by priority, fixed pipeline gateway classification
 
-### Other
-- EPIC: Metrics Value Proof System - Real Token Tracking and Validation (T2847)
-- EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
-- EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
----
-## [v2026.3.15] (2026-03-07)
+### Fixed
+- **Audit logging (T4848)** — Zod runtime validation added to all audit log inserts
+- **Symlink resolution in contributor detection (T5576)** — `detectEnvMode` now resolves symlinks before comparing paths
+- **dryRun guard in release.ship (T5582)** — Guard moved before `writeChangelogSection` to prevent changelog writes in dry-run mode
 
-### Other
-- EPIC: Metrics Value Proof System - Real Token Tracking and Validation (T2847)
-- EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
-- EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
----
-## [v2026.3.15] (2026-03-07)
-
-### Other
-- EPIC: Metrics Value Proof System - Real Token Tracking and Validation (T2847)
-- EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
-- EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
----
-## [v2026.3.15] (2026-03-07)
-
-### Other
-- EPIC: Metrics Value Proof System - Real Token Tracking and Validation (T2847)
-- EPIC: CLEO V2 Full TypeScript System (LAFS-native) (T4454)
-- EPIC: Full System Audit, Assessment & Cleanup Post-V2 Migration (T4541)
 ---
 
-## [v2026.3.16] (2026-03-07)
-
-Performance & safety fixes: batch saveArchive() transaction, iterative findDescendants BFS, hook error hardening, lifecycle_transitions ID uniqueness fix
-
-### Bug Fixes
-- fix: MCP response payload optimization — ranked blockedTasks, compact admin help, domain pagination (T5584)
----
 ## [2026.3.14] - 2026-03-06
 
 This is a major stable release promoting the full `2026.3.13-beta` cycle to `@latest`. It covers 55 commits
