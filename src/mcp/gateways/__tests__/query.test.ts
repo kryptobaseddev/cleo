@@ -81,8 +81,8 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('memory')).toBe(12);
     });
 
-    it('pipeline domain should have 14 operations', () => {
-      expect(getQueryOperationCount('pipeline')).toBe(14);
+    it('pipeline domain should have 17 operations', () => {
+      expect(getQueryOperationCount('pipeline')).toBe(17);
     });
 
     it('check domain should have 17 operations', () => {

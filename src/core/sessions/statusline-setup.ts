@@ -10,10 +10,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-
-function getClaudeSettingsPath(): string {
-  return process.env.CLAUDE_SETTINGS ?? join(homedir(), '.claude', 'settings.json');
-}
+import { getCleoHome, getClaudeSettingsPath } from '../paths.js';
 
 /** Statusline integration status. */
 export type StatuslineStatus = 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings';
@@ -68,7 +65,7 @@ export function checkStatuslineIntegration(): StatuslineStatus {
  * Get the statusline setup command for Claude Code settings.
  */
 export function getStatuslineConfig(): Record<string, unknown> {
-  const cleoHome = process.env.CLEO_HOME ?? join(homedir(), '.cleo');
+  const cleoHome = getCleoHome();
 
   return {
     statusLine: {

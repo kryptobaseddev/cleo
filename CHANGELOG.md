@@ -1,7 +1,79 @@
 # Changelog
 
-All notable changes to CLEO are documented in this file.
-CLEO uses [Calendar Versioning](https://calver.org/) with format `YYYY.MM.PATCH`.
+## [2026.3.19] (2026-03-07)
+
+Fix release pipeline: wire version bump as step 0 so VERSION + package.json + CHANGELOG.md land in one commit before the tag.
+
+### Changes
+- **Wire --bump-version into releaseShip() pipeline and fix release notes content**: bumpVersionFromConfig() exists but is never called by releaseShip(). VERSION and package.json are bumped manually after the tag, backwards and erro... (T5617)
+---
+## [2026.3.18] (2026-03-07)
+
+### Features
+- **Create normalizeTaskId() SSoT utility with validation and tests**: Create SSoT utility function `normalizeTaskId()` in src/core/tasks/task-id-utils.ts that accepts any task ID format and returns canonical "T1234". ... (T5587)
+- **Implement normalization across all task operations**: Implement normalizeTaskId() across all identified operations. Update task lookup functions to normalize input before querying database. Ensure epic... (T5589)
+- **Implement automatic PR creation for protected branches**: Implement automatic PR creation when branch protection blocks direct push. Use GitHub CLI (gh) if available, or provide clear manual instructions. ... (T5591)
+- **Implement multi-channel release support (@latest/@beta/@alpha)**: Add release channel support to pipeline: @latest for main branch, @beta for develop branch, @alpha for feature branches. Update release gates to va... (T5592)
+
+### Bug Fixes
+- **MCP response payload optimization — ranked blockedTasks, compact admin help, domain pagination**: Reduce MCP response sizes and improve data quality across domains: - admin help: compact domain-grouped format by default (~85% token reduction), v... (T5584)
+
+### Documentation
+- **Add agent guidance and workflow visualization to release command**: Enhance release.ship output with clear agent guidance and next steps. Add --guided flag for step-by-step mode. Show progress through workflow stage... (T5593)
+---
+## [2026.3.17] - 2026-03-07
+
+### Added
+- **GitFlow branch detection and PR automation (T5586)** — Channel resolution from branch name (`@latest`/`@beta`/`@alpha`), automatic PR creation via `gh` CLI when branch protection is detected, `--guided` and `--channel` flags on `release ship`, `release.channel.show` query operation.
+
+### Fixed
+- **Layer 1 gate validator domain-aware status validation (T5598, closes #55)** — `validateLayer1Schema` was checking all `status` params against `TASK_STATUSES` regardless of domain. Operations like `pipeline.stage.record` with valid lifecycle statuses (`in_progress`, `not_started`, etc.) were incorrectly rejected. Validator is now domain-aware for pipeline, admin, session, and manifest operations. Reported by @DanielViholm.
+- **Admin stats and dashboard counts include archived/cancelled tasks (T5597)** — `getDashboard` and `getProjectStats` now query the database directly for accurate counts. Archived tasks, cancelled tasks, and `grandTotal` are exposed in the summary; cancelled tasks excluded from actionable distributions.
+
+### Security
+- **Normalize task ID input across all MCP and CLI operations (T5585)** — `normalizeTaskId()` added to `id-generator.ts`; accepts `1234`, `t1234`, or `T1234` and returns canonical `T1234`. Sanitizer coverage extended to `parentId`, `newParentId`, `relatedId`, `targetId`, `addDepends`, and `removeDepends` fields.
+
+---
+
+## [2026.3.16] - 2026-03-07
+
+### Performance
+- **Batch saveArchive() transaction + bulk dependency updates (T5584)** — Wrapped saveArchive() in `BEGIN IMMEDIATE/COMMIT` SQLite transaction; replaced N×M individual dependency updates with single batch DELETE + INSERT via `batchUpdateDependencies()`.
+
+### Fixed
+- **Lifecycle transition ID uniqueness (T5584)** — Appended random nonce to `lifecycle_transitions.id`; rapid stage advances within the same millisecond no longer cause UNIQUE constraint failures. Root cause of CI failures across all platforms.
+- **Hook error loop hardening (T5584)** — Blanket `try-catch` around `observeBrain()` in `error-hooks.ts`; all errors silently suppressed to prevent re-entrant hook firing.
+- **Changelog double-write bug (T5584)** — `releaseShip` was calling `writeChangelogSection` twice with the full changelog string (including header) as body; removed the redundant call.
+
+### Changed
+- **Iterative findDescendants — stack safety (T5584)** — Replaced recursive closure in task deletion with iterative queue-based BFS; eliminates call-stack overflow risk for deep task hierarchies.
+
+---
+
+## [2026.3.15] - 2026-03-06
+
+This release consolidates the CLEO release engine, migrates pipeline and release manifests to SQLite, adds contributor project detection, and hardens MCP payloads and CI.
+
+### Added
+- **Release engine consolidation (T5582)** — `release.ship` composite MCP operation + CI CHANGELOG gate; the release pipeline is now a first-class CLEO operation
+- **Changelog writer (T5579)** — Section-aware changelog merge with custom-log block support
+- **Release manifests → SQLite (T5580)** — `releases.json` migrated to `release_manifests` SQLite table with provenance wiring
+- **Pipeline manifest → SQLite (T5581)** — JSONL pipeline manifest migrated to `pipeline_manifest` SQLite table for transactional writes
+- **Release pipeline E2E tests (T5583)** — Full end-to-end coverage of the release pipeline operations
+- **Contributor project detection (T5576, ADR-029)** — Auto-detects CLEO source repo, routes to `cleo-dev` MCP channel; `ensureContributorMcp` writes project-level `.mcp.json`
+- **Project context detection (T5363)** — `admin.detect` operation; validation and hardening of project context scaffolding
+- **CI/CD consolidation (T5508)** — Release workflow consolidated to single job; ADR-016 updated with OIDC trusted publisher docs
+
+### Changed
+- **Legacy release cleanup (T5578)** — Deleted legacy release index + provenance; all release ops now require DataAccessor
+- **Startup scaffolding refactor (T4783)** — Health-check system unified; startup flow split between global (postinstall) and project (`cleo init`)
+- **CAAMP 1.7.0** — env-paths upgraded to OS-aware platform paths
+- **MCP payload optimization (T5584)** — Reduced response sizes, ranked `blockedTasks` by priority, fixed pipeline gateway classification
+
+### Fixed
+- **Audit logging (T4848)** — Zod runtime validation added to all audit log inserts
+- **Symlink resolution in contributor detection (T5576)** — `detectEnvMode` now resolves symlinks before comparing paths
+- **dryRun guard in release.ship (T5582)** — Guard moved before `writeChangelogSection` to prevent changelog writes in dry-run mode
 
 ---
 

@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
+import { getCleoHome } from '../../paths.js';
 
 // ============================================================================
 // Types
@@ -62,7 +62,7 @@ const CACHE_FILE = 'doctor-project-cache.json';
  * @task T4525
  */
 export function getCacheFilePath(cleoHome?: string): string {
-  const home = cleoHome ?? join(homedir(), '.cleo');
+  const home = cleoHome ?? getCleoHome();
   return join(home, CACHE_FILE);
 }
 

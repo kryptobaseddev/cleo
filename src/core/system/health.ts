@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { getAgentsHome, isProjectInitialized } from '../paths.js';
@@ -466,7 +466,6 @@ function checkContributorChannel(projectRoot: string): DoctorCheck {
 
   // Probe whether the dev CLI actually responds
   try {
-    const { execFileSync } = _require('node:child_process') as typeof import('node:child_process');
     const version = execFileSync(devCli, ['--version'], { timeout: 5000 }).toString().trim();
     return {
       check: 'contributor_channel',

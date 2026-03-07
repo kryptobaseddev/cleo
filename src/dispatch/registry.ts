@@ -1819,6 +1819,16 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: ['version'],
   },
   {
+    gateway: 'query',
+    domain: 'pipeline',
+    operation: 'release.channel.show',
+    description: 'Show the current release channel based on git branch (latest/beta/alpha)',
+    tier: 0,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
     gateway: 'mutate',
     domain: 'pipeline',
     operation: 'release.prepare',
@@ -1877,6 +1887,16 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: false,
     sessionRequired: false,
     requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
+    operation: 'release.cancel',
+    description: 'pipeline.release.cancel (mutate)',
+    tier: 0,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['version'],
   },
   {
     gateway: 'mutate',

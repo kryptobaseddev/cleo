@@ -12,8 +12,7 @@
   },
   "hierarchy": {
     "maxDepth": 3,
-    "maxSiblings": 0,
-    "maxActiveSiblings": 0
+    "maxSiblings": 0
   },
   "session": {
     "autoStart": false,
@@ -22,26 +21,27 @@
   "lifecycle": {
     "mode": "strict"
   },
+  "contributor": {
+    "isContributorProject": true,
+    "devCli": "cleo-dev",
+    "verifiedAt": "2026-03-07T04:34:01.818Z"
+  },
+  "verification": {
+    "enabled": true
+  },
   "release": {
     "versionBump": {
       "files": [
         {
           "path": "VERSION",
-          "strategy": "plain",
-          "description": "Canonical version source of truth"
+          "strategy": "plain"
         },
         {
           "path": "package.json",
           "strategy": "json",
-          "jsonPath": ".version",
-          "description": "npm package version"
+          "field": "version"
         }
       ]
     }
-  },
-  "contributor": {
-    "isContributorProject": true,
-    "devCli": "cleo-dev",
-    "verifiedAt": "2026-03-07T00:00:00.000Z"
   }
 }

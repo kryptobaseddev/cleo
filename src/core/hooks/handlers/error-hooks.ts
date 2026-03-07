@@ -9,17 +9,13 @@
 import { hooks } from '../registry.js';
 import type { OnErrorPayload } from '../types.js';
 
-function isMissingBrainSchemaError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const message = String(err.message || '').toLowerCase();
-  return message.includes('no such table') && message.includes('brain_');
-}
-
 /**
  * Handle onError - capture operation errors to BRAIN
  *
  * Includes infinite-loop guard: if the payload has _fromHook marker,
  * the handler skips to prevent onError -> observeBrain -> onError loops.
+ * Additionally, ALL observeBrain errors are silently suppressed to prevent
+ * re-entrant hook firing.
  */
 export async function handleError(
   projectRoot: string,
@@ -41,8 +37,9 @@ export async function handleError(
       type: 'discovery',
       sourceType: 'agent',
     });
-  } catch (err) {
-    if (!isMissingBrainSchemaError(err)) throw err;
+  } catch (_err) {
+    // Silently suppress all observeBrain errors in hook context
+    // to prevent re-entrant hook firing
   }
 }
 

@@ -228,7 +228,7 @@ describe('TasksHandler', () => {
       const result = await handler.query('analyze', { taskId: 'T001' });
 
       expect(result.success).toBe(true);
-      expect(taskAnalyze).toHaveBeenCalledWith('/mock/project', 'T001');
+      expect(taskAnalyze).toHaveBeenCalledWith('/mock/project', 'T001', { tierLimit: undefined });
     });
 
     it('next - delegates to taskNext', async () => {
