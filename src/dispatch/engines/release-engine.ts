@@ -27,7 +27,6 @@ import {
   type ReleaseTaskRecord,
 } from '../../core/release/release-manifest.js';
 
-import { writeChangelogSection } from '../../core/release/changelog-writer.js';
 import { checkEpicCompleteness, checkDoubleListing } from '../../core/release/guards.js';
 
 import { engineError, type EngineResult } from './_error.js';
@@ -415,8 +414,6 @@ export async function releaseShip(
         },
       };
     }
-
-    await writeChangelogSection(version, generatedContent, [], changelogPath);
 
     // Step 5: Git operations
     const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
