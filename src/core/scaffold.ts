@@ -194,6 +194,24 @@ export function getCleoVersion(): string {
 /**
  * Create default config.json content.
  */
+/**
+ * Detect whether projectRoot is the CLEO source repository itself.
+ * Verified by fingerprinting the expected source layout and package identity.
+ * Only the canonical CLEO repository matches all criteria (ADR-029).
+ */
+function isCleoContributorProject(projectRoot: string): boolean {
+  const exists = (p: string) => existsSync(join(projectRoot, p));
+  // Must have all three canonical source directories
+  if (!exists('src/mcp') || !exists('src/dispatch') || !exists('src/core')) return false;
+  // Must have package.json identifying as @cleocode/cleo
+  try {
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8')) as { name?: string };
+    return pkg.name === '@cleocode/cleo';
+  } catch {
+    return false;
+  }
+}
+
 export function createDefaultConfig(): Record<string, unknown> {
   return {
     version: '2.10.0',
@@ -284,10 +302,31 @@ export async function ensureConfig(
   const configPath = getConfigPath(projectRoot);
 
   if (existsSync(configPath) && !opts?.force) {
+    // Backfill contributor block for existing configs that predate ADR-029
+    try {
+      const existing = JSON.parse(readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+      if (!existing['contributor'] && isCleoContributorProject(projectRoot)) {
+        existing['contributor'] = {
+          isContributorProject: true,
+          devCli: 'cleo-dev',
+          verifiedAt: new Date().toISOString(),
+        };
+        await writeFile(configPath, JSON.stringify(existing, null, 2));
+        return { action: 'repaired', path: configPath, details: 'Added contributor block (ADR-029)' };
+      }
+    } catch { /* non-fatal */ }
     return { action: 'skipped', path: configPath, details: 'Config already exists' };
   }
 
-  await saveJson(configPath, createDefaultConfig());
+  const config = createDefaultConfig();
+  if (isCleoContributorProject(projectRoot)) {
+    (config as Record<string, unknown>)['contributor'] = {
+      isContributorProject: true,
+      devCli: 'cleo-dev',
+      verifiedAt: new Date().toISOString(),
+    };
+  }
+  await saveJson(configPath, config);
   return {
     action: existsSync(configPath) ? 'repaired' : 'created',
     path: configPath,

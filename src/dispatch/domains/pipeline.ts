@@ -114,6 +114,11 @@ export class PipelineHandler implements DomainHandler {
         return this.queryPhase(operation.slice('phase.'.length), params, startTime);
       }
 
+      // Release sub-domain (read-only ops: list, show)
+      if (operation.startsWith('release.')) {
+        return await this.queryRelease(operation.slice('release.'.length), params, startTime);
+      }
+
       // Chain sub-domain (T5405)
       if (operation.startsWith('chain.')) {
         return await this.queryChain(operation.slice('chain.'.length), params, startTime);
@@ -172,13 +177,13 @@ export class PipelineHandler implements DomainHandler {
         'stage.gates', 'stage.prerequisites',
         'manifest.show', 'manifest.list', 'manifest.find',
         'manifest.pending', 'manifest.stats',
+        'release.list', 'release.show',
         'phase.show', 'phase.list',
         'chain.show', 'chain.list', 'chain.find',
       ],
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
         'stage.gate.pass', 'stage.gate.fail',
-        'release.list', 'release.show',
         'release.prepare', 'release.changelog', 'release.commit',
         'release.tag', 'release.push', 'release.gates.run',
         'release.rollback', 'release.ship',
@@ -337,6 +342,37 @@ export class PipelineHandler implements DomainHandler {
   }
 
   // -----------------------------------------------------------------------
+  // Release queries (read-only)
+  // -----------------------------------------------------------------------
+
+  private async queryRelease(
+    sub: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    switch (sub) {
+      case 'list': {
+        const result = await releaseList(this.projectRoot);
+        return this.wrapEngineResult(result, 'query', 'release.list', startTime);
+      }
+
+      case 'show': {
+        const version = params?.version as string;
+        if (!version) {
+          return this.errorResponse('query', 'release.show', 'E_INVALID_INPUT',
+            'version is required', startTime);
+        }
+        const result = await releaseShow(version, this.projectRoot);
+        return this.wrapEngineResult(result, 'query', 'release.show', startTime);
+      }
+
+      default:
+        return this.errorResponse('query', `release.${sub}`, 'E_INVALID_OPERATION',
+          `Unknown release query: ${sub}`, startTime);
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Release mutations
   // -----------------------------------------------------------------------
 
@@ -346,21 +382,6 @@ export class PipelineHandler implements DomainHandler {
     startTime: number,
   ): Promise<DispatchResponse> {
     switch (sub) {
-      case 'list': {
-        const result = await releaseList(this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.list', startTime);
-      }
-
-      case 'show': {
-        const version = params?.version as string;
-        if (!version) {
-          return this.errorResponse('mutate', 'release.show', 'E_INVALID_INPUT',
-            'version is required', startTime);
-        }
-        const result = await releaseShow(version, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'release.show', startTime);
-      }
-
       case 'prepare': {
         const version = params?.version as string;
         if (!version) {
