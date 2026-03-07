@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.3.17] - 2026-03-07
+
+### Added
+- **GitFlow branch detection and PR automation (T5586)** — Channel resolution from branch name (`@latest`/`@beta`/`@alpha`), automatic PR creation via `gh` CLI when branch protection is detected, `--guided` and `--channel` flags on `release ship`, `release.channel.show` query operation.
+
+### Fixed
+- **Layer 1 gate validator domain-aware status validation (T5598, closes #55)** — `validateLayer1Schema` was checking all `status` params against `TASK_STATUSES` regardless of domain. Operations like `pipeline.stage.record` with valid lifecycle statuses (`in_progress`, `not_started`, etc.) were incorrectly rejected. Validator is now domain-aware for pipeline, admin, session, and manifest operations. Reported by @DanielViholm.
+- **Admin stats and dashboard counts include archived/cancelled tasks (T5597)** — `getDashboard` and `getProjectStats` now query the database directly for accurate counts. Archived tasks, cancelled tasks, and `grandTotal` are exposed in the summary; cancelled tasks excluded from actionable distributions.
+
+### Security
+- **Normalize task ID input across all MCP and CLI operations (T5585)** — `normalizeTaskId()` added to `id-generator.ts`; accepts `1234`, `t1234`, or `T1234` and returns canonical `T1234`. Sanitizer coverage extended to `parentId`, `newParentId`, `relatedId`, `targetId`, `addDepends`, and `removeDepends` fields.
+
+---
+
 ## [2026.3.16] - 2026-03-07
 
 ### Performance
