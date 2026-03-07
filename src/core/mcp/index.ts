@@ -9,9 +9,9 @@
  * @epic T4663
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { getCleoHome } from '../paths.js';
 
 /** Resolved environment mode for MCP server config. */
 export interface McpEnvMode {
@@ -41,7 +41,15 @@ export function getMcpServerName(env: McpEnvMode): string {
 export function detectEnvMode(): McpEnvMode {
   // Prefer runtime package invocation detection over persisted metadata.
   // This prevents stale ~/.cleo/VERSION mode flags from overriding npm runtime channel.
-  const scriptPath = (process.argv[1] ?? '').replace(/\\/g, '/');
+  // Resolve symlinks: cleo-dev is a symlink chain, process.argv[1] may be the symlink
+  // path (~/.local/bin/cleo-dev), not the real path (dist/cli/index.js).
+  const rawScriptPath = process.argv[1] ?? '';
+  let scriptPath: string;
+  try {
+    scriptPath = realpathSync(rawScriptPath).replace(/\\/g, '/');
+  } catch {
+    scriptPath = rawScriptPath.replace(/\\/g, '/');
+  }
   const marker = '/node_modules/@cleocode/cleo/';
   const markerIdx = scriptPath.indexOf(marker);
   if (markerIdx >= 0) {
@@ -56,8 +64,35 @@ export function detectEnvMode(): McpEnvMode {
     return { mode: 'prod-npm', source: 'npm', channel };
   }
 
+  // ADR-016 §2.3: probe ~/.cleo-dev/VERSION first.
+  // When the dev installer runs, it writes mode=dev-ts + source=<repo> to ~/.cleo-dev/VERSION.
+  // If the current script path matches that source directory, we are running as cleo-dev.
+  const devVersionPath = join(
+    process.env['HOME'] ?? '',
+    '.cleo-dev',
+    'VERSION',
+  );
+  try {
+    const devContent = readFileSync(devVersionPath, 'utf-8');
+    const devKv: Record<string, string> = {};
+    const devLines = devContent.trim().split('\n');
+    for (let i = 1; i < devLines.length; i++) {
+      const eq = devLines[i].indexOf('=');
+      if (eq > 0) devKv[devLines[i].slice(0, eq).trim()] = devLines[i].slice(eq + 1).trim();
+    }
+    if (devKv['mode'] === 'dev-ts' && devKv['source']) {
+      const devSource = devKv['source'].replace(/\\/g, '/');
+      // Match if the running script is inside the registered dev source tree
+      if (scriptPath.startsWith(devSource) || scriptPath.includes(devSource)) {
+        return { mode: 'dev-ts', source: devKv['source'], channel: 'dev' };
+      }
+    }
+  } catch {
+    // ~/.cleo-dev/VERSION not present — not in dev mode via this path
+  }
+
   const versionPath = join(
-    process.env['CLEO_HOME'] ?? join(homedir(), '.cleo'),
+    getCleoHome(),
     'VERSION',
   );
 
