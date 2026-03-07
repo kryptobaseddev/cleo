@@ -240,7 +240,9 @@ export async function generateReleaseChangelog(
    */
   function buildEntry(task: ReleaseTaskRecord): string {
     const cleanTitle = capitalize(stripConventionalPrefix(task.title));
-    const desc = task.description?.trim();
+    // Strip newlines and collapse whitespace in description
+    const safeDesc = task.description?.replace(/\r?\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    const desc = safeDesc;
 
     // Include description only when it's non-trivial and adds information beyond the title.
     // Skip if: description is empty, identical to title, or a minor rephrasing (≤10% longer, no new words).
