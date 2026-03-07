@@ -74,6 +74,7 @@ export interface DashboardData {
   };
   blockedTasks: {
     count: number;
+    limit: number;
     tasks: TaskRecord[];
   };
   recentCompletions: TaskRecord[];
@@ -263,10 +264,11 @@ const HELP_TOPICS: Record<string, HelpData> = {
  */
 export async function systemDash(
   projectRoot: string,
+  params?: { blockedTasksLimit?: number },
 ): Promise<EngineResult<DashboardData>> {
   try {
     const accessor = await getAccessor(projectRoot);
-    const result = await getDashboard({ cwd: projectRoot }, accessor);
+    const result = await getDashboard({ cwd: projectRoot, blockedTasksLimit: params?.blockedTasksLimit }, accessor);
     // Add missing fields that core doesn't produce
     const data = result as Record<string, unknown>;
     const summary = data.summary as Record<string, number>;

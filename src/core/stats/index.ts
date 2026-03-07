@@ -8,7 +8,7 @@ import { readJson } from '../../store/json.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getTaskPath } from '../paths.js';
-import type { TaskFile } from '../../types/task.js';
+import type { Task, TaskFile } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 
 /** Minimal audit row for stats queries. */
@@ -138,6 +138,78 @@ export async function getProjectStats(opts: {
   };
 }
 
+/** Priority numeric weights for ranking blocked tasks. */
+const PRIORITY_WEIGHT: Record<string, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+/** Labels that add urgency boost to blocked task ranking. */
+const URGENT_LABELS = new Set(['critical', 'blocker', 'bug']);
+
+/**
+ * Compute a ranking score for a blocked task.
+ * Higher score = more urgent = sort first.
+ */
+export function rankBlockedTask(
+  task: Task,
+  allTasks: Task[],
+  focusTask: Task | null,
+): number {
+  let score = 0;
+
+  // (1) Priority weight: 10-40 points
+  score += (PRIORITY_WEIGHT[task.priority ?? 'low'] ?? 1) * 10;
+
+  // (2) Downstream impact: tasks whose depends array includes this task's id
+  const downstreamCount = allTasks.filter(
+    t => t.status !== 'done' && (t.depends ?? []).includes(task.id),
+  ).length;
+  score += downstreamCount * 5;
+
+  // (3) Age weight: capped at 30 days, 1 point per day
+  const ageMs = Date.now() - new Date(task.createdAt).getTime();
+  const ageDays = Math.min(Math.floor(ageMs / 86_400_000), 30);
+  score += ageDays;
+
+  // (4) Focus proximity boost (+15 if sibling/parent/child of focused task)
+  if (focusTask) {
+    const isFocusChild   = task.parentId != null && task.parentId === focusTask.id;
+    const isFocusParent  = focusTask.parentId != null && task.id === focusTask.parentId;
+    const isFocusSibling = task.parentId != null && task.parentId === focusTask.parentId;
+    if (isFocusChild || isFocusParent || isFocusSibling) {
+      score += 15;
+    }
+  }
+
+  // (5) Urgent label boost: +8 per urgent label
+  for (const label of task.labels ?? []) {
+    if (URGENT_LABELS.has(label.toLowerCase())) {
+      score += 8;
+    }
+  }
+
+  // (6) Staleness penalty: recently updated (< 3 days ago) may be actively worked
+  if (task.updatedAt) {
+    const updatedDaysAgo = (Date.now() - new Date(task.updatedAt).getTime()) / 86_400_000;
+    if (updatedDaysAgo < 3) {
+      score -= 10;
+    }
+  }
+
+  return score;
+}
+
+/** Priority sort order (lower number = higher priority = sort first). */
+const PRIORITY_ORDER: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
 /** Get project dashboard data. */
 export async function getDashboard(opts: {
   compact?: boolean;
@@ -147,6 +219,7 @@ export async function getDashboard(opts: {
   verbose?: boolean;
   quiet?: boolean;
   cwd?: string;
+  blockedTasksLimit?: number;
 }, accessor?: DataAccessor): Promise<Record<string, unknown>> {
   const data = accessor
     ? await accessor.loadTaskFile()
@@ -166,15 +239,28 @@ export async function getDashboard(opts: {
   const currentPhase = data.project?.currentPhase ?? null;
 
   const focusId = data.focus?.currentTask ?? null;
-  let focusTask = null;
+  let focusTask: Task | null = null;
   if (focusId) {
     focusTask = tasks.find(t => t.id === focusId) ?? null;
   }
 
-  const highPriority = tasks.filter(
-    t => (t.priority === 'critical' || t.priority === 'high') && t.status !== 'done',
-  );
-  const blockedTasks = tasks.filter(t => t.status === 'blocked');
+  const highPriority = tasks
+    .filter(t => (t.priority === 'critical' || t.priority === 'high') && t.status !== 'done')
+    .sort((a, b) => {
+      const pDiff = (PRIORITY_ORDER[a.priority ?? 'low'] ?? 9) - (PRIORITY_ORDER[b.priority ?? 'low'] ?? 9);
+      if (pDiff !== 0) return pDiff;
+      return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
+    });
+
+  const blockedTasksLimitVal = opts.blockedTasksLimit ?? 10;
+  const allBlockedTasks = tasks.filter(t => t.status === 'blocked');
+  const rankedBlocked = allBlockedTasks
+    .map(t => ({ task: t, score: rankBlockedTask(t, tasks, focusTask) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (a.task.createdAt ?? '').localeCompare(b.task.createdAt ?? '');
+    })
+    .map(r => r.task);
 
   // Label aggregation
   const labelMap: Record<string, number> = {};
@@ -194,7 +280,11 @@ export async function getDashboard(opts: {
     summary: { pending, active, blocked, done, total },
     focus: { currentTask: focusId, task: focusTask },
     highPriority: { count: highPriority.length, tasks: highPriority.slice(0, 5) },
-    blockedTasks: { count: blockedTasks.length, tasks: blockedTasks },
+    blockedTasks: {
+      count: rankedBlocked.length,
+      limit: blockedTasksLimitVal,
+      tasks: rankedBlocked.slice(0, blockedTasksLimitVal),
+    },
     topLabels,
     periodDays: opts.period ?? 7,
   };
