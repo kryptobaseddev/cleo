@@ -1799,7 +1799,7 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
   },
   {
-    gateway: 'mutate',
+    gateway: 'query',
     domain: 'pipeline',
     operation: 'release.list',
     description: 'List all releases from release_manifests table',
@@ -1809,7 +1809,7 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
   },
   {
-    gateway: 'mutate',
+    gateway: 'query',
     domain: 'pipeline',
     operation: 'release.show',
     description: 'Show details for a specific release version',

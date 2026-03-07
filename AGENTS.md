@@ -1,6 +1,19 @@
 <!-- CAAMP:START -->
 @~/.cleo/templates/CLEO-INJECTION.md
 @.cleo/project-context.json
+
+# CLEO Contributor Project — Dev Channel Required
+
+This project IS the CLEO source repository. The production `@cleocode/cleo@latest`
+MCP server and `cleo` CLI are STALE relative to the current branch.
+
+**ALWAYS use `cleo-dev` CLI and the local `cleo-dev` MCP server** when:
+- Testing new operations or features added on the `develop` branch
+- Running the release pipeline (`cleo-dev release ship ...`)
+- Dogfooding any code change that hasn't yet been published to npm
+
+**Never use `cleo` (production) to test unreleased code on this repo.**
+The published `@latest` lags `develop` by at least one release cycle.
 <!-- CAAMP:END -->
 # Repository Guidelines
 
@@ -319,8 +332,8 @@ All new operations MUST use canonical verbs per `docs/specs/VERB-STANDARDS.md`:
 
 ### MCP Server (Primary Entry Point)
 - `src/mcp/index.ts` - MCP server entry point
-- `src/mcp/gateways/query.ts` - 145 query operations (CANONICAL operation registry)
-- `src/mcp/gateways/mutate.ts` - 115 mutate operations (CANONICAL operation registry)
+- `src/mcp/gateways/query.ts` - 147 query operations (CANONICAL operation registry)
+- `src/mcp/gateways/mutate.ts` - 113 mutate operations (CANONICAL operation registry)
 - `src/mcp/domains/` - 10 domain handlers (tasks, session, memory, check, pipeline, orchestrate, tools, admin, nexus, sticky)
 - `src/dispatch/engines/` - Engine adapters (params → core calls) — canonical location
 - `src/mcp/engine/` - Barrel re-exports from dispatch + utilities (capability-matrix, id-generator, CAAMP)

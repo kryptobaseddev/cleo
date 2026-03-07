@@ -74,14 +74,14 @@ export function registerReleaseCommand(program: Command): void {
     .command('list')
     .description('List all releases')
     .action(async () => {
-      await dispatchFromCli('mutate', 'pipeline', 'release.list', {}, { command: 'release' });
+      await dispatchFromCli('query', 'pipeline', 'release.list', {}, { command: 'release' });
     });
 
   release
     .command('show <version>')
     .description('Show release details')
     .action(async (version: string) => {
-      await dispatchFromCli('mutate', 'pipeline', 'release.show', { version }, { command: 'release' });
+      await dispatchFromCli('query', 'pipeline', 'release.show', { version }, { command: 'release' });
     });
 
   release

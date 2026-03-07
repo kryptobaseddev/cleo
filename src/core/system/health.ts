@@ -423,6 +423,51 @@ function mapSchemaCheckResult(sr: SchemaCheckResult): DoctorCheck {
 }
 
 /**
+ * Check that a contributor project is using the dev channel, not production cleo.
+ * No-op for non-contributor projects (ADR-029).
+ */
+function checkContributorChannel(projectRoot: string): DoctorCheck {
+  const configPath = join(projectRoot, '.cleo', 'config.json');
+  if (!existsSync(configPath)) {
+    return { check: 'contributor_channel', status: 'ok', message: 'Not a contributor project' };
+  }
+  let isContributor = false;
+  let devCli = 'cleo-dev';
+  try {
+    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as {
+      contributor?: { isContributorProject?: boolean; devCli?: string };
+    };
+    isContributor = config.contributor?.isContributorProject === true;
+    devCli = config.contributor?.devCli ?? 'cleo-dev';
+  } catch {
+    return { check: 'contributor_channel', status: 'ok', message: 'Not a contributor project' };
+  }
+
+  if (!isContributor) {
+    return { check: 'contributor_channel', status: 'ok', message: 'Not a contributor project' };
+  }
+
+  // Check that cleo-dev is on PATH by scanning PATH entries
+  const pathDirs = (process.env['PATH'] ?? '').split(':').filter(Boolean);
+  const devCliAvailable = pathDirs.some(dir => existsSync(join(dir, devCli)));
+
+  if (!devCliAvailable) {
+    return {
+      check: 'contributor_channel',
+      status: 'warning',
+      message: `Contributor project detected but '${devCli}' is not on PATH. Run ./install.sh --dev to install the dev symlink.`,
+      fix: './install.sh --dev',
+    };
+  }
+
+  return {
+    check: 'contributor_channel',
+    status: 'ok',
+    message: `Contributor project: '${devCli}' is available. Agents will use dev channel.`,
+  };
+}
+
+/**
  * Run comprehensive doctor diagnostics combining dependency checks,
  * directory checks, data file checks, gitignore checks, and environment info.
  * @task T4795
@@ -593,6 +638,9 @@ export async function coreDoctorReport(
   checks.push(mapCheckResult(checkProjectContext(projectRoot)));
 
   checks.push(mapCheckResult(checkInjection(projectRoot)));
+
+  // Contributor project channel check (ADR-029)
+  checks.push(checkContributorChannel(projectRoot));
 
   // Agent definition presence check
   const agentDefPath = join(getAgentsHome(), 'agents', 'cleo-subagent');
