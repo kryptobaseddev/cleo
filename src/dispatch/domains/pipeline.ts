@@ -39,7 +39,7 @@ import {
   releaseRollback,
 } from '../lib/engine.js';
 
-import { releaseShip, releaseList, releaseShow } from '../engines/release-engine.js';
+import { releaseShip, releaseList, releaseShow, releaseCancel } from '../engines/release-engine.js';
 
 import { execFileSync } from 'node:child_process';
 
@@ -194,7 +194,7 @@ export class PipelineHandler implements DomainHandler {
         'stage.gate.pass', 'stage.gate.fail',
         'release.prepare', 'release.changelog', 'release.commit',
         'release.tag', 'release.push', 'release.gates.run',
-        'release.rollback', 'release.ship',
+        'release.rollback', 'release.cancel', 'release.ship',
         'manifest.append', 'manifest.archive',
         'phase.set', 'phase.start', 'phase.complete',
         'phase.advance', 'phase.rename', 'phase.delete',
@@ -490,6 +490,16 @@ export class PipelineHandler implements DomainHandler {
         const reason = params?.reason as string | undefined;
         const result = await releaseRollback(version, reason, this.projectRoot);
         return this.wrapEngineResult(result, 'mutate', 'release.rollback', startTime);
+      }
+
+      case 'cancel': {
+        const version = params?.version as string;
+        if (!version) {
+          return this.errorResponse('mutate', 'release.cancel', 'E_INVALID_INPUT',
+            'version is required', startTime);
+        }
+        const result = await releaseCancel(version, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'release.cancel', startTime);
       }
 
       case 'ship': {

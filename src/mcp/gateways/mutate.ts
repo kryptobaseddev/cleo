@@ -796,6 +796,7 @@ function validateReleaseParams(
     case 'tag':
     case 'push':
     case 'rollback':
+    case 'cancel':
       if (!params?.version) {
         return {
           valid: false,

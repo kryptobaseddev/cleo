@@ -260,6 +260,7 @@ export {
   releaseTag,
   releaseGatesRun,
   releaseRollback,
+  releaseCancel,
   releasePush,
 } from '../engines/release-engine.js';
 
