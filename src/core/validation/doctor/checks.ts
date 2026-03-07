@@ -12,6 +12,7 @@ import { existsSync, readFileSync, accessSync, constants, statSync } from 'node:
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { getCleoHome } from '../../paths.js';
 import { getNodeVersionInfo, getNodeUpgradeInstructions, MINIMUM_NODE_MAJOR } from '../../platform.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
@@ -39,7 +40,7 @@ export interface CheckResult {
 
 /** @task T4525 */
 export function checkCliInstallation(
-  cleoHome: string = join(homedir(), '.cleo'),
+  cleoHome: string = getCleoHome(),
 ): CheckResult {
   const exists = existsSync(cleoHome);
   return {
@@ -63,7 +64,7 @@ const VERSION_REGEX = /^\d+\.\d+\.\d+$/;
 
 /** @task T4525 */
 export function checkCliVersion(
-  cleoHome: string = join(homedir(), '.cleo'),
+  cleoHome: string = getCleoHome(),
 ): CheckResult {
   const versionFile = join(cleoHome, 'VERSION');
 
@@ -97,7 +98,7 @@ export function checkCliVersion(
 
 /** @task T4525 */
 export function checkDocsAccessibility(
-  cleoHome: string = join(homedir(), '.cleo'),
+  cleoHome: string = getCleoHome(),
 ): CheckResult {
   const docsFile = join(cleoHome, 'templates', 'CLEO-INJECTION.md');
 
@@ -142,7 +143,7 @@ export function checkDocsAccessibility(
 
 /** @task T4525 */
 export function checkAtReferenceResolution(
-  cleoHome: string = join(homedir(), '.cleo'),
+  cleoHome: string = getCleoHome(),
 ): CheckResult {
   const docsFile = join(cleoHome, 'templates', 'CLEO-INJECTION.md');
   const reference = '@~/.cleo/templates/CLEO-INJECTION.md';
@@ -373,7 +374,7 @@ export function checkCleoGitignore(
     try {
       const templatePaths = [
         join(root, 'templates', 'cleo-gitignore'),
-        join(homedir(), '.cleo', 'templates', 'cleo-gitignore'),
+        join(getCleoHome(), 'templates', 'cleo-gitignore'),
       ];
       for (const tp of templatePaths) {
         if (existsSync(tp)) {
@@ -819,7 +820,7 @@ export function checkAtReferenceTargetExists(projectRoot?: string): CheckResult 
  */
 export function checkTemplateFreshness(projectRoot?: string, cleoHome?: string): CheckResult {
   const root = projectRoot ?? process.cwd();
-  const home = cleoHome ?? join(homedir(), '.cleo');
+  const home = cleoHome ?? getCleoHome();
   const sourcePath = join(root, 'templates', 'CLEO-INJECTION.md');
   const deployedPath = join(home, 'templates', 'CLEO-INJECTION.md');
 
@@ -878,7 +879,7 @@ export function checkTemplateFreshness(projectRoot?: string, cleoHome?: string):
  * @task T5153
  */
 export function checkTierMarkersPresent(cleoHome?: string): CheckResult {
-  const home = cleoHome ?? join(homedir(), '.cleo');
+  const home = cleoHome ?? getCleoHome();
   const templatePath = join(home, 'templates', 'CLEO-INJECTION.md');
 
   if (!existsSync(templatePath)) {
@@ -1155,7 +1156,7 @@ export function runAllGlobalChecks(
   cleoHome?: string,
   projectRoot?: string,
 ): CheckResult[] {
-  const home = cleoHome ?? join(homedir(), '.cleo');
+  const home = cleoHome ?? getCleoHome();
 
   return [
     checkNodeVersion(),
