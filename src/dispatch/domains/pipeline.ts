@@ -511,8 +511,9 @@ export class PipelineHandler implements DomainHandler {
         }
         const remote = params?.remote as string | undefined;
         const dryRun = params?.dryRun as boolean | undefined;
+        const bump = params?.bump as boolean | undefined;
         const result = await releaseShip(
-          { version, epicId, remote, dryRun },
+          { version, epicId, remote, dryRun, bump },
           this.projectRoot,
         );
         return this.wrapEngineResult(result, 'mutate', 'release.ship', startTime);

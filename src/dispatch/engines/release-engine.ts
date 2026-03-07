@@ -48,6 +48,11 @@ import {
   getGitFlowConfig,
 } from '../../core/release/release-config.js';
 
+import {
+  bumpVersionFromConfig,
+  getVersionBumpConfig,
+} from '../../core/release/version-bump.js';
+
 import { engineError, type EngineResult } from './_error.js';
 
 /**
@@ -363,10 +368,11 @@ export async function releaseShip(
     epicId: string;
     remote?: string;
     dryRun?: boolean;
+    bump?: boolean;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
-  const { version, epicId, remote, dryRun = false } = params;
+  const { version, epicId, remote, dryRun = false, bump = true } = params;
 
   if (!version) {
     return engineError('E_INVALID_INPUT', 'version is required');
@@ -394,9 +400,28 @@ export async function releaseShip(
     console.log(msg);
   };
 
+  const bumpTargets = getVersionBumpConfig(cwd);
+  const shouldBump = bump && bumpTargets.length > 0;
+
   try {
+    // Step 0: Bump version files (if configured and bump not disabled)
+    if (shouldBump) {
+      logStep(0, 8, 'Bump version files');
+      if (!dryRun) {
+        const bumpResults = bumpVersionFromConfig(version, { dryRun: false }, cwd);
+        if (!bumpResults.allSuccess) {
+          const failed = bumpResults.results.filter(r => !r.success).map(r => r.file);
+          steps.push(`  ! Version bump partial: failed for ${failed.join(', ')}`);
+        } else {
+          logStep(0, 8, 'Bump version files', true);
+        }
+      } else {
+        logStep(0, 8, 'Bump version files', true);
+      }
+    }
+
     // Step 1: Run release gates
-    logStep(1, 7, 'Validate release gates');
+    logStep(1, 8, 'Validate release gates');
     const gatesResult = await runReleaseGates(
       version,
       () => loadTasks(projectRoot),
@@ -406,12 +431,12 @@ export async function releaseShip(
 
     if (gatesResult && !gatesResult.allPassed) {
       const failedGates = gatesResult.gates.filter((g) => g.status === 'failed');
-      logStep(1, 7, 'Validate release gates', false, failedGates.map((g) => g.name).join(', '));
+      logStep(1, 8,'Validate release gates', false, failedGates.map((g) => g.name).join(', '));
       return engineError('E_LIFECYCLE_GATE_FAILED', `Release gates failed for ${version}: ${failedGates.map((g) => g.name).join(', ')}`, {
         details: { gates: gatesResult.gates, failedCount: gatesResult.failedCount },
       });
     }
-    logStep(1, 7, 'Validate release gates', true);
+    logStep(1, 8,'Validate release gates', true);
 
     // Resolve release channel from current branch (after gates, which read the branch)
     let resolvedChannel: string = 'latest';
@@ -438,7 +463,7 @@ export async function releaseShip(
     }
 
     // Step 2: Check epic completeness — load release tasks from manifest
-    logStep(2, 7, 'Check epic completeness');
+    logStep(2, 8,'Check epic completeness');
     let releaseTaskIds: string[] = [];
     try {
       const manifest = await showManifestRelease(version, projectRoot);
@@ -454,15 +479,15 @@ export async function releaseShip(
         .filter((e) => e.missingChildren.length > 0)
         .map((e) => `${e.epicId}: missing ${e.missingChildren.map((c) => c.id).join(', ')}`)
         .join('; ');
-      logStep(2, 7, 'Check epic completeness', false, incomplete);
+      logStep(2, 8,'Check epic completeness', false, incomplete);
       return engineError('E_LIFECYCLE_GATE_FAILED', `Epic completeness check failed: ${incomplete}`, {
         details: { epics: epicCheck.epics },
       });
     }
-    logStep(2, 7, 'Check epic completeness', true);
+    logStep(2, 8,'Check epic completeness', true);
 
     // Step 3: Check for double-listing
-    logStep(3, 7, 'Check task double-listing');
+    logStep(3, 8,'Check task double-listing');
     const allReleases = await listManifestReleases(projectRoot);
     const existingReleases = (
       (allReleases as { releases?: Array<{ version: string; tasks?: string[] }> }).releases ?? []
@@ -476,12 +501,12 @@ export async function releaseShip(
       const dupes = doubleCheck.duplicates
         .map((d) => `${d.taskId} (in ${d.releases.join(', ')})`)
         .join('; ');
-      logStep(3, 7, 'Check task double-listing', false, dupes);
+      logStep(3, 8,'Check task double-listing', false, dupes);
       return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, {
         details: { duplicates: doubleCheck.duplicates },
       });
     }
-    logStep(3, 7, 'Check task double-listing', true);
+    logStep(3, 8,'Check task double-listing', true);
 
     // Resolve push mode for dry-run and PR logic
     const loadedConfig = loadReleaseConfig(cwd);
@@ -491,22 +516,28 @@ export async function releaseShip(
 
     if (dryRun) {
       // Step 4 (dry-run): Preview CHANGELOG generation without writing to disk
-      logStep(4, 7, 'Generate CHANGELOG');
-      logStep(4, 7, 'Generate CHANGELOG', true);
+      logStep(4, 8,'Generate CHANGELOG');
+      logStep(4, 8,'Generate CHANGELOG', true);
 
       const wouldCreatePR = requiresPRFromGates || pushMode === 'pr';
+      const filesToStagePreview = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map(t => t.file) : [])];
+      const wouldDo: string[] = [];
+      if (shouldBump) {
+        wouldDo.push(`bump version files: ${bumpTargets.map(t => t.file).join(', ')} → ${version}`);
+      }
+      wouldDo.push(
+        `write CHANGELOG.md: ## [${version}] - ${new Date().toISOString().split('T')[0]} (preview only, not written in dry-run)`,
+        `git add ${filesToStagePreview.join(' ')}`,
+        `git commit -m "release: ship v${version} (${epicId})"`,
+        `git tag -a v${version} -m "Release v${version}"`,
+      );
       const dryRunOutput: Record<string, unknown> = {
         version,
         epicId,
         dryRun: true,
         channel: resolvedChannel,
         pushMode,
-        wouldDo: [
-          `write CHANGELOG.md: ## [${version}] - ${new Date().toISOString().split('T')[0]} (preview only, not written in dry-run)`,
-          'git add CHANGELOG.md',
-          `git commit -m "release: ship v${version} (${epicId})"`,
-          `git tag -a v${version} -m "Release v${version}"`,
-        ],
+        wouldDo,
       };
 
       if (wouldCreatePR) {
@@ -532,24 +563,25 @@ export async function releaseShip(
     }
 
     // Step 4: Write CHANGELOG section (non-dry-run only)
-    logStep(4, 7, 'Generate CHANGELOG');
+    logStep(4, 8,'Generate CHANGELOG');
     await generateReleaseChangelog(
       version,
       () => loadTasks(projectRoot),
       projectRoot,
     );
     const changelogPath = `${cwd}/CHANGELOG.md`;
-    logStep(4, 7, 'Generate CHANGELOG', true);
+    logStep(4, 8,'Generate CHANGELOG', true);
 
     // Step 5: Git commit
-    logStep(5, 7, 'Commit release');
+    logStep(5, 8,'Commit release');
     const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
 
+    const filesToStage = ['CHANGELOG.md', ...(shouldBump ? bumpTargets.map(t => t.file) : [])];
     try {
-      execFileSync('git', ['add', 'CHANGELOG.md'], gitCwd);
+      execFileSync('git', ['add', ...filesToStage], gitCwd);
     } catch (err: unknown) {
       const msg = (err as { message?: string }).message ?? String(err);
-      logStep(5, 7, 'Commit release', false, `git add failed: ${msg}`);
+      logStep(5, 8,'Commit release', false, `git add failed: ${msg}`);
       return engineError('E_GENERAL', `git add failed: ${msg}`);
     }
 
@@ -563,10 +595,10 @@ export async function releaseShip(
       const msg = (err as { stderr?: string; message?: string }).stderr
         ?? (err as { message?: string }).message
         ?? String(err);
-      logStep(5, 7, 'Commit release', false, `git commit failed: ${msg}`);
+      logStep(5, 8,'Commit release', false, `git commit failed: ${msg}`);
       return engineError('E_GENERAL', `git commit failed: ${msg}`);
     }
-    logStep(5, 7, 'Commit release', true);
+    logStep(5, 8,'Commit release', true);
 
     let commitSha: string | undefined;
     try {
@@ -576,7 +608,7 @@ export async function releaseShip(
     }
 
     // Step 6: Tag release
-    logStep(6, 7, 'Tag release');
+    logStep(6, 8,'Tag release');
     const gitTag = `v${version.replace(/^v/, '')}`;
     try {
       execFileSync('git', ['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
@@ -584,13 +616,13 @@ export async function releaseShip(
       const msg = (err as { stderr?: string; message?: string }).stderr
         ?? (err as { message?: string }).message
         ?? String(err);
-      logStep(6, 7, 'Tag release', false, `git tag failed: ${msg}`);
+      logStep(6, 8,'Tag release', false, `git tag failed: ${msg}`);
       return engineError('E_GENERAL', `git tag failed: ${msg}`);
     }
-    logStep(6, 7, 'Tag release', true);
+    logStep(6, 8,'Tag release', true);
 
     // Step 7: Push or create PR
-    logStep(7, 7, 'Push / create PR');
+    logStep(7, 8,'Push / create PR');
     let prResult: PRResult | null = null;
 
     // First attempt the core pushRelease (which may signal requiresPR)
@@ -648,11 +680,11 @@ export async function releaseShip(
       // when requiresPR is false — so we do the git push here directly)
       try {
         execFileSync('git', ['push', remote ?? 'origin', '--follow-tags'], gitCwd);
-        logStep(7, 7, 'Push / create PR', true);
+        logStep(7, 8,'Push / create PR', true);
       } catch (err: unknown) {
         const execError = err as { status?: number; stderr?: string; message?: string };
         const msg = (execError.stderr ?? execError.message ?? '').slice(0, 500);
-        logStep(7, 7, 'Push / create PR', false, `git push failed: ${msg}`);
+        logStep(7, 8,'Push / create PR', false, `git push failed: ${msg}`);
         return engineError('E_GENERAL', `git push failed: ${msg}`, {
           details: { exitCode: execError.status },
         });
