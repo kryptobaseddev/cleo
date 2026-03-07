@@ -90,4 +90,11 @@ export function registerReleaseCommand(program: Command): void {
     .action(async (version: string) => {
       await dispatchFromCli('mutate', 'pipeline', 'release.changelog', { version }, { command: 'release' });
     });
+
+  release
+    .command('cancel <version>')
+    .description('Cancel and remove a release in draft or prepared state')
+    .action(async (version: string) => {
+      await dispatchFromCli('mutate', 'pipeline', 'release.cancel', { version }, { command: 'release' });
+    });
 }

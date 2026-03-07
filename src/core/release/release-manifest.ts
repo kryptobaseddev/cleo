@@ -757,6 +757,53 @@ export async function runReleaseGates(
 }
 
 /**
+ * Cancel and remove a release in draft or prepared state.
+ * Only releases that have not yet been committed to git can be cancelled.
+ * For committed/tagged/pushed releases, use rollbackRelease() instead.
+ *
+ * @task T5602
+ */
+export async function cancelRelease(
+  version: string,
+  projectRoot?: string,
+): Promise<{ success: boolean; message: string; version: string }> {
+  if (!version) {
+    throw new Error('version is required');
+  }
+
+  const normalizedVersion = normalizeVersion(version);
+  const db = await getDb(projectRoot);
+  const rows = await db
+    .select()
+    .from(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .limit(1)
+    .all();
+
+  if (rows.length === 0) {
+    return { success: false, message: `Release ${normalizedVersion} not found`, version: normalizedVersion };
+  }
+
+  const status = rows[0]!.status;
+  const cancellableStates = ['draft', 'prepared'] as const;
+
+  if (!(cancellableStates as readonly string[]).includes(status)) {
+    return {
+      success: false,
+      message: `Cannot cancel a release in '${status}' state. Use 'release rollback' instead.`,
+      version: normalizedVersion,
+    };
+  }
+
+  await db
+    .delete(schema.releaseManifests)
+    .where(eq(schema.releaseManifests.version, normalizedVersion))
+    .run();
+
+  return { success: true, message: `Release ${normalizedVersion} cancelled and removed`, version: normalizedVersion };
+}
+
+/**
  * Rollback a release.
  * @task T4788
  */
