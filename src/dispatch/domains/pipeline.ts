@@ -41,6 +41,14 @@ import {
 
 import { releaseShip, releaseList, releaseShow } from '../engines/release-engine.js';
 
+import { execFileSync } from 'node:child_process';
+
+import {
+  resolveChannelFromBranch,
+  channelToDistTag,
+  describeChannel,
+} from '../../core/release/channel.js';
+
 import {
   showPhase,
   listPhases,
@@ -177,7 +185,7 @@ export class PipelineHandler implements DomainHandler {
         'stage.gates', 'stage.prerequisites',
         'manifest.show', 'manifest.list', 'manifest.find',
         'manifest.pending', 'manifest.stats',
-        'release.list', 'release.show',
+        'release.list', 'release.show', 'release.channel.show',
         'phase.show', 'phase.list',
         'chain.show', 'chain.list', 'chain.find',
       ],
@@ -364,6 +372,33 @@ export class PipelineHandler implements DomainHandler {
         }
         const result = await releaseShow(version, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'release.show', startTime);
+      }
+
+      case 'channel.show': {
+        let currentBranch = 'unknown';
+        try {
+          currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+            encoding: 'utf-8',
+            stdio: 'pipe',
+            cwd: this.projectRoot,
+          }).trim();
+        } catch {
+          // git not available or not a git repo — leave as 'unknown'
+        }
+
+        const resolvedChannel = resolveChannelFromBranch(currentBranch);
+        const distTag = channelToDistTag(resolvedChannel);
+        const description = describeChannel(resolvedChannel);
+
+        return this.wrapEngineResult({
+          success: true,
+          data: {
+            branch: currentBranch,
+            channel: resolvedChannel,
+            distTag,
+            description,
+          },
+        }, 'query', 'release.channel.show', startTime);
       }
 
       default:

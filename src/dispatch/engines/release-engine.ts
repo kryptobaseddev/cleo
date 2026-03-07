@@ -29,6 +29,24 @@ import {
 
 import { checkEpicCompleteness, checkDoubleListing } from '../../core/release/guards.js';
 
+import {
+  createPullRequest,
+  isGhCliAvailable,
+  buildPRBody,
+  type PRResult,
+} from '../../core/release/github-pr.js';
+
+import {
+  resolveChannelFromBranch,
+  channelToDistTag,
+} from '../../core/release/channel.js';
+
+import {
+  loadReleaseConfig,
+  getPushMode,
+  getGitFlowConfig,
+} from '../../core/release/release-config.js';
+
 import { engineError, type EngineResult } from './_error.js';
 
 /**
@@ -307,9 +325,10 @@ export async function releasePush(
  * release.ship - Composite release operation
  *
  * Sequence: validate gates → epic completeness → double-listing check →
- * write CHANGELOG → git commit/tag/push → record provenance
+ * write CHANGELOG → git commit/tag/push (or PR) → record provenance
  *
  * @task T5582
+ * @task T5586
  * @epic T5576
  */
 export async function releaseShip(
@@ -332,8 +351,20 @@ export async function releaseShip(
 
   const cwd = projectRoot ?? resolveProjectRoot();
 
+  /** Emit a step line for each release stage. */
+  const logStep = (n: number, total: number, label: string, done?: boolean, error?: string): void => {
+    if (done === undefined) {
+      console.log(`[Step ${n}/${total}] ${label}...`);
+    } else if (done) {
+      console.log(`  ✓ ${label}`);
+    } else {
+      console.log(`  ✗ ${label}: ${error ?? 'failed'}`);
+    }
+  };
+
   try {
     // Step 1: Run release gates
+    logStep(1, 7, 'Validate release gates');
     const gatesResult = await runReleaseGates(
       version,
       () => loadTasks(projectRoot),
@@ -342,12 +373,39 @@ export async function releaseShip(
 
     if (gatesResult && !gatesResult.allPassed) {
       const failedGates = gatesResult.gates.filter((g) => g.status === 'failed');
+      logStep(1, 7, 'Validate release gates', false, failedGates.map((g) => g.name).join(', '));
       return engineError('E_LIFECYCLE_GATE_FAILED', `Release gates failed for ${version}: ${failedGates.map((g) => g.name).join(', ')}`, {
         details: { gates: gatesResult.gates, failedCount: gatesResult.failedCount },
       });
     }
+    logStep(1, 7, 'Validate release gates', true);
+
+    // Resolve release channel from current branch (after gates, which read the branch)
+    let resolvedChannel: string = 'latest';
+    let currentBranchForPR = 'HEAD';
+    try {
+      const branchName = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }).trim();
+      currentBranchForPR = branchName;
+      const channelEnum = resolveChannelFromBranch(branchName);
+      resolvedChannel = channelToDistTag(channelEnum);
+    } catch {
+      // git unavailable — keep default
+    }
+
+    // Prefer metadata from gates result if available (B4 populates this)
+    const gateMetadata = (gatesResult as unknown as { metadata?: { requiresPR?: boolean; targetBranch?: string; currentBranch?: string; channel?: string } }).metadata;
+    const requiresPRFromGates = gateMetadata?.requiresPR ?? false;
+    const targetBranchFromGates = gateMetadata?.targetBranch;
+    if (gateMetadata?.currentBranch) {
+      currentBranchForPR = gateMetadata.currentBranch;
+    }
 
     // Step 2: Check epic completeness — load release tasks from manifest
+    logStep(2, 7, 'Check epic completeness');
     let releaseTaskIds: string[] = [];
     try {
       const manifest = await showManifestRelease(version, projectRoot);
@@ -363,12 +421,15 @@ export async function releaseShip(
         .filter((e) => e.missingChildren.length > 0)
         .map((e) => `${e.epicId}: missing ${e.missingChildren.map((c) => c.id).join(', ')}`)
         .join('; ');
+      logStep(2, 7, 'Check epic completeness', false, incomplete);
       return engineError('E_LIFECYCLE_GATE_FAILED', `Epic completeness check failed: ${incomplete}`, {
         details: { epics: epicCheck.epics },
       });
     }
+    logStep(2, 7, 'Check epic completeness', true);
 
     // Step 3: Check for double-listing
+    logStep(3, 7, 'Check task double-listing');
     const allReleases = await listManifestReleases(projectRoot);
     const existingReleases = (
       (allReleases as { releases?: Array<{ version: string; tasks?: string[] }> }).releases ?? []
@@ -382,12 +443,15 @@ export async function releaseShip(
       const dupes = doubleCheck.duplicates
         .map((d) => `${d.taskId} (in ${d.releases.join(', ')})`)
         .join('; ');
+      logStep(3, 7, 'Check task double-listing', false, dupes);
       return engineError('E_VALIDATION', `Double-listing detected: ${dupes}`, {
         details: { duplicates: doubleCheck.duplicates },
       });
     }
+    logStep(3, 7, 'Check task double-listing', true);
 
     // Step 4: Write CHANGELOG section
+    logStep(4, 7, 'Generate CHANGELOG');
     const changelogResult = await generateReleaseChangelog(
       version,
       () => loadTasks(projectRoot),
@@ -395,33 +459,61 @@ export async function releaseShip(
     );
     const changelogPath = `${cwd}/CHANGELOG.md`;
     const generatedContent = (changelogResult as { changelog?: string }).changelog ?? '';
+    logStep(4, 7, 'Generate CHANGELOG', true);
+
+    // Resolve push mode for dry-run and PR logic
+    const loadedConfig = loadReleaseConfig(cwd);
+    const pushMode = getPushMode(loadedConfig);
+    const gitflowCfg = getGitFlowConfig(loadedConfig);
+    const targetBranch = targetBranchFromGates ?? gitflowCfg.branches.main;
 
     if (dryRun) {
-      return {
-        success: true,
-        data: {
-          version,
-          epicId,
-          dryRun: true,
-          wouldDo: [
-            `write CHANGELOG section for ${version} (${generatedContent.length} chars)`,
-            'git add CHANGELOG.md',
-            `git commit -m "release: ship v${version} (${epicId})"`,
-            `git tag -a v${version} -m "Release v${version}"`,
-            `git push ${remote ?? 'origin'} --follow-tags`,
-            'markReleasePushed(...)',
-          ],
-        },
+      const wouldCreatePR = requiresPRFromGates || pushMode === 'pr';
+      const dryRunOutput: Record<string, unknown> = {
+        version,
+        epicId,
+        dryRun: true,
+        channel: resolvedChannel,
+        pushMode,
+        wouldDo: [
+          `write CHANGELOG section for ${version} (${generatedContent.length} chars)`,
+          'git add CHANGELOG.md',
+          `git commit -m "release: ship v${version} (${epicId})"`,
+          `git tag -a v${version} -m "Release v${version}"`,
+        ],
       };
+
+      if (wouldCreatePR) {
+        const ghAvailable = isGhCliAvailable();
+        (dryRunOutput['wouldDo'] as string[]).push(
+          ghAvailable
+            ? `gh pr create --base ${targetBranch} --head ${currentBranchForPR} --title "release: ship v${version}"`
+            : `manual PR: ${currentBranchForPR} → ${targetBranch} (gh CLI not available)`,
+        );
+        dryRunOutput['wouldCreatePR'] = true;
+        dryRunOutput['prTitle'] = `release: ship v${version}`;
+        dryRunOutput['prTargetBranch'] = targetBranch;
+      } else {
+        (dryRunOutput['wouldDo'] as string[]).push(
+          `git push ${remote ?? 'origin'} --follow-tags`,
+        );
+        dryRunOutput['wouldCreatePR'] = false;
+      }
+
+      (dryRunOutput['wouldDo'] as string[]).push('markReleasePushed(...)');
+
+      return { success: true, data: dryRunOutput };
     }
 
-    // Step 5: Git operations
+    // Step 5: Git commit
+    logStep(5, 7, 'Commit release');
     const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
 
     try {
       execFileSync('git', ['add', 'CHANGELOG.md'], gitCwd);
     } catch (err: unknown) {
       const msg = (err as { message?: string }).message ?? String(err);
+      logStep(5, 7, 'Commit release', false, `git add failed: ${msg}`);
       return engineError('E_GENERAL', `git add failed: ${msg}`);
     }
 
@@ -435,8 +527,10 @@ export async function releaseShip(
       const msg = (err as { stderr?: string; message?: string }).stderr
         ?? (err as { message?: string }).message
         ?? String(err);
+      logStep(5, 7, 'Commit release', false, `git commit failed: ${msg}`);
       return engineError('E_GENERAL', `git commit failed: ${msg}`);
     }
+    logStep(5, 7, 'Commit release', true);
 
     let commitSha: string | undefined;
     try {
@@ -445,6 +539,8 @@ export async function releaseShip(
       // Non-fatal
     }
 
+    // Step 6: Tag release
+    logStep(6, 7, 'Tag release');
     const gitTag = `v${version.replace(/^v/, '')}`;
     try {
       execFileSync('git', ['tag', '-a', gitTag, '-m', `Release ${gitTag}`], gitCwd);
@@ -452,20 +548,72 @@ export async function releaseShip(
       const msg = (err as { stderr?: string; message?: string }).stderr
         ?? (err as { message?: string }).message
         ?? String(err);
+      logStep(6, 7, 'Tag release', false, `git tag failed: ${msg}`);
       return engineError('E_GENERAL', `git tag failed: ${msg}`);
     }
+    logStep(6, 7, 'Tag release', true);
 
-    try {
-      execFileSync('git', ['push', remote ?? 'origin', '--follow-tags'], gitCwd);
-    } catch (err: unknown) {
-      const execError = err as { status?: number; stderr?: string; message?: string };
-      const msg = (execError.stderr ?? execError.message ?? '').slice(0, 500);
-      return engineError('E_GENERAL', `git push failed: ${msg}`, {
-        details: { exitCode: execError.status },
+    // Step 7: Push or create PR
+    logStep(7, 7, 'Push / create PR');
+    let prResult: PRResult | null = null;
+
+    // First attempt the core pushRelease (which may signal requiresPR)
+    const pushResult = await pushRelease(version, remote, projectRoot, {
+      explicitPush: true,
+      mode: pushMode,
+    });
+
+    if (pushResult.requiresPR || requiresPRFromGates) {
+      // Branch is protected — create PR instead of direct push
+      const prBody = buildPRBody({
+        base: targetBranch,
+        head: currentBranchForPR,
+        title: `release: ship v${version}`,
+        body: '',
+        version,
+        epicId,
+        projectRoot: cwd,
       });
+
+      prResult = await createPullRequest({
+        base: targetBranch,
+        head: currentBranchForPR,
+        title: `release: ship v${version}`,
+        body: prBody,
+        labels: ['release', resolvedChannel],
+        version,
+        epicId,
+        projectRoot: cwd,
+      });
+
+      if (prResult.mode === 'created') {
+        console.log(`  ✓ Push / create PR`);
+        console.log(`  PR created: ${prResult.prUrl}`);
+        console.log(`  → Next: merge the PR, then CI will publish to npm @${resolvedChannel}`);
+      } else if (prResult.mode === 'skipped') {
+        console.log(`  ✓ Push / create PR`);
+        console.log(`  PR already exists: ${prResult.prUrl}`);
+      } else {
+        console.log(`  ! Push / create PR — manual PR required:`);
+        console.log(prResult.instructions);
+      }
+    } else {
+      // Direct push path (pushRelease already ran, but it skips the actual push
+      // when requiresPR is false — so we do the git push here directly)
+      try {
+        execFileSync('git', ['push', remote ?? 'origin', '--follow-tags'], gitCwd);
+        logStep(7, 7, 'Push / create PR', true);
+      } catch (err: unknown) {
+        const execError = err as { status?: number; stderr?: string; message?: string };
+        const msg = (execError.stderr ?? execError.message ?? '').slice(0, 500);
+        logStep(7, 7, 'Push / create PR', false, `git push failed: ${msg}`);
+        return engineError('E_GENERAL', `git push failed: ${msg}`, {
+          details: { exitCode: execError.status },
+        });
+      }
     }
 
-    // Step 6: Record provenance
+    // Step 8 (internal): Record provenance
     const pushedAt = new Date().toISOString();
     await markReleasePushed(version, pushedAt, projectRoot, { commitSha, gitTag });
 
@@ -478,6 +626,17 @@ export async function releaseShip(
         gitTag,
         pushedAt,
         changelog: changelogPath,
+        channel: resolvedChannel,
+        ...(prResult
+          ? {
+              pr: {
+                mode: prResult.mode,
+                prUrl: prResult.prUrl,
+                prNumber: prResult.prNumber,
+                instructions: prResult.instructions,
+              },
+            }
+          : {}),
       },
     };
   } catch (err: unknown) {

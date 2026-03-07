@@ -25,5 +25,8 @@
     "isContributorProject": true,
     "devCli": "cleo-dev",
     "verifiedAt": "2026-03-07T04:34:01.818Z"
+  },
+  "verification": {
+    "enabled": true
   }
 }
