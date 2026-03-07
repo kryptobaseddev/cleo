@@ -407,7 +407,7 @@ export async function releaseShip(
           wouldDo: [
             `write CHANGELOG section for ${version} (${generatedContent.length} chars)`,
             'git add CHANGELOG.md',
-            `git commit -m "release: ship v${version} (T${epicId})"`,
+            `git commit -m "release: ship v${version} (${epicId})"`,
             `git tag v${version}`,
             `git push ${remote ?? 'origin'} --follow-tags`,
             'markReleasePushed(...)',
@@ -431,7 +431,7 @@ export async function releaseShip(
     try {
       execFileSync(
         'git',
-        ['commit', '-m', `release: ship v${version} (T${epicId})`],
+        ['commit', '-m', `release: ship v${version} (${epicId})`],
         gitCwd,
       );
     } catch (err: unknown) {
