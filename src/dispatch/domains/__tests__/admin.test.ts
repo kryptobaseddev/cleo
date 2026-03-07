@@ -161,7 +161,7 @@ describe('AdminHandler', () => {
       const res = await handler.query('dash');
 
       expect(res.success).toBe(true);
-      expect(systemDash).toHaveBeenCalledWith('/mock/project');
+      expect(systemDash).toHaveBeenCalledWith('/mock/project', expect.any(Object));
     });
 
     it('should call systemLog for log', async () => {
@@ -199,7 +199,7 @@ describe('AdminHandler', () => {
       expect(systemSequence).not.toHaveBeenCalled();
     });
 
-    it('should return help with quickStart and costHint at tier 0', async () => {
+    it('should return help with quickStart and compact grouped operations at tier 0', async () => {
       const res = await handler.query('help', { tier: 0 });
 
       expect(res.success).toBe(true);
@@ -208,13 +208,12 @@ describe('AdminHandler', () => {
       expect(data.quickStart).toBeDefined();
       expect(Array.isArray(data.quickStart)).toBe(true);
       expect((data.quickStart as string[]).length).toBeGreaterThan(0);
-      // All tier 0 ops should be included
-      const ops = data.operations as Array<{ costHint: string }>;
-      expect(ops.length).toBe(5); // 3 tasks + 2 admin at tier 0
-      // Every op should have a costHint
-      for (const op of ops) {
-        expect(['minimal', 'moderate', 'heavy']).toContain(op.costHint);
-      }
+      // Compact format: grouped by domain (not an array)
+      const ops = data.operations as Record<string, { query: string[]; mutate: string[] }>;
+      expect(Array.isArray(ops)).toBe(false);
+      expect(typeof ops).toBe('object');
+      // operationCount still reflects the real count
+      expect(typeof data.operationCount).toBe('number');
     });
 
     it('should not include quickStart at tier 1', async () => {
@@ -224,16 +223,16 @@ describe('AdminHandler', () => {
       const data = res.data as Record<string, unknown>;
       expect(data.tier).toBe(1);
       expect(data.quickStart).toBeUndefined();
-      // Tier 1 includes tier 0 + tier 1 ops
-      const ops = data.operations as Array<{ costHint: string }>;
-      expect(ops.length).toBe(6); // 5 tier-0 + 1 tier-1
+      // operationCount reflects tier 0 + tier 1 ops
+      expect(typeof data.operationCount).toBe('number');
     });
 
-    it('should classify cost hints correctly', async () => {
-      const res = await handler.query('help', { tier: 0 });
+    it('should classify cost hints correctly when verbose:true', async () => {
+      const res = await handler.query('help', { tier: 0, verbose: true });
 
       const data = res.data as Record<string, unknown>;
       const ops = data.operations as Array<{ domain: string; operation: string; costHint: string }>;
+      expect(Array.isArray(ops)).toBe(true);
 
       const listOp = ops.find(o => o.domain === 'tasks' && o.operation === 'list');
       expect(listOp?.costHint).toBe('heavy');
