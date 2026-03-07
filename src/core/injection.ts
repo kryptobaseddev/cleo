@@ -178,12 +178,36 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
 // ── Contributor project injection block (ADR-029) ────────────────────
 
 /**
- * Build the inline contributor warning block to inject into AGENTS.md.
+ * Probe whether the dev CLI binary is on PATH and responsive.
+ * Returns an object with availability and version (or error details).
+ * Non-blocking best-effort: returns { available: false } on any failure.
+ */
+function probeDevCli(devCli: string): { available: boolean; version?: string; error?: string } {
+  const { execFileSync } = require('node:child_process') as typeof import('node:child_process');
+  const pathDirs = (process.env['PATH'] ?? '').split(':').filter(Boolean);
+  const onPath = pathDirs.some(dir => existsSync(join(dir, devCli)));
+  if (!onPath) return { available: false, error: 'not on PATH' };
+  try {
+    const version = execFileSync(devCli, ['--version'], { timeout: 5000 })
+      .toString().trim();
+    return { available: true, version };
+  } catch (err) {
+    return { available: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Build a smart, contextual contributor block for AGENTS.md injection.
  * Returns null if this is not a contributor project.
  *
- * The block tells LLM agents to use cleo-dev instead of the production
- * @cleocode/cleo@latest package, preventing the "wrong tooling" trap where
- * agents test unreleased features against the stale published version.
+ * The block is INFORMATIONAL, not prescriptive. It tells agents:
+ *   - This is the CLEO source repo (contributor project)
+ *   - cleo-dev is available (or not, with reason)
+ *   - Prefer cleo-dev for unreleased features, but fall back to cleo if
+ *     the dev build is broken or unavailable
+ *
+ * This avoids the trap where a hardcoded "ALWAYS use cleo-dev" instruction
+ * sends agents into a loop when the dev build has compile errors.
  */
 export function buildContributorInjectionBlock(projectRoot: string): string | null {
   const configPath = join(projectRoot, '.cleo', 'config.json');
@@ -194,21 +218,37 @@ export function buildContributorInjectionBlock(projectRoot: string): string | nu
     };
     if (!config.contributor?.isContributorProject) return null;
     const devCli = config.contributor.devCli ?? 'cleo-dev';
-    return [
+
+    const probe = probeDevCli(devCli);
+
+    const lines: string[] = [
       '',
-      '# CLEO Contributor Project — Dev Channel Required',
+      '# CLEO Contributor Project — Dev Channel Available',
       '',
-      `This project IS the CLEO source repository. The production \`@cleocode/cleo@latest\``,
-      `MCP server and \`cleo\` CLI are STALE relative to the current branch.`,
+      'This project IS the CLEO source repository. Two CLEO channels are available:',
       '',
-      `**ALWAYS use \`${devCli}\` CLI and the local \`cleo-dev\` MCP server** when:`,
-      `- Testing new operations or features added on the \`develop\` branch`,
-      `- Running the release pipeline (\`cleo-dev release ship ...\`)`,
-      `- Dogfooding any code change that hasn't yet been published to npm`,
+      `- **\`${devCli}\`** (local dev build) — reflects the current branch, may include unreleased operations`,
+      '- **`cleo`** (production `@cleocode/cleo@latest`) — stable published version',
       '',
-      `**Never use \`cleo\` (production) to test unreleased code on this repo.**`,
-      `The published \`@latest\` lags \`develop\` by at least one release cycle.`,
-    ].join('\n');
+    ];
+
+    if (probe.available) {
+      lines.push(
+        `**Dev channel status**: healthy (\`${devCli} --version\`: ${probe.version})`,
+        '',
+        `Prefer \`${devCli}\` when working on unreleased features or testing new operations.`,
+        'Fall back to `cleo` if the dev build is broken or returns errors.',
+      );
+    } else {
+      lines.push(
+        `**Dev channel status**: unavailable (${probe.error})`,
+        '',
+        'Use `cleo` (production) until the dev build is fixed.',
+        `To install the dev channel: \`./install.sh --dev\``,
+      );
+    }
+
+    return lines.join('\n');
   } catch {
     return null;
   }

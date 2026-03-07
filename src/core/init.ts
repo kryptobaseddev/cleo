@@ -511,6 +511,17 @@ export async function initProject(opts: InitOptions = {}): Promise<InitResult> {
     warnings.push(`CAAMP injection: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ADR-029: Contributor project MCP registration
+  try {
+    const { ensureContributorMcp } = await import('./scaffold.js');
+    const mcpResult = await ensureContributorMcp(projRoot);
+    if (mcpResult.action !== 'skipped') {
+      created.push(`contributor MCP: ${mcpResult.details ?? mcpResult.action}`);
+    }
+  } catch (err) {
+    warnings.push(`Contributor MCP setup: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // T4685: Agent definition (cleo-subagent)
   await initAgentDefinition(created, warnings);
 

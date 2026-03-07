@@ -148,7 +148,10 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'dash': {
-          const result = await systemDash(this.projectRoot);
+          const blockedTasksLimit = typeof params?.blockedTasksLimit === 'number'
+            ? params.blockedTasksLimit
+            : undefined;
+          const result = await systemDash(this.projectRoot, { blockedTasksLimit });
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
@@ -175,7 +178,21 @@ export class AdminHandler implements DomainHandler {
 
         case 'help': {
           const tier = typeof params?.tier === 'number' ? params.tier : 0;
+          const verbose = params?.verbose === true;
           const ops = OPERATIONS.filter(op => op.tier <= tier);
+
+          const tierGuidance: Record<number, string> = {
+            0: 'Tier 0: Core task and session operations (tasks, session, admin). 80% of use cases.',
+            1: 'Tier 1: + memory/research and check/validate operations. 15% of use cases.',
+            2: 'Tier 2: Full access including pipeline, orchestrate, tools, nexus. 5% of use cases.',
+          };
+
+          // Compact domain-grouped format by default: { domain: { query: [...ops], mutate: [...ops] } }
+          const grouped: Record<string, { query: string[]; mutate: string[] }> = {};
+          for (const op of ops) {
+            if (!grouped[op.domain]) grouped[op.domain] = { query: [], mutate: [] };
+            grouped[op.domain][op.gateway].push(op.operation);
+          }
 
           const getCostHint = (domain: string, op: string): 'minimal' | 'moderate' | 'heavy' => {
             const key = `${domain}.${op}`;
@@ -186,11 +203,6 @@ export class AdminHandler implements DomainHandler {
             return 'minimal';
           };
 
-          const tierGuidance: Record<number, string> = {
-            0: 'Tier 0: Core task and session operations (tasks, session, admin). 80% of use cases.',
-            1: 'Tier 1: + memory/research and check/validate operations. 15% of use cases.',
-            2: 'Tier 2: Full access including pipeline, orchestrate, tools, nexus. 5% of use cases.',
-          };
           return {
             _meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
@@ -204,17 +216,20 @@ export class AdminHandler implements DomainHandler {
                 'mutate tasks.start {taskId} \u2014 begin work (~100 tokens)',
                 'mutate tasks.complete {taskId} \u2014 finish task (~200 tokens)',
               ] : undefined,
-              operations: ops.map(op => ({
-                gateway: op.gateway,
-                domain: op.domain,
-                operation: op.operation,
-                description: op.description,
-                costHint: getCostHint(op.domain, op.operation),
-              })),
+              // Compact grouped by domain by default; pass verbose:true for full object list
+              operations: verbose
+                ? ops.map(op => ({
+                  gateway: op.gateway,
+                  domain: op.domain,
+                  operation: op.operation,
+                  description: op.description,
+                  costHint: getCostHint(op.domain, op.operation),
+                }))
+                : grouped,
               guidance: tierGuidance[tier] ?? tierGuidance[0],
               escalation: tier < 2
                 ? `For more operations: query({domain:"admin",operation:"help",params:{tier:${tier + 1}}})`
-                : 'Full operation set displayed.',
+                : 'Full operation set displayed. Pass verbose:true for detailed object list.',
             },
           };
         }
@@ -589,9 +604,13 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'detect': {
-          const { ensureProjectContext } = await import('../../core/scaffold.js');
-          const result = await ensureProjectContext(this.projectRoot, { force: true });
-          return this.wrapEngineResult({ success: true, data: result }, 'mutate', 'admin', operation, startTime);
+          const { ensureProjectContext, ensureContributorMcp } = await import('../../core/scaffold.js');
+          const contextResult = await ensureProjectContext(this.projectRoot, { force: true });
+          const mcpResult = await ensureContributorMcp(this.projectRoot);
+          return this.wrapEngineResult({
+            success: true,
+            data: { context: contextResult, mcp: mcpResult },
+          }, 'mutate', 'admin', operation, startTime);
         }
 
         default:

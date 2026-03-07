@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cleo-dev": {
+      "command": "node",
+      "args": [
+        "--disable-warning=ExperimentalWarning",
+        "/mnt/projects/claude-todo/dist/mcp/index.js"
+      ],
+      "env": {}
+    }
+  }
+}
