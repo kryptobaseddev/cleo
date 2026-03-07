@@ -22,6 +22,7 @@ import {
   tagRelease,
   runReleaseGates,
   rollbackRelease,
+  cancelRelease,
   pushRelease,
   markReleasePushed,
   type ReleaseTaskRecord,
@@ -253,6 +254,31 @@ export async function releaseRollback(
 }
 
 /**
+ * release.cancel - Cancel and remove a release in draft or prepared state
+ * @task T5602
+ */
+export async function releaseCancel(
+  version: string,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (!version) {
+    return engineError('E_INVALID_INPUT', 'version is required');
+  }
+  try {
+    const result = await cancelRelease(version, projectRoot);
+    if (!result.success) {
+      const code = result.message.includes('not found') ? 'E_NOT_FOUND' : 'E_INVALID_STATE';
+      return engineError(code, result.message);
+    }
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    const code = message.includes('not found') ? 'E_NOT_FOUND' : 'E_CANCEL_FAILED';
+    return engineError(code, message);
+  }
+}
+
+/**
  * release.push - Push release to remote via git
  * Uses execFileSync (no shell) for safety.
  * Respects config.release.push policy.
@@ -457,17 +483,6 @@ export async function releaseShip(
     }
     logStep(3, 7, 'Check task double-listing', true);
 
-    // Step 4: Write CHANGELOG section
-    logStep(4, 7, 'Generate CHANGELOG');
-    const changelogResult = await generateReleaseChangelog(
-      version,
-      () => loadTasks(projectRoot),
-      projectRoot,
-    );
-    const changelogPath = `${cwd}/CHANGELOG.md`;
-    const generatedContent = (changelogResult as { changelog?: string }).changelog ?? '';
-    logStep(4, 7, 'Generate CHANGELOG', true);
-
     // Resolve push mode for dry-run and PR logic
     const loadedConfig = loadReleaseConfig(cwd);
     const pushMode = getPushMode(loadedConfig);
@@ -475,6 +490,10 @@ export async function releaseShip(
     const targetBranch = targetBranchFromGates ?? gitflowCfg.branches.main;
 
     if (dryRun) {
+      // Step 4 (dry-run): Preview CHANGELOG generation without writing to disk
+      logStep(4, 7, 'Generate CHANGELOG');
+      logStep(4, 7, 'Generate CHANGELOG', true);
+
       const wouldCreatePR = requiresPRFromGates || pushMode === 'pr';
       const dryRunOutput: Record<string, unknown> = {
         version,
@@ -483,7 +502,7 @@ export async function releaseShip(
         channel: resolvedChannel,
         pushMode,
         wouldDo: [
-          `write CHANGELOG section for ${version} (${generatedContent.length} chars)`,
+          `write CHANGELOG.md: ## [${version}] - ${new Date().toISOString().split('T')[0]} (preview only, not written in dry-run)`,
           'git add CHANGELOG.md',
           `git commit -m "release: ship v${version} (${epicId})"`,
           `git tag -a v${version} -m "Release v${version}"`,
@@ -511,6 +530,16 @@ export async function releaseShip(
 
       return { success: true, data: { ...dryRunOutput, steps } };
     }
+
+    // Step 4: Write CHANGELOG section (non-dry-run only)
+    logStep(4, 7, 'Generate CHANGELOG');
+    await generateReleaseChangelog(
+      version,
+      () => loadTasks(projectRoot),
+      projectRoot,
+    );
+    const changelogPath = `${cwd}/CHANGELOG.md`;
+    logStep(4, 7, 'Generate CHANGELOG', true);
 
     // Step 5: Git commit
     logStep(5, 7, 'Commit release');
