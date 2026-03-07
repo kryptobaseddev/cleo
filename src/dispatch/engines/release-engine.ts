@@ -351,15 +351,21 @@ export async function releaseShip(
 
   const cwd = projectRoot ?? resolveProjectRoot();
 
-  /** Emit a step line for each release stage. */
+  /** Collected step log messages, included in every return value for MCP visibility. */
+  const steps: string[] = [];
+
+  /** Emit a step line for each release stage. Pushes to steps[] and console.log for CLI. */
   const logStep = (n: number, total: number, label: string, done?: boolean, error?: string): void => {
+    let msg: string;
     if (done === undefined) {
-      console.log(`[Step ${n}/${total}] ${label}...`);
+      msg = `[Step ${n}/${total}] ${label}...`;
     } else if (done) {
-      console.log(`  ✓ ${label}`);
+      msg = `  ✓ ${label}`;
     } else {
-      console.log(`  ✗ ${label}: ${error ?? 'failed'}`);
+      msg = `  ✗ ${label}: ${error ?? 'failed'}`;
     }
+    steps.push(msg);
+    console.log(msg);
   };
 
   try {
@@ -369,6 +375,7 @@ export async function releaseShip(
       version,
       () => loadTasks(projectRoot),
       projectRoot,
+      { dryRun },
     );
 
     if (gatesResult && !gatesResult.allPassed) {
@@ -502,7 +509,7 @@ export async function releaseShip(
 
       (dryRunOutput['wouldDo'] as string[]).push('markReleasePushed(...)');
 
-      return { success: true, data: dryRunOutput };
+      return { success: true, data: { ...dryRunOutput, steps } };
     }
 
     // Step 5: Git commit
@@ -587,15 +594,25 @@ export async function releaseShip(
       });
 
       if (prResult.mode === 'created') {
-        console.log(`  ✓ Push / create PR`);
-        console.log(`  PR created: ${prResult.prUrl}`);
-        console.log(`  → Next: merge the PR, then CI will publish to npm @${resolvedChannel}`);
+        const m1 = `  ✓ Push / create PR`;
+        const m2 = `  PR created: ${prResult.prUrl}`;
+        const m3 = `  → Next: merge the PR, then CI will publish to npm @${resolvedChannel}`;
+        steps.push(m1, m2, m3);
+        console.log(m1);
+        console.log(m2);
+        console.log(m3);
       } else if (prResult.mode === 'skipped') {
-        console.log(`  ✓ Push / create PR`);
-        console.log(`  PR already exists: ${prResult.prUrl}`);
+        const m1 = `  ✓ Push / create PR`;
+        const m2 = `  PR already exists: ${prResult.prUrl}`;
+        steps.push(m1, m2);
+        console.log(m1);
+        console.log(m2);
       } else {
-        console.log(`  ! Push / create PR — manual PR required:`);
-        console.log(prResult.instructions);
+        const m1 = `  ! Push / create PR — manual PR required:`;
+        const m2 = prResult.instructions ?? '';
+        steps.push(m1, m2);
+        console.log(m1);
+        console.log(m2);
       }
     } else {
       // Direct push path (pushRelease already ran, but it skips the actual push
@@ -627,6 +644,7 @@ export async function releaseShip(
         pushedAt,
         changelog: changelogPath,
         channel: resolvedChannel,
+        steps,
         ...(prResult
           ? {
               pr: {
