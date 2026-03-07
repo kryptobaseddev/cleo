@@ -403,7 +403,7 @@ export async function generateReleaseChangelog(
 
   // Build the changelog body (content after the ## header line)
   const changelogBody = sections.slice(2).join('\n'); // skip header + blank line
-  await writeChangelogSection(normalizedVersion, changelogBody, customBlocks, changelogPath);
+  await writeChangelogSection(normalizedVersion.replace(/^v/, ''), changelogBody, customBlocks, changelogPath);
 
   return {
     version: normalizedVersion,
