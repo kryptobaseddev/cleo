@@ -28,5 +28,20 @@
   },
   "verification": {
     "enabled": true
+  },
+  "release": {
+    "versionBump": {
+      "files": [
+        {
+          "path": "VERSION",
+          "strategy": "plain"
+        },
+        {
+          "path": "package.json",
+          "strategy": "json",
+          "field": "version"
+        }
+      ]
+    }
   }
 }
