@@ -44,35 +44,29 @@ export function registerReleaseCommand(program: Command): void {
     });
 
   /**
-   * Safe-defaults design decision (T4275):
+   * Composite release: prepare → gates → changelog → commit → tag → push.
+   * Requires --epic <id>. Use --dry-run to preview without writing anything.
    *
-   * All ship flags are explicit opt-in. Running `release ship <version>`
-   * with no flags performs only the metadata commit (marking the release
-   * as "committed" in releases.json). Side-effects require flags:
-   *
-   *   --bump-version  Update VERSION file and other configured version targets
-   *   --create-tag    Create a git tag for the release
-   *   --push          Push commits and tags to the remote
+   * Flags:
+   *   --epic <id>     Epic task ID referenced in commit message (required)
    *   --dry-run       Preview all actions without writing anything
-   *
-   * This ensures agents cannot accidentally trigger irreversible actions
-   * (git push, tag creation) without explicit intent. The push operation
-   * additionally respects config.release.push policy when present.
+   *   --no-push       Skip git push (commit and tag only)
+   *   --remote <r>    Override git remote (default: origin)
    */
   release
     .command('ship <version>')
-    .description('Ship a release')
-    .option('--bump-version', 'Update VERSION file')
-    .option('--create-tag', 'Create git tag')
-    .option('--push', 'Push to remote')
-    .option('--dry-run', 'Preview without changes')
+    .description('Ship a release: gates → changelog → commit → tag → push')
+    .requiredOption('--epic <id>', 'Epic task ID for commit message (e.g. T5576)')
+    .option('--dry-run', 'Preview all actions without writing anything')
+    .option('--no-push', 'Commit and tag but skip git push')
+    .option('--remote <remote>', 'Git remote to push to (default: origin)')
     .action(async (version: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'pipeline', 'release.commit', {
+      await dispatchFromCli('mutate', 'pipeline', 'release.ship', {
         version,
-        bumpVersion: opts['bumpVersion'],
-        createTag: opts['createTag'],
-        push: opts['push'],
+        epicId: opts['epic'],
         dryRun: opts['dryRun'],
+        push: opts['push'] !== false,
+        remote: opts['remote'],
       }, { command: 'release' });
     });
 
@@ -80,26 +74,20 @@ export function registerReleaseCommand(program: Command): void {
     .command('list')
     .description('List all releases')
     .action(async () => {
-      await dispatchFromCli('query', 'pipeline', 'release.changelog', {
-        action: 'list',
-      }, { command: 'release' });
+      await dispatchFromCli('mutate', 'pipeline', 'release.list', {}, { command: 'release' });
     });
 
   release
     .command('show <version>')
     .description('Show release details')
     .action(async (version: string) => {
-      await dispatchFromCli('query', 'pipeline', 'release.changelog', {
-        version, action: 'show',
-      }, { command: 'release' });
+      await dispatchFromCli('mutate', 'pipeline', 'release.show', { version }, { command: 'release' });
     });
 
   release
     .command('changelog <version>')
-    .description('Get changelog for a release')
+    .description('Generate changelog for a release')
     .action(async (version: string) => {
-      await dispatchFromCli('query', 'pipeline', 'release.changelog', {
-        version,
-      }, { command: 'release' });
+      await dispatchFromCli('mutate', 'pipeline', 'release.changelog', { version }, { command: 'release' });
     });
 }

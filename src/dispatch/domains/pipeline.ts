@@ -39,7 +39,7 @@ import {
   releaseRollback,
 } from '../lib/engine.js';
 
-import { releaseShip } from '../engines/release-engine.js';
+import { releaseShip, releaseList, releaseShow } from '../engines/release-engine.js';
 
 import {
   showPhase,
@@ -178,6 +178,7 @@ export class PipelineHandler implements DomainHandler {
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
         'stage.gate.pass', 'stage.gate.fail',
+        'release.list', 'release.show',
         'release.prepare', 'release.changelog', 'release.commit',
         'release.tag', 'release.push', 'release.gates.run',
         'release.rollback', 'release.ship',
@@ -345,6 +346,21 @@ export class PipelineHandler implements DomainHandler {
     startTime: number,
   ): Promise<DispatchResponse> {
     switch (sub) {
+      case 'list': {
+        const result = await releaseList(this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'release.list', startTime);
+      }
+
+      case 'show': {
+        const version = params?.version as string;
+        if (!version) {
+          return this.errorResponse('mutate', 'release.show', 'E_INVALID_INPUT',
+            'version is required', startTime);
+        }
+        const result = await releaseShow(version, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'release.show', startTime);
+      }
+
       case 'prepare': {
         const version = params?.version as string;
         if (!version) {
