@@ -31,6 +31,7 @@ vi.mock('../../../core/paths.js', () => ({
 // Mock scaffold for admin.detect
 vi.mock('../../../core/scaffold.js', () => ({
   ensureProjectContext: vi.fn().mockResolvedValue({ action: 'repaired', path: '/mock/project/.cleo/project-context.json' }),
+  ensureContributorMcp: vi.fn().mockResolvedValue({ action: 'skipped', path: '/mock/project/.mcp.json', details: 'Not a contributor project' }),
 }));
 
 // Mock registry OPERATIONS for help tests
@@ -431,10 +432,13 @@ describe('AdminHandler', () => {
       expect(systemSequenceRepair).not.toHaveBeenCalled();
     });
 
-    it('admin.detect refreshes project-context.json', async () => {
+    it('admin.detect refreshes project-context.json and contributor MCP', async () => {
       const res = await handler.mutate('detect', {});
       expect(res.success).toBe(true);
-      expect(res.data).toMatchObject({ action: expect.stringMatching(/created|repaired|skipped/) });
+      expect(res.data).toMatchObject({
+        context: { action: expect.stringMatching(/created|repaired|skipped/) },
+        mcp: { action: expect.stringMatching(/created|repaired|skipped/) },
+      });
     });
 
     it('should return E_INVALID_OPERATION for unknown mutate', async () => {

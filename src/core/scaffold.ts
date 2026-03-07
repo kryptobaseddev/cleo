@@ -403,6 +403,70 @@ export async function ensureProjectInfo(
 }
 
 /**
+ * Ensure .mcp.json contains a cleo-dev server entry pointing to the local build.
+ * Only runs when isCleoContributorProject() is true (ADR-029).
+ *
+ * Writes the server entry:
+ *   cleo-dev → node <projectRoot>/dist/mcp/index.js
+ *
+ * This ensures Claude Code loads the LOCAL dev build MCP server for this project,
+ * not the published @cleocode/cleo@latest. Idempotent: preserves other entries.
+ */
+export async function ensureContributorMcp(
+  projectRoot: string,
+): Promise<ScaffoldResult> {
+  if (!isCleoContributorProject(projectRoot)) {
+    return { action: 'skipped', path: join(projectRoot, '.mcp.json'), details: 'Not a contributor project' };
+  }
+
+  const mcpJsonPath = join(projectRoot, '.mcp.json');
+  const mcpEntry = {
+    command: 'node',
+    args: ['--disable-warning=ExperimentalWarning', join(projectRoot, 'dist', 'mcp', 'index.js')],
+    env: {},
+  };
+
+  let config: Record<string, unknown> = { mcpServers: {} };
+  if (existsSync(mcpJsonPath)) {
+    try {
+      config = JSON.parse(readFileSync(mcpJsonPath, 'utf-8')) as Record<string, unknown>;
+    } catch { /* start fresh */ }
+  }
+
+  const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
+  const existing = servers['cleo-dev'] as Record<string, unknown> | undefined;
+
+  // Skip if already pointing to the same dist path
+  const existingArgs = existing?.['args'] as string[] | undefined;
+  const targetArg = join(projectRoot, 'dist', 'mcp', 'index.js');
+  if (existing && existingArgs?.includes(targetArg)) {
+    return { action: 'skipped', path: mcpJsonPath, details: 'cleo-dev MCP entry already current' };
+  }
+
+  servers['cleo-dev'] = mcpEntry;
+
+  // Remove production 'cleo' entry from project-level config — production cleo
+  // is global-only. Project-level .mcp.json for contributor projects should
+  // only contain cleo-dev (ADR-016 §2.3, ADR-029).
+  const removedProduction = 'cleo' in servers;
+  delete servers['cleo'];
+
+  config['mcpServers'] = servers;
+  await writeFile(mcpJsonPath, JSON.stringify(config, null, 2));
+
+  const details = [
+    `cleo-dev → node ${targetArg}`,
+    ...(removedProduction ? ['removed production cleo entry (global-only per ADR-029)'] : []),
+  ].join('; ');
+
+  return {
+    action: existing ? 'repaired' : 'created',
+    path: mcpJsonPath,
+    details,
+  };
+}
+
+/**
  * Detect and write project-context.json.
  * Idempotent: skips if file exists and is less than staleDays old (default: 30).
  */

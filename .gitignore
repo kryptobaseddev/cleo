@@ -179,7 +179,9 @@ __pycache__/
 installed-skills.json
 
 # Local tool configuration
-.mcp.json
+# NOTE: .mcp.json is intentionally tracked for the CLEO contributor project (ADR-029).
+# It configures the project-level cleo-dev MCP server → dist/mcp/index.js.
+# Regular user projects should add .mcp.json to their own .gitignore.
 opencode.json
 
 # ============================================================

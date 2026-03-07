@@ -423,8 +423,12 @@ function mapSchemaCheckResult(sr: SchemaCheckResult): DoctorCheck {
 }
 
 /**
- * Check that a contributor project is using the dev channel, not production cleo.
+ * Check contributor project dev channel availability and health.
  * No-op for non-contributor projects (ADR-029).
+ *
+ * Reports whether cleo-dev is on PATH and responsive. Does NOT mandate
+ * using cleo-dev — agents should prefer it when healthy, fall back to
+ * production cleo when the dev build is broken.
  */
 function checkContributorChannel(projectRoot: string): DoctorCheck {
   const configPath = join(projectRoot, '.cleo', 'config.json');
@@ -447,24 +451,36 @@ function checkContributorChannel(projectRoot: string): DoctorCheck {
     return { check: 'contributor_channel', status: 'ok', message: 'Not a contributor project' };
   }
 
-  // Check that cleo-dev is on PATH by scanning PATH entries
+  // Check that cleo-dev is on PATH
   const pathDirs = (process.env['PATH'] ?? '').split(':').filter(Boolean);
-  const devCliAvailable = pathDirs.some(dir => existsSync(join(dir, devCli)));
+  const devCliOnPath = pathDirs.some(dir => existsSync(join(dir, devCli)));
 
-  if (!devCliAvailable) {
+  if (!devCliOnPath) {
     return {
       check: 'contributor_channel',
       status: 'warning',
-      message: `Contributor project detected but '${devCli}' is not on PATH. Run ./install.sh --dev to install the dev symlink.`,
+      message: `Contributor project: '${devCli}' not on PATH. Using production cleo. Run ./install.sh --dev to enable dev channel.`,
       fix: './install.sh --dev',
     };
   }
 
-  return {
-    check: 'contributor_channel',
-    status: 'ok',
-    message: `Contributor project: '${devCli}' is available. Agents will use dev channel.`,
-  };
+  // Probe whether the dev CLI actually responds
+  try {
+    const { execFileSync } = _require('node:child_process') as typeof import('node:child_process');
+    const version = execFileSync(devCli, ['--version'], { timeout: 5000 }).toString().trim();
+    return {
+      check: 'contributor_channel',
+      status: 'ok',
+      message: `Contributor project: '${devCli}' healthy (v${version}). Prefer dev channel for unreleased features.`,
+    };
+  } catch {
+    return {
+      check: 'contributor_channel',
+      status: 'warning',
+      message: `Contributor project: '${devCli}' on PATH but not responding. Dev build may need rebuild (npm run build). Production cleo available as fallback.`,
+      fix: 'npm run build',
+    };
+  }
 }
 
 /**
@@ -732,6 +748,11 @@ export async function runDoctorFixes(
     cleo_git_repo: async () => {
       const r = await ensureCleoGitRepo(projectRoot);
       return { check: 'cleo_git_repo', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
+    },
+    contributor_channel: async () => {
+      const { ensureContributorMcp } = await import('../scaffold.js');
+      const r = await ensureContributorMcp(projectRoot);
+      return { check: 'contributor_channel', action: r.action === 'skipped' ? 'skipped' : 'fixed', message: r.details ?? r.action };
     },
     git_hooks: async () => {
       const r = await ensureGitHooks(projectRoot, { force: true });
