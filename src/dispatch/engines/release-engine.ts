@@ -408,7 +408,7 @@ export async function releaseShip(
             `write CHANGELOG section for ${version} (${generatedContent.length} chars)`,
             'git add CHANGELOG.md',
             `git commit -m "release: ship v${version} (${epicId})"`,
-            `git tag v${version}`,
+            `git tag -a v${version} -m "Release v${version}"`,
             `git push ${remote ?? 'origin'} --follow-tags`,
             'markReleasePushed(...)',
           ],
