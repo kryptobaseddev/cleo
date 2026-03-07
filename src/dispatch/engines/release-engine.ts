@@ -396,7 +396,6 @@ export async function releaseShip(
     );
     const changelogPath = `${cwd}/CHANGELOG.md`;
     const generatedContent = (changelogResult as { changelog?: string }).changelog ?? '';
-    await writeChangelogSection(version, generatedContent, [], changelogPath);
 
     if (dryRun) {
       return {
@@ -406,6 +405,7 @@ export async function releaseShip(
           epicId,
           dryRun: true,
           wouldDo: [
+            `write CHANGELOG section for ${version} (${generatedContent.length} chars)`,
             'git add CHANGELOG.md',
             `git commit -m "release: ship v${version} (T${epicId})"`,
             `git tag v${version}`,
@@ -415,6 +415,8 @@ export async function releaseShip(
         },
       };
     }
+
+    await writeChangelogSection(version, generatedContent, [], changelogPath);
 
     // Step 5: Git operations
     const gitCwd = { cwd, encoding: 'utf-8' as const, stdio: 'pipe' as const };
