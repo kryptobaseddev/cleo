@@ -512,6 +512,56 @@ export async function runReleaseGates(
       : `${incompleteTasks.length} tasks not completed: ${incompleteTasks.join(', ')}`,
   });
 
+  // G2: Build artifact — dist/cli/index.js must exist (Node projects only)
+  const projectRoot = cwd ?? getProjectRoot();
+  const distPath = join(projectRoot, 'dist', 'cli', 'index.js');
+  const isNodeProject = existsSync(join(projectRoot, 'package.json'));
+  if (isNodeProject) {
+    gates.push({
+      name: 'build_artifact',
+      status: existsSync(distPath) ? 'passed' : 'failed',
+      message: existsSync(distPath) ? 'dist/cli/index.js present' : 'dist/ not built — run: npm run build',
+    });
+  }
+
+  // GD1: Clean working tree (CHANGELOG.md and VERSION are allowed to be dirty)
+  let workingTreeClean = true;
+  let dirtyFiles: string[] = [];
+  try {
+    const porcelain = execFileSync('git', ['status', '--porcelain'], {
+      cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe',
+    });
+    dirtyFiles = porcelain.split('\n').filter(l => l.trim())
+      .map(l => l.slice(3).trim())
+      .filter(f => f !== 'CHANGELOG.md' && f !== 'VERSION' && f !== 'package.json');
+    workingTreeClean = dirtyFiles.length === 0;
+  } catch { /* git not available — skip */ }
+  gates.push({
+    name: 'clean_working_tree',
+    status: workingTreeClean ? 'passed' : 'failed',
+    message: workingTreeClean
+      ? 'Working tree clean (excluding CHANGELOG.md, VERSION, package.json)'
+      : `Uncommitted changes in: ${dirtyFiles.slice(0, 5).join(', ')}${dirtyFiles.length > 5 ? ` (+${dirtyFiles.length - 5} more)` : ''}`,
+  });
+
+  // GD2: Branch target — stable on main, pre-release on develop
+  const isPreRelease = normalizedVersion.includes('-');
+  let currentBranch = '';
+  try {
+    currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe',
+    }).trim();
+  } catch { /* git not available — skip */ }
+  const expectedBranch = isPreRelease ? 'develop' : 'main';
+  const branchOk = !currentBranch || currentBranch === expectedBranch || currentBranch === 'HEAD';
+  gates.push({
+    name: 'branch_target',
+    status: branchOk ? 'passed' : 'failed',
+    message: branchOk
+      ? `On correct branch: ${currentBranch}`
+      : `Expected branch '${expectedBranch}' for ${isPreRelease ? 'pre-release' : 'stable'} release, but on '${currentBranch}'`,
+  });
+
   const allPassed = gates.every((g) => g.status === 'passed');
 
   return {
