@@ -209,7 +209,7 @@ export async function workHistory(
   const db = await getDb(cwd);
   const rows = await db.select().from(schema.taskWorkHistory)
     .where(eq(schema.taskWorkHistory.sessionId, sessionId))
-    .orderBy(desc(schema.taskWorkHistory.setAt))
+    .orderBy(desc(schema.taskWorkHistory.setAt), desc(schema.taskWorkHistory.id))
     .limit(limit)
     .all();
 
