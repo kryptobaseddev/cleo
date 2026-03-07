@@ -359,7 +359,7 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `skill.refresh` | Refresh skill catalog | 0 | -- | No |
 | mutate | `provider.inject` | Inject provider configuration | 0 | -- | No |
 
-### 6.8 admin (43 operations)
+### 6.8 admin (44 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -406,6 +406,7 @@ The tools domain aggregates skills, providers, issues, and the CAAMP catalog.
 | mutate | `snapshot.import` | admin.snapshot.import (mutate) — import tasks from snapshot file | 2 | `file` | No |
 | query | `export.tasks` | admin.export.tasks (query) — export tasks to portable cross-project package | 2 | -- | Yes |
 | mutate | `import.tasks` | admin.import.tasks (mutate) — import tasks from cross-project export package | 2 | `file` | No |
+| mutate | `detect` | Refresh project-context.json — re-detect project type, framework, and LLM hints | 0 | -- | Yes |
 
 ### 6.9 nexus (31 operations)
 
@@ -469,10 +470,10 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 | pipeline | 14 | 24 | 38 |
 | orchestrate | 11 | 8 | 19 |
 | tools | 21 | 11 | 32 |
-| admin | 23 | 20 | 43 |
+| admin | 23 | 21 | 44 |
 | nexus | 17 | 14 | 31 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **145** | **112** | **257** |
+| **Total** | **145** | **113** | **258** |
 
 ---
 

@@ -135,16 +135,27 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(content.cleoVersion).toBeDefined();
   });
 
-  it('skips existing config.json without --force', async () => {
+  it('fails when project already initialized without --force', async () => {
     await initProject({ name: 'first-run' });
-    const result = await initProject({ name: 'second-run' });
-    expect(result.skipped).toContain('config.json');
+    await expect(initProject({ name: 'second-run' })).rejects.toThrow('already initialized');
   });
 
-  it('overwrites existing config.json with --force', async () => {
+  it('succeeds with --force on already-initialized project', async () => {
     await initProject({ name: 'first-run' });
     const result = await initProject({ name: 'overwrite-run', force: true });
+    expect(result.initialized).toBe(true);
     expect(result.created).toContain('config.json');
+  });
+
+  it('shows DANGER ZONE message when re-init without force', async () => {
+    await initProject({ name: 'first' });
+    try {
+      await initProject({ name: 'second' });
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect((err as Error).message).toContain('DANGER ZONE');
+      expect((err as Error).message).toContain('--force');
+    }
   });
 
   it('returns initialized=true on success', async () => {
@@ -167,6 +178,18 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     // project-context.json should be created when detection succeeds
     const created = result.created.join(',');
     expect(created).toContain('project-context.json');
+  });
+
+  it('creates project-context.json during init (without --detect)', async () => {
+    const result = await initProject({ name: 'test-project' });
+    expect(result.initialized).toBe(true);
+    const contextPath = join(testDir, '.cleo', 'project-context.json');
+    expect(existsSync(contextPath)).toBe(true);
+    const content = JSON.parse(await readFile(contextPath, 'utf-8'));
+    expect(content.schemaVersion).toBe('1.0.0');
+    expect(content.detectedAt).toBeDefined();
+    expect(content.projectTypes).toBeDefined();
+    expect(Array.isArray(content.projectTypes)).toBe(true);
   });
 
   it('installs git hooks when .git/ exists', async () => {

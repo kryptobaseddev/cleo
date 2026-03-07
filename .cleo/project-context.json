@@ -1,8 +1,50 @@
 {
-  "type": "node",
-  "testFramework": "vitest",
-  "hasTypeScript": true,
+  "schemaVersion": "1.0.0",
+  "detectedAt": "2026-03-07T00:20:43.865Z",
+  "projectTypes": [
+    "node"
+  ],
+  "primaryType": "node",
   "monorepo": false,
-  "packageManager": "npm",
-  "detectedAt": "2026-02-21T06:28:21.522Z"
+  "testing": {
+    "framework": "vitest",
+    "command": "npm run test",
+    "testFilePatterns": [
+      "**/*.test.ts",
+      "**/*.test.tsx",
+      "**/*.spec.ts"
+    ],
+    "directories": {
+      "integration": "tests/integration"
+    }
+  },
+  "build": {
+    "command": "npm run build",
+    "outputDir": "dist"
+  },
+  "directories": {
+    "source": "src",
+    "tests": "tests",
+    "docs": "docs"
+  },
+  "conventions": {
+    "fileNaming": "kebab-case",
+    "importStyle": "esm",
+    "typeSystem": "TypeScript strict"
+  },
+  "llmHints": {
+    "preferredTestStyle": "Vitest with describe/it blocks",
+    "typeSystem": "TypeScript strict mode",
+    "commonPatterns": [
+      "Use ES module imports (import/export)",
+      "Include .js extension in import paths (ESM convention)",
+      "Use explicit return types on exported functions",
+      "Use describe/it blocks with expect assertions",
+      "Use kebab-case for file names"
+    ],
+    "avoidPatterns": [
+      "Do not use CommonJS require()",
+      "Do not use any type — strict mode is enabled"
+    ]
+  }
 }
