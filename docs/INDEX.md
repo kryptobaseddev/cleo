@@ -21,9 +21,7 @@ CLEO provides portable project memory, verifiable provenance, and agent-safe orc
 * [Verb Standards](specs/VERB-STANDARDS.md) — Canonical verb conventions
 * [Schema Authority](specs/SCHEMA-AUTHORITY.md) — Schema version management
 * [Data Integrity](specs/CLEO-DATA-INTEGRITY-SPEC.md) — Data safety guarantees
-* [Install Channels](specs/CLEO-INSTALL-CHANNELS-SPEC.md) — Distribution specification
-* [CAAMP Integration](specs/CAAMP-CLEO-INTEGRATION-REQUIREMENTS.md) — Multi-agent injection
-* [Web API](specs/CLEO-WEB-API-SPEC.md) — Dispatch-over-Fastify HTTP API contract
+* [CAAMP Integration](specs/CAAMP-INTEGRATION-SPEC.md) — Multi-agent injection
 
 ### Guides
 

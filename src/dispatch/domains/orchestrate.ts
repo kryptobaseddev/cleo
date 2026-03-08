@@ -10,6 +10,7 @@
 
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
+import { routeByParam } from './_routing.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { paginate } from '../../core/pagination.js';
@@ -23,7 +24,6 @@ import {
   orchestrateContext,
   orchestrateBootstrap,
   orchestrateUnblockOpportunities,
-  orchestrateCriticalPath,
   orchestrateStartup,
   orchestrateSpawn,
   orchestrateHandoff,
@@ -31,7 +31,6 @@ import {
   orchestrateValidate,
   orchestrateParallelStart,
   orchestrateParallelEnd,
-  orchestrateCheck,
 } from '../lib/engine.js';
 
 import {
@@ -39,8 +38,6 @@ import {
   listTesseraTemplates,
   instantiateTessera,
 } from '../../core/lifecycle/tessera-engine.js';
-import { showChain } from '../../core/lifecycle/chain-store.js';
-import type { WarpChain } from '../../types/warp-chain.js';
 
 // ---------------------------------------------------------------------------
 // OrchestrateHandler
@@ -91,14 +88,15 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', operation, startTime);
         }
 
-        case 'analyze': {
+        case 'analyze':
+        case 'critical.path': {
           const epicId = params?.epicId as string;
-          if (!epicId) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
-          }
-          const result = await orchestrateAnalyze(epicId, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', operation, startTime);
+          // critical.path is a backward-compat alias — routes through analyze with mode='critical-path'
+          const mode = operation === 'critical.path'
+            ? 'critical-path'
+            : (params?.mode as string | undefined);
+          const result = await orchestrateAnalyze(epicId, this.projectRoot, mode);
+          return this.wrapEngineResult(result, 'query', 'analyze', startTime);
         }
 
         case 'context': {
@@ -128,35 +126,27 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', operation, startTime);
         }
 
-        case 'critical.path': {
-          const result = await orchestrateCriticalPath(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', operation, startTime);
-        }
-
-        case 'tessera.show': {
-          const id = params?.id as string;
-          if (!id) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
-              'id is required', startTime);
-          }
-          const template = showTessera(id);
-          if (!template) {
-            return this.errorResponse('query', operation, 'E_NOT_FOUND',
-              `Tessera template "${id}" not found`, startTime);
-          }
-          return {
-            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
-            success: true,
-            data: template,
-          };
-        }
-
+        case 'tessera.show':
         case 'tessera.list': {
+          // tessera.show is a backward-compat alias — tessera.list with id param does single lookup
+          const id = params?.id as string | undefined;
+          if (id) {
+            const template = showTessera(id);
+            if (!template) {
+              return this.errorResponse('query', 'tessera.list', 'E_NOT_FOUND',
+                `Tessera template "${id}" not found`, startTime);
+            }
+            return {
+              _meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
+              success: true,
+              data: template,
+            };
+          }
           const templates = listTesseraTemplates();
           const { limit, offset } = this.getListParams(params);
           const page = paginate(templates, limit, offset);
           return {
-            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
+            _meta: dispatchMeta('query', 'orchestrate', 'tessera.list', startTime),
             success: true,
             data: {
               templates: page.items,
@@ -165,26 +155,6 @@ export class OrchestrateHandler implements DomainHandler {
               filtered: templates.length,
             },
             page: page.page,
-          };
-        }
-
-        case 'chain.plan': {
-          const chainId = params?.chainId as string;
-          if (!chainId) {
-            return this.errorResponse('query', operation, 'E_INVALID_INPUT',
-              'chainId is required', startTime);
-          }
-
-          const chain = await showChain(chainId, this.projectRoot);
-          if (!chain) {
-            return this.errorResponse('query', operation, 'E_NOT_FOUND',
-              `Chain "${chainId}" not found`, startTime);
-          }
-
-          return {
-            _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
-            success: true,
-            data: this.buildChainPlan(chain),
           };
         }
 
@@ -274,39 +244,48 @@ export class OrchestrateHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', operation, startTime);
         }
 
-        case 'parallel.start': {
-          const epicId = params?.epicId as string;
-          const wave = params?.wave as number;
-          if (!epicId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
-          }
-          if (wave === undefined || wave === null) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'wave number is required', startTime);
-          }
-          const result = await orchestrateParallelStart(epicId, wave, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', operation, startTime);
-        }
-
+        case 'parallel':
+        case 'parallel.start':
         case 'parallel.end': {
-          const epicId = params?.epicId as string;
-          const wave = params?.wave as number;
-          if (!epicId) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'epicId is required', startTime);
-          }
-          if (wave === undefined || wave === null) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT',
-              'wave number is required', startTime);
-          }
-          const result = orchestrateParallelEnd(epicId, wave, this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', operation, startTime);
-        }
+          // parallel.start and parallel.end are backward-compat aliases
+          // Registry canonical: orchestrate.parallel with required 'action' param
+          const aliasAction = operation === 'parallel.start' ? 'start'
+            : operation === 'parallel.end' ? 'end'
+            : undefined;
+          const effectiveParams = aliasAction
+            ? { ...params, action: aliasAction }
+            : params;
 
-        case 'verify': {
-          const result = await orchestrateCheck(this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', operation, startTime);
+          return routeByParam(effectiveParams, 'action', {
+            start: async () => {
+              const epicId = effectiveParams?.epicId as string;
+              const wave = effectiveParams?.wave as number;
+              if (!epicId) {
+                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
+                  'epicId is required', startTime);
+              }
+              if (wave === undefined || wave === null) {
+                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
+                  'wave number is required', startTime);
+              }
+              const result = await orchestrateParallelStart(epicId, wave, this.projectRoot);
+              return this.wrapEngineResult(result, 'mutate', 'parallel', startTime);
+            },
+            end: async () => {
+              const epicId = effectiveParams?.epicId as string;
+              const wave = effectiveParams?.wave as number;
+              if (!epicId) {
+                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
+                  'epicId is required', startTime);
+              }
+              if (wave === undefined || wave === null) {
+                return this.errorResponse('mutate', 'parallel', 'E_INVALID_INPUT',
+                  'wave number is required', startTime);
+              }
+              const result = orchestrateParallelEnd(epicId, wave, this.projectRoot);
+              return this.wrapEngineResult(result, 'mutate', 'parallel', startTime);
+            },
+          });
         }
 
         case 'tessera.instantiate': {
@@ -351,12 +330,12 @@ export class OrchestrateHandler implements DomainHandler {
     return {
       query: [
         'status', 'next', 'ready', 'analyze', 'context',
-        'waves', 'bootstrap', 'unblock.opportunities', 'critical.path',
-        'tessera.show', 'tessera.list', 'chain.plan',
+        'waves', 'bootstrap', 'unblock.opportunities',
+        'tessera.list',
       ],
       mutate: [
         'start', 'spawn', 'handoff', 'spawn.execute', 'validate',
-        'parallel.start', 'parallel.end', 'verify',
+        'parallel',
         'tessera.instantiate',
       ],
     };
@@ -428,62 +407,4 @@ export class OrchestrateHandler implements DomainHandler {
     };
   }
 
-  private buildChainPlan(chain: WarpChain): {
-    chainId: string;
-    entryPoint: string;
-    exitPoints: string[];
-    waves: Array<{ wave: number; stageIds: string[] }>;
-    totalStages: number;
-    totalGates: number;
-  } {
-    const indegree = new Map<string, number>();
-    const adjacency = new Map<string, string[]>();
-
-    for (const stage of chain.shape.stages) {
-      indegree.set(stage.id, 0);
-      adjacency.set(stage.id, []);
-    }
-
-    for (const link of chain.shape.links) {
-      const edges = adjacency.get(link.from);
-      if (edges) {
-        edges.push(link.to);
-      }
-      indegree.set(link.to, (indegree.get(link.to) ?? 0) + 1);
-    }
-
-    const queue = Array.from(indegree.entries())
-      .filter(([, count]) => count === 0)
-      .map(([stageId]) => stageId);
-    const waves: Array<{ wave: number; stageIds: string[] }> = [];
-    const remainingInDegree = new Map(indegree);
-    let waveNumber = 1;
-
-    while (queue.length > 0) {
-      const currentWave = [...queue];
-      queue.length = 0;
-
-      waves.push({ wave: waveNumber, stageIds: currentWave });
-      waveNumber += 1;
-
-      for (const stageId of currentWave) {
-        for (const to of adjacency.get(stageId) ?? []) {
-          const next = (remainingInDegree.get(to) ?? 0) - 1;
-          remainingInDegree.set(to, next);
-          if (next === 0) {
-            queue.push(to);
-          }
-        }
-      }
-    }
-
-    return {
-      chainId: chain.id,
-      entryPoint: chain.shape.entryPoint,
-      exitPoints: chain.shape.exitPoints,
-      waves,
-      totalStages: chain.shape.stages.length,
-      totalGates: chain.gates.length,
-    };
-  }
 }

@@ -23,7 +23,8 @@ export function registerImportTasksCommand(program: Command): void {
     .option('--on-missing-dep <mode>', 'Handle missing deps: strip|placeholder|fail', 'strip')
     .option('--force', 'Skip conflict detection')
     .action(async (file: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'import.tasks', {
+      await dispatchFromCli('mutate', 'admin', 'import', {
+        scope: 'tasks',
         file,
         dryRun: opts['dryRun'],
         parent: opts['parent'],

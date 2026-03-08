@@ -21,8 +21,8 @@ export function registerSnapshotCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       if (opts['stdout']) {
         // Write snapshot JSON to stdout for piping
-        const response = await dispatchRaw('query', 'admin', 'snapshot.export', {});
-        handleRawError(response, { command: 'snapshot', operation: 'admin.snapshot.export' });
+        const response = await dispatchRaw('query', 'admin', 'export', { scope: 'snapshot' });
+        handleRawError(response, { command: 'snapshot', operation: 'admin.export' });
         const data = response.data as { taskCount?: number; outputPath?: string; checksum?: string } | undefined;
         // Re-read the snapshot from the output path to write to stdout
         if (data?.outputPath) {
@@ -34,7 +34,8 @@ export function registerSnapshotCommand(program: Command): void {
         return;
       }
 
-      await dispatchFromCli('query', 'admin', 'snapshot.export', {
+      await dispatchFromCli('query', 'admin', 'export', {
+        scope: 'snapshot',
         output: opts['output'],
       }, { command: 'snapshot' });
     });
@@ -44,7 +45,8 @@ export function registerSnapshotCommand(program: Command): void {
     .description('Import a task state snapshot into the local database')
     .option('--dry-run', 'Preview import without making changes')
     .action(async (file: string, opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'snapshot.import', {
+      await dispatchFromCli('mutate', 'admin', 'import', {
+        scope: 'snapshot',
         file,
         dryRun: opts['dryRun'],
       }, { command: 'snapshot' });

@@ -17,24 +17,41 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
-import { getAccessor } from '../../store/data-accessor.js';
 import { paginate } from '../../core/pagination.js';
+import { routeByParam } from './_routing.js';
 
 import {
   lifecycleStatus,
   lifecycleHistory,
-  lifecycleGates,
-  lifecyclePrerequisites,
   lifecycleCheck,
   lifecycleProgress,
   lifecycleSkip,
   lifecycleReset,
   lifecycleGatePass,
   lifecycleGateFail,
+  // Release operations
   releaseRollback,
+  releaseShip,
+  releaseList,
+  releaseShow,
+  releaseCancel,
+  // Phase operations
+  phaseList,
+  phaseShow,
+  phaseSet,
+  phaseStart,
+  phaseComplete,
+  phaseAdvance,
+  phaseRename,
+  phaseDelete,
+  // Manifest operations
+  pipelineManifestShow,
+  pipelineManifestList,
+  pipelineManifestFind,
+  pipelineManifestStats,
+  pipelineManifestAppend,
+  pipelineManifestArchive,
 } from '../lib/engine.js';
-
-import { releaseShip, releaseList, releaseShow, releaseCancel } from '../engines/release-engine.js';
 
 import { execFileSync } from 'node:child_process';
 
@@ -44,38 +61,13 @@ import {
   describeChannel,
 } from '../../core/release/channel.js';
 import type { ReleaseListOptions } from '../../core/release/release-manifest.js';
-
-import {
-  showPhase,
-  listPhases,
-} from '../../core/pipeline/phase.js';
-
-import {
-  setPhase,
-  startPhase,
-  completePhase,
-  advancePhase,
-  renamePhase,
-  deletePhase,
-} from '../../core/phases/index.js';
-
-import {
-  pipelineManifestShow,
-  pipelineManifestList,
-  pipelineManifestFind,
-  pipelineManifestPending,
-  pipelineManifestStats,
-  pipelineManifestAppend,
-  pipelineManifestArchive,
-} from '../../core/memory/pipeline-manifest-sqlite.js';
+import type { ListPhasesResult } from '../../core/phases/index.js';
 
 import {
   showChain,
   listChains,
-  findChains,
   addChain,
   createInstance,
-  showInstance,
   advanceInstance,
 } from '../../core/lifecycle/chain-store.js';
 
@@ -178,23 +170,18 @@ export class PipelineHandler implements DomainHandler {
     return {
       query: [
         'stage.validate', 'stage.status', 'stage.history',
-        'stage.gates', 'stage.prerequisites',
-        'manifest.show', 'manifest.list', 'manifest.find',
-        'manifest.pending', 'manifest.stats',
+        'manifest.show', 'manifest.list', 'manifest.find', 'manifest.stats',
         'release.list', 'release.show', 'release.channel.show',
         'phase.show', 'phase.list',
-        'chain.show', 'chain.list', 'chain.find',
+        'chain.show', 'chain.list',
       ],
       mutate: [
         'stage.record', 'stage.skip', 'stage.reset',
         'stage.gate.pass', 'stage.gate.fail',
-        // Release operations consolidated in T5615: prepare/changelog/commit/tag/push/gates.run merged into ship
         'release.ship', 'release.cancel', 'release.rollback',
         'manifest.append', 'manifest.archive',
-        'phase.set', 'phase.start', 'phase.complete',
-        'phase.advance', 'phase.rename', 'phase.delete',
+        'phase.set', 'phase.advance', 'phase.rename', 'phase.delete',
         'chain.add', 'chain.instantiate', 'chain.advance',
-        'chain.gate.pass', 'chain.gate.fail',
       ],
     };
   }
@@ -238,26 +225,6 @@ export class PipelineHandler implements DomainHandler {
         }
         const result = await lifecycleHistory(taskId, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'stage.history', startTime);
-      }
-
-      case 'gates': {
-        const taskId = params?.taskId as string;
-        if (!taskId) {
-          return this.errorResponse('query', 'stage.gates', 'E_INVALID_INPUT',
-            'taskId is required', startTime);
-        }
-        const result = await lifecycleGates(taskId, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'stage.gates', startTime);
-      }
-
-      case 'prerequisites': {
-        const targetStage = params?.targetStage as string;
-        if (!targetStage) {
-          return this.errorResponse('query', 'stage.prerequisites', 'E_INVALID_INPUT',
-            'targetStage is required', startTime);
-        }
-        const result = await lifecyclePrerequisites(targetStage, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'stage.prerequisites', startTime);
       }
 
       default:
@@ -313,29 +280,31 @@ export class PipelineHandler implements DomainHandler {
         return this.wrapEngineResult(result, 'mutate', 'stage.reset', startTime);
       }
 
-      case 'gate.pass': {
-        const taskId = params?.taskId as string;
-        const gateName = params?.gateName as string;
-        const agent = params?.agent as string | undefined;
-        const notes = params?.notes as string | undefined;
-        if (!taskId || !gateName) {
-          return this.errorResponse('mutate', 'stage.gate.pass', 'E_INVALID_INPUT',
-            'taskId and gateName are required', startTime);
-        }
-        const result = await lifecycleGatePass(taskId, gateName, agent, notes, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'stage.gate.pass', startTime);
-      }
-
+      // Merged: stage.gate routes by action param (pass/fail)
+      // Backward-compat aliases: stage.gate.pass, stage.gate.fail
+      case 'gate':
+      case 'gate.pass':
       case 'gate.fail': {
         const taskId = params?.taskId as string;
         const gateName = params?.gateName as string;
-        const reason = params?.reason as string | undefined;
         if (!taskId || !gateName) {
-          return this.errorResponse('mutate', 'stage.gate.fail', 'E_INVALID_INPUT',
+          return this.errorResponse('mutate', `stage.${sub}`, 'E_INVALID_INPUT',
             'taskId and gateName are required', startTime);
         }
-        const result = await lifecycleGateFail(taskId, gateName, reason, this.projectRoot);
-        return this.wrapEngineResult(result, 'mutate', 'stage.gate.fail', startTime);
+        // If using backward-compat alias, derive action from sub name
+        const effectiveParams = sub === 'gate'
+          ? params
+          : { ...params, action: sub === 'gate.pass' ? 'pass' : 'fail' };
+        return routeByParam<Promise<DispatchResponse>>(effectiveParams, 'action', {
+          pass: async () => {
+            const result = await lifecycleGatePass(taskId, gateName, params?.agent as string | undefined, params?.notes as string | undefined, this.projectRoot);
+            return this.wrapEngineResult(result, 'mutate', 'stage.gate', startTime);
+          },
+          fail: async () => {
+            const result = await lifecycleGateFail(taskId, gateName, params?.reason as string | undefined, this.projectRoot);
+            return this.wrapEngineResult(result, 'mutate', 'stage.gate', startTime);
+          },
+        });
       }
 
       default:
@@ -500,10 +469,6 @@ export class PipelineHandler implements DomainHandler {
         );
         return this.wrapEngineResult(result, 'query', 'manifest.find', startTime);
       }
-      case 'pending': {
-        const result = await pipelineManifestPending(params?.epicId as string | undefined, this.projectRoot);
-        return this.wrapEngineResult(result, 'query', 'manifest.pending', startTime);
-      }
       case 'stats': {
         const result = await pipelineManifestStats(params?.epicId as string | undefined, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'manifest.stats', startTime);
@@ -522,29 +487,28 @@ export class PipelineHandler implements DomainHandler {
     switch (sub) {
       case 'show': {
         const phaseId = params?.phaseId as string | undefined;
-        const showAccessor = await getAccessor(this.projectRoot);
-        const result = await showPhase(this.projectRoot, phaseId, showAccessor);
+        const result = await phaseShow(phaseId, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'phase.show', startTime);
       }
 
       case 'list': {
-        const listAccessor = await getAccessor(this.projectRoot);
-        const result = await listPhases(this.projectRoot, listAccessor);
+        const result = await phaseList(this.projectRoot);
         if (!result.success || !result.data) {
           return this.wrapEngineResult(result, 'query', 'phase.list', startTime);
         }
 
+        const listData = result.data as ListPhasesResult;
         const { limit, offset } = this.getListParams(params);
-        const page = paginate(result.data.phases, limit, offset);
+        const page = paginate(listData.phases, limit, offset);
 
         return {
           _meta: dispatchMeta('query', 'pipeline', 'phase.list', startTime),
           success: true,
           data: {
-            ...result.data,
+            ...listData,
             phases: page.items,
-            total: result.data.summary.total,
-            filtered: result.data.summary.total,
+            total: listData.summary.total,
+            filtered: listData.summary.total,
           },
           page: page.page,
         };
@@ -598,49 +562,42 @@ export class PipelineHandler implements DomainHandler {
     startTime: number,
   ): Promise<DispatchResponse> {
     switch (sub) {
-      case 'set': {
-        const phaseId = params?.phaseId as string;
-        if (!phaseId) {
-          return this.errorResponse('mutate', 'phase.set', 'E_INVALID_INPUT',
-            'phaseId is required', startTime);
-        }
-        const setAccessor = await getAccessor(this.projectRoot);
-        const data = await setPhase({
-          slug: phaseId,
-          rollback: params?.rollback as boolean | undefined,
-          force: params?.force as boolean | undefined,
-          dryRun: params?.dryRun as boolean | undefined,
-        }, this.projectRoot, setAccessor);
-        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.set', startTime);
-      }
-
-      case 'start': {
-        const phaseId = params?.phaseId as string;
-        if (!phaseId) {
-          return this.errorResponse('mutate', 'phase.start', 'E_INVALID_INPUT',
-            'phaseId is required', startTime);
-        }
-        const startAccessor = await getAccessor(this.projectRoot);
-        const data = await startPhase(phaseId, this.projectRoot, startAccessor);
-        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.start', startTime);
-      }
-
+      // Merged: phase.set absorbs phase.start/phase.complete via action param (T5615)
+      // Backward-compat aliases: phase.start, phase.complete
+      case 'set':
+      case 'start':
       case 'complete': {
         const phaseId = params?.phaseId as string;
         if (!phaseId) {
-          return this.errorResponse('mutate', 'phase.complete', 'E_INVALID_INPUT',
+          return this.errorResponse('mutate', `phase.${sub}`, 'E_INVALID_INPUT',
             'phaseId is required', startTime);
         }
-        const completeAccessor = await getAccessor(this.projectRoot);
-        const data = await completePhase(phaseId, this.projectRoot, completeAccessor);
-        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.complete', startTime);
+        // Derive action from sub name for backward-compat aliases
+        const effectiveAction = sub === 'set'
+          ? (params?.action as string | undefined)
+          : sub; // 'start' or 'complete'
+        if (effectiveAction === 'start') {
+          const result = await phaseStart(phaseId, this.projectRoot);
+          return this.wrapEngineResult(result, 'mutate', 'phase.set', startTime);
+        }
+        if (effectiveAction === 'complete') {
+          const result = await phaseComplete(phaseId, this.projectRoot);
+          return this.wrapEngineResult(result, 'mutate', 'phase.set', startTime);
+        }
+        // Default: phase.set behavior
+        const result = await phaseSet({
+          phaseId,
+          rollback: params?.rollback as boolean | undefined,
+          force: params?.force as boolean | undefined,
+          dryRun: params?.dryRun as boolean | undefined,
+        }, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'phase.set', startTime);
       }
 
       case 'advance': {
         const force = params?.force as boolean | undefined;
-        const advanceAccessor = await getAccessor(this.projectRoot);
-        const data = await advancePhase(force, this.projectRoot, advanceAccessor);
-        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.advance', startTime);
+        const result = await phaseAdvance(force, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'phase.advance', startTime);
       }
 
       case 'rename': {
@@ -650,9 +607,8 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'phase.rename', 'E_INVALID_INPUT',
             'oldName and newName are required', startTime);
         }
-        const renameAccessor = await getAccessor(this.projectRoot);
-        const data = await renamePhase(oldName, newName, this.projectRoot, renameAccessor);
-        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.rename', startTime);
+        const result = await phaseRename(oldName, newName, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'phase.rename', startTime);
       }
 
       case 'delete': {
@@ -661,12 +617,11 @@ export class PipelineHandler implements DomainHandler {
           return this.errorResponse('mutate', 'phase.delete', 'E_INVALID_INPUT',
             'phaseId is required', startTime);
         }
-        const deleteAccessor = await getAccessor(this.projectRoot);
-        const data = await deletePhase(phaseId, {
+        const result = await phaseDelete(phaseId, {
           reassignTo: params?.reassignTo as string | undefined,
           force: params?.force as boolean | undefined,
-        }, this.projectRoot, deleteAccessor);
-        return this.wrapEngineResult({ success: true, data }, 'mutate', 'phase.delete', startTime);
+        }, this.projectRoot);
+        return this.wrapEngineResult(result, 'mutate', 'phase.delete', startTime);
       }
 
       default:
@@ -712,17 +667,6 @@ export class PipelineHandler implements DomainHandler {
           },
           page: page.page,
         }, 'query', 'chain.list', startTime);
-      }
-
-      case 'find': {
-        const chains = await findChains({
-          query: params?.query as string | undefined,
-          category: params?.category as WarpChain['shape']['stages'][number]['category'] | undefined,
-          tessera: params?.tessera as string | undefined,
-          archetype: params?.archetype as string | undefined,
-          limit: params?.limit as number | undefined,
-        }, this.projectRoot);
-        return this.wrapEngineResult({ success: true, data: chains }, 'query', 'chain.find', startTime);
       }
 
       default:
@@ -796,64 +740,6 @@ export class PipelineHandler implements DomainHandler {
         const gateResults = (params?.gateResults ?? []) as GateResult[];
         const updated = await advanceInstance(instanceId, nextStage, gateResults, this.projectRoot);
         return this.wrapEngineResult({ success: true, data: updated }, 'mutate', 'chain.advance', startTime);
-      }
-
-      case 'gate.pass': {
-        const instanceId = params?.instanceId as string;
-        const gateId = params?.gateId as string;
-        if (!instanceId || !gateId) {
-          return this.errorResponse('mutate', 'chain.gate.pass', 'E_INVALID_INPUT',
-            'instanceId and gateId are required', startTime);
-        }
-
-        const instance = await showInstance(instanceId, this.projectRoot);
-        if (!instance) {
-          return this.errorResponse('mutate', 'chain.gate.pass', 'E_NOT_FOUND',
-            `Chain instance "${instanceId}" not found`, startTime);
-        }
-
-        const gateResult: GateResult = {
-          gateId,
-          passed: true,
-          forced: (params?.forced as boolean | undefined) ?? false,
-          message: params?.message as string | undefined,
-          evaluatedAt: new Date().toISOString(),
-        };
-
-        const updated = await advanceInstance(instanceId, instance.currentStage, [gateResult], this.projectRoot);
-        return this.wrapEngineResult({
-          success: true,
-          data: { instance: updated, gateResult },
-        }, 'mutate', 'chain.gate.pass', startTime);
-      }
-
-      case 'gate.fail': {
-        const instanceId = params?.instanceId as string;
-        const gateId = params?.gateId as string;
-        if (!instanceId || !gateId) {
-          return this.errorResponse('mutate', 'chain.gate.fail', 'E_INVALID_INPUT',
-            'instanceId and gateId are required', startTime);
-        }
-
-        const instance = await showInstance(instanceId, this.projectRoot);
-        if (!instance) {
-          return this.errorResponse('mutate', 'chain.gate.fail', 'E_NOT_FOUND',
-            `Chain instance "${instanceId}" not found`, startTime);
-        }
-
-        const gateResult: GateResult = {
-          gateId,
-          passed: false,
-          forced: (params?.forced as boolean | undefined) ?? false,
-          message: params?.message as string | undefined,
-          evaluatedAt: new Date().toISOString(),
-        };
-
-        const updated = await advanceInstance(instanceId, instance.currentStage, [gateResult], this.projectRoot);
-        return this.wrapEngineResult({
-          success: true,
-          data: { instance: updated, gateResult },
-        }, 'mutate', 'chain.gate.fail', startTime);
       }
 
       default:

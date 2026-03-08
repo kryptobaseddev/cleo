@@ -34,14 +34,15 @@ export function registerTokenCommand(program: Command): void {
     .option('--session <id>', 'Filter by session ID')
     .option('--task <id>', 'Filter by task ID')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'token.summary', {
+      await dispatchFromCli('query', 'admin', 'token', {
+        action: 'summary',
         provider: opts['provider'] as string | undefined,
         transport: opts['transport'] as string | undefined,
         domain: opts['domain'] as string | undefined,
         operationName: opts['operation'] as string | undefined,
         sessionId: opts['session'] as string | undefined,
         taskId: opts['task'] as string | undefined,
-      }, { command: 'token', operation: 'admin.token.summary' });
+      }, { command: 'token', operation: 'admin.token' });
     });
 
   token
@@ -56,7 +57,8 @@ export function registerTokenCommand(program: Command): void {
     .option('--limit <n>', 'Maximum records', parseInt)
     .option('--offset <n>', 'Skip records', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('query', 'admin', 'token.list', {
+      await dispatchFromCli('query', 'admin', 'token', {
+        action: 'list',
         provider: opts['provider'] as string | undefined,
         transport: opts['transport'] as string | undefined,
         domain: opts['domain'] as string | undefined,
@@ -65,21 +67,21 @@ export function registerTokenCommand(program: Command): void {
         taskId: opts['task'] as string | undefined,
         limit: opts['limit'] as number | undefined,
         offset: opts['offset'] as number | undefined,
-      }, { command: 'token', operation: 'admin.token.list' });
+      }, { command: 'token', operation: 'admin.token' });
     });
 
   token
     .command('show <tokenId>')
     .description('Show a single token telemetry record')
     .action(async (tokenId: string) => {
-      await dispatchFromCli('query', 'admin', 'token.show', { tokenId }, { command: 'token', operation: 'admin.token.show' });
+      await dispatchFromCli('query', 'admin', 'token', { action: 'show', tokenId }, { command: 'token', operation: 'admin.token' });
     });
 
   token
     .command('delete <tokenId>')
     .description('Delete a token telemetry record')
     .action(async (tokenId: string) => {
-      await dispatchFromCli('mutate', 'admin', 'token.delete', { tokenId }, { command: 'token', operation: 'admin.token.delete' });
+      await dispatchFromCli('mutate', 'admin', 'token', { action: 'delete', tokenId }, { command: 'token', operation: 'admin.token' });
     });
 
   token
@@ -92,14 +94,15 @@ export function registerTokenCommand(program: Command): void {
     .option('--session <id>', 'Filter by session ID')
     .option('--task <id>', 'Filter by task ID')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'token.clear', {
+      await dispatchFromCli('mutate', 'admin', 'token', {
+        action: 'clear',
         provider: opts['provider'] as string | undefined,
         transport: opts['transport'] as string | undefined,
         domain: opts['domain'] as string | undefined,
         operationName: opts['operation'] as string | undefined,
         sessionId: opts['session'] as string | undefined,
         taskId: opts['task'] as string | undefined,
-      }, { command: 'token', operation: 'admin.token.clear' });
+      }, { command: 'token', operation: 'admin.token' });
     });
 
   token

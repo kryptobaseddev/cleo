@@ -11,11 +11,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock the context-inject module
-vi.mock('../../../core/sessions/context-inject.js', () => ({
-  sessionContextInject: vi.fn(),
-}));
-
 // Mock engine functions required by SessionHandler
 vi.mock('../../lib/engine.js', () => ({
   sessionStatus: vi.fn(),
@@ -38,6 +33,7 @@ vi.mock('../../lib/engine.js', () => ({
   sessionDebriefShow: vi.fn(),
   sessionChainShow: vi.fn(),
   sessionFind: vi.fn(),
+  sessionContextInject: vi.fn(),
 }));
 
 // Mock session context binding
@@ -52,7 +48,7 @@ vi.mock('../../../core/paths.js', () => ({
 }));
 
 import { SessionHandler } from '../session.js';
-import { sessionContextInject } from '../../../core/sessions/context-inject.js';
+import { sessionContextInject } from '../../lib/engine.js';
 
 describe('SessionHandler context.inject', () => {
   let handler: SessionHandler;
@@ -67,9 +63,10 @@ describe('SessionHandler context.inject', () => {
   // =========================================================================
 
   describe('getSupportedOperations', () => {
-    it('should include context.inject in mutate operations', () => {
+    it('should not list context.inject in canonical mutate operations (moved to admin, T5615)', () => {
       const ops = handler.getSupportedOperations();
-      expect(ops.mutate).toContain('context.inject');
+      // context.inject moved to admin domain — still handled as backward-compat alias
+      expect(ops.mutate).not.toContain('context.inject');
     });
   });
 

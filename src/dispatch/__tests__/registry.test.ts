@@ -60,10 +60,10 @@ describe('Operation Registry', () => {
     });
 
     it('should resolve memory domain operations', () => {
-      const result = resolve('query', 'memory', 'show');
+      const result = resolve('query', 'memory', 'find');
       expect(result).toBeDefined();
       expect(result?.domain).toBe('memory');
-      expect(result?.operation).toBe('show');
+      expect(result?.operation).toBe('find');
     });
 
     it('should return undefined for unknown operations', () => {

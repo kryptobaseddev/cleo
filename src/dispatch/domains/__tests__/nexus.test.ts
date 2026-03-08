@@ -389,31 +389,22 @@ describe('NexusHandler', () => {
   });
 
   describe('mutate: sync', () => {
-    it('returns error when name is missing', async () => {
+    it('syncs all projects when name is omitted', async () => {
+      vi.mocked(nexusSyncAll).mockResolvedValue({ synced: 3, failed: 0 });
+
       const result = await handler.mutate('sync', {});
 
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ synced: 3, failed: 0 });
     });
 
-    it('syncs a project successfully', async () => {
+    it('syncs a project successfully when name is provided', async () => {
       vi.mocked(nexusSync).mockResolvedValue(undefined);
 
       const result = await handler.mutate('sync', { name: 'project-a' });
 
       expect(result.success).toBe(true);
       expect(nexusSync).toHaveBeenCalledWith('project-a');
-    });
-  });
-
-  describe('mutate: sync.all', () => {
-    it('syncs all projects successfully', async () => {
-      vi.mocked(nexusSyncAll).mockResolvedValue({ synced: 3, failed: 0 });
-
-      const result = await handler.mutate('sync.all');
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({ synced: 3, failed: 0 });
     });
   });
 
@@ -477,8 +468,8 @@ describe('NexusHandler', () => {
     it('returns all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toEqual(['status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'critical-path', 'blocking', 'orphans', 'discover', 'search', 'share.status', 'share.remotes', 'share.sync.status']);
-      expect(ops.mutate).toEqual(['init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set', 'reconcile', 'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore', 'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull']);
+      expect(ops.query).toEqual(['status', 'list', 'show', 'resolve', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'discover', 'search', 'share.status']);
+      expect(ops.mutate).toEqual(['init', 'register', 'unregister', 'sync', 'permission.set', 'reconcile', 'share.snapshot.export', 'share.snapshot.import']);
     });
   });
 

@@ -2,7 +2,11 @@
  * Pipeline Domain — Manifest Operations (Post-Cutover)
  *
  * Tests that the PipelineHandler correctly delegates manifest.* operations
- * to the pipeline-manifest-compat functions after T5241 cutover.
+ * through the dispatch/lib/engine.js barrel to pipeline-manifest functions.
+ *
+ * Updated for T5671: handler imports from dispatch/lib/engine.js, not
+ * directly from core/memory/pipeline-manifest-sqlite.js. manifest.pending
+ * was removed from the handler.
  *
  * @task T5241
  * @epic T5149
@@ -10,36 +14,35 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock pipeline-manifest-sqlite functions
-vi.mock('../../../core/memory/pipeline-manifest-sqlite.js', () => ({
-  pipelineManifestShow: vi.fn(),
-  pipelineManifestList: vi.fn(),
-  pipelineManifestFind: vi.fn(),
-  pipelineManifestPending: vi.fn(),
-  pipelineManifestStats: vi.fn(),
-  pipelineManifestAppend: vi.fn(),
-  pipelineManifestArchive: vi.fn(),
-}));
-
-// Mock engine functions for stage/release (not under test but required by import)
+// Mock engine functions — handler imports everything from dispatch/lib/engine.js
 vi.mock('../../lib/engine.js', () => ({
   lifecycleStatus: vi.fn(),
   lifecycleHistory: vi.fn(),
-  lifecycleGates: vi.fn(),
-  lifecyclePrerequisites: vi.fn(),
   lifecycleCheck: vi.fn(),
   lifecycleProgress: vi.fn(),
   lifecycleSkip: vi.fn(),
   lifecycleReset: vi.fn(),
   lifecycleGatePass: vi.fn(),
   lifecycleGateFail: vi.fn(),
-  releasePrepare: vi.fn(),
-  releaseChangelog: vi.fn(),
-  releaseCommit: vi.fn(),
-  releaseTag: vi.fn(),
-  releasePush: vi.fn(),
-  releaseGatesRun: vi.fn(),
   releaseRollback: vi.fn(),
+  releaseShip: vi.fn(),
+  releaseList: vi.fn(),
+  releaseShow: vi.fn(),
+  releaseCancel: vi.fn(),
+  phaseList: vi.fn(),
+  phaseShow: vi.fn(),
+  phaseSet: vi.fn(),
+  phaseStart: vi.fn(),
+  phaseComplete: vi.fn(),
+  phaseAdvance: vi.fn(),
+  phaseRename: vi.fn(),
+  phaseDelete: vi.fn(),
+  pipelineManifestShow: vi.fn(),
+  pipelineManifestList: vi.fn(),
+  pipelineManifestFind: vi.fn(),
+  pipelineManifestStats: vi.fn(),
+  pipelineManifestAppend: vi.fn(),
+  pipelineManifestArchive: vi.fn(),
 }));
 
 // Mock getProjectRoot
@@ -47,16 +50,31 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
+// Mock release channel functions
+vi.mock('../../../core/release/channel.js', () => ({
+  resolveChannelFromBranch: vi.fn(() => 'stable'),
+  channelToDistTag: vi.fn(() => 'latest'),
+  describeChannel: vi.fn(() => 'Stable channel'),
+}));
+
+// Mock chain-store
+vi.mock('../../../core/lifecycle/chain-store.js', () => ({
+  showChain: vi.fn(),
+  listChains: vi.fn(() => []),
+  addChain: vi.fn(),
+  createInstance: vi.fn(),
+  advanceInstance: vi.fn(),
+}));
+
 import { PipelineHandler } from '../pipeline.js';
 import {
   pipelineManifestShow,
   pipelineManifestList,
   pipelineManifestFind,
-  pipelineManifestPending,
   pipelineManifestStats,
   pipelineManifestAppend,
   pipelineManifestArchive,
-} from '../../../core/memory/pipeline-manifest-sqlite.js';
+} from '../../lib/engine.js';
 
 describe('PipelineHandler manifest operations', () => {
   let handler: PipelineHandler;
@@ -76,7 +94,6 @@ describe('PipelineHandler manifest operations', () => {
       expect(ops.query).toContain('manifest.show');
       expect(ops.query).toContain('manifest.list');
       expect(ops.query).toContain('manifest.find');
-      expect(ops.query).toContain('manifest.pending');
       expect(ops.query).toContain('manifest.stats');
     });
 
@@ -189,33 +206,6 @@ describe('PipelineHandler manifest operations', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_INPUT');
       expect(result.error?.message).toContain('query');
-    });
-  });
-
-  // =========================================================================
-  // Query: manifest.pending
-  // =========================================================================
-
-  describe('query: manifest.pending', () => {
-    it('should return pending manifest items', async () => {
-      vi.mocked(pipelineManifestPending).mockResolvedValue({
-        success: true,
-        data: { entries: [], total: 0, byStatus: { partial: 0, blocked: 0, needsFollowup: 0 } },
-      });
-
-      const result = await handler.query('manifest.pending', {});
-      expect(result.success).toBe(true);
-      expect(pipelineManifestPending).toHaveBeenCalledWith(undefined, '/mock/project');
-    });
-
-    it('should pass epicId filter', async () => {
-      vi.mocked(pipelineManifestPending).mockResolvedValue({
-        success: true,
-        data: { entries: [], total: 0, byStatus: {} },
-      });
-
-      await handler.query('manifest.pending', { epicId: 'T5149' });
-      expect(pipelineManifestPending).toHaveBeenCalledWith('T5149', '/mock/project');
     });
   });
 

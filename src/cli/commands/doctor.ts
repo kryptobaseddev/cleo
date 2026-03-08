@@ -28,11 +28,11 @@ export function registerDoctorCommand(program: Command): void {
       try {
         if (opts['fix']) {
           progress.step(4, 'Applying fixes');
-          await dispatchFromCli('mutate', 'admin', 'fix', {}, { command: 'doctor', operation: 'admin.fix' });
+          await dispatchFromCli('mutate', 'admin', 'health', { mode: 'repair' }, { command: 'doctor', operation: 'admin.health' });
           progress.complete('Fixes applied');
         } else if (opts['comprehensive']) {
           progress.step(0, 'Checking CLEO directory');
-          await dispatchFromCli('query', 'admin', 'doctor', {}, { command: 'doctor', operation: 'admin.doctor' });
+          await dispatchFromCli('query', 'admin', 'health', { mode: 'diagnose' }, { command: 'doctor', operation: 'admin.health' });
           progress.complete('Comprehensive diagnostics complete');
         } else {
           progress.step(0, 'Checking CLEO directory');

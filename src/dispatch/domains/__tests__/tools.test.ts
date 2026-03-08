@@ -108,11 +108,10 @@ describe('ToolsHandler', () => {
     expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: true, total: 2 });
   });
 
-  it('exposes precedence operations in supported queries', () => {
+  it('exposes precedence operation in supported queries', () => {
     const handler = new ToolsHandler();
     const ops = handler.getSupportedOperations();
-    expect(ops.query).toContain('skill.precedence.show');
-    expect(ops.query).toContain('skill.precedence.resolve');
+    expect(ops.query).toContain('skill.precedence');
   });
 
   it('runs provider injection via CAAMP', async () => {

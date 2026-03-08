@@ -18,9 +18,9 @@ export function registerGradeCommand(program: Command): void {
     .option('--list', 'List all past grade results')
     .action(async (sessionId: string | undefined, opts: Record<string, unknown>) => {
       if (opts['list'] || !sessionId) {
-        await dispatchFromCli('query', 'admin', 'grade.list', {}, { command: 'grade' });
+        await dispatchFromCli('query', 'check', 'grade.list', {}, { command: 'grade' });
       } else {
-        await dispatchFromCli('query', 'admin', 'grade', { sessionId }, { command: 'grade' });
+        await dispatchFromCli('query', 'check', 'grade', { sessionId }, { command: 'grade' });
       }
     });
 }

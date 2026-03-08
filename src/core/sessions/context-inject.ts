@@ -12,8 +12,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getProjectRoot } from '../paths.js';
-
-import type { EngineResult } from '../../dispatch/engines/_error.js';
+import { CleoError } from '../errors.js';
+import { ExitCode } from '../../types/exit-codes.js';
 
 /**
  * Resolve the project root, defaulting to getProjectRoot() if not specified.
@@ -22,14 +22,30 @@ function resolveRoot(projectRoot?: string): string {
   return projectRoot || getProjectRoot();
 }
 
-/** session.context.inject - Read protocol injection content for a given protocol type */
-export function sessionContextInject(
+/**
+ * Data returned by context injection.
+ */
+export interface ContextInjectionData {
+  protocolType: string;
+  content: string;
+  path: string | null;
+  contentLength: number;
+  estimatedTokens: number;
+  taskId: string | null;
+  variant: string | null;
+}
+
+/**
+ * Read protocol injection content for a given protocol type.
+ * Core logic for session.context.inject.
+ */
+export function injectContext(
   protocolType: string,
   params?: { taskId?: string; variant?: string },
   projectRoot?: string,
-): EngineResult {
+): ContextInjectionData {
   if (!protocolType) {
-    return { success: false, error: { code: 'E_INVALID_INPUT', message: 'protocolType is required' } };
+    throw new CleoError(ExitCode.INVALID_INPUT, 'protocolType is required');
   }
 
   const root = resolveRoot(projectRoot);
@@ -56,22 +72,19 @@ export function sessionContextInject(
   }
 
   if (!protocolContent) {
-    return {
-      success: false,
-      error: { code: 'E_NOT_FOUND', message: `Protocol '${protocolType}' not found in src/protocols/, skills/_shared/, or agents/cleo-subagent/protocols/` },
-    };
+    throw new CleoError(
+      ExitCode.NOT_FOUND,
+      `Protocol '${protocolType}' not found in src/protocols/, skills/_shared/, or agents/cleo-subagent/protocols/`
+    );
   }
 
   return {
-    success: true,
-    data: {
-      protocolType,
-      content: protocolContent,
-      path: protocolPath,
-      contentLength: protocolContent.length,
-      estimatedTokens: Math.ceil(protocolContent.length / 4),
-      taskId: params?.taskId || null,
-      variant: params?.variant || null,
-    },
+    protocolType,
+    content: protocolContent,
+    path: protocolPath,
+    contentLength: protocolContent.length,
+    estimatedTokens: Math.ceil(protocolContent.length / 4),
+    taskId: params?.taskId || null,
+    variant: params?.variant || null,
   };
 }

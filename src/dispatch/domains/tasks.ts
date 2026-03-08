@@ -50,6 +50,10 @@ import {
   taskStart,
   taskStop,
   taskWorkHistory,
+  taskHistory,
+  taskRelatesFind,
+  taskLabelList,
+  taskLabelShow,
 } from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
@@ -189,22 +193,11 @@ export class TasksHandler implements DomainHandler {
           if (!taskId) {
             return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
           }
-          const { suggestRelated, discoverRelated } = await import('../../core/tasks/relates.js');
-          const { getAccessor } = await import('../../store/data-accessor.js');
-          const accessor = await getAccessor(this.projectRoot);
-          const mode = (params?.mode as string) ?? 'suggest';
-          let findResult: Record<string, unknown>;
-          if (mode === 'discover') {
-            findResult = await discoverRelated(taskId, undefined, accessor);
-          } else {
-            const threshold = params?.threshold ? Number(params.threshold) : 50;
-            findResult = await suggestRelated(taskId, { threshold }, accessor);
-          }
-          return {
-            _meta: dispatchMeta('query', 'tasks', operation, startTime),
-            success: true,
-            data: findResult,
-          };
+          const result = await taskRelatesFind(this.projectRoot, taskId, {
+            mode: params?.mode as 'suggest' | 'discover',
+            threshold: params?.threshold ? Number(params.threshold) : undefined,
+          });
+          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'complexity.estimate': {
@@ -222,20 +215,18 @@ export class TasksHandler implements DomainHandler {
         }
 
         case 'history': {
+          const taskId = params?.taskId as string;
+          if (taskId) {
+            const result = await taskHistory(this.projectRoot, taskId, params?.limit as number);
+            return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
+          }
           const result = await taskWorkHistory(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'label.list': {
-          const { listLabels } = await import('../../core/tasks/labels.js');
-          const { getAccessor } = await import('../../store/data-accessor.js');
-          const accessor = await getAccessor(this.projectRoot);
-          const result = await listLabels(this.projectRoot, accessor);
-          return {
-            _meta: dispatchMeta('query', 'tasks', operation, startTime),
-            success: true,
-            data: { labels: result, count: result.length },
-          };
+          const result = await taskLabelList(this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
         case 'label.show': {
@@ -243,15 +234,8 @@ export class TasksHandler implements DomainHandler {
           if (!label) {
             return this.errorResponse('query', 'tasks', operation, 'E_INVALID_INPUT', 'label is required', startTime);
           }
-          const { showLabelTasks } = await import('../../core/tasks/labels.js');
-          const { getAccessor } = await import('../../store/data-accessor.js');
-          const accessor = await getAccessor(this.projectRoot);
-          const result = await showLabelTasks(label, this.projectRoot, accessor);
-          return {
-            _meta: dispatchMeta('query', 'tasks', operation, startTime),
-            success: true,
-            data: result,
-          };
+          const result = await taskLabelShow(this.projectRoot, label);
+          return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
         }
 
         default:

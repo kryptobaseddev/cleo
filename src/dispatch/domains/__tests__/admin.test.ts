@@ -105,20 +105,18 @@ describe('AdminHandler', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.query).toEqual([
-        'version', 'health', 'doctor', 'config.show', 'stats', 'context',
-        'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
-        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
-        'token.summary', 'token.list', 'token.show', 'sync.status', 'export', 'snapshot.export', 'export.tasks',
+        'version', 'health', 'config.show', 'stats', 'context',
+        'runtime', 'job', 'dash', 'log', 'sequence', 'help',
+        'adr.show', 'adr.find', 'token', 'export',
       ]);
     });
 
     it('should list all mutate operations', () => {
       const ops = handler.getSupportedOperations();
       expect(ops.mutate).toEqual([
-        'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
-        'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
-        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks', 'detect',
-        'token.record', 'token.delete', 'token.clear',
+        'init', 'health', 'config.set', 'backup', 'migrate',
+        'cleanup', 'job.cancel', 'safestop', 'inject.generate',
+        'adr.sync', 'import', 'detect', 'token', 'context.inject', 'install.global',
       ]);
     });
   });
@@ -303,22 +301,11 @@ describe('AdminHandler', () => {
       expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
     });
 
-    it('should return canonical paged envelope for grade.list', async () => {
-      vi.mocked(readGrades).mockResolvedValue([
-        { sessionId: 'ses-1', score: 92 },
-        { sessionId: 'ses-2', score: 74 },
-        { sessionId: 'ses-1', score: 88 },
-      ] as never);
-
+    it('should return E_INVALID_OPERATION for grade.list (moved to check domain)', async () => {
       const res = await handler.query('grade.list', { sessionId: 'ses-1', limit: 1, offset: 1 });
 
-      expect(res.success).toBe(true);
-      expect(res.data).toEqual({
-        grades: [{ sessionId: 'ses-1', score: 88 }],
-        total: 3,
-        filtered: 2,
-      });
-      expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe('E_INVALID_OPERATION');
     });
 
     it('should return canonical paged envelope for adr.list', async () => {
@@ -503,21 +490,11 @@ describe('AdminHandler', () => {
       expect(systemInjectGenerate).toHaveBeenCalledWith('/mock/project');
     });
 
-    it('should call systemSequenceRepair for sequence repair', async () => {
-      vi.mocked(systemSequenceRepair).mockResolvedValue({ success: true, data: { repaired: true, counter: 99 } });
-
+    it('should return E_INVALID_OPERATION for sequence mutate (removed from admin)', async () => {
       const res = await handler.mutate('sequence', { action: 'repair' });
 
-      expect(res.success).toBe(true);
-      expect(systemSequenceRepair).toHaveBeenCalledWith('/mock/project');
-    });
-
-    it('should reject sequence mutate without repair action', async () => {
-      const res = await handler.mutate('sequence', { action: 'check' });
-
       expect(res.success).toBe(false);
-      expect(res.error?.code).toBe('E_INVALID_INPUT');
-      expect(systemSequenceRepair).not.toHaveBeenCalled();
+      expect(res.error?.code).toBe('E_INVALID_OPERATION');
     });
 
     it('admin.detect refreshes project-context.json and contributor MCP', async () => {

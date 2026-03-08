@@ -4,38 +4,36 @@
  * Tests that the MemoryHandler correctly delegates to brain.db-backed
  * engine functions for all new memory domain operations after T5241 cutover.
  *
+ * Updated for T5671 Wave changes: removed ops (show, stats, pattern.stats,
+ * learning.stats, contradictions, superseded, unlink) that are no longer
+ * in the handler.
+ *
  * @task T5241
  * @epic T5149
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock engine-compat brain.db functions
-vi.mock('../../../core/memory/engine-compat.js', () => ({
-  memoryShow: vi.fn(),
+// Mock engine functions — handler imports from dispatch/lib/engine.js
+vi.mock('../../lib/engine.js', () => ({
   memoryFind: vi.fn(),
   memoryTimeline: vi.fn(),
   memoryFetch: vi.fn(),
   memoryObserve: vi.fn(),
-  memoryBrainStats: vi.fn(),
   memoryDecisionFind: vi.fn(),
   memoryDecisionStore: vi.fn(),
   memoryPatternFind: vi.fn(),
   memoryPatternStore: vi.fn(),
-  memoryPatternStats: vi.fn(),
   memoryLearningFind: vi.fn(),
   memoryLearningStore: vi.fn(),
-  memoryLearningStats: vi.fn(),
-  memoryContradictions: vi.fn(),
-  memorySuperseded: vi.fn(),
   memoryLink: vi.fn(),
-}));
-
-// Mock pipeline-manifest-sqlite functions used by memory handler
-vi.mock('../../../core/memory/pipeline-manifest-sqlite.js', () => ({
-  pipelineManifestContradictions: vi.fn(),
-  pipelineManifestSuperseded: vi.fn(),
-  pipelineManifestLink: vi.fn(),
+  memoryGraphAdd: vi.fn(),
+  memoryGraphShow: vi.fn(),
+  memoryGraphNeighbors: vi.fn(),
+  memoryGraphRemove: vi.fn(),
+  memoryReasonWhy: vi.fn(),
+  memoryReasonSimilar: vi.fn(),
+  memorySearchHybrid: vi.fn(),
 }));
 
 // Mock getProjectRoot
@@ -45,24 +43,18 @@ vi.mock('../../../core/paths.js', () => ({
 
 import { MemoryHandler } from '../memory.js';
 import {
-  memoryShow,
   memoryFind,
   memoryTimeline,
   memoryFetch,
   memoryObserve,
-  memoryBrainStats,
   memoryDecisionFind,
   memoryDecisionStore,
   memoryPatternFind,
   memoryPatternStore,
-  memoryPatternStats,
   memoryLearningFind,
   memoryLearningStore,
-  memoryLearningStats,
-  memoryContradictions,
-  memorySuperseded,
   memoryLink,
-} from '../../../core/memory/engine-compat.js';
+} from '../../lib/engine.js';
 
 describe('MemoryHandler (brain.db backed)', () => {
   let handler: MemoryHandler;
@@ -79,18 +71,17 @@ describe('MemoryHandler (brain.db backed)', () => {
   describe('getSupportedOperations', () => {
     it('should list all query operations', () => {
       const ops = handler.getSupportedOperations();
-      expect(ops.query).toContain('show');
       expect(ops.query).toContain('find');
       expect(ops.query).toContain('timeline');
       expect(ops.query).toContain('fetch');
-      expect(ops.query).toContain('stats');
-      expect(ops.query).toContain('contradictions');
-      expect(ops.query).toContain('superseded');
       expect(ops.query).toContain('decision.find');
       expect(ops.query).toContain('pattern.find');
-      expect(ops.query).toContain('pattern.stats');
       expect(ops.query).toContain('learning.find');
-      expect(ops.query).toContain('learning.stats');
+      expect(ops.query).toContain('graph.show');
+      expect(ops.query).toContain('graph.neighbors');
+      expect(ops.query).toContain('reason.why');
+      expect(ops.query).toContain('reason.similar');
+      expect(ops.query).toContain('search.hybrid');
     });
 
     it('should list all mutate operations', () => {
@@ -100,6 +91,8 @@ describe('MemoryHandler (brain.db backed)', () => {
       expect(ops.mutate).toContain('pattern.store');
       expect(ops.mutate).toContain('learning.store');
       expect(ops.mutate).toContain('link');
+      expect(ops.mutate).toContain('graph.add');
+      expect(ops.mutate).toContain('graph.remove');
     });
 
     it('should NOT list old operation names in query ops', () => {
@@ -112,6 +105,13 @@ describe('MemoryHandler (brain.db backed)', () => {
       expect(ops.query).not.toContain('pending');
       expect(ops.query).not.toContain('pattern.search');
       expect(ops.query).not.toContain('learning.search');
+      // Removed ops
+      expect(ops.query).not.toContain('show');
+      expect(ops.query).not.toContain('stats');
+      expect(ops.query).not.toContain('pattern.stats');
+      expect(ops.query).not.toContain('learning.stats');
+      expect(ops.query).not.toContain('contradictions');
+      expect(ops.query).not.toContain('superseded');
     });
 
     it('should NOT list old operation names in mutate ops', () => {
@@ -120,42 +120,6 @@ describe('MemoryHandler (brain.db backed)', () => {
       expect(ops.mutate).not.toContain('inject');
       expect(ops.mutate).not.toContain('manifest.append');
       expect(ops.mutate).not.toContain('manifest.archive');
-    });
-  });
-
-  // =========================================================================
-  // Query: memory.show
-  // =========================================================================
-
-  describe('query: show', () => {
-    it('should return brain.db entry by ID', async () => {
-      vi.mocked(memoryShow).mockResolvedValue({
-        success: true,
-        data: { type: 'decision', entry: { id: 'D001', decision: 'Use SQLite' } },
-      });
-
-      const result = await handler.query('show', { entryId: 'D001' });
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({ type: 'decision', entry: { id: 'D001', decision: 'Use SQLite' } });
-      expect(memoryShow).toHaveBeenCalledWith('D001', '/mock/project');
-    });
-
-    it('should return E_INVALID_INPUT when entryId is missing', async () => {
-      const result = await handler.query('show', {});
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INVALID_INPUT');
-      expect(result.error?.message).toContain('entryId');
-    });
-
-    it('should propagate E_NOT_FOUND from engine', async () => {
-      vi.mocked(memoryShow).mockResolvedValue({
-        success: false,
-        error: { code: 'E_NOT_FOUND', message: "Decision 'D999' not found in brain.db" },
-      });
-
-      const result = await handler.query('show', { entryId: 'D999' });
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_FOUND');
     });
   });
 
@@ -292,24 +256,6 @@ describe('MemoryHandler (brain.db backed)', () => {
   });
 
   // =========================================================================
-  // Query: memory.stats
-  // =========================================================================
-
-  describe('query: stats', () => {
-    it('should return brain.db statistics', async () => {
-      vi.mocked(memoryBrainStats).mockResolvedValue({
-        success: true,
-        data: { observations: 100, decisions: 25, patterns: 10, learnings: 15, total: 150 },
-      });
-
-      const result = await handler.query('stats');
-      expect(result.success).toBe(true);
-      expect((result.data as { total: number }).total).toBe(150);
-      expect(memoryBrainStats).toHaveBeenCalledWith('/mock/project');
-    });
-  });
-
-  // =========================================================================
   // Query: memory.decision.find
   // =========================================================================
 
@@ -363,23 +309,6 @@ describe('MemoryHandler (brain.db backed)', () => {
   });
 
   // =========================================================================
-  // Query: memory.pattern.stats
-  // =========================================================================
-
-  describe('query: pattern.stats', () => {
-    it('should return pattern stats', async () => {
-      vi.mocked(memoryPatternStats).mockResolvedValue({
-        success: true,
-        data: { total: 5, byType: { workflow: 3, optimization: 2 } },
-      });
-
-      const result = await handler.query('pattern.stats');
-      expect(result.success).toBe(true);
-      expect(memoryPatternStats).toHaveBeenCalledWith('/mock/project');
-    });
-  });
-
-  // =========================================================================
   // Query: memory.learning.find
   // =========================================================================
 
@@ -394,70 +323,6 @@ describe('MemoryHandler (brain.db backed)', () => {
       expect(result.success).toBe(true);
       expect(memoryLearningFind).toHaveBeenCalledWith(
         expect.objectContaining({ query: 'test', actionableOnly: true }),
-        '/mock/project',
-      );
-    });
-  });
-
-  // =========================================================================
-  // Query: memory.learning.stats
-  // =========================================================================
-
-  describe('query: learning.stats', () => {
-    it('should return learning stats', async () => {
-      vi.mocked(memoryLearningStats).mockResolvedValue({
-        success: true,
-        data: { total: 8 },
-      });
-
-      const result = await handler.query('learning.stats');
-      expect(result.success).toBe(true);
-      expect(memoryLearningStats).toHaveBeenCalledWith('/mock/project');
-    });
-  });
-
-  // =========================================================================
-  // Query: memory.contradictions / memory.superseded (still in memory domain)
-  // =========================================================================
-
-  describe('query: contradictions', () => {
-    it('should return brain.db contradictions', async () => {
-      vi.mocked(memoryContradictions).mockResolvedValue({
-        success: true,
-        data: { contradictions: [] },
-      });
-
-      const result = await handler.query('contradictions', { topic: 'auth' });
-      expect(result.success).toBe(true);
-      expect(memoryContradictions).toHaveBeenCalled();
-    });
-  });
-
-  describe('query: superseded', () => {
-    it('should return superseded entries', async () => {
-      vi.mocked(memorySuperseded).mockResolvedValue({
-        success: true,
-        data: { superseded: [], total: 0 },
-      });
-
-      const result = await handler.query('superseded');
-      expect(result.success).toBe(true);
-      expect(memorySuperseded).toHaveBeenCalledWith(
-        { type: undefined, project: undefined },
-        '/mock/project',
-      );
-    });
-
-    it('should pass type and project params', async () => {
-      vi.mocked(memorySuperseded).mockResolvedValue({
-        success: true,
-        data: { superseded: [], total: 0 },
-      });
-
-      const result = await handler.query('superseded', { type: 'technical', project: 'cleo' });
-      expect(result.success).toBe(true);
-      expect(memorySuperseded).toHaveBeenCalledWith(
-        { type: 'technical', project: 'cleo' },
         '/mock/project',
       );
     });
@@ -675,25 +540,25 @@ describe('MemoryHandler (brain.db backed)', () => {
 
   describe('response metadata', () => {
     it('should include _meta in successful responses', async () => {
-      vi.mocked(memoryBrainStats).mockResolvedValue({
+      vi.mocked(memoryFind).mockResolvedValue({
         success: true,
-        data: { total: 0 },
+        data: { results: [], total: 0, tokensEstimated: 0 },
       });
 
-      const result = await handler.query('stats');
+      const result = await handler.query('find', { query: 'test' });
       expect(result._meta).toBeDefined();
       expect(result._meta.domain).toBe('memory');
-      expect(result._meta.operation).toBe('stats');
+      expect(result._meta.operation).toBe('find');
       expect(result._meta.gateway).toBe('query');
       expect(result._meta.timestamp).toBeDefined();
       expect(result._meta.duration_ms).toBeGreaterThanOrEqual(0);
     });
 
     it('should include _meta in error responses', async () => {
-      const result = await handler.query('show', {});
+      const result = await handler.query('find', {});
       expect(result._meta).toBeDefined();
       expect(result._meta.domain).toBe('memory');
-      expect(result._meta.operation).toBe('show');
+      expect(result._meta.operation).toBe('find');
     });
   });
 });

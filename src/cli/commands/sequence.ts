@@ -30,6 +30,6 @@ export function registerSequenceCommand(program: Command): void {
     .command('repair')
     .description('Reset counter to max + 1 if behind')
     .action(async () => {
-      await dispatchFromCli('mutate', 'admin', 'sequence', { action: 'repair' }, { command: 'sequence' });
+      await dispatchFromCli('mutate', 'admin', 'config.set', { key: 'sequence', value: 'repair' }, { command: 'sequence' });
     });
 }

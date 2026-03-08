@@ -22,7 +22,7 @@ export function registerSyncCommand(program: Command): void {
     .command('status')
     .description('Show current sync state')
     .action(async () => {
-      await dispatchFromCli('query', 'admin', 'sync.status', {}, { command: 'sync' });
+      await dispatchFromCli('query', 'tools', 'todowrite.status', {}, { command: 'sync' });
     });
 
   // T5326: Migrated to dispatch
@@ -31,7 +31,7 @@ export function registerSyncCommand(program: Command): void {
     .description('Clear sync state without merging')
     .option('--dry-run', 'Preview what would be cleared')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'sync.clear', { dryRun: opts['dryRun'] }, { command: 'sync' });
+      await dispatchFromCli('mutate', 'tools', 'todowrite.clear', { dryRun: opts['dryRun'] }, { command: 'sync' });
     });
 
   // Inject and extract are registered separately as standalone commands

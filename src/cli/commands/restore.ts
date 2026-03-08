@@ -30,7 +30,8 @@ export function registerRestoreCommand(program: Command): void {
       try {
         const fileName = (opts['file'] as string) || 'tasks.db';
 
-        const response = await dispatchRaw('mutate', 'admin', 'backup.restore', {
+        const response = await dispatchRaw('mutate', 'admin', 'backup', {
+          action: 'restore',
           file: fileName,
           dryRun: opts['dryRun'] as boolean | undefined,
         });

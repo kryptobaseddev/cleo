@@ -1168,6 +1168,7 @@ export async function taskImport(
  * Compute a ranked plan: in-progress epics, ready tasks, blockers, bugs.
  * @task T4815
  */
+
 export async function taskPlan(
   projectRoot: string
 ): Promise<EngineResult> {
@@ -1179,3 +1180,75 @@ export async function taskPlan(
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }
 }
+
+/**
+ * Find related tasks using semantic search or keyword matching.
+ * @task T5672
+ */
+export async function taskRelatesFind(
+  projectRoot: string,
+  taskId: string,
+  params?: {
+    mode?: 'suggest' | 'discover';
+    threshold?: number;
+  }
+): Promise<EngineResult<Record<string, unknown>>> {
+  try {
+    const { suggestRelated, discoverRelated } = await import('../../core/tasks/relates.js');
+    const accessor = await getAccessor(projectRoot);
+    const mode = params?.mode ?? 'suggest';
+    
+    let result: Record<string, unknown>;
+    if (mode === 'discover') {
+      result = await discoverRelated(taskId, undefined, accessor);
+    } else {
+      const threshold = params?.threshold ?? 50;
+      result = await suggestRelated(taskId, { threshold }, accessor);
+    }
+    
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('not found')) {
+      return engineError('E_NOT_FOUND', message);
+    }
+    return engineError('E_INTERNAL', message);
+  }
+}
+
+/**
+ * List all labels used in tasks.
+ * @task T5672
+ */
+export async function taskLabelList(
+  projectRoot: string
+): Promise<EngineResult<{ labels: unknown[]; count: number }>> {
+  try {
+    const { listLabels } = await import('../../core/tasks/labels.js');
+    const accessor = await getAccessor(projectRoot);
+    const labels = await listLabels(projectRoot, accessor);
+    return { success: true, data: { labels, count: labels.length } };
+  } catch {
+    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * Show tasks associated with a label.
+ * @task T5672
+ */
+export async function taskLabelShow(
+  projectRoot: string,
+  label: string
+): Promise<EngineResult<Record<string, unknown>>> {
+  try {
+    const { showLabelTasks } = await import('../../core/tasks/labels.js');
+    const accessor = await getAccessor(projectRoot);
+    const result = await showLabelTasks(label, projectRoot, accessor);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return engineError('E_INTERNAL', message);
+  }
+}
+

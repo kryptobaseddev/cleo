@@ -59,8 +59,8 @@ export function registerComplianceCommand(program: Command): void {
     .description('Sync project metrics to global aggregation')
     .option('--force', 'Force full sync')
     .action(async (opts: Record<string, unknown>) => {
-      await dispatchFromCli('mutate', 'admin', 'sync', {
-        type: 'compliance', force: opts['force'],
+      await dispatchFromCli('mutate', 'check', 'compliance.record', {
+        action: 'sync', force: opts['force'],
       }, { command: 'compliance' });
     });
 

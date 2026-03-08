@@ -35,10 +35,9 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
 }));
 
 import { OrchestrateHandler } from '../orchestrate.js';
-import { showChain } from '../../../core/lifecycle/chain-store.js';
 import { listTesseraTemplates } from '../../../core/lifecycle/tessera-engine.js';
 
-describe('OrchestrateHandler chain plan operations', () => {
+describe('OrchestrateHandler operations', () => {
   let handler: OrchestrateHandler;
 
   beforeEach(() => {
@@ -46,9 +45,15 @@ describe('OrchestrateHandler chain plan operations', () => {
     handler = new OrchestrateHandler();
   });
 
-  it('includes chain.plan in supported query operations', () => {
+  it('does not include chain.plan in supported query operations (removed)', () => {
     const ops = handler.getSupportedOperations();
-    expect(ops.query).toContain('chain.plan');
+    expect(ops.query).not.toContain('chain.plan');
+    // Verify expected ops are present
+    expect(ops.query).toContain('status');
+    expect(ops.query).toContain('analyze');
+    expect(ops.query).toContain('tessera.list');
+    expect(ops.mutate).toContain('parallel');
+    expect(ops.mutate).toContain('tessera.instantiate');
   });
 
   it('returns canonical tessera list envelope', async () => {
@@ -69,61 +74,10 @@ describe('OrchestrateHandler chain plan operations', () => {
     expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
   });
 
-  it('builds wave plan for chain topology', async () => {
-    vi.mocked(showChain).mockResolvedValue({
-      id: 'chain-1',
-      shape: {
-        stages: [
-          { id: 's1', name: 's1', category: 'research', skippable: false },
-          { id: 's2', name: 's2', category: 'implementation', skippable: false },
-          { id: 's3', name: 's3', category: 'validation', skippable: false },
-        ],
-        links: [
-          { from: 's1', to: 's2', type: 'linear' },
-          { from: 's2', to: 's3', type: 'linear' },
-        ],
-        entryPoint: 's1',
-        exitPoints: ['s3'],
-      },
-      gates: [{ id: 'g-1' }],
-    } as any);
-
+  it('returns E_INVALID_OPERATION for chain.plan (removed from orchestrate)', async () => {
     const result = await handler.query('chain.plan', { chainId: 'chain-1' });
 
-    expect(result.success).toBe(true);
-    expect(result.data).toMatchObject({
-      chainId: 'chain-1',
-      totalStages: 3,
-      totalGates: 1,
-      waves: [
-        { wave: 1, stageIds: ['s1'] },
-        { wave: 2, stageIds: ['s2'] },
-        { wave: 3, stageIds: ['s3'] },
-      ],
-    });
-  });
-
-  it('returns invalid input for chain.plan without chainId', async () => {
-    const result = await handler.query('chain.plan', {});
-
     expect(result.success).toBe(false);
-    expect(result.error).toMatchObject({
-      code: 'E_INVALID_INPUT',
-      message: 'chainId is required',
-    });
-    expect(showChain).not.toHaveBeenCalled();
-  });
-
-  it('returns not found for chain.plan when chain does not exist', async () => {
-    vi.mocked(showChain).mockResolvedValue(null);
-
-    const result = await handler.query('chain.plan', { chainId: 'missing-chain' });
-
-    expect(result.success).toBe(false);
-    expect(showChain).toHaveBeenCalledWith('missing-chain', '/mock/project');
-    expect(result.error).toMatchObject({
-      code: 'E_NOT_FOUND',
-      message: 'Chain "missing-chain" not found',
-    });
+    expect(result.error?.code).toBe('E_INVALID_OPERATION');
   });
 });

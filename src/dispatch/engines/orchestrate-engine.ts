@@ -32,9 +32,8 @@ import { startParallelExecution, endParallelExecution, getParallelStatus } from 
 import { getSkillContent } from '../../core/orchestration/skill-ops.js';
 import { validateSpawnReadiness } from '../../core/orchestration/validate-spawn.js';
 import { buildBrainState } from '../../core/orchestration/bootstrap.js';
-import { sessionContextInject } from '../../core/sessions/context-inject.js';
 import { engineError, type EngineResult } from './_error.js';
-import { sessionEnd, sessionStatus } from './session-engine.js';
+import { sessionEnd, sessionStatus, sessionContextInject } from './session-engine.js';
 
 type HandoffStepStatus = 'pending' | 'completed' | 'failed' | 'skipped';
 
@@ -155,11 +154,18 @@ export async function orchestrateStatus(
  * @task T4478
  */
 export async function orchestrateAnalyze(
-  epicId: string,
+  epicId?: string,
   projectRoot?: string,
+  mode?: string,
 ): Promise<EngineResult> {
+  // Mode: critical-path (delegates to critical path engine)
+  if (mode === 'critical-path') {
+    return orchestrateCriticalPath(projectRoot);
+  }
+
+  // Default mode: analysis (requires epicId)
   if (!epicId) {
-    return engineError('E_INVALID_INPUT', 'epicId is required');
+    return engineError('E_INVALID_INPUT', 'epicId is required for standard analysis');
   }
 
   try {
@@ -799,6 +805,40 @@ export async function orchestrateUnblockOpportunities(
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);
   }
+}
+
+/**
+ * orchestrate.parallel - Manage parallel execution (start/end)
+ * @task T4632
+ */
+export async function orchestrateParallel(
+  action: 'start' | 'end',
+  epicId: string,
+  wave?: number,
+  projectRoot?: string,
+): Promise<EngineResult> {
+  if (action === 'start') {
+    if (wave === undefined || wave === null) {
+      return engineError('E_INVALID_INPUT', 'wave number is required for start action');
+    }
+    return orchestrateParallelStart(epicId, wave, projectRoot);
+  }
+
+  if (action === 'end') {
+    // wave is technically optional for end if we want to end ANY parallel execution,
+    // but the current implementation expects wave.
+    // However, endParallelExecution calls endParallelExecution(epicId, wave, root)
+    if (wave === undefined || wave === null) {
+      // If wave is not provided, maybe we can find the active one?
+      // For now, let's require it to match the underlying signature or default to 0/current?
+      // The underlying `endParallelExecution` signature is `(epicId: string, wave: number, root: string)`.
+      // Let's require it for now to be safe, or check if we can improve this.
+      return engineError('E_INVALID_INPUT', 'wave number is required for end action');
+    }
+    return orchestrateParallelEnd(epicId, wave, projectRoot);
+  }
+
+  return engineError('E_INVALID_INPUT', `Unknown parallel action: ${action}`);
 }
 
 /**

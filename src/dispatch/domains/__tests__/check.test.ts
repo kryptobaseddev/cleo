@@ -19,24 +19,19 @@ vi.mock('../../lib/engine.js', () => ({
   validateProtocolImplementation: vi.fn(),
   validateProtocolSpecification: vi.fn(),
   validateGateVerify: vi.fn(),
+  systemArchiveStats: vi.fn(),
 }));
 
 vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
-vi.mock('../../../core/lifecycle/chain-store.js', () => ({
-  showInstance: vi.fn(),
-  showChain: vi.fn(),
-  listInstanceGateResults: vi.fn(),
+vi.mock('../../../core/validation/chain-validation.js', () => ({
+  validateChain: vi.fn(),
 }));
 
 import { CheckHandler } from '../check.js';
-import {
-  showInstance,
-  showChain,
-  listInstanceGateResults,
-} from '../../../core/lifecycle/chain-store.js';
+import { validateChain } from '../../../core/validation/chain-validation.js';
 
 function makeForkJoinChain() {
   return {
@@ -66,7 +61,7 @@ function makeForkJoinChain() {
   };
 }
 
-describe('CheckHandler chain gate operations', () => {
+describe('CheckHandler operations', () => {
   let handler: CheckHandler;
 
   beforeEach(() => {
@@ -74,13 +69,23 @@ describe('CheckHandler chain gate operations', () => {
     handler = new CheckHandler();
   });
 
-  it('includes chain.gate in supported query operations', () => {
+  it('includes grade and chain.validate in supported query operations', () => {
     const ops = handler.getSupportedOperations();
-    expect(ops.query).toContain('chain.gate');
     expect(ops.query).toContain('chain.validate');
+    expect(ops.query).toContain('grade');
+    expect(ops.query).toContain('grade.list');
+    // chain.gate was removed
+    expect(ops.query).not.toContain('chain.gate');
   });
 
   it('validates fork-join chain through check.chain.validate route', async () => {
+    vi.mocked(validateChain).mockReturnValue({
+      wellFormed: true,
+      gateSatisfiable: true,
+      errors: [],
+      warnings: [],
+    } as any);
+
     const result = await handler.query('chain.validate', {
       chain: makeForkJoinChain(),
     });
@@ -93,45 +98,10 @@ describe('CheckHandler chain gate operations', () => {
     });
   });
 
-  it('returns gate-specific status when gateId is provided', async () => {
-    vi.mocked(showInstance).mockResolvedValue({ id: 'wci-1', chainId: 'chain-1' } as any);
-    vi.mocked(showChain).mockResolvedValue({
-      id: 'chain-1',
-      gates: [{ id: 'g-1' }],
-    } as any);
-    vi.mocked(listInstanceGateResults).mockResolvedValue([
-      { gateId: 'g-1', passed: true, forced: false, evaluatedAt: '2026-03-01T00:00:00.000Z' },
-    ] as any);
-
+  it('returns E_INVALID_OPERATION for chain.gate (removed from check)', async () => {
     const result = await handler.query('chain.gate', { instanceId: 'wci-1', gateId: 'g-1' });
 
-    expect(result.success).toBe(true);
-    expect(result.data).toMatchObject({
-      instanceId: 'wci-1',
-      gateId: 'g-1',
-      gateExists: true,
-      passed: true,
-    });
-  });
-
-  it('returns summary when gateId is omitted', async () => {
-    vi.mocked(showInstance).mockResolvedValue({ id: 'wci-1', chainId: 'chain-1' } as any);
-    vi.mocked(showChain).mockResolvedValue({ id: 'chain-1', gates: [{ id: 'g-1' }, { id: 'g-2' }] } as any);
-    vi.mocked(listInstanceGateResults).mockResolvedValue([
-      { gateId: 'g-1', passed: true, forced: false, evaluatedAt: '2026-03-01T00:00:00.000Z' },
-      { gateId: 'g-2', passed: false, forced: false, evaluatedAt: '2026-03-01T00:01:00.000Z' },
-    ] as any);
-
-    const result = await handler.query('chain.gate', { instanceId: 'wci-1' });
-
-    expect(result.success).toBe(true);
-    expect(result.data).toMatchObject({
-      instanceId: 'wci-1',
-      chainId: 'chain-1',
-      totalDefinedGates: 2,
-      totalEvaluations: 2,
-      passed: 1,
-      failed: 1,
-    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_INVALID_OPERATION');
   });
 });

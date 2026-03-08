@@ -8,6 +8,12 @@
  * @epic T4654
  */
 
+import {
+  injectContext,
+  type ContextInjectionData,
+} from '../../core/sessions/context-inject.js';
+
+// ... existing imports ...
 import { getAccessor } from '../../store/data-accessor.js';
 import {
   showSession,
@@ -1144,5 +1150,28 @@ export async function sessionChainShow(
   } catch (err: unknown) {
     const message = (err as Error).message;
     return engineError('E_INTERNAL', message);
+  }
+}
+
+/**
+ * Inject context protocol content.
+ * @task T5673
+ */
+export function sessionContextInject(
+  protocolType: string,
+  params?: { taskId?: string; variant?: string },
+  projectRoot?: string,
+): EngineResult<ContextInjectionData> {
+  try {
+    const result = injectContext(protocolType, params, projectRoot);
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = (err as Error).message;
+    const code = message.includes('required')
+      ? 'E_INVALID_INPUT'
+      : message.includes('not found')
+        ? 'E_NOT_FOUND'
+        : 'E_INTERNAL';
+    return engineError(code, message);
   }
 }

@@ -31,11 +31,11 @@ export function registerExportTasksCommand(program: Command): void {
       };
 
       if (hasOutput || opts['dryRun']) {
-        await dispatchFromCli('query', 'admin', 'export.tasks', params, { command: 'export-tasks' });
+        await dispatchFromCli('query', 'admin', 'export', { ...params, scope: 'tasks' }, { command: 'export-tasks' });
       } else {
         // No output file — write content directly to stdout for piping
-        const response = await dispatchRaw('query', 'admin', 'export.tasks', params);
-        handleRawError(response, { command: 'export-tasks', operation: 'admin.export.tasks' });
+        const response = await dispatchRaw('query', 'admin', 'export', { ...params, scope: 'tasks' });
+        handleRawError(response, { command: 'export-tasks', operation: 'admin.export' });
         const data = response.data as { content?: string } | undefined;
         if (data?.content) {
           process.stdout.write(data.content);

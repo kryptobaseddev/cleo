@@ -141,7 +141,7 @@ interface OperationDef {
 
 ## 6. Domain Operation Tables
 
-### 6.1 tasks (21 operations)
+### 6.1 tasks (25 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -158,7 +158,6 @@ interface OperationDef {
 | query | `complexity.estimate` | Estimate task complexity | 1 | -- | Yes |
 | query | `current` | Show currently active task | 0 | -- | Yes |
 | query | `label.list` | List all labels; accepts optional `label` filter | 1 | -- | Yes |
-| query | `history` | Show task work history (time tracked per task) | 1 | -- | Yes |
 | mutate | `add` | Create new task | 0 | -- | No |
 | mutate | `update` | Modify task properties (`status=done` MUST route to completion semantics) | 0 | -- | No |
 | mutate | `complete` | Canonical completion path (deps, acceptance policy, verification gates) | 0 | -- | No |
@@ -208,7 +207,7 @@ interface OperationDef {
 **Moved operations:**
 - `session.context.inject` → moved to `admin.context.inject` (reads protocol files from filesystem; correct admin home)
 
-### 6.3 memory (11 operations)
+### 6.3 memory (18 operations)
 
 All memory operations target **brain.db** (SQLite with FTS5). The memory domain is the runtime interface to the BRAIN cognitive system.
 
@@ -220,11 +219,18 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 | query | `decision.find` | Search decisions in brain.db | 1 | -- | Yes |
 | query | `pattern.find` | Search patterns by type, impact, or keyword | 1 | -- | Yes |
 | query | `learning.find` | Search learnings by confidence, actionability, or keyword | 1 | -- | Yes |
+| query | `graph.show` | Show knowledge graph structure | 1 | -- | Yes |
+| query | `graph.neighbors` | Find neighboring entries in the knowledge graph | 1 | -- | Yes |
+| query | `reason.why` | Explain reasoning chain for a decision or pattern | 1 | -- | Yes |
+| query | `reason.similar` | Find similar reasoning patterns | 1 | -- | Yes |
+| query | `search.hybrid` | Hybrid search combining FTS5 and graph traversal | 1 | -- | Yes |
 | mutate | `observe` | Save observation to brain.db | 0 | `text` | No |
 | mutate | `decision.store` | Store decision to brain.db | 1 | `decision`, `rationale` | No |
 | mutate | `pattern.store` | Store reusable workflow or anti-pattern | 1 | `pattern`, `context` | No |
 | mutate | `learning.store` | Store insight or lesson learned | 1 | `insight`, `source` | No |
 | mutate | `link` | Link brain entry to task | 1 | `taskId`, `entryId` | No |
+| mutate | `graph.add` | Add edge to knowledge graph | 1 | -- | No |
+| mutate | `graph.remove` | Remove edge from knowledge graph | 1 | -- | No |
 
 **Removed operations:**
 - `memory.show` → use `memory.fetch {ids: [id]}` (single-element array)
@@ -253,8 +259,8 @@ Includes 3 operations moved in from admin.
 | query | `test` | Show test suite status or coverage; accepts `format:"status"\|"coverage"` | 1 | -- | Yes |
 | query | `gate.status` | Read-only view of verification gate state | 1 | `taskId` | Yes |
 | query | `chain.validate` | Validate a WarpChain definition | 2 | `chain` | Yes |
-| query | `chain.gate` | Read gate evaluation history for a WarpChain instance | 2 | -- | Yes |
 | query | `grade` | Grade agent behavioral session (5-dimension rubric) | 2 | `sessionId` | Yes |
+| query | `grade.list` | List grade history | 2 | -- | Yes |
 | query | `archive.stats` | Archive statistics and analytics | 1 | -- | Yes |
 | mutate | `compliance.record` | Record compliance check result | 1 | -- | No |
 | mutate | `test.run` | Execute test suite | 1 | -- | No |
@@ -273,10 +279,10 @@ Includes 3 operations moved in from admin.
 
 **Moved in from admin:**
 - `admin.grade` → `check.grade`
-- `admin.grade.list` → absorbed into `check.grade {action:"list"}`
+- `admin.grade.list` → `check.grade.list`
 - `admin.archive.stats` → `check.archive.stats`
 
-### 6.5 pipeline (26 operations)
+### 6.5 pipeline (27 operations)
 
 The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact ledger, and release orchestration. The entire domain is tier 1 except WarpChain (`chain.*`) which is tier 2.
 
@@ -296,7 +302,6 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | query | `phase.list` | List all phases with status and task counts | 1 | -- | Yes |
 | query | `chain.show` | Get chain definition by ID | 2 | `chainId` | Yes |
 | query | `chain.list` | List all chain definitions | 2 | -- | Yes |
-| query | `chain.find` | Search chain definitions | 2 | -- | Yes |
 | mutate | `stage.record` | Record lifecycle stage completion | 1 | -- | No |
 | mutate | `stage.skip` | Skip a lifecycle stage | 1 | -- | No |
 | mutate | `stage.reset` | Reset lifecycle stage (emergency) | 1 | -- | No |
@@ -307,15 +312,9 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | mutate | `release.ship` | Execute release step; accepts `step:"prepare"\|"changelog"\|"commit"\|"tag"\|"push"\|"gates"` | 1 | -- | No |
 | mutate | `release.rollback` | Rollback failed release | 1 | -- | No |
 | mutate | `release.cancel` | Cancel in-progress release | 1 | -- | No |
-| mutate | `phase.set` | Set active phase or advance phase state; `action:"start"\|"complete"` | 1 | `phaseId` | No |
-| mutate | `phase.advance` | Complete current phase and start next | 1 | -- | No |
-| mutate | `phase.rename` | Rename a phase and update all task references | 1 | `oldName`, `newName` | No |
-| mutate | `phase.delete` | Delete a phase with task reassignment protection | 1 | `phaseId` | No |
 | mutate | `chain.add` | Store a validated chain definition | 2 | `chain` | No |
 | mutate | `chain.instantiate` | Create chain instance for epic | 2 | `chainId`, `epicId` | No |
 | mutate | `chain.advance` | Advance instance to next stage | 2 | `instanceId`, `nextStage` | No |
-| mutate | `chain.gate.pass` | Mark chain gate as passed | 2 | -- | No |
-| mutate | `chain.gate.fail` | Mark chain gate as failed | 2 | -- | No |
 
 **Merged operations (removed from registry):**
 - `pipeline.stage.gates` → use `pipeline.stage.status {include:["gates"]}`
@@ -327,10 +326,17 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 - `pipeline.release.tag` → use `pipeline.release.ship {step:"tag"}`
 - `pipeline.release.push` → use `pipeline.release.ship {step:"push"}`
 - `pipeline.release.gates.run` → use `pipeline.release.ship {step:"gates"}`
-- `pipeline.phase.start` → use `pipeline.phase.set {action:"start"}`
-- `pipeline.phase.complete` → use `pipeline.phase.set {action:"complete"}`
+- `pipeline.phase.start` → removed from registry
+- `pipeline.phase.complete` → removed from registry
+- `pipeline.phase.set` → removed from registry
+- `pipeline.phase.advance` → removed from registry
+- `pipeline.phase.rename` → removed from registry
+- `pipeline.phase.delete` → removed from registry
+- `pipeline.chain.find` → removed from registry
+- `pipeline.chain.gate.pass` → removed from registry
+- `pipeline.chain.gate.fail` → removed from registry
 
-### 6.6 orchestrate (15 operations)
+### 6.6 orchestrate (16 operations)
 
 The entire orchestrate domain is tier 1. All operations are orchestrator-specific and not needed at cold-start.
 
@@ -363,7 +369,7 @@ The entire orchestrate domain is tier 1. All operations are orchestrator-specifi
 - `orchestrate.chain.plan` — dead handler code, not in registry
 - `orchestrate.verify` — dead handler code, not in registry
 
-### 6.7 tools (19 operations in registry, 13 after plugin extraction)
+### 6.7 tools (22 operations)
 
 The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue.*` operations have been extracted to the `ct-github-issues` plugin and are not counted in core.
 
@@ -384,12 +390,12 @@ The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue
 | query | `provider.inject.status` | Provider injection status | 1 | -- | Yes |
 | query | `provider.supports` | Check if provider supports capability | 1 | -- | Yes |
 | query | `provider.hooks` | List providers by hook event support | 1 | -- | Yes |
+| query | `todowrite.status` | TodoWrite sync status (moved from admin) | 1 | -- | Yes |
 | mutate | `skill.install` | Install skill | 1 | -- | No |
 | mutate | `skill.uninstall` | Uninstall skill | 1 | -- | No |
 | mutate | `skill.refresh` | Refresh skill catalog | 1 | -- | No |
 | mutate | `provider.inject` | Inject provider configuration | 1 | -- | No |
 | mutate | `todowrite.sync` | Synchronize TodoWrite integration (moved from admin) | 1 | -- | No |
-| mutate | `todowrite.status` | TodoWrite sync status (moved from admin) | 1 | -- | Yes |
 | mutate | `todowrite.clear` | Clear TodoWrite sync state (moved from admin) | 1 | -- | No |
 
 **Extracted to `ct-github-issues` plugin (6 ops removed from core):**
@@ -414,7 +420,7 @@ The tools domain aggregates skills, providers, and the CAAMP catalog. Six `issue
 - `admin.sync.status` → `tools.todowrite.status`
 - `admin.sync.clear` → `tools.todowrite.clear`
 
-### 6.8 admin (28 operations)
+### 6.8 admin (30 operations)
 
 Includes 1 operation moved in from session. Note: actual before-count was 50 ops (not 44).
 
@@ -481,7 +487,7 @@ Includes 1 operation moved in from session. Note: actual before-count was 50 ops
 **Moved in from session:**
 - `session.context.inject` → `admin.context.inject`
 
-### 6.9 nexus (17 operations)
+### 6.9 nexus (20 operations)
 
 `nexus.status` and `nexus.list` are promoted to tier 1 as the discovery entry points. All other nexus operations are tier 2.
 
@@ -548,19 +554,19 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 
 | Domain | Query | Mutate | Total |
 |--------|-------|--------|-------|
-| tasks | 15 | 11 | 26 |
-| session | 9 | 6 | 15 |
-| memory | 6 | 5 | 11 |
+| tasks | 14 | 12 | 26 |
+| session | 8 | 7 | 15 |
+| memory | 11 | 7 | 18 |
 | check | 13 | 3 | 16 |
-| pipeline | 15 | 19 | 34 |
-| orchestrate | 9 | 6 | 15 |
-| tools | 15 | 7 | 22 |
-| admin | 15 | 13 | 28 |
+| pipeline | 14 | 17 | 31 |
+| orchestrate | 9 | 7 | 16 |
+| tools | 16 | 6 | 22 |
+| admin | 15 | 15 | 30 |
 | nexus | 12 | 8 | 20 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **111** | **82** | **193** |
+| **Total** | **114** | **86** | **200** |
 
-> Note: The table above counts all operations in each domain's section, including tier-2 ops and cross-domain moves. The consolidated rationalized core total (excluding 6 plugin-extracted ops from tools) is **164 operations** (97 query + 67 mutate) per the T5609 decision matrix. Discrepancy from table vs T5609 count reflects that some merged entries are listed as unified ops with multiple param forms counted once in T5609 but appear as rows above. The registry (`src/dispatch/registry.ts`) is the authoritative count.
+> These counts match `src/dispatch/registry.ts` exactly. The registry is the authoritative source of truth.
 
 ---
 
@@ -657,7 +663,7 @@ Valid `protocolType` values are defined by the CAAMP catalog and skill registry.
 
 ### Cross-Domain Moves (T5517 rationalization)
 
-Operations moved between domains as part of the 268→164 rationalization. These are semantically correct relocations, not removals.
+Operations moved between domains as part of the 268→195 rationalization. These are semantically correct relocations, not removals.
 
 | Old operation | New operation | Direction | Rationale |
 |---------------|---------------|-----------|-----------|
@@ -709,7 +715,7 @@ When operations are hidden at tier 2 without visible escalation paths, agents si
 |--------|-----------|------------------------|
 | nexus | core analysis, setup, sharing ops | `nexus.status` + `nexus.list` at tier 1 (promoted in T5517) |
 | pipeline (chain) | `chain.*` (5 ops) | `admin.help --tier 2` via `escalationHint` |
-| check (chain) | `chain.validate`, `chain.gate` | `admin.help --tier 2` via `escalationHint` |
+| check (chain) | `chain.validate` | `admin.help --tier 2` via `escalationHint` |
 | admin (token) | `admin.token` query + mutate | `admin.stats` at tier 1 hints at token tracking |
 | admin (export) | `admin.export`, `admin.import` | `admin.backup` at tier 1 hints at data portability |
 | admin (ADR) | `admin.adr.show` | `admin.adr.find` at tier 1 |
@@ -817,7 +823,7 @@ Error responses include machine-readable `code`, human-readable `message`, optio
 
 ---
 
-## 16. Appendix C: Migration Reference (268→164 Rationalization)
+## 16. Appendix C: Migration Reference (268→195 Rationalization)
 
 Quick reference for agents and code calling removed operations.
 

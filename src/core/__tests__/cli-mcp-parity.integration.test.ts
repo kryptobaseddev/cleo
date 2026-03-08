@@ -206,11 +206,6 @@ vi.mock('../../core/memory/pipeline-manifest-sqlite.js', () => ({
   filterEntries: vi.fn(),
 }));
 
-// --- session context inject mock (moved from memory domain in T5241) ---
-vi.mock('../../core/sessions/context-inject.js', () => ({
-  sessionContextInject: vi.fn(),
-}));
-
 // --- dispatch/lib/engine (config + init) ---
 vi.mock('../../dispatch/lib/engine.js', () => {
   return {
@@ -229,6 +224,7 @@ vi.mock('../../dispatch/lib/engine.js', () => {
     sessionStatus: vi.fn(),
     sessionList: vi.fn(),
     sessionStart: vi.fn(),
+    sessionContextInject: vi.fn(),
     configGet: vi.fn(),
     configSet: vi.fn(),
     getVersion: vi.fn(() => ({ success: true, data: { version: '1.0.0' } })),

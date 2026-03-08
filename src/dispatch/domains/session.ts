@@ -2,12 +2,13 @@
  * Session Domain Handler (Dispatch Layer)
  *
  * Handles session lifecycle operations: status, list, show, start, end,
- * resume, suspend, gc, history, record.decision, decision.log,
- * context.drift, record.assumption.
+ * resume, suspend, gc, record.decision, decision.log,
+ * context.drift, record.assumption, handoff.show, briefing.show, find.
  *
  * All operations delegate to native engine functions from session-engine.
  *
  * @epic T4820
+ * @task T5671
  */
 
 import type { DomainHandler, DispatchResponse } from '../types.js';
@@ -37,9 +38,8 @@ import {
   sessionDebriefShow,
   sessionChainShow,
   sessionFind,
+  sessionContextInject,
 } from '../lib/engine.js';
-
-import { sessionContextInject } from '../../core/sessions/context-inject.js';
 
 // ---------------------------------------------------------------------------
 // SessionHandler
@@ -79,17 +79,39 @@ export class SessionHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
+        // session.show absorbs debrief.show via include param (T5615)
         case 'show': {
           const sessionId = params?.sessionId as string;
           if (!sessionId) {
             return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
           }
+          const include = params?.include as string | undefined;
+          if (include === 'debrief') {
+            const result = await sessionDebriefShow(this.projectRoot, sessionId);
+            return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+          }
           const result = await sessionShow(this.projectRoot, sessionId);
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
+        // backward-compat alias — merged into show via include:"debrief"
+        case 'debrief.show': {
+          return this.query('show', { ...params, include: 'debrief' });
+        }
+
+        // backward-compat alias — history not in registry but kept for existing callers
         case 'history': {
           const result = await sessionHistory(this.projectRoot, params as { sessionId?: string; limit?: number });
+          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
+        }
+
+        // backward-compat alias — chain.show moved to pipeline domain (T5615)
+        case 'chain.show': {
+          const chainSessionId = params?.sessionId as string;
+          if (!chainSessionId) {
+            return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+          }
+          const result = await sessionChainShow(this.projectRoot, chainSessionId);
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -125,25 +147,6 @@ export class SessionHandler implements DomainHandler {
             maxEpics: params?.maxEpics as number | undefined,
             scope: params?.scope as string | undefined,
           });
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
-        }
-
-        // T4959: Rich debrief + chain operations
-        case 'debrief.show': {
-          const debriefSessionId = params?.sessionId as string;
-          if (!debriefSessionId) {
-            return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
-          }
-          const result = await sessionDebriefShow(this.projectRoot, debriefSessionId);
-          return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
-        }
-
-        case 'chain.show': {
-          const chainSessionId = params?.sessionId as string;
-          if (!chainSessionId) {
-            return this.errorResponse('query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
-          }
-          const result = await sessionChainShow(this.projectRoot, chainSessionId);
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -302,6 +305,7 @@ export class SessionHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'session', operation, startTime);
         }
 
+        // backward-compat alias — context.inject moved to admin domain (T5615)
         case 'context.inject': {
           const protocolType = params?.protocolType as string;
           if (!protocolType) {
@@ -329,8 +333,8 @@ export class SessionHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['status', 'list', 'show', 'find', 'history', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show', 'debrief.show', 'chain.show'],
-      mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption', 'context.inject'],
+      query: ['status', 'list', 'show', 'find', 'decision.log', 'context.drift', 'handoff.show', 'briefing.show'],
+      mutate: ['start', 'end', 'resume', 'suspend', 'gc', 'record.decision', 'record.assumption'],
     };
   }
 

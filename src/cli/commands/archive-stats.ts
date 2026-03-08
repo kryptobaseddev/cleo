@@ -303,7 +303,7 @@ export function registerArchiveStatsCommand(program: Command): void {
       else if (opts['cycleTimes']) report = 'cycle-times';
       else if (opts['trends']) report = 'trends';
 
-      await dispatchFromCli('query', 'admin', 'archive.stats', {
+      await dispatchFromCli('query', 'check', 'archive.stats', {
         report,
         since: opts['since'] as string | undefined,
         until: opts['until'] as string | undefined,

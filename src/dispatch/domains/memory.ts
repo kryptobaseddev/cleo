@@ -18,27 +18,20 @@ import { getLogger } from '../../core/logger.js';
 
 import {
   // Brain.db cognitive memory operations
-  memoryShow,
   memoryFind,
   memoryTimeline,
   memoryFetch,
   memoryObserve,
-  memoryBrainStats,
   memoryDecisionFind,
   memoryDecisionStore,
-  // Pattern operations (renamed)
+  // Pattern operations
   memoryPatternFind,
   memoryPatternStore,
-  memoryPatternStats,
-  // Learning operations (renamed)
+  // Learning operations
   memoryLearningFind,
   memoryLearningStore,
-  memoryLearningStats,
-  // Brain memory linking and analysis
-  memoryContradictions,
-  memorySuperseded,
+  // Brain memory linking
   memoryLink,
-  memoryUnlink,
   // PageIndex graph operations (T5385)
   memoryGraphAdd,
   memoryGraphShow,
@@ -48,7 +41,7 @@ import {
   memoryReasonWhy,
   memoryReasonSimilar,
   memorySearchHybrid,
-} from '../../core/memory/engine-compat.js';
+} from '../lib/engine.js';
 
 // ---------------------------------------------------------------------------
 // Memory Handler Class
@@ -75,15 +68,6 @@ export class MemoryHandler implements DomainHandler {
 
     try {
       switch (operation) {
-        case 'show': {
-          const entryId = params?.entryId as string;
-          if (!entryId) {
-            return this.errorResponse('query', 'memory', operation, 'E_INVALID_INPUT', 'entryId is required', startTime);
-          }
-          const result = await memoryShow(entryId, this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
         case 'find': {
           const query = params?.query as string;
           if (!query) {
@@ -127,27 +111,6 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
-        case 'stats': {
-          const result = await memoryBrainStats(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        case 'contradictions': {
-          const result = await memoryContradictions(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        case 'superseded': {
-          const result = await memorySuperseded(
-            {
-              type: params?.type as string | undefined,
-              project: params?.project as string | undefined,
-            },
-            this.projectRoot,
-          );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
         case 'decision.find': {
           const result = await memoryDecisionFind(
             {
@@ -174,11 +137,6 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
-        case 'pattern.stats': {
-          const result = await memoryPatternStats(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
         case 'learning.find': {
           const result = await memoryLearningFind(
             {
@@ -190,11 +148,6 @@ export class MemoryHandler implements DomainHandler {
             },
             this.projectRoot,
           );
-          return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
-        }
-
-        case 'learning.stats': {
-          const result = await memoryLearningStats(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'memory', operation, startTime);
         }
 
@@ -371,19 +324,6 @@ export class MemoryHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
         }
 
-        case 'unlink': {
-          const taskId = params?.taskId as string;
-          const entryId = params?.entryId as string;
-          if (!taskId || !entryId) {
-            return this.errorResponse('mutate', 'memory', operation, 'E_INVALID_INPUT', 'taskId and entryId are required', startTime);
-          }
-          const result = await memoryUnlink(
-            { taskId, entryId },
-            this.projectRoot,
-          );
-          return this.wrapEngineResult(result, 'mutate', 'memory', operation, startTime);
-        }
-
         case 'graph.add': {
           const result = await memoryGraphAdd(
             {
@@ -428,8 +368,16 @@ export class MemoryHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['show', 'find', 'timeline', 'fetch', 'stats', 'contradictions', 'superseded', 'decision.find', 'pattern.find', 'pattern.stats', 'learning.find', 'learning.stats', 'graph.show', 'graph.neighbors', 'reason.why', 'reason.similar', 'search.hybrid'],
-      mutate: ['observe', 'decision.store', 'pattern.store', 'learning.store', 'link', 'unlink', 'graph.add', 'graph.remove'],
+      query: [
+        'find', 'timeline', 'fetch',
+        'decision.find', 'pattern.find', 'learning.find',
+        'graph.show', 'graph.neighbors',
+        'reason.why', 'reason.similar', 'search.hybrid',
+      ],
+      mutate: [
+        'observe', 'decision.store', 'pattern.store', 'learning.store',
+        'link', 'graph.add', 'graph.remove',
+      ],
     };
   }
 

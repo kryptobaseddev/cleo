@@ -26,20 +26,20 @@ import { CANONICAL_DOMAINS, type CanonicalDomain } from '../../src/dispatch/type
 // Constants — update these ONLY when operations are intentionally changed
 // ===========================================================================
 
-const EXPECTED_TOTAL = 268;
-const EXPECTED_QUERY = 151;
-const EXPECTED_MUTATE = 117;
+const EXPECTED_TOTAL = 200;
+const EXPECTED_QUERY = 114;
+const EXPECTED_MUTATE = 86;
 
 const EXPECTED_DOMAIN_COUNTS: Record<string, { query: number; mutate: number; total: number }> = {
-  tasks:       { query: 17, mutate: 15, total: 32 },
-  session:     { query: 11, mutate:  8, total: 19 },
-  memory:      { query: 12, mutate:  6, total: 18 },
-  check:       { query: 17, mutate:  2, total: 19 },
-  pipeline:    { query: 17, mutate: 25, total: 42 },
-  orchestrate: { query: 11, mutate:  8, total: 19 },
-  tools:       { query: 21, mutate: 11, total: 32 },
-  admin:       { query: 26, mutate: 24, total: 50 },
-  nexus:       { query: 17, mutate: 14, total: 31 },
+  tasks:       { query: 14, mutate: 12, total: 26 },
+  session:     { query:  8, mutate:  7, total: 15 },
+  memory:      { query: 11, mutate:  7, total: 18 },
+  check:       { query: 13, mutate:  3, total: 16 },
+  pipeline:    { query: 14, mutate: 17, total: 31 },
+  orchestrate: { query:  9, mutate:  7, total: 16 },
+  tools:       { query: 16, mutate:  6, total: 22 },
+  admin:       { query: 15, mutate: 15, total: 30 },
+  nexus:       { query: 12, mutate:  8, total: 20 },
   sticky:      { query:  2, mutate:  4, total:  6 },
 };
 

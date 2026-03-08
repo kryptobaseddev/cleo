@@ -3,13 +3,15 @@
  *
  * Consolidates MCP system domain operations into the canonical "admin"
  * domain. Handles version, health, config, stats, context, job management,
- * dashboard, log, sequence, init, backup, restore, migrate, sync, cleanup,
- * safestop, and inject.generate.
+ * dashboard, log, sequence, init, backup, restore, migrate, cleanup,
+ * safestop, inject.generate, token, adr, export, import, install.global,
+ * and context.inject.
  *
  * All operations delegate to native engine functions from system-engine,
  * config-engine, and init-engine.
  *
  * @epic T4820
+ * @task T5671
  */
 
 import type { DomainHandler, DispatchResponse } from '../types.js';
@@ -18,14 +20,11 @@ import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { OPERATIONS } from '../registry.js';
 import { paginate } from '../../core/pagination.js';
+import { routeByParam } from './_routing.js';
 
 import {
-  listAdrs, showAdr, syncAdrsToDb, validateAllAdrs, findAdrs
+  showAdr, syncAdrsToDb, validateAllAdrs, findAdrs, listAdrs
 } from '../../core/adrs/index.js';
-import {
-  getSyncStatus,
-  clearSyncState,
-} from '../../core/admin/sync.js';
 import { exportTasks } from '../../core/admin/export.js';
 import { importTasks } from '../../core/admin/import.js';
 import { exportTasksPackage } from '../../core/admin/export-tasks.js';
@@ -44,7 +43,6 @@ import {
   systemContext,
   systemRuntime,
   systemSequence,
-  systemSequenceRepair,
   systemHealth,
   systemDoctor,
   systemFix,
@@ -54,12 +52,12 @@ import {
   backupRestore,
   systemMigrate,
   systemCleanup,
-  systemSync,
   systemSafestop,
   configGet,
   configSet,
   getVersion,
   initProject,
+  sessionContextInject,
 } from '../lib/engine.js';
 import {
   clearTokenUsage,
@@ -105,10 +103,16 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'health': {
+          const mode = params?.mode as string | undefined;
+          if (mode === 'diagnose') {
+            const result = await systemDoctor(this.projectRoot);
+            return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
+          }
           const result = systemHealth(this.projectRoot, params as { detailed?: boolean } | undefined);
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
+        // backward-compat alias — merged into health via mode:"diagnose"
         case 'doctor': {
           const result = await systemDoctor(this.projectRoot);
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
@@ -134,44 +138,56 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
-        case 'job.status': {
-          const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
-          const manager = getJobManager();
-          if (!manager) {
-            return this.errorResponse('query', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
-          }
-          const jobId = params?.jobId as string;
-          if (!jobId) {
-            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'jobId is required', startTime);
-          }
-          const job = manager.getJob(jobId);
-          if (!job) {
-            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Job ${jobId} not found`, startTime);
-          }
-          return this.wrapEngineResult({ success: true, data: job }, 'query', 'admin', operation, startTime);
+        // Merged: job.status + job.list → job via action param (T5615)
+        case 'job': {
+          return routeByParam<Promise<DispatchResponse>>(params, 'action', {
+            status: async (): Promise<DispatchResponse> => {
+              const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+              const manager = getJobManager();
+              if (!manager) {
+                return this.errorResponse('query', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
+              }
+              const jobId = params?.jobId as string;
+              if (!jobId) {
+                return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'jobId is required', startTime);
+              }
+              const job = manager.getJob(jobId);
+              if (!job) {
+                return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Job ${jobId} not found`, startTime);
+              }
+              return this.wrapEngineResult({ success: true, data: job }, 'query', 'admin', operation, startTime);
+            },
+            list: async (): Promise<DispatchResponse> => {
+              const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
+              const mgr = getJobManager();
+              if (!mgr) {
+                return this.errorResponse('query', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
+              }
+              const statusFilter = params?.status as string | undefined;
+              const { limit, offset } = this.getListParams(params);
+              const allJobs = mgr.listJobs();
+              const filteredJobs = statusFilter ? mgr.listJobs(statusFilter) : allJobs;
+              const page = paginate(filteredJobs, limit, offset);
+              return this.wrapEngineResult({
+                success: true,
+                data: {
+                  jobs: page.items,
+                  count: filteredJobs.length,
+                  total: allJobs.length,
+                  filtered: filteredJobs.length,
+                },
+                page: page.page,
+              }, 'query', 'admin', operation, startTime);
+            },
+          }, 'status');
         }
 
+        // backward-compat aliases for old dotted names
+        case 'job.status': {
+          return this.query('job', { ...params, action: 'status' });
+        }
         case 'job.list': {
-          const { getJobManager } = await import('../../mcp/lib/job-manager-accessor.js');
-          const mgr = getJobManager();
-          if (!mgr) {
-            return this.errorResponse('query', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
-          }
-          const statusFilter = params?.status as string | undefined;
-          const { limit, offset } = this.getListParams(params);
-          const allJobs = mgr.listJobs();
-          const filteredJobs = statusFilter ? mgr.listJobs(statusFilter) : allJobs;
-          const page = paginate(filteredJobs, limit, offset);
-          return this.wrapEngineResult({
-            success: true,
-            data: {
-              jobs: page.items,
-              count: filteredJobs.length,
-              total: allJobs.length,
-              filtered: filteredJobs.length,
-            },
-            page: page.page,
-          }, 'query', 'admin', operation, startTime);
+          return this.query('job', { ...params, action: 'list' });
         }
 
         case 'dash': {
@@ -261,7 +277,23 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        // adr.find absorbs adr.list — omit query to list all (T5615)
+        case 'adr.find':
         case 'adr.list': {
+          const query = params?.query as string | undefined;
+          if (query) {
+            const result = await findAdrs(this.projectRoot, query, {
+              topics: params?.topics as string | undefined,
+              keywords: params?.keywords as string | undefined,
+              status: params?.status as string | undefined,
+            });
+            return {
+              _meta: dispatchMeta('query', 'admin', operation, startTime),
+              success: true,
+              data: result,
+            };
+          }
+          // No query — list all ADRs
           const { limit, offset } = this.getListParams(params);
           const result = await listAdrs(this.projectRoot, {
             status: params?.status as string | undefined,
@@ -293,243 +325,123 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
-        case 'adr.find': {
-          const query = params?.query as string;
-          if (!query) {
-            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'query is required', startTime);
-          }
-          const result = await findAdrs(this.projectRoot, query, {
-            topics: params?.topics as string | undefined,
-            keywords: params?.keywords as string | undefined,
-            status: params?.status as string | undefined,
-          });
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
-        }
-
-        case 'archive.stats': {
-          const { getArchiveStats } = await import('../../cli/commands/archive-stats.js');
-          const result = await getArchiveStats({
-            report: params?.report as 'summary' | 'by-phase' | 'by-label' | 'by-priority' | 'cycle-times' | 'trends' | undefined,
-            since: params?.since as string | undefined,
-            until: params?.until as string | undefined,
-            cwd: this.projectRoot,
-          });
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
-        }
-
-        case 'grade': {
-          const { gradeSession } = await import('../../core/sessions/session-grade.js');
-          const sessionId = params?.sessionId as string;
-          if (!sessionId) {
-            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'sessionId required', startTime);
-          }
-          const result = await gradeSession(sessionId, this.projectRoot);
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
-        }
-
-        case 'grade.list': {
-          const { readGrades } = await import('../../core/sessions/session-grade.js');
-          const { limit, offset } = this.getListParams(params);
-          const allGrades = await readGrades(undefined, this.projectRoot);
-          const sessionId = params?.sessionId as string | undefined;
-          const filteredGrades = sessionId
-            ? allGrades.filter((grade) => grade.sessionId === sessionId)
-            : allGrades;
-          const page = paginate(filteredGrades, limit, offset);
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: {
-              grades: page.items,
-              total: allGrades.length,
-              filtered: filteredGrades.length,
+        // Merged: token.summary + token.list + token.show → token via action param (T5615)
+        case 'token': {
+          return routeByParam<Promise<DispatchResponse>>(params, 'action', {
+            summary: async (): Promise<DispatchResponse> => {
+              const result = await summarizeTokenUsage({
+                provider: params?.provider as string | undefined,
+                transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+                gateway: params?.gateway as string | undefined,
+                domain: params?.domain as string | undefined,
+                operation: params?.operationName as string | undefined,
+                sessionId: params?.sessionId as string | undefined,
+                taskId: params?.taskId as string | undefined,
+                method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
+                confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
+                requestId: params?.requestId as string | undefined,
+                since: params?.since as string | undefined,
+                until: params?.until as string | undefined,
+              }, this.projectRoot);
+              return {
+                _meta: dispatchMeta('query', 'admin', operation, startTime),
+                success: true,
+                data: result,
+              };
             },
-            page: page.page,
-          };
+            list: async (): Promise<DispatchResponse> => {
+              const { limit, offset } = this.getListParams(params);
+              const result = await listTokenUsage({
+                provider: params?.provider as string | undefined,
+                transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+                gateway: params?.gateway as string | undefined,
+                domain: params?.domain as string | undefined,
+                operation: params?.operationName as string | undefined,
+                sessionId: params?.sessionId as string | undefined,
+                taskId: params?.taskId as string | undefined,
+                method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
+                confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
+                requestId: params?.requestId as string | undefined,
+                since: params?.since as string | undefined,
+                until: params?.until as string | undefined,
+                limit,
+                offset,
+              }, this.projectRoot);
+              return {
+                _meta: dispatchMeta('query', 'admin', operation, startTime),
+                success: true,
+                data: {
+                  records: result.records,
+                  total: result.total,
+                  filtered: result.filtered,
+                },
+                page: paginate(Array.from({ length: result.filtered }), limit, offset).page,
+              };
+            },
+            show: async (): Promise<DispatchResponse> => {
+              const tokenId = params?.tokenId as string;
+              if (!tokenId) {
+                return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'tokenId is required', startTime);
+              }
+              const result = await showTokenUsage(tokenId, this.projectRoot);
+              if (!result) {
+                return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Token usage record not found: ${tokenId}`, startTime);
+              }
+              return {
+                _meta: dispatchMeta('query', 'admin', operation, startTime),
+                success: true,
+                data: result,
+              };
+            },
+          }, 'summary');
         }
 
-        case 'grade.run.list': {
-          const fs = await import('node:fs');
-          const nodePath = await import('node:path');
-          const gradeRunsDir = nodePath.join(this.projectRoot, '.cleo', 'metrics', 'grade-runs');
-          const runs: Array<{
-            runId: string;
-            mode: string;
-            createdAt: string;
-            scenarios: string[];
-            status: string;
-            arms: Record<string, unknown>;
-            slotCount: number;
-          }> = [];
-          try {
-            if (fs.existsSync(gradeRunsDir)) {
-              for (const runId of fs.readdirSync(gradeRunsDir)) {
-                const manifestPath = nodePath.join(gradeRunsDir, runId, 'run-manifest.json');
-                if (fs.existsSync(manifestPath)) {
-                  try {
-                    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-                    runs.push({
-                      runId,
-                      mode: manifest.mode ?? 'unknown',
-                      createdAt: manifest.created_at ?? '',
-                      scenarios: manifest.scenarios ?? [],
-                      status: manifest.status ?? 'unknown',
-                      arms: manifest.arms ?? {},
-                      slotCount: (manifest.slots ?? []).length,
-                    });
-                  } catch {
-                    // skip malformed manifest
-                  }
-                }
-              }
-            }
-          } catch {
-            // grade-runs dir missing — return empty
-          }
-          runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: { runs, total: runs.length },
-          };
-        }
-
-        case 'grade.run.show': {
-          const runId = params?.runId as string;
-          if (!runId) {
-            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'runId is required', startTime);
-          }
-          const fs = await import('node:fs');
-          const nodePath = await import('node:path');
-          const runDir = nodePath.join(this.projectRoot, '.cleo', 'metrics', 'grade-runs', runId);
-          if (!fs.existsSync(runDir)) {
-            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Run ${runId} not found`, startTime);
-          }
-          const manifestPath = nodePath.join(runDir, 'run-manifest.json');
-          if (!fs.existsSync(manifestPath)) {
-            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `run-manifest.json not found for run ${runId}`, startTime);
-          }
-          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-          const slots: Record<string, unknown> = {};
-          for (const slot of (manifest.slots ?? [])) {
-            const slotData: Record<string, unknown> = {};
-            for (const [armKey, armInfo] of Object.entries(manifest.arms ?? {})) {
-              const info = armInfo as Record<string, unknown>;
-              const iface = info.interface as string;
-              const armDir = nodePath.join(runDir, slot, 'run-01', `arm-${iface}`);
-              let grade: unknown = null;
-              let tokens: unknown = null;
-              const gradeFile = nodePath.join(armDir, 'grade.json');
-              if (fs.existsSync(gradeFile)) {
-                try { grade = JSON.parse(fs.readFileSync(gradeFile, 'utf8')); } catch { /* skip */ }
-              }
-              const sessionId = (grade as Record<string, unknown>)?.sessionId as string | undefined;
-              if (sessionId) {
-                try {
-                  tokens = await summarizeTokenUsage({ sessionId }, this.projectRoot);
-                } catch { /* skip */ }
-              }
-              slotData[`arm${armKey}`] = { grade, tokens };
-            }
-            const comparisonFile = nodePath.join(runDir, slot, 'run-01', 'comparison.json');
-            if (fs.existsSync(comparisonFile)) {
-              try { slotData.comparison = JSON.parse(fs.readFileSync(comparisonFile, 'utf8')); } catch { /* skip */ }
-            }
-            slots[slot] = slotData;
-          }
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: { manifest, slots },
-          };
-        }
-
+        // backward-compat aliases for old dotted token names
         case 'token.summary': {
-          const result = await summarizeTokenUsage({
-            provider: params?.provider as string | undefined,
-            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
-            gateway: params?.gateway as string | undefined,
-            domain: params?.domain as string | undefined,
-            operation: params?.operationName as string | undefined,
-            sessionId: params?.sessionId as string | undefined,
-            taskId: params?.taskId as string | undefined,
-            method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
-            confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
-            requestId: params?.requestId as string | undefined,
-            since: params?.since as string | undefined,
-            until: params?.until as string | undefined,
-          }, this.projectRoot);
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
+          return this.query('token', { ...params, action: 'summary' });
         }
-
         case 'token.list': {
-          const { limit, offset } = this.getListParams(params);
-          const result = await listTokenUsage({
-            provider: params?.provider as string | undefined,
-            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
-            gateway: params?.gateway as string | undefined,
-            domain: params?.domain as string | undefined,
-            operation: params?.operationName as string | undefined,
-            sessionId: params?.sessionId as string | undefined,
-            taskId: params?.taskId as string | undefined,
-            method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
-            confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
-            requestId: params?.requestId as string | undefined,
-            since: params?.since as string | undefined,
-            until: params?.until as string | undefined,
-            limit,
-            offset,
-          }, this.projectRoot);
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: {
-              records: result.records,
-              total: result.total,
-              filtered: result.filtered,
-            },
-            page: paginate(Array.from({ length: result.filtered }), limit, offset).page,
-          };
+          return this.query('token', { ...params, action: 'list' });
         }
-
         case 'token.show': {
-          const tokenId = params?.tokenId as string;
-          if (!tokenId) {
-            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'tokenId is required', startTime);
-          }
-          const result = await showTokenUsage(tokenId, this.projectRoot);
-          if (!result) {
-            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Token usage record not found: ${tokenId}`, startTime);
-          }
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
+          return this.query('token', { ...params, action: 'show' });
         }
 
-        case 'sync.status': {
-          const result = await getSyncStatus(this.projectRoot);
-          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
-        }
-
+        // Merged: export + snapshot.export + export.tasks → export via scope param (T5615)
         case 'export': {
+          const scope = params?.scope as string | undefined;
+          if (scope === 'snapshot') {
+            const snapshot = await exportSnapshot(this.projectRoot);
+            const outputPath = (params?.output as string) ?? getDefaultSnapshotPath(this.projectRoot);
+            await writeSnapshot(snapshot, outputPath);
+            return {
+              _meta: dispatchMeta('query', 'admin', operation, startTime),
+              success: true,
+              data: {
+                exported: true,
+                taskCount: snapshot._meta.taskCount,
+                outputPath,
+                checksum: snapshot._meta.checksum,
+              },
+            };
+          }
+          if (scope === 'tasks') {
+            const result = await exportTasksPackage({
+              taskIds: params?.taskIds as string[] | undefined,
+              output: params?.output as string | undefined,
+              subtree: params?.subtree as boolean | undefined,
+              filter: params?.filter as string[] | undefined,
+              includeDeps: params?.includeDeps as boolean | undefined,
+              dryRun: params?.dryRun as boolean | undefined,
+              cwd: this.projectRoot,
+            });
+            return {
+              _meta: dispatchMeta('query', 'admin', operation, startTime),
+              success: true,
+              data: result,
+            };
+          }
+          // Default: standard export
           const result = await exportTasks({
             format: params?.format as 'json' | 'csv' | 'tsv' | 'markdown' | 'todowrite' | undefined,
             output: params?.output as string | undefined,
@@ -545,37 +457,19 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        // backward-compat aliases for old export names
         case 'snapshot.export': {
-          const snapshot = await exportSnapshot(this.projectRoot);
-          const outputPath = (params?.output as string) ?? getDefaultSnapshotPath(this.projectRoot);
-          await writeSnapshot(snapshot, outputPath);
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: {
-              exported: true,
-              taskCount: snapshot._meta.taskCount,
-              outputPath,
-              checksum: snapshot._meta.checksum,
-            },
-          };
+          return this.query('export', { ...params, scope: 'snapshot' });
+        }
+        case 'export.tasks': {
+          return this.query('export', { ...params, scope: 'tasks' });
         }
 
-        case 'export.tasks': {
-          const result = await exportTasksPackage({
-            taskIds: params?.taskIds as string[] | undefined,
-            output: params?.output as string | undefined,
-            subtree: params?.subtree as boolean | undefined,
-            filter: params?.filter as string[] | undefined,
-            includeDeps: params?.includeDeps as boolean | undefined,
-            dryRun: params?.dryRun as boolean | undefined,
-            cwd: this.projectRoot,
-          });
-          return {
-            _meta: dispatchMeta('query', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
+        // backward-compat alias — sync.status moved to tools.todowrite.status (T5615)
+        case 'sync.status': {
+          const { getSyncStatus } = await import('../../core/admin/sync.js');
+          const result = await getSyncStatus(this.projectRoot);
+          return this.wrapEngineResult(result, 'query', 'admin', operation, startTime);
         }
 
         default:
@@ -603,9 +497,21 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
-        case 'fix': {
+        // Merged: health (mutate) absorbs fix and doctor via mode param (T5615)
+        case 'health': {
+          const mode = params?.mode as string | undefined;
+          if (mode === 'diagnose') {
+            const result = await systemDoctor(this.projectRoot);
+            return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          }
+          // Default: repair mode
           const result = await systemFix(this.projectRoot);
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
+        // backward-compat alias — merged into health (mutate)
+        case 'fix': {
+          return this.mutate('health', { ...params, mode: 'repair' });
         }
 
         case 'config.set': {
@@ -617,38 +523,42 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
+        // Merged: backup absorbs restore and backup.restore via action param (T5615)
         case 'backup': {
+          const action = params?.action as string | undefined;
+          if (action === 'restore') {
+            const backupId = params?.backupId as string;
+            if (!backupId) {
+              return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'backupId is required', startTime);
+            }
+            const result = systemRestore(this.projectRoot, { backupId, force: params?.force as boolean | undefined });
+            return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          }
+          if (action === 'restore.file') {
+            const file = params?.file as string;
+            if (!file) {
+              return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
+            }
+            const result = await backupRestore(this.projectRoot, file, {
+              dryRun: params?.dryRun as boolean | undefined,
+            });
+            return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          }
+          // Default: create backup
           const result = systemBackup(this.projectRoot, params as { type?: string; note?: string } | undefined);
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
+        // backward-compat aliases
         case 'restore': {
-          const backupId = params?.backupId as string;
-          if (!backupId) {
-            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'backupId is required', startTime);
-          }
-          const result = systemRestore(this.projectRoot, { backupId, force: params?.force as boolean | undefined });
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return this.mutate('backup', { ...params, action: 'restore' });
         }
-
         case 'backup.restore': {
-          const file = params?.file as string;
-          if (!file) {
-            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
-          }
-          const result = await backupRestore(this.projectRoot, file, {
-            dryRun: params?.dryRun as boolean | undefined,
-          });
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+          return this.mutate('backup', { ...params, action: 'restore.file' });
         }
 
         case 'migrate': {
           const result = await systemMigrate(this.projectRoot, params as { target?: string; dryRun?: boolean } | undefined);
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
-        }
-
-        case 'sync': {
-          const result = systemSync(this.projectRoot, params as { direction?: string } | undefined);
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
@@ -698,16 +608,18 @@ export class AdminHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
-        case 'sequence': {
-          const action = params?.action as string | undefined;
-          if (action !== 'repair') {
-            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'action must be repair', startTime);
-          }
-          const result = await systemSequenceRepair(this.projectRoot);
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
-        }
-
+        // adr.sync absorbs adr.validate via validate flag (T5615)
         case 'adr.sync': {
+          const validate = params?.validate as boolean | undefined;
+          if (validate) {
+            const result = await validateAllAdrs(this.projectRoot);
+            return {
+              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+              success: result.valid,
+              data: result,
+              ...(result.valid ? {} : { error: { code: 'E_ADR_VALIDATION', message: `${result.errors.length} ADR validation error(s) found` } }),
+            };
+          }
           const result = await syncAdrsToDb(this.projectRoot);
           return {
             _meta: dispatchMeta('mutate', 'admin', operation, startTime),
@@ -716,22 +628,70 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        // backward-compat alias — merged into adr.sync
         case 'adr.validate': {
-          const result = await validateAllAdrs(this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
-            success: result.valid,
-            data: result,
-            ...(result.valid ? {} : { error: { code: 'E_ADR_VALIDATION', message: `${result.errors.length} ADR validation error(s) found` } }),
-          };
+          return this.mutate('adr.sync', { ...params, validate: true });
         }
 
-        case 'sync.clear': {
-          const result = await clearSyncState(this.projectRoot, params?.dryRun as boolean | undefined);
-          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
-        }
-
+        // Merged: import + snapshot.import + import.tasks → import via scope param (T5615)
         case 'import': {
+          const scope = params?.scope as string | undefined;
+          if (scope === 'snapshot') {
+            const file = params?.file as string;
+            if (!file) {
+              return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
+            }
+            const snapshot = await readSnapshot(file);
+            if (params?.dryRun) {
+              return {
+                _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                success: true,
+                data: {
+                  dryRun: true,
+                  source: snapshot._meta.source,
+                  taskCount: snapshot._meta.taskCount,
+                  createdAt: snapshot._meta.createdAt,
+                },
+              };
+            }
+            const result = await importSnapshot(snapshot, this.projectRoot);
+            return {
+              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+              success: true,
+              data: {
+                imported: true,
+                added: result.added,
+                updated: result.updated,
+                skipped: result.skipped,
+                conflicts: result.conflicts.length > 0 ? result.conflicts : undefined,
+              },
+            };
+          }
+          if (scope === 'tasks') {
+            const file = params?.file as string;
+            if (!file) {
+              return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
+            }
+            const result = await importTasksPackage({
+              file,
+              dryRun: params?.dryRun as boolean | undefined,
+              parent: params?.parent as string | undefined,
+              phase: params?.phase as string | undefined,
+              addLabel: params?.addLabel as string | undefined,
+              provenance: params?.provenance as boolean | undefined,
+              resetStatus: params?.resetStatus as 'pending' | 'active' | 'blocked' | undefined,
+              onConflict: params?.onConflict as 'duplicate' | 'rename' | 'skip' | 'fail' | undefined,
+              onMissingDep: params?.onMissingDep as 'strip' | 'placeholder' | 'fail' | undefined,
+              force: params?.force as boolean | undefined,
+              cwd: this.projectRoot,
+            });
+            return {
+              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+              success: true,
+              data: result,
+            };
+          }
+          // Default: standard import
           const file = params?.file as string;
           if (!file) {
             return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
@@ -752,61 +712,12 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        // backward-compat aliases for old import names
         case 'snapshot.import': {
-          const file = params?.file as string;
-          if (!file) {
-            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
-          }
-          const snapshot = await readSnapshot(file);
-          if (params?.dryRun) {
-            return {
-              _meta: dispatchMeta('mutate', 'admin', operation, startTime),
-              success: true,
-              data: {
-                dryRun: true,
-                source: snapshot._meta.source,
-                taskCount: snapshot._meta.taskCount,
-                createdAt: snapshot._meta.createdAt,
-              },
-            };
-          }
-          const result = await importSnapshot(snapshot, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
-            success: true,
-            data: {
-              imported: true,
-              added: result.added,
-              updated: result.updated,
-              skipped: result.skipped,
-              conflicts: result.conflicts.length > 0 ? result.conflicts : undefined,
-            },
-          };
+          return this.mutate('import', { ...params, scope: 'snapshot' });
         }
-
         case 'import.tasks': {
-          const file = params?.file as string;
-          if (!file) {
-            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'file is required', startTime);
-          }
-          const result = await importTasksPackage({
-            file,
-            dryRun: params?.dryRun as boolean | undefined,
-            parent: params?.parent as string | undefined,
-            phase: params?.phase as string | undefined,
-            addLabel: params?.addLabel as string | undefined,
-            provenance: params?.provenance as boolean | undefined,
-            resetStatus: params?.resetStatus as 'pending' | 'active' | 'blocked' | undefined,
-            onConflict: params?.onConflict as 'duplicate' | 'rename' | 'skip' | 'fail' | undefined,
-            onMissingDep: params?.onMissingDep as 'strip' | 'placeholder' | 'fail' | undefined,
-            force: params?.force as boolean | undefined,
-            cwd: this.projectRoot,
-          });
-          return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
+          return this.mutate('import', { ...params, scope: 'tasks' });
         }
 
         case 'detect': {
@@ -819,62 +730,113 @@ export class AdminHandler implements DomainHandler {
           }, 'mutate', 'admin', operation, startTime);
         }
 
+        // Merged: token.record + token.delete + token.clear → token via action param (T5615)
+        case 'token': {
+          return routeByParam<Promise<DispatchResponse>>(params, 'action', {
+            record: async (): Promise<DispatchResponse> => {
+              const result = await recordTokenExchange({
+                provider: params?.provider as string | undefined,
+                model: params?.model as string | undefined,
+                transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+                gateway: params?.gateway as string | undefined,
+                domain: params?.domain as string | undefined,
+                operation: params?.operationName as string | undefined,
+                sessionId: params?.sessionId as string | undefined,
+                taskId: params?.taskId as string | undefined,
+                requestId: params?.requestId as string | undefined,
+                requestPayload: params?.requestPayload,
+                responsePayload: params?.responsePayload,
+                metadata: params?.metadata as Record<string, unknown> | undefined,
+                cwd: this.projectRoot,
+              });
+              return {
+                _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                success: true,
+                data: result,
+              };
+            },
+            delete: async (): Promise<DispatchResponse> => {
+              const tokenId = params?.tokenId as string;
+              if (!tokenId) {
+                return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'tokenId is required', startTime);
+              }
+              const result = await deleteTokenUsage(tokenId, this.projectRoot);
+              return {
+                _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                success: true,
+                data: result,
+              };
+            },
+            clear: async (): Promise<DispatchResponse> => {
+              const result = await clearTokenUsage({
+                provider: params?.provider as string | undefined,
+                transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+                gateway: params?.gateway as string | undefined,
+                domain: params?.domain as string | undefined,
+                operation: params?.operationName as string | undefined,
+                sessionId: params?.sessionId as string | undefined,
+                taskId: params?.taskId as string | undefined,
+                method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
+                confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
+                requestId: params?.requestId as string | undefined,
+                since: params?.since as string | undefined,
+                until: params?.until as string | undefined,
+              }, this.projectRoot);
+              return {
+                _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+                success: true,
+                data: result,
+              };
+            },
+          }, 'record');
+        }
+
+        // backward-compat aliases for old dotted token names
         case 'token.record': {
-          const result = await recordTokenExchange({
-            provider: params?.provider as string | undefined,
-            model: params?.model as string | undefined,
-            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
-            gateway: params?.gateway as string | undefined,
-            domain: params?.domain as string | undefined,
-            operation: params?.operationName as string | undefined,
-            sessionId: params?.sessionId as string | undefined,
-            taskId: params?.taskId as string | undefined,
-            requestId: params?.requestId as string | undefined,
-            requestPayload: params?.requestPayload,
-            responsePayload: params?.responsePayload,
-            metadata: params?.metadata as Record<string, unknown> | undefined,
-            cwd: this.projectRoot,
-          });
-          return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
+          return this.mutate('token', { ...params, action: 'record' });
         }
-
         case 'token.delete': {
-          const tokenId = params?.tokenId as string;
-          if (!tokenId) {
-            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'tokenId is required', startTime);
-          }
-          const result = await deleteTokenUsage(tokenId, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
-            success: true,
-            data: result,
-          };
+          return this.mutate('token', { ...params, action: 'delete' });
+        }
+        case 'token.clear': {
+          return this.mutate('token', { ...params, action: 'clear' });
         }
 
-        case 'token.clear': {
-          const result = await clearTokenUsage({
-            provider: params?.provider as string | undefined,
-            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
-            gateway: params?.gateway as string | undefined,
-            domain: params?.domain as string | undefined,
-            operation: params?.operationName as string | undefined,
-            sessionId: params?.sessionId as string | undefined,
-            taskId: params?.taskId as string | undefined,
-            method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
-            confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
-            requestId: params?.requestId as string | undefined,
-            since: params?.since as string | undefined,
-            until: params?.until as string | undefined,
-          }, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+        // admin.context.inject — moved from session domain (T5615)
+        case 'context.inject': {
+          const protocolType = params?.protocolType as string;
+          if (!protocolType) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'protocolType is required', startTime);
+          }
+          const result = sessionContextInject(
+            protocolType,
+            { taskId: params?.taskId as string | undefined, variant: params?.variant as string | undefined },
+            this.projectRoot,
+          );
+          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+        }
+
+        // admin.install.global — refresh global CLEO setup (T4916)
+        case 'install.global': {
+          const { ensureGlobalScaffold, ensureGlobalTemplates } = await import('../../core/scaffold.js');
+          const scaffoldResult = await ensureGlobalScaffold();
+          const templateResult = await ensureGlobalTemplates();
+          return this.wrapEngineResult({
             success: true,
-            data: result,
-          };
+            data: { scaffold: scaffoldResult, templates: templateResult },
+          }, 'mutate', 'admin', operation, startTime);
+        }
+
+        // backward-compat alias — sync moved to tools.todowrite domain (T5615)
+        case 'sync': {
+          const { systemSync: sSync } = await import('../lib/engine.js');
+          const result = sSync(this.projectRoot, params as { direction?: string } | undefined);
+          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
+        }
+        case 'sync.clear': {
+          const { clearSyncState } = await import('../../core/admin/sync.js');
+          const result = await clearSyncState(this.projectRoot, params?.dryRun as boolean | undefined);
+          return this.wrapEngineResult(result, 'mutate', 'admin', operation, startTime);
         }
 
         default:
@@ -892,16 +854,14 @@ export class AdminHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'version', 'health', 'doctor', 'config.show', 'stats', 'context',
-        'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
-        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'grade.run.list', 'grade.run.show', 'archive.stats',
-        'token.summary', 'token.list', 'token.show', 'sync.status', 'export', 'snapshot.export', 'export.tasks',
+        'version', 'health', 'config.show', 'stats', 'context',
+        'runtime', 'job', 'dash', 'log', 'sequence', 'help',
+        'adr.show', 'adr.find', 'token', 'export',
       ],
       mutate: [
-        'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
-        'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
-        'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks', 'detect',
-        'token.record', 'token.delete', 'token.clear',
+        'init', 'health', 'config.set', 'backup', 'migrate',
+        'cleanup', 'job.cancel', 'safestop', 'inject.generate',
+        'adr.sync', 'import', 'detect', 'token', 'context.inject', 'install.global',
       ],
     };
   }

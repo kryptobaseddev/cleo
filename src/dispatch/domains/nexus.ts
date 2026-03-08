@@ -4,15 +4,16 @@
  * Cross-project coordination via the BRAIN Network.
  * Delegates to src/core/nexus/ for all business logic.
  *
- * Also handles multi-contributor sharing operations (snapshot export/import,
- * .gitignore sync, remote management, and push/pull for .cleo/.git).
+ * Also handles multi-contributor sharing operations (status, snapshot export/import).
+ * Git CLI wrappers (remotes, push/pull, gitignore) removed in T5615.
  *
  * @epic T4820
- * @task T5277
+ * @task T5671
  */
 
 import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
+import { routeByParam } from './_routing.js';
 import { getLogger } from '../../core/logger.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { paginate } from '../../core/pagination.js';
@@ -53,7 +54,6 @@ import { getAccessor } from '../../store/data-accessor.js';
 // Sharing core imports (merged from sharing domain)
 import {
   getSharingStatus,
-  syncGitignore,
 } from '../../core/nexus/sharing/index.js';
 import {
   exportSnapshot,
@@ -62,14 +62,6 @@ import {
   writeSnapshot,
   getDefaultSnapshotPath,
 } from '../../core/snapshot/index.js';
-import {
-  listRemotes,
-  getSyncStatus,
-  addRemote,
-  removeRemote,
-  push as remotePush,
-  pull as remotePull,
-} from '../../core/remote/index.js';
 
 
 // ---------------------------------------------------------------------------
@@ -130,6 +122,7 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('query', operation, startTime, project);
         }
 
+        case 'resolve':
         case 'query': {
           const query = params?.query as string;
           if (!query) {
@@ -157,14 +150,12 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('query', operation, startTime, graph);
         }
 
-        case 'path.show':
-        case 'critical-path': {
+        case 'path.show': {
           const path = await criticalPath();
           return this.successResponse('query', operation, startTime, path);
         }
 
-        case 'blockers.show':
-        case 'blocking': {
+        case 'blockers.show': {
           const query = params?.query as string;
           if (!query) {
             return this.errorResponse('query', operation, 'E_INVALID_INPUT', 'query is required', startTime);
@@ -173,8 +164,7 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('query', operation, startTime, analysis);
         }
 
-        case 'orphans.list':
-        case 'orphans': {
+        case 'orphans.list': {
           const orphans = await orphanDetection();
           const { limit, offset } = this.getListParams(params);
           const page = paginate(orphans, limit, offset);
@@ -217,42 +207,15 @@ export class NexusHandler implements DomainHandler {
           });
         }
 
-        // Sharing sub-operations (T5277)
-        case 'share.status': {
-          const result = await getSharingStatus(this.projectRoot);
-          return {
-            _meta: dispatchMeta('query', 'nexus', operation, startTime),
-            success: true,
-            data: result,
-          };
-        }
+        // Sharing: merged entry point via routeByParam (T5671)
+        case 'share':
+          return routeByParam<Promise<DispatchResponse>>(params, 'action', {
+            status: () => this.queryShareStatus(startTime),
+          }, 'status');
 
-        case 'share.remotes': {
-          const remotes = await listRemotes(this.projectRoot);
-          const { limit, offset } = this.getListParams(params);
-          const page = paginate(remotes, limit, offset);
-          return {
-            _meta: dispatchMeta('query', 'nexus', operation, startTime),
-            success: true,
-            data: {
-              remotes: page.items,
-              count: remotes.length,
-              total: remotes.length,
-              filtered: remotes.length,
-            },
-            page: page.page,
-          };
-        }
-
-        case 'share.sync.status': {
-          const remote = (params?.remote as string) ?? 'origin';
-          const syncStatus = await getSyncStatus(remote, this.projectRoot);
-          return {
-            _meta: dispatchMeta('query', 'nexus', operation, startTime),
-            success: true,
-            data: syncStatus,
-          };
-        }
+        // Backward-compat alias
+        case 'share.status':
+          return this.queryShareStatus(startTime);
 
         default:
           return this.unsupported('query', operation, startTime);
@@ -308,18 +271,15 @@ export class NexusHandler implements DomainHandler {
           });
         }
 
-        case 'sync': {
-          const name = params?.name as string;
-          if (!name) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'name is required', startTime);
-          }
-          await nexusSync(name);
-          return this.successResponse('mutate', operation, startTime, {
-            message: `Project synced: ${name}`,
-          });
-        }
-
+        case 'sync':
         case 'sync.all': {
+          const name = params?.name as string | undefined;
+          if (name) {
+            await nexusSync(name);
+            return this.successResponse('mutate', operation, startTime, {
+              message: `Project synced: ${name}`,
+            });
+          }
           const result = await nexusSyncAll();
           return this.successResponse('mutate', operation, startTime, result);
         }
@@ -348,102 +308,21 @@ export class NexusHandler implements DomainHandler {
           return this.successResponse('mutate', operation, startTime, result);
         }
 
-        // Sharing sub-operations (T5277)
+        // Sharing: merged entry point via routeByParam (T5671)
+        case 'share':
+          return routeByParam<Promise<DispatchResponse>>(params, 'action', {
+            export: () => this.mutateShareSnapshotExport(params, startTime),
+            import: () => this.mutateShareSnapshotImport(params, startTime),
+          });
+
+        // Backward-compat aliases
         case 'share.snapshot.export':
-        case 'share.snapshot-export': {
-          const snapshot = await exportSnapshot(this.projectRoot);
-          const outputPath = (params?.outputPath as string) ?? getDefaultSnapshotPath(this.projectRoot);
-          await writeSnapshot(snapshot, outputPath);
-          return {
-            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
-            success: true,
-            data: {
-              path: outputPath,
-              taskCount: snapshot._meta.taskCount,
-              checksum: snapshot._meta.checksum,
-            },
-          };
-        }
+        case 'share.snapshot-export':
+          return this.mutateShareSnapshotExport(params, startTime);
 
         case 'share.snapshot.import':
-        case 'share.snapshot-import': {
-          const inputPath = params?.inputPath as string;
-          if (!inputPath) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'inputPath is required', startTime);
-          }
-          const snapshot = await readSnapshot(inputPath);
-          const result = await importSnapshot(snapshot, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
-            success: true,
-            data: result,
-          };
-        }
-
-        case 'share.sync.gitignore':
-        case 'share.sync-gitignore': {
-          const result = await syncGitignore(this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
-            success: true,
-            data: result,
-          };
-        }
-
-        case 'share.remote.add':
-        case 'share.remote-add': {
-          const url = params?.url as string;
-          if (!url) {
-            return this.errorResponse('mutate', operation, 'E_INVALID_INPUT', 'url is required', startTime);
-          }
-          const remoteName = (params?.name as string) ?? 'origin';
-          await addRemote(url, remoteName, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
-            success: true,
-            data: { name: remoteName, url },
-          };
-        }
-
-        case 'share.remote.remove':
-        case 'share.remote-remove': {
-          const remoteName = (params?.name as string) ?? 'origin';
-          await removeRemote(remoteName, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
-            success: true,
-            data: { name: remoteName },
-          };
-        }
-
-        case 'share.push': {
-          const remote = (params?.remote as string) ?? 'origin';
-          const result = await remotePush(remote, {
-            force: params?.force as boolean | undefined,
-            setUpstream: params?.setUpstream as boolean | undefined,
-          }, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
-            success: result.success,
-            data: result,
-            ...(result.success ? {} : {
-              error: { code: 'E_PUSH_FAILED', message: result.message },
-            }),
-          };
-        }
-
-        case 'share.pull': {
-          const remote = (params?.remote as string) ?? 'origin';
-          const result = await remotePull(remote, this.projectRoot);
-          return {
-            _meta: dispatchMeta('mutate', 'nexus', operation, startTime),
-            success: result.success,
-            data: result,
-            ...(result.success ? {} : {
-              error: { code: 'E_PULL_FAILED', message: result.message },
-            }),
-          };
-        }
+        case 'share.snapshot-import':
+          return this.mutateShareSnapshotImport(params, startTime);
 
         default:
           return this.unsupported('mutate', operation, startTime);
@@ -460,15 +339,12 @@ export class NexusHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: [
-        'status', 'list', 'show', 'query', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'critical-path', 'blocking', 'orphans', 'discover', 'search',
-        // Sharing sub-operations (T5277)
-        'share.status', 'share.remotes', 'share.sync.status',
+        'status', 'list', 'show', 'resolve', 'deps', 'graph', 'path.show', 'blockers.show', 'orphans.list', 'discover', 'search',
+        'share.status',
       ],
       mutate: [
-        'init', 'register', 'unregister', 'sync', 'sync.all', 'permission.set', 'reconcile',
-        // Sharing sub-operations (T5277)
-        'share.snapshot.export', 'share.snapshot.import', 'share.sync.gitignore',
-        'share.remote.add', 'share.remote.remove', 'share.push', 'share.pull',
+        'init', 'register', 'unregister', 'sync', 'permission.set', 'reconcile',
+        'share.snapshot.export', 'share.snapshot.import',
       ],
     };
   }
@@ -659,6 +535,54 @@ export class NexusHandler implements DomainHandler {
       .replace(/[^a-z0-9\s-]/g, ' ')
       .split(/\s+/)
       .filter(w => w.length > 2 && !stopWords.has(w));
+  }
+
+  // -----------------------------------------------------------------------
+  // Sharing operation helpers (extracted for routeByParam + backward-compat)
+  // -----------------------------------------------------------------------
+
+  private async queryShareStatus(startTime: number): Promise<DispatchResponse> {
+    const result = await getSharingStatus(this.projectRoot);
+    return {
+      _meta: dispatchMeta('query', 'nexus', 'share.status', startTime),
+      success: true,
+      data: result,
+    };
+  }
+
+  private async mutateShareSnapshotExport(
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const snapshot = await exportSnapshot(this.projectRoot);
+    const outputPath = (params?.outputPath as string) ?? getDefaultSnapshotPath(this.projectRoot);
+    await writeSnapshot(snapshot, outputPath);
+    return {
+      _meta: dispatchMeta('mutate', 'nexus', 'share.snapshot.export', startTime),
+      success: true,
+      data: {
+        path: outputPath,
+        taskCount: snapshot._meta.taskCount,
+        checksum: snapshot._meta.checksum,
+      },
+    };
+  }
+
+  private async mutateShareSnapshotImport(
+    params: Record<string, unknown> | undefined,
+    startTime: number,
+  ): Promise<DispatchResponse> {
+    const inputPath = params?.inputPath as string;
+    if (!inputPath) {
+      return this.errorResponse('mutate', 'share.snapshot.import', 'E_INVALID_INPUT', 'inputPath is required', startTime);
+    }
+    const snapshot = await readSnapshot(inputPath);
+    const result = await importSnapshot(snapshot, this.projectRoot);
+    return {
+      _meta: dispatchMeta('mutate', 'nexus', 'share.snapshot.import', startTime),
+      success: true,
+      data: result,
+    };
   }
 
   // -----------------------------------------------------------------------

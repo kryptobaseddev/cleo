@@ -8,6 +8,8 @@
  * - native: Runs in TypeScript, works cross-platform (no bash needed)
  * - cli: Requires CLEO CLI subprocess (Unix-only)
  * - hybrid: Can run either way (prefers CLI when available)
+ *
+ * Aligned with registry.ts (T5671 Wave 2G).
  */
 
 /**
@@ -58,188 +60,249 @@ export interface CapabilityReport {
  */
 const CAPABILITY_MATRIX: OperationCapability[] = [
   // === Tasks Domain ===
-  // Native query operations (core CRUD reads)
+  // Query operations
   { domain: 'tasks', operation: 'show', gateway: 'query', mode: 'native' },
   { domain: 'tasks', operation: 'list', gateway: 'query', mode: 'native' },
   { domain: 'tasks', operation: 'find', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'exists', gateway: 'query', mode: 'native' },
-  // Native query operations (analysis)
-  { domain: 'tasks', operation: 'next', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'depends', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'stats', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'export', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'history', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'lint', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'batch.validate', gateway: 'query', mode: 'native' },
-  { domain: 'tasks', operation: 'manifest', gateway: 'query', mode: 'native' },
   { domain: 'tasks', operation: 'tree', gateway: 'query', mode: 'native' },
   { domain: 'tasks', operation: 'blockers', gateway: 'query', mode: 'native' },
+  { domain: 'tasks', operation: 'depends', gateway: 'query', mode: 'native' },
   { domain: 'tasks', operation: 'analyze', gateway: 'query', mode: 'native' },
+  { domain: 'tasks', operation: 'next', gateway: 'query', mode: 'native' },
+  { domain: 'tasks', operation: 'plan', gateway: 'query', mode: 'native' },
   { domain: 'tasks', operation: 'relates', gateway: 'query', mode: 'native' },
   { domain: 'tasks', operation: 'complexity.estimate', gateway: 'query', mode: 'native' },
-  // Native mutate operations (core CRUD writes)
+  { domain: 'tasks', operation: 'history', gateway: 'query', mode: 'native' },
+  { domain: 'tasks', operation: 'current', gateway: 'query', mode: 'native' },
+  { domain: 'tasks', operation: 'label.list', gateway: 'query', mode: 'native' },
+  // Mutate operations
   { domain: 'tasks', operation: 'add', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'update', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'complete', gateway: 'mutate', mode: 'native' },
+  { domain: 'tasks', operation: 'cancel', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'delete', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'archive', gateway: 'mutate', mode: 'native' },
-  // Native mutate operations (hierarchy, status, relations)
   { domain: 'tasks', operation: 'restore', gateway: 'mutate', mode: 'native' },
-  { domain: 'tasks', operation: 'import', gateway: 'mutate', mode: 'native' },
-  { domain: 'tasks', operation: 'reorder', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'reparent', gateway: 'mutate', mode: 'native' },
-  { domain: 'tasks', operation: 'promote', gateway: 'mutate', mode: 'native' },
+  { domain: 'tasks', operation: 'reorder', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'relates.add', gateway: 'mutate', mode: 'native' },
-  // Native query operations (active task)
-  { domain: 'tasks', operation: 'current', gateway: 'query', mode: 'native' },
-  // Native mutate operations (active task)
   { domain: 'tasks', operation: 'start', gateway: 'mutate', mode: 'native' },
   { domain: 'tasks', operation: 'stop', gateway: 'mutate', mode: 'native' },
 
   // === Session Domain ===
-  // Native query operations
+  // Query operations
   { domain: 'session', operation: 'status', gateway: 'query', mode: 'native' },
   { domain: 'session', operation: 'list', gateway: 'query', mode: 'native' },
   { domain: 'session', operation: 'show', gateway: 'query', mode: 'native' },
-  // Native query operations
-  { domain: 'session', operation: 'history', gateway: 'query', mode: 'native' },
-  { domain: 'session', operation: 'stats', gateway: 'query', mode: 'native' },
-  // Native mutate operations
+  { domain: 'session', operation: 'decision.log', gateway: 'query', mode: 'native' },
+  { domain: 'session', operation: 'context.drift', gateway: 'query', mode: 'native' },
+  { domain: 'session', operation: 'handoff.show', gateway: 'query', mode: 'native' },
+  { domain: 'session', operation: 'briefing.show', gateway: 'query', mode: 'native' },
+  { domain: 'session', operation: 'find', gateway: 'query', mode: 'native' },
+  // Mutate operations
   { domain: 'session', operation: 'start', gateway: 'mutate', mode: 'native' },
   { domain: 'session', operation: 'end', gateway: 'mutate', mode: 'native' },
-  // Native/CLI mutate operations
   { domain: 'session', operation: 'resume', gateway: 'mutate', mode: 'native' },
-  { domain: 'session', operation: 'switch', gateway: 'mutate', mode: 'native' },
-  { domain: 'session', operation: 'archive', gateway: 'mutate', mode: 'native' },
-  { domain: 'session', operation: 'cleanup', gateway: 'mutate', mode: 'native' },
   { domain: 'session', operation: 'suspend', gateway: 'mutate', mode: 'native' },
   { domain: 'session', operation: 'gc', gateway: 'mutate', mode: 'native' },
   { domain: 'session', operation: 'record.decision', gateway: 'mutate', mode: 'native' },
-  { domain: 'session', operation: 'decision.log', gateway: 'query', mode: 'native' },
-  { domain: 'session', operation: 'context.drift', gateway: 'query', mode: 'native' },
   { domain: 'session', operation: 'record.assumption', gateway: 'mutate', mode: 'native' },
 
   // === Admin Domain ===
+  // Query operations
   { domain: 'admin', operation: 'version', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'config.show', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'context', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'metrics', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'health', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'diagnostics', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'config.show', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'stats', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'help', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'context', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'runtime', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'job', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'dash', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'roadmap', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'labels', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'compliance', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'log', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'archive.stats', gateway: 'query', mode: 'native' },
   { domain: 'admin', operation: 'sequence', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'job.status', gateway: 'query', mode: 'native' },
-  { domain: 'admin', operation: 'job.list', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'help', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'token', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'export', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'adr.show', gateway: 'query', mode: 'native' },
+  { domain: 'admin', operation: 'adr.find', gateway: 'query', mode: 'native' },
+  // Mutate operations
   { domain: 'admin', operation: 'init', gateway: 'mutate', mode: 'native' },
   { domain: 'admin', operation: 'config.set', gateway: 'mutate', mode: 'native' },
   { domain: 'admin', operation: 'backup', gateway: 'mutate', mode: 'native' },
-  { domain: 'admin', operation: 'restore', gateway: 'mutate', mode: 'native' },
   { domain: 'admin', operation: 'migrate', gateway: 'mutate', mode: 'native' },
   { domain: 'admin', operation: 'cleanup', gateway: 'mutate', mode: 'native' },
-  { domain: 'admin', operation: 'audit', gateway: 'mutate', mode: 'native' },
-  { domain: 'admin', operation: 'sync', gateway: 'mutate', mode: 'native' },
-  { domain: 'admin', operation: 'job.cancel', gateway: 'mutate', mode: 'native' },
   { domain: 'admin', operation: 'safestop', gateway: 'mutate', mode: 'native' },
   { domain: 'admin', operation: 'inject.generate', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'job.cancel', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'install.global', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'token', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'health', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'detect', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'import', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'context.inject', gateway: 'mutate', mode: 'native' },
+  { domain: 'admin', operation: 'adr.sync', gateway: 'mutate', mode: 'native' },
 
   // === Check Domain ===
+  // Query operations
   { domain: 'check', operation: 'schema', gateway: 'query', mode: 'native' },
   { domain: 'check', operation: 'protocol', gateway: 'query', mode: 'native' },
   { domain: 'check', operation: 'task', gateway: 'query', mode: 'native' },
   { domain: 'check', operation: 'manifest', gateway: 'query', mode: 'native' },
   { domain: 'check', operation: 'output', gateway: 'query', mode: 'native' },
   { domain: 'check', operation: 'compliance.summary', gateway: 'query', mode: 'native' },
-  { domain: 'check', operation: 'compliance.violations', gateway: 'query', mode: 'native' },
+  { domain: 'check', operation: 'test', gateway: 'query', mode: 'native' },
+  { domain: 'check', operation: 'coherence', gateway: 'query', mode: 'native' },
+  { domain: 'check', operation: 'gate.status', gateway: 'query', mode: 'native' },
+  { domain: 'check', operation: 'archive.stats', gateway: 'query', mode: 'native' },
+  { domain: 'check', operation: 'grade', gateway: 'query', mode: 'native' },
+  { domain: 'check', operation: 'grade.list', gateway: 'query', mode: 'native' },
+  { domain: 'check', operation: 'chain.validate', gateway: 'query', mode: 'native' },
+  // Mutate operations
   { domain: 'check', operation: 'compliance.record', gateway: 'mutate', mode: 'native' },
   { domain: 'check', operation: 'test.run', gateway: 'mutate', mode: 'native' },
-  { domain: 'check', operation: 'test.status', gateway: 'query', mode: 'native' },
-  { domain: 'check', operation: 'test.coverage', gateway: 'query', mode: 'native' },
-  { domain: 'check', operation: 'coherence.check', gateway: 'query', mode: 'native' },
-  { domain: 'check', operation: 'batch.validate', gateway: 'mutate', mode: 'native' },
+  { domain: 'check', operation: 'gate.set', gateway: 'mutate', mode: 'native' },
 
   // === Orchestrate Domain ===
+  // Query operations
   { domain: 'orchestrate', operation: 'status', gateway: 'query', mode: 'native' },
   { domain: 'orchestrate', operation: 'next', gateway: 'query', mode: 'native' },
   { domain: 'orchestrate', operation: 'ready', gateway: 'query', mode: 'native' },
   { domain: 'orchestrate', operation: 'analyze', gateway: 'query', mode: 'native' },
   { domain: 'orchestrate', operation: 'context', gateway: 'query', mode: 'native' },
   { domain: 'orchestrate', operation: 'waves', gateway: 'query', mode: 'native' },
-  { domain: 'orchestrate', operation: 'skill.list', gateway: 'query', mode: 'native' },
   { domain: 'orchestrate', operation: 'bootstrap', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'unblock.opportunities', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'tessera.list', gateway: 'query', mode: 'native' },
+  // Mutate operations
   { domain: 'orchestrate', operation: 'start', gateway: 'mutate', mode: 'native' },
   { domain: 'orchestrate', operation: 'spawn', gateway: 'mutate', mode: 'native' },
+  { domain: 'orchestrate', operation: 'handoff', gateway: 'mutate', mode: 'native' },
+  { domain: 'orchestrate', operation: 'spawn.execute', gateway: 'mutate', mode: 'native' },
   { domain: 'orchestrate', operation: 'validate', gateway: 'mutate', mode: 'native' },
-  { domain: 'orchestrate', operation: 'parallel.start', gateway: 'mutate', mode: 'native' },
-  { domain: 'orchestrate', operation: 'parallel.end', gateway: 'mutate', mode: 'native' },
-  { domain: 'orchestrate', operation: 'check', gateway: 'mutate', mode: 'native' },
-  { domain: 'orchestrate', operation: 'skill.inject', gateway: 'mutate', mode: 'native' },
-  { domain: 'orchestrate', operation: 'unblock.opportunities', gateway: 'query', mode: 'native' },
-  { domain: 'orchestrate', operation: 'critical.path', gateway: 'query', mode: 'native' },
+  { domain: 'orchestrate', operation: 'parallel', gateway: 'mutate', mode: 'native' },
+  { domain: 'orchestrate', operation: 'tessera.instantiate', gateway: 'mutate', mode: 'native' },
 
-  // === Memory Domain ===
-  // Memory query operations (brain.db cognitive memory — T5241)
-  { domain: 'memory', operation: 'show', gateway: 'query', mode: 'native' },
+  // === Memory Domain (brain.db cognitive memory -- T5241) ===
+  // Query operations
   { domain: 'memory', operation: 'find', gateway: 'query', mode: 'native' },
   { domain: 'memory', operation: 'timeline', gateway: 'query', mode: 'native' },
   { domain: 'memory', operation: 'fetch', gateway: 'query', mode: 'native' },
-  { domain: 'memory', operation: 'stats', gateway: 'query', mode: 'native' },
-  { domain: 'memory', operation: 'contradictions', gateway: 'query', mode: 'native' },
-  { domain: 'memory', operation: 'superseded', gateway: 'query', mode: 'native' },
   { domain: 'memory', operation: 'decision.find', gateway: 'query', mode: 'native' },
   { domain: 'memory', operation: 'pattern.find', gateway: 'query', mode: 'native' },
-  { domain: 'memory', operation: 'pattern.stats', gateway: 'query', mode: 'native' },
   { domain: 'memory', operation: 'learning.find', gateway: 'query', mode: 'native' },
-  { domain: 'memory', operation: 'learning.stats', gateway: 'query', mode: 'native' },
-  // Memory mutate operations (brain.db cognitive memory — T5241)
+  { domain: 'memory', operation: 'graph.show', gateway: 'query', mode: 'native' },
+  { domain: 'memory', operation: 'graph.neighbors', gateway: 'query', mode: 'native' },
+  { domain: 'memory', operation: 'reason.why', gateway: 'query', mode: 'native' },
+  { domain: 'memory', operation: 'reason.similar', gateway: 'query', mode: 'native' },
+  { domain: 'memory', operation: 'search.hybrid', gateway: 'query', mode: 'native' },
+  // Mutate operations
   { domain: 'memory', operation: 'observe', gateway: 'mutate', mode: 'native' },
   { domain: 'memory', operation: 'decision.store', gateway: 'mutate', mode: 'native' },
   { domain: 'memory', operation: 'pattern.store', gateway: 'mutate', mode: 'native' },
   { domain: 'memory', operation: 'learning.store', gateway: 'mutate', mode: 'native' },
   { domain: 'memory', operation: 'link', gateway: 'mutate', mode: 'native' },
+  { domain: 'memory', operation: 'graph.add', gateway: 'mutate', mode: 'native' },
+  { domain: 'memory', operation: 'graph.remove', gateway: 'mutate', mode: 'native' },
 
-  // === Pipeline Manifest Operations (T5241 — moved from research/memory) ===
+  // === Pipeline Domain ===
+  // Stage sub-domain (RCASD lifecycle)
+  { domain: 'pipeline', operation: 'stage.validate', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'stage.status', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'stage.history', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'stage.record', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'stage.skip', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'stage.reset', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'stage.gate.pass', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'stage.gate.fail', gateway: 'mutate', mode: 'native' },
+  // Manifest sub-domain (T5241)
   { domain: 'pipeline', operation: 'manifest.show', gateway: 'query', mode: 'native' },
   { domain: 'pipeline', operation: 'manifest.list', gateway: 'query', mode: 'native' },
   { domain: 'pipeline', operation: 'manifest.find', gateway: 'query', mode: 'native' },
-  { domain: 'pipeline', operation: 'manifest.pending', gateway: 'query', mode: 'native' },
   { domain: 'pipeline', operation: 'manifest.stats', gateway: 'query', mode: 'native' },
   { domain: 'pipeline', operation: 'manifest.append', gateway: 'mutate', mode: 'native' },
   { domain: 'pipeline', operation: 'manifest.archive', gateway: 'mutate', mode: 'native' },
-
-  // === Session Context Injection (T5241 — moved from research/memory) ===
-  { domain: 'session', operation: 'context.inject', gateway: 'mutate', mode: 'native' },
-
-  // === Pipeline Domain (lifecycle operations) ===
-  { domain: 'pipeline', operation: 'lifecycle.validate', gateway: 'query', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.status', gateway: 'query', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.history', gateway: 'query', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.gates', gateway: 'query', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.prerequisites', gateway: 'query', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.record', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.skip', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.reset', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.gate.pass', gateway: 'mutate', mode: 'native' },
-  { domain: 'pipeline', operation: 'lifecycle.gate.fail', gateway: 'mutate', mode: 'native' },
-
-  // === Tools Domain (issues operations) ===
-  // Native query operations (template parsing)
-  { domain: 'tools', operation: 'issues.templates',       gateway: 'query',  mode: 'native' },
-  { domain: 'tools', operation: 'issues.validate.labels',  gateway: 'query',  mode: 'native' },
-  // Native mutate operations (config generation)
-  { domain: 'tools', operation: 'issues.generate.config',  gateway: 'mutate', mode: 'native' },
-
-  // === Pipeline Domain (release operations) ===
-  // Consolidated in T5615: release.prepare/changelog/commit/tag/push/gates.run merged into release.ship
+  // Phase sub-domain (T5326)
+  { domain: 'pipeline', operation: 'phase.show', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'phase.list', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'phase.set', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'phase.advance', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'phase.rename', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'phase.delete', gateway: 'mutate', mode: 'native' },
+  // Chain sub-domain (T5405)
+  { domain: 'pipeline', operation: 'chain.show', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'chain.list', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'chain.add', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'chain.instantiate', gateway: 'mutate', mode: 'native' },
+  { domain: 'pipeline', operation: 'chain.advance', gateway: 'mutate', mode: 'native' },
+  // Release sub-domain (T5615 consolidated)
+  { domain: 'pipeline', operation: 'release.list', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'release.show', gateway: 'query', mode: 'native' },
+  { domain: 'pipeline', operation: 'release.channel.show', gateway: 'query', mode: 'native' },
   { domain: 'pipeline', operation: 'release.ship', gateway: 'mutate', mode: 'native' },
   { domain: 'pipeline', operation: 'release.cancel', gateway: 'mutate', mode: 'native' },
   { domain: 'pipeline', operation: 'release.rollback', gateway: 'mutate', mode: 'native' },
+
+  // === Tools Domain ===
+  // Issue operations
+  { domain: 'tools', operation: 'issue.diagnostics', gateway: 'query', mode: 'native' },
+  // Skill operations
+  { domain: 'tools', operation: 'skill.list', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.show', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.find', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.dispatch', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.verify', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.dependencies', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.spawn.providers', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.catalog', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.precedence', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'skill.install', gateway: 'mutate', mode: 'native' },
+  { domain: 'tools', operation: 'skill.uninstall', gateway: 'mutate', mode: 'native' },
+  { domain: 'tools', operation: 'skill.refresh', gateway: 'mutate', mode: 'native' },
+  // Provider operations
+  { domain: 'tools', operation: 'provider.list', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'provider.detect', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'provider.inject.status', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'provider.supports', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'provider.hooks', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'provider.inject', gateway: 'mutate', mode: 'native' },
+  // TodoWrite operations
+  { domain: 'tools', operation: 'todowrite.status', gateway: 'query', mode: 'native' },
+  { domain: 'tools', operation: 'todowrite.sync', gateway: 'mutate', mode: 'native' },
+  { domain: 'tools', operation: 'todowrite.clear', gateway: 'mutate', mode: 'native' },
+
+  // === Nexus Domain ===
+  // Query operations
+  { domain: 'nexus', operation: 'status', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'list', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'show', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'search', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'graph', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'deps', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'resolve', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'discover', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'orphans.list', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'blockers.show', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'path.show', gateway: 'query', mode: 'native' },
+  { domain: 'nexus', operation: 'share.status', gateway: 'query', mode: 'native' },
+  // Mutate operations
+  { domain: 'nexus', operation: 'init', gateway: 'mutate', mode: 'native' },
+  { domain: 'nexus', operation: 'register', gateway: 'mutate', mode: 'native' },
+  { domain: 'nexus', operation: 'unregister', gateway: 'mutate', mode: 'native' },
+  { domain: 'nexus', operation: 'sync', gateway: 'mutate', mode: 'native' },
+  { domain: 'nexus', operation: 'reconcile', gateway: 'mutate', mode: 'native' },
+  { domain: 'nexus', operation: 'permission.set', gateway: 'mutate', mode: 'native' },
+  { domain: 'nexus', operation: 'share.snapshot.export', gateway: 'mutate', mode: 'native' },
+  { domain: 'nexus', operation: 'share.snapshot.import', gateway: 'mutate', mode: 'native' },
+
+  // === Sticky Domain ===
+  // Query operations
+  { domain: 'sticky', operation: 'list', gateway: 'query', mode: 'native' },
+  { domain: 'sticky', operation: 'show', gateway: 'query', mode: 'native' },
+  // Mutate operations
+  { domain: 'sticky', operation: 'add', gateway: 'mutate', mode: 'native' },
+  { domain: 'sticky', operation: 'archive', gateway: 'mutate', mode: 'native' },
+  { domain: 'sticky', operation: 'convert', gateway: 'mutate', mode: 'native' },
+  { domain: 'sticky', operation: 'purge', gateway: 'mutate', mode: 'native' },
 ];
 
 /**

@@ -44,6 +44,9 @@ export {
   taskLint,
   taskBatchValidate,
   taskImport,
+  taskRelatesFind,
+  taskLabelList,
+  taskLabelShow,
   type TaskRecord,
   type MinimalTaskRecord,
   type CompactTask,
@@ -81,6 +84,7 @@ export {
   sessionChainShow,
   // T5119: Lightweight session discovery
   sessionFind,
+  sessionContextInject,
   type DecisionRecord,
 } from '../engines/session-engine.js';
 export type { Session as SessionRecord } from '../../types/session.js';
@@ -229,7 +233,18 @@ export {
   memoryLearningStore,
   memoryLearningFind,
   memoryLearningStats,
-} from '../../core/memory/engine-compat.js';
+  memoryContradictions,
+  memorySuperseded,
+  memoryLink,
+  memoryUnlink,
+  memoryGraphAdd,
+  memoryGraphShow,
+  memoryGraphNeighbors,
+  memoryGraphRemove,
+  memoryReasonWhy,
+  memoryReasonSimilar,
+  memorySearchHybrid,
+} from '../engines/memory-engine.js';
 
 // Pipeline manifest functions (moved from memory domain in T5241)
 export {
@@ -245,10 +260,17 @@ export {
   type ManifestEntry as ResearchManifestEntry,
 } from '../../core/memory/pipeline-manifest-sqlite.js';
 
-// Session context injection (moved from memory domain in T5241)
+// Pipeline engine (Phase operations)
 export {
-  sessionContextInject,
-} from '../../core/sessions/context-inject.js';
+  phaseList,
+  phaseShow,
+  phaseSet,
+  phaseStart,
+  phaseComplete,
+  phaseAdvance,
+  phaseRename,
+  phaseDelete,
+} from '../engines/pipeline-engine.js';
 
 // Release engine
 export {
@@ -262,6 +284,7 @@ export {
   releaseRollback,
   releaseCancel,
   releasePush,
+  releaseShip,
 } from '../engines/release-engine.js';
 
 // Template parser engine

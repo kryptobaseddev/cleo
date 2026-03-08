@@ -120,6 +120,6 @@ describe('release.push agent protocol guard', () => {
     expect(result.success).toBe(false);
     expect(result.error?.fix).toContain('v2.0.0');
     expect(result.error?.alternatives).toBeDefined();
-    expect(result.error?.alternatives).toHaveLength(2);
+    expect(result.error?.alternatives).toHaveLength(1);
   });
 });
