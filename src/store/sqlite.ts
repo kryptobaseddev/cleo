@@ -276,7 +276,7 @@ export function resolveMigrationsFolder(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   // Both src/store/ and dist/store/ are 2 levels deep from package root
-  return join(__dirname, '..', '..', 'drizzle');
+  return join(__dirname, '..', '..', 'dev', 'migrations', 'drizzle-tasks');
 }
 
 /**
