@@ -49,16 +49,16 @@ describe('MUTATE_OPERATIONS', () => {
 
   it('should have correct operation counts per domain', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
-    expect(MUTATE_OPERATIONS.tasks.length).toBe(15);
-    expect(MUTATE_OPERATIONS.session.length).toBe(8);
-    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(8);
-    expect(MUTATE_OPERATIONS.memory.length).toBe(6);
-    expect(MUTATE_OPERATIONS.check.length).toBe(2);
-    expect(MUTATE_OPERATIONS.pipeline.length).toBe(25);
-    expect(MUTATE_OPERATIONS.admin.length).toBe(24);
-    expect(MUTATE_OPERATIONS.tools.length).toBe(11);
-    expect(MUTATE_OPERATIONS.nexus.length).toBe(14);  // Includes share.* operations
-    expect(getMutateOperationCount("nexus")).toBe(14);
+    expect(MUTATE_OPERATIONS.tasks.length).toBe(12);
+    expect(MUTATE_OPERATIONS.session.length).toBe(7);
+    expect(MUTATE_OPERATIONS.orchestrate.length).toBe(7);
+    expect(MUTATE_OPERATIONS.memory.length).toBe(5);
+    expect(MUTATE_OPERATIONS.check.length).toBe(3);
+    expect(MUTATE_OPERATIONS.pipeline.length).toBe(17);
+    expect(MUTATE_OPERATIONS.admin.length).toBe(15);
+    expect(MUTATE_OPERATIONS.tools.length).toBe(6);
+    expect(MUTATE_OPERATIONS.nexus.length).toBe(8);  // Includes share.* operations
+    expect(getMutateOperationCount("nexus")).toBe(8);
   });
 });
 
@@ -270,23 +270,13 @@ describe('validateMutateParams', () => {
       expect(result.error?.error?.message).toContain('taskId');
     });
 
-    it('should reject parallel.start without epicId and wave', () => {
+    it('should accept parallel as a valid orchestrate operation', () => {
+      // parallel absorbs parallel.start and parallel.end via action param (T5615)
       const request: MutateRequest = {
         domain: 'orchestrate',
-        operation: 'parallel.start',
-        params: {},
-      };
-
-      const result = validateMutateParams(request);
-      expect(result.valid).toBe(false);
-      expect(result.error?.error?.message).toContain('epicId and wave');
-    });
-
-    it('should accept parallel.start with epicId and wave', () => {
-      const request: MutateRequest = {
-        domain: 'orchestrate',
-        operation: 'parallel.start',
+        operation: 'parallel',
         params: {
+          action: 'start',
           epicId: 'T1234',
           wave: 1,
         },
@@ -325,10 +315,10 @@ describe('validateMutateParams', () => {
     });
   });
 
-  describe('session domain context.inject validation', () => {
-    it('should accept context.inject as a valid session operation', () => {
+  describe('admin domain context.inject validation', () => {
+    it('should accept context.inject as a valid admin operation', () => {
       const request: MutateRequest = {
-        domain: 'session',
+        domain: 'admin',
         operation: 'context.inject',
         params: { protocolType: 'research' },
       };
@@ -428,7 +418,7 @@ describe('validateMutateParams', () => {
 
 describe('isIdempotentOperation', () => {
   it('should identify idempotent operations', () => {
-    expect(isIdempotentOperation('session', 'context.inject')).toBe(true);
+    expect(isIdempotentOperation('admin', 'context.inject')).toBe(true);
     expect(isIdempotentOperation('admin', 'install.global')).toBe(true);
     expect(isIdempotentOperation('nexus', 'sync')).toBe(true);
   });
@@ -461,16 +451,16 @@ describe('getMutateOperationCount', () => {
 
   it('should return domain-specific counts', () => {
     // Canonical domains (updated for T5323 CLI-to-dispatch migration)
-    expect(getMutateOperationCount('tasks')).toBe(15);
-    expect(getMutateOperationCount('session')).toBe(8);
-    expect(getMutateOperationCount('orchestrate')).toBe(8);
-    expect(getMutateOperationCount('memory')).toBe(6);
-    expect(getMutateOperationCount('check')).toBe(2);
-    expect(getMutateOperationCount('pipeline')).toBe(25);
-    expect(getMutateOperationCount('admin')).toBe(24);
-    expect(getMutateOperationCount('tools')).toBe(11);
+    expect(getMutateOperationCount('tasks')).toBe(12);
+    expect(getMutateOperationCount('session')).toBe(7);
+    expect(getMutateOperationCount('orchestrate')).toBe(7);
+    expect(getMutateOperationCount('memory')).toBe(5);
+    expect(getMutateOperationCount('check')).toBe(3);
+    expect(getMutateOperationCount('pipeline')).toBe(17);
+    expect(getMutateOperationCount('admin')).toBe(15);
+    expect(getMutateOperationCount('tools')).toBe(6);
     expect(getMutateOperationCount('sticky')).toBe(4);
-    expect(getMutateOperationCount('nexus')).toBe(14);
+    expect(getMutateOperationCount('nexus')).toBe(8);
   });
 
   it('should return 0 for unknown domain', () => {
@@ -506,7 +496,7 @@ describe('getMutateOperations', () => {
     expect(taskOps).toContain('add');
     expect(taskOps).toContain('update');
     expect(taskOps).toContain('complete');
-    expect(taskOps.length).toBe(15);
+    expect(taskOps.length).toBe(12);
   });
 
   it('should return empty array for unknown domain', () => {

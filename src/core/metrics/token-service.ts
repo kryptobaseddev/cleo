@@ -18,6 +18,8 @@ import { and, count, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
 import { tokenUsage, type NewTokenUsageRow, type TokenUsageRow } from '../../store/tasks-schema.js';
 import { getCleoHome } from '../paths.js';
+import { resolveProviderFromModelRegistry } from './model-provider-registry.js';
+import { detectRuntimeProviderContext } from './provider-detection.js';
 
 export type TokenMethod = 'otel' | 'provider_api' | 'tokenizer' | 'heuristic';
 export type TokenConfidence = 'real' | 'high' | 'estimated' | 'coarse';
@@ -81,9 +83,10 @@ export interface TokenUsageSummary {
   byOperation: Array<{ key: string; count: number; totalTokens: number }>;
 }
 
-function normalizeProvider(provider?: string, model?: string): string {
+function normalizeProvider(provider?: string, model?: string, runtimeProvider?: string): string {
   const value = (provider ?? '').trim().toLowerCase();
   const modelValue = (model ?? '').trim().toLowerCase();
+  const runtimeValue = (runtimeProvider ?? '').trim().toLowerCase();
 
   if (value) return value;
   if (modelValue.startsWith('gpt') || modelValue.startsWith('o1') || modelValue.startsWith('o3') || modelValue.startsWith('text-embedding')) {
@@ -91,7 +94,50 @@ function normalizeProvider(provider?: string, model?: string): string {
   }
   if (modelValue.includes('claude')) return 'anthropic';
   if (modelValue.includes('gemini')) return 'google';
+  if (runtimeValue) return runtimeValue;
   return 'unknown';
+}
+
+async function resolveMeasurementProvider(input: TokenExchangeInput): Promise<{
+  provider: string;
+  source: string;
+  candidates?: string[];
+}> {
+  const runtime = detectRuntimeProviderContext({ cwd: input.cwd });
+
+  const explicit = (input.provider ?? '').trim().toLowerCase();
+  if (explicit) {
+    return { provider: explicit, source: 'explicit' };
+  }
+
+  const fromRegistry = await resolveProviderFromModelRegistry(input.model);
+  if (fromRegistry.provider) {
+    return {
+      provider: fromRegistry.provider,
+      source: fromRegistry.source,
+      candidates: fromRegistry.candidates,
+    };
+  }
+
+  const fallback = normalizeProvider(undefined, input.model, runtime.inferredModelProvider);
+  return {
+    provider: fallback,
+    source: fallback === 'unknown' ? 'unknown' : (runtime.inferredModelProvider ? 'runtime-vendor' : 'heuristic'),
+    candidates: fromRegistry.candidates,
+  };
+}
+
+function buildRuntimeMetadata(input: TokenExchangeInput): Record<string, unknown> {
+  const runtime = detectRuntimeProviderContext({ cwd: input.cwd });
+  return {
+    runtimeProviderId: runtime.runtimeProviderId,
+    runtimeToolName: runtime.runtimeToolName,
+    runtimeVendor: runtime.runtimeVendor,
+    runtimeInstructionFile: runtime.runtimeInstructionFile,
+    runtimeProjectDetected: runtime.runtimeProjectDetected,
+    runtimeDetectionMethods: runtime.runtimeDetectionMethods,
+    runtimeCandidates: runtime.runtimeCandidates,
+  };
 }
 
 function toText(payload: unknown): string {
@@ -152,7 +198,7 @@ function readOtelJsonl(dir: string): Array<Record<string, unknown>> {
   return entries;
 }
 
-function readOtelTokenUsage(input: TokenExchangeInput): TokenMeasurement | null {
+function readOtelTokenUsage(input: TokenExchangeInput, resolvedProvider: string, providerSource: string, providerCandidates?: string[]): TokenMeasurement | null {
   const dir = getOtelDir();
   const events = readOtelJsonl(dir);
   if (events.length === 0) return null;
@@ -183,14 +229,17 @@ function readOtelTokenUsage(input: TokenExchangeInput): TokenMeasurement | null 
     totalTokens: inputTokens + outputTokens,
     method: 'otel',
     confidence: 'real',
-    provider: normalizeProvider(input.provider, input.model),
+    provider: resolvedProvider,
     model: input.model,
     requestHash: hashText(requestText),
     responseHash: hashText(responseText),
     metadata: {
       otelDir: dir,
+      providerSource,
+      providerCandidates,
       cacheReadInputTokens: Number(attrs['cache_read_input_tokens'] ?? 0),
       cacheCreationInputTokens: Number(attrs['cache_creation_input_tokens'] ?? 0),
+      ...buildRuntimeMetadata(input),
     },
   };
 }
@@ -209,8 +258,12 @@ async function tokenizerCount(text: string, provider: string, model?: string): P
   }
 }
 
-async function measureByTokenizer(input: TokenExchangeInput): Promise<TokenMeasurement | null> {
-  const provider = normalizeProvider(input.provider, input.model);
+async function measureByTokenizer(
+  input: TokenExchangeInput,
+  provider: string,
+  providerSource: string,
+  providerCandidates?: string[],
+): Promise<TokenMeasurement | null> {
   const requestText = toText(input.requestPayload);
   const responseText = toText(input.responsePayload);
   const inputTokens = await tokenizerCount(requestText, provider, input.model);
@@ -232,14 +285,21 @@ async function measureByTokenizer(input: TokenExchangeInput): Promise<TokenMeasu
     responseHash: hashText(responseText),
     metadata: {
       tokenizer: 'js-tiktoken',
+      providerSource,
+      providerCandidates,
+      ...buildRuntimeMetadata(input),
     },
   };
 }
 
-function measureByHeuristic(input: TokenExchangeInput): TokenMeasurement {
+function measureByHeuristic(
+  input: TokenExchangeInput,
+  provider: string,
+  providerSource: string,
+  providerCandidates?: string[],
+): TokenMeasurement {
   const requestText = toText(input.requestPayload);
   const responseText = toText(input.responsePayload);
-  const provider = normalizeProvider(input.provider, input.model);
   const requestKind = isLikelyJson(requestText) ? 'json' : 'text';
   const responseKind = isLikelyJson(responseText) ? 'json' : 'text';
 
@@ -262,18 +322,37 @@ function measureByHeuristic(input: TokenExchangeInput): TokenMeasurement {
       requestKind,
       responseKind,
       heuristic: 'chars/3.5-json-or-4-text',
+      providerSource,
+      providerCandidates,
+      ...buildRuntimeMetadata(input),
     },
   };
 }
 
 export async function measureTokenExchange(input: TokenExchangeInput): Promise<TokenMeasurement> {
-  const otel = readOtelTokenUsage(input);
+  const providerResolution = await resolveMeasurementProvider(input);
+  const otel = readOtelTokenUsage(
+    input,
+    providerResolution.provider,
+    providerResolution.source,
+    providerResolution.candidates,
+  );
   if (otel) return otel;
 
-  const tokenizer = await measureByTokenizer(input);
+  const tokenizer = await measureByTokenizer(
+    input,
+    providerResolution.provider,
+    providerResolution.source,
+    providerResolution.candidates,
+  );
   if (tokenizer) return tokenizer;
 
-  return measureByHeuristic(input);
+  return measureByHeuristic(
+    input,
+    providerResolution.provider,
+    providerResolution.source,
+    providerResolution.candidates,
+  );
 }
 
 function whereClauses(filters: TokenUsageFilters): Array<ReturnType<typeof eq>> {

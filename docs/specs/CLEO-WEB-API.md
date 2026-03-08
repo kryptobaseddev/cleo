@@ -1,8 +1,8 @@
 # CLEO Web API Specification
 
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Status**: Implementation Specification
-**Date**: 2026-03-06
+**Date**: 2026-03-08
 **Epic**: T4284 (CLEO Nexus Command Center WebUI)
 **Base Specification**: [CLEO-API.md](./CLEO-API.md)
 **Vision**: [docs/concepts/CLEO-VISION.md](../concepts/CLEO-VISION.md)
@@ -18,13 +18,13 @@ The Web API is the **fourth adapter** over CLEO's shared core (`src/core/`), joi
 
 ### Pillar Compliance
 
-| Pillar | How the Web API Serves It |
-|--------|---------------------------|
-| **Portable Memory (BRAIN)** | The API reads from the same `.cleo/tasks.db` and `.cleo/brain.db` as every other adapter. No separate data store. Moving `.cleo/` moves the API's data with it. |
-| **Agent Communication Contract (LAFS)** | Every HTTP response MUST be LAFS-compliant. By default, the response body contains only the `data` payload (success) or error detail (failure). LAFS metadata is conveyed via `X-Cleo-*` response headers. Full LAFS envelope wrapping is available on-demand via `Accept: application/vnd.lafs+json` for agent SDK consumers. The `X-Cleo-Transport` header is `"http"`. |
-| **Structured Lifecycle (RCASD-IVTR+C)** | The `pipeline` domain exposes all lifecycle gate operations. Stage validation, gate pass/fail, and release operations are accessible through the same dispatch pipeline that enforces gate compliance. |
-| **Deterministic Safety** | All write operations flow through `Dispatcher.dispatch()`, which executes the full middleware pipeline: sanitizer, field-filter, rate-limiter, verification-gates, protocol-enforcement, and audit. The API layer contains zero business logic. |
-| **Cognitive Retrieval (BRAIN + NEXUS)** | The `memory` domain exposes pattern search, learning search, manifest reads, and contradiction detection. The `nexus` domain is reserved for cross-project queries. Three-layer retrieval (search -> timeline -> fetch) is preserved through domain operations. |
+| Pillar                                  | How the Web API Serves It                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Portable Memory (BRAIN)**             | The API reads from the same `.cleo/tasks.db` and `.cleo/brain.db` as every other adapter. No separate data store. Moving `.cleo/` moves the API's data with it.                                                                                                                                                                                                                                                                                                                                |
+| **Agent Communication Contract (LAFS)** | Every HTTP response MUST be LAFS-compliant. By default, the response body contains only the `data` payload (success) or error detail (failure). LAFS metadata is conveyed via `X-Cleo-*` response headers. Full LAFS envelope wrapping is available on-demand via `Accept: application/vnd.lafs+json` for agent SDK consumers. The transport header is `X-Cleo-Transport: http`, even though token telemetry compatibility paths still often use `api` as the persisted transport label today. |
+| **Structured Lifecycle (RCASD-IVTR+C)** | The `pipeline` domain exposes all lifecycle gate operations. Stage validation, gate pass/fail, and release operations are accessible through the same dispatch pipeline that enforces gate compliance.                                                                                                                                                                                                                                                                                         |
+| **Deterministic Safety**                | All write operations flow through `Dispatcher.dispatch()`, which executes the full middleware pipeline: sanitizer, field-filter, rate-limiter, verification-gates, protocol-enforcement, and audit. The API layer contains zero business logic.                                                                                                                                                                                                                                                |
+| **Cognitive Retrieval (BRAIN + NEXUS)** | The `memory` domain exposes pattern search, learning search, manifest reads, and contradiction detection. The `nexus` domain is reserved for cross-project queries. Three-layer retrieval (search -> timeline -> fetch) is preserved through domain operations.                                                                                                                                                                                                                                |
 
 ---
 
@@ -79,9 +79,10 @@ These mirror MCP's `query` / `mutate` tools exactly. The architecture is honest:
 
 tRPC was evaluated thoroughly and rejected. While it offers genuine advantages (CQRS alignment, subscription support, React Query integration), its core value proposition -- automatic type inference from `typeof appRouter` -- is undermined by CLEO's dynamic operation registry.
 
-**The type inference problem**: CLEO has 152 operations defined in `OperationRegistry` with `ParamDef[]` metadata. Generating tRPC procedures programmatically from this registry at runtime means the `typeof appRouter` resolves to procedures typed as `z.ZodUnknown` input and `unknown` output for 137 of 152 operations. Only ~15 hand-typed "hot path" operations would get real type inference. This is a two-tier type system that is confusing, not type-safe.
+**The type inference problem**: CLEO's `OperationRegistry` now spans a large, evolving operation surface. Generating tRPC procedures programmatically from this registry at runtime means the `typeof appRouter` resolves to many procedures typed as `z.ZodUnknown` input and `unknown` output unless they are hand-typed. This creates a two-tier type system that is confusing, not type-safe.
 
 **tRPC's strengths, acknowledged**:
+
 - CQRS natural fit (`query()`/`mutation()` map to CLEO gateways)
 - Zero code generation for type sharing
 - First-party Fastify adapter
@@ -96,21 +97,21 @@ tRPC was evaluated thoroughly and rejected. While it offers genuine advantages (
 
 3. **Error mapping is lossy**: tRPC has ~15 error codes. CLEO has 94 exit codes across 10 ranges. Mapping CLEO's error taxonomy to tRPC's coarse codes (then enriching via `errorFormatter`) means clients must dig into `data.cleoExitCode` for the real error.
 
-4. **TypeScript performance at scale**: 152 operations means a router type with ~300+ procedure entries. Users report IDE lag and slow `tsc` with large tRPC routers.
+4. **TypeScript performance at scale**: A registry with hundreds of operations means a very large router type. Users report IDE lag and slow `tsc` with large tRPC routers.
 
 5. **Batching is unnecessary**: For localhost SQLite queries under 5ms, tRPC's batch link adds complexity for zero benefit.
 
-**The generated typed client is MORE type-safe than tRPC's dynamic router** because the codegen script has access to the full `ParamDef[]` metadata and produces precise TypeScript interfaces for ALL 152 operations, not just the 15 hand-typed ones.
+**The generated typed client is MORE type-safe than tRPC's dynamic router** because the codegen script has access to the full `ParamDef[]` metadata and produces precise TypeScript interfaces for the registry-defined surface, not just a small hand-typed subset.
 
 ### Why Not ts-rest, Hono, or oRPC?
 
-| Option | Why Not |
-|--------|---------|
-| **ts-rest** | REST semantics fight CLEO's RPC nature. No subscriptions. Verbose for 152 ops. Mapping RPC operations to REST paths is unnatural (`POST /api/tasks/relates/add`?). |
-| **Hono** | Dynamic routes break type inference completely. No CQRS concept. Designed for edge workers, not localhost dispatch systems. |
-| **oRPC** | Too immature (v1.0 Dec 2025, single primary maintainer). Same dynamic generation problem. Worth monitoring for v2+. |
-| **Elysia** | Bun-first; Node.js is second-class. Portability risk for a tool that values stability. |
-| **Raw Fastify + per-route Zod** | All the overhead of defining 152 routes without the type inference payoff. The `/dispatch` pattern achieves zero-touch growth. |
+| Option                          | Why Not                                                                                                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **ts-rest**                     | REST semantics fight CLEO's RPC nature. No subscriptions. Verbose for a large RPC surface. Mapping RPC operations to REST paths is unnatural (`POST /api/tasks/relates/add`?). |
+| **Hono**                        | Dynamic routes break type inference completely. No CQRS concept. Designed for edge workers, not localhost dispatch systems.                                                    |
+| **oRPC**                        | Too immature (v1.0 Dec 2025, single primary maintainer). Same dynamic generation problem. Worth monitoring for v2+.                                                            |
+| **Elysia**                      | Bun-first; Node.js is second-class. Portability risk for a tool that values stability.                                                                                         |
+| **Raw Fastify + per-route Zod** | All the overhead of defining many routes without the type inference payoff. The `/dispatch` pattern achieves zero-touch growth.                                                |
 
 ---
 
@@ -121,25 +122,27 @@ tRPC was evaluated thoroughly and rejected. While it offers genuine advantages (
 **Decision**: Two HTTP endpoints (`/api/query`, `/api/mutate`) that delegate to `Dispatcher.dispatch()`, paired with a generated typed client.
 
 **Arguments for tRPC**:
+
 - CQRS natural fit (query/mutation)
 - Zero code generation for type sharing
 - React Query integration out of the box
 - Well-documented, large community
 
 **Arguments against tRPC for CLEO**:
+
 - Dynamic router generation destroys the core value proposition (type inference)
 - Adds a redundant middleware layer on top of CLEO's existing pipeline
 - Error mapping from 94 exit codes to ~15 tRPC codes is lossy
 - TypeScript performance degrades with 300+ procedure router types
 - Every procedure is a passthrough to `Dispatcher.dispatch()` -- tRPC adds indirection without adding value
 
-**The decisive factor**: CLEO's `OperationRegistry` already defines all 152 operations with full metadata (`ParamDef[]`, gateway, domain, description, tier, required params). A codegen script that reads this registry and emits a fully-typed TypeScript client provides BETTER type safety than tRPC's dynamic router, because it covers ALL 152 operations with precise types, not just 15 hand-typed ones.
+**The decisive factor**: CLEO's `OperationRegistry` already defines the operation surface with full metadata (`ParamDef[]`, gateway, domain, description, tier, required params). A codegen script that reads this registry and emits a fully-typed TypeScript client provides BETTER type safety than tRPC's dynamic router, because it covers the registry-defined surface with precise types, not just a small hand-typed subset.
 
 **Comparison**:
 | Aspect | tRPC Dynamic Router | Generated Typed Client |
 |--------|--------------------|-----------------------|
-| Operations with precise types | ~15 (hand-typed) | 152 (all) |
-| Operations with `unknown` types | ~137 | 0 |
+| Operations with precise types | Small hand-typed subset | Registry-defined surface |
+| Operations with `unknown` types | Many dynamic procedures | 0 after codegen |
 | Zero-touch API growth | Partial (auto-generated but untyped) | Full (re-run codegen) |
 | Client reactivity | React Query built-in | TanStack Query manual |
 | Build step required | No | Yes (codegen script) |
@@ -150,11 +153,13 @@ tRPC was evaluated thoroughly and rejected. While it offers genuine advantages (
 **Decision**: Default HTTP responses contain pure `data` in the body with LAFS metadata in `X-Cleo-*` headers. Full LAFS envelope available on-demand via content negotiation.
 
 **Arguments for body envelopes on every response**:
+
 - Consistency with MCP transport (which wraps in `DispatchResponse`)
 - `_meta` is always accessible without header parsing
 - Single response shape for all consumers
 
 **Arguments against body envelopes for HTTP**:
+
 - HTTP already has out-of-band metadata channels (status codes, headers)
 - The CLI adapter already proves LAFS compliance without envelope wrapping (exit codes via `process.exit()`, formatted output without `_meta`)
 - TypeScript type inference works better without envelopes (`Task` is strictly better than `LafsEnvelope<Task>` for dashboard DX)
@@ -162,11 +167,13 @@ tRPC was evaluated thoroughly and rejected. While it offers genuine advantages (
 - Response size overhead: for `tasks.find` returning 5 minimal tasks (~200 bytes), the LAFS envelope adds ~400 bytes of `_meta`
 
 **The precedent**: The CLI adapter is already LAFS-compliant without envelope wrapping. It translates `DispatchResponse` into transport-native signals:
+
 - Exit codes via `process.exit(exitCode)`
 - Formatted output via `cliOutput(response.data)`
 - Structured errors via `cliError(message, exitCode, {...})`
 
 The HTTP adapter follows the same translation pattern:
+
 - Exit codes via HTTP status codes + `X-Cleo-Exit-Code` header
 - Metadata via `X-Cleo-*` headers
 - Pure data in the response body
@@ -178,6 +185,7 @@ The HTTP adapter follows the same translation pattern:
 **Decision**: Svelte 5 standalone (with Vite, NOT SvelteKit) for the dashboard frontend.
 
 **Arguments for React**:
+
 - Largest ecosystem; any component library works
 - `@trpc/react-query` provides hooks, caching, invalidation out of the box
 - D3.js + React integration is well-documented (visx, nivo, or raw D3 in useEffect)
@@ -185,6 +193,7 @@ The HTTP adapter follows the same translation pattern:
 - Battle-tested at all scales
 
 **Arguments for Svelte 5**:
+
 - **Developer familiarity signal**: The developer has an existing `svelte5-sveltekit` skill. A framework they already know will always be maintained better than one learned for a single project.
 - **Right-sized for the problem**: Svelte compiles away the framework. Output is surgical DOM updates without a runtime. For a localhost dashboard that renders tables and charts, this matches the problem without overhead.
 - **Runes solve the React hooks problem**: `$state()` and `$derived()` are explicit, have no dependency array footguns, and read naturally after 6 months away from the code.
@@ -199,12 +208,14 @@ The HTTP adapter follows the same translation pattern:
 **Decision**: Smart polling with ETag-based conditional GETs. No persistent connections.
 
 **Arguments for SSE**:
+
 - Lower latency than polling (events arrive as they happen)
 - Auto-reconnect built into browser's `EventSource` API
 - Simpler than WebSocket (unidirectional, no upgrade handshake)
 - claude-mem uses SSE successfully
 
 **Arguments for WebSocket**:
+
 - Bidirectional communication
 - Lower overhead per message than HTTP
 - Well-supported via `@fastify/websocket`
@@ -222,6 +233,7 @@ The HTTP adapter follows the same translation pattern:
 5. **Industry precedent**: Grafana (the gold standard for local dashboards) defaults to 30-second polling intervals. Drizzle Studio, pgAdmin, TablePlus, DBeaver -- all use polling or manual refresh for local database viewing.
 
 **The polling strategy**:
+
 - ETag-based conditional GETs (`If-None-Match` -> `304 Not Modified` when unchanged)
 - View-appropriate intervals (3-30s depending on view urgency)
 - ETag generation: hash of `MAX(updatedAt)` from tasks table + record count (one cheap SQL query, microseconds on SQLite)
@@ -260,6 +272,7 @@ cleo web open               # Open browser to running instance
 ```
 
 Process artifacts:
+
 - **PID file**: `.cleo/web-server.pid`
 - **Port file**: `.cleo/web-server.port`
 - **Log file**: `.cleo/logs/web-server.log`
@@ -268,10 +281,10 @@ Process artifacts:
 
 Following claude-mem's two-phase startup pattern:
 
-| Endpoint | Purpose | Available |
-|----------|---------|-----------|
-| `GET /health` | Liveness probe. Returns `200 { status: "ok" }` immediately after HTTP bind. | Phase 1 (immediate) |
-| `GET /ready` | Readiness probe. Returns `200` only after dispatcher initialization and DB connection verified. Returns `503` during init. | Phase 2 (after full init) |
+| Endpoint      | Purpose                                                                                                                    | Available                 |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `GET /health` | Liveness probe. Returns `200 { status: "ok" }` immediately after HTTP bind.                                                | Phase 1 (immediate)       |
+| `GET /ready`  | Readiness probe. Returns `200` only after dispatcher initialization and DB connection verified. Returns `503` during init. | Phase 2 (after full init) |
 
 ### Graceful Shutdown
 
@@ -303,12 +316,20 @@ Read operations. Delegates to `Dispatcher.dispatch({ gateway: 'query', ... })`.
 ```typescript
 const DispatchQuerySchema = z.object({
   domain: z.enum([
-    'tasks', 'session', 'memory', 'check', 'pipeline',
-    'orchestrate', 'tools', 'admin', 'nexus',
+    "tasks",
+    "session",
+    "memory",
+    "check",
+    "pipeline",
+    "orchestrate",
+    "tools",
+    "admin",
+    "nexus",
+    "sticky",
   ]),
   operation: z.string().min(1),
   params: z.record(z.unknown()).optional(),
-  _mvi: z.enum(['minimal', 'standard', 'full', 'custom']).optional(),
+  _mvi: z.enum(["minimal", "standard", "full", "custom"]).optional(),
   _fields: z.array(z.string()).optional(),
 });
 ```
@@ -335,8 +356,16 @@ Write operations. Delegates to `Dispatcher.dispatch({ gateway: 'mutate', ... })`
 ```typescript
 const DispatchMutateSchema = z.object({
   domain: z.enum([
-    'tasks', 'session', 'memory', 'check', 'pipeline',
-    'orchestrate', 'tools', 'admin', 'nexus',
+    "tasks",
+    "session",
+    "memory",
+    "check",
+    "pipeline",
+    "orchestrate",
+    "tools",
+    "admin",
+    "nexus",
+    "sticky",
   ]),
   operation: z.string().min(1),
   params: z.record(z.unknown()).optional(),
@@ -364,43 +393,43 @@ Content-Type: application/json
 
 ```typescript
 // src/web/routes/dispatch.ts
-import { randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
-import type { Dispatcher } from '../../dispatch/dispatcher.js';
+import { randomUUID } from "node:crypto";
+import type { FastifyInstance } from "fastify";
+import type { Dispatcher } from "../../dispatch/dispatcher.js";
 
 export function registerDispatchRoutes(
   server: FastifyInstance,
   dispatcher: Dispatcher,
 ): void {
   // Query endpoint
-  server.post('/api/query', async (req, reply) => {
+  server.post("/api/query", async (req, reply) => {
     const { domain, operation, params, _mvi, _fields } = req.body as any;
 
     const response = await dispatcher.dispatch({
-      gateway: 'query',
+      gateway: "query",
       domain,
       operation,
       params: { ...params, _mvi, _fields },
-      source: 'http',
+      source: "http",
       requestId: randomUUID(),
-      sessionId: req.headers['x-cleo-session'] as string | undefined,
+      sessionId: req.headers["x-cleo-session"] as string | undefined,
     });
 
     return sendDispatchResponse(reply, response);
   });
 
   // Mutate endpoint
-  server.post('/api/mutate', async (req, reply) => {
+  server.post("/api/mutate", async (req, reply) => {
     const { domain, operation, params } = req.body as any;
 
     const response = await dispatcher.dispatch({
-      gateway: 'mutate',
+      gateway: "mutate",
       domain,
       operation,
       params,
-      source: 'http',
+      source: "http",
       requestId: randomUUID(),
-      sessionId: req.headers['x-cleo-session'] as string | undefined,
+      sessionId: req.headers["x-cleo-session"] as string | undefined,
     });
 
     return sendDispatchResponse(reply, response);
@@ -413,53 +442,58 @@ export function registerDispatchRoutes(
 The `sendDispatchResponse` function translates `DispatchResponse` into HTTP-native signals:
 
 ```typescript
-import type { FastifyReply } from 'fastify';
-import type { DispatchResponse } from '../../dispatch/types.js';
+import type { FastifyReply } from "fastify";
+import type { DispatchResponse } from "../../dispatch/types.js";
 
 function sendDispatchResponse(
   reply: FastifyReply,
   response: DispatchResponse,
 ): void {
   // Set LAFS metadata headers
-  reply.header('X-Cleo-Request-Id', response._meta.requestId);
-  reply.header('X-Cleo-Gateway', response._meta.gateway);
-  reply.header('X-Cleo-Domain', response._meta.domain);
-  reply.header('X-Cleo-Operation', response._meta.operation);
-  reply.header('X-Cleo-Duration-Ms', String(response._meta.duration_ms));
-  reply.header('X-Cleo-Transport', 'http');
+  reply.header("X-Cleo-Request-Id", response._meta.requestId);
+  reply.header("X-Cleo-Gateway", response._meta.gateway);
+  reply.header("X-Cleo-Domain", response._meta.domain);
+  reply.header("X-Cleo-Operation", response._meta.operation);
+  reply.header("X-Cleo-Duration-Ms", String(response._meta.duration_ms));
+  reply.header("X-Cleo-Transport", "http");
 
   if (response._meta.sessionId) {
-    reply.header('X-Cleo-Session-Id', response._meta.sessionId);
+    reply.header("X-Cleo-Session-Id", response._meta.sessionId);
   }
   if (response._meta.mvi) {
-    reply.header('X-Cleo-MVI', response._meta.mvi);
+    reply.header("X-Cleo-MVI", response._meta.mvi);
   }
   if (response._meta.rateLimit) {
-    reply.header('X-RateLimit-Limit', String(response._meta.rateLimit.limit));
-    reply.header('X-RateLimit-Remaining', String(response._meta.rateLimit.remaining));
-    reply.header('X-RateLimit-Reset', String(response._meta.rateLimit.resetMs));
+    reply.header("X-RateLimit-Limit", String(response._meta.rateLimit.limit));
+    reply.header(
+      "X-RateLimit-Remaining",
+      String(response._meta.rateLimit.remaining),
+    );
+    reply.header("X-RateLimit-Reset", String(response._meta.rateLimit.resetMs));
   }
 
   // Check if client requested full LAFS envelope
   const wantsLafs =
-    reply.request.headers.accept?.includes('application/vnd.lafs+json') ||
+    reply.request.headers.accept?.includes("application/vnd.lafs+json") ||
     (reply.request.body as any)?._lafs === true;
 
   if (wantsLafs) {
     // Full LAFS envelope mode
-    reply.header('Content-Type', 'application/vnd.lafs+json');
-    const httpStatus = response.success ? 200 : mapExitCodeToHttpStatus(response.error?.exitCode);
+    reply.header("Content-Type", "application/vnd.lafs+json");
+    const httpStatus = response.success
+      ? 200
+      : mapExitCodeToHttpStatus(response.error?.exitCode);
     reply.code(httpStatus).send(response);
     return;
   }
 
   // Default mode: unwrapped data + headers
   if (response.success) {
-    reply.header('X-Cleo-Exit-Code', '0');
+    reply.header("X-Cleo-Exit-Code", "0");
     reply.code(200).send(response.data ?? null);
   } else {
     const exitCode = response.error?.exitCode ?? 1;
-    reply.header('X-Cleo-Exit-Code', String(exitCode));
+    reply.header("X-Cleo-Exit-Code", String(exitCode));
     reply.code(mapExitCodeToHttpStatus(exitCode)).send({
       code: response.error?.code,
       exitCode,
@@ -474,23 +508,23 @@ function sendDispatchResponse(
 
 ### Exit Code to HTTP Status Mapping
 
-| CLEO Exit Code Range | HTTP Status | Description |
-|---|---|---|
-| 0 (SUCCESS) | 200 | OK |
-| 2 (INVALID_INPUT) | 400 | Bad Request |
-| 4 (NOT_FOUND) | 404 | Not Found |
-| 6 (VALIDATION_ERROR) | 400 | Bad Request |
-| 7 (LOCK_TIMEOUT) | 408 | Request Timeout |
-| 10-19 (hierarchy) | 400 | Bad Request |
-| 20-22 (concurrency) | 409 | Conflict |
-| 30-39 (session) | 412 | Precondition Failed |
-| 40-47 (verification) | 403 | Forbidden |
-| 50-54 (context) | 412 | Precondition Failed |
-| 60-67 (protocol) | 400 | Bad Request |
-| 70-79 (nexus) | 500 | Internal Server Error |
-| 80-84 (lifecycle) | 403 | Forbidden |
-| 85-94 (artifact/provenance) | 500 | Internal Server Error |
-| 100+ (special) | 200 | OK (not errors) |
+| CLEO Exit Code Range        | HTTP Status | Description           |
+| --------------------------- | ----------- | --------------------- |
+| 0 (SUCCESS)                 | 200         | OK                    |
+| 2 (INVALID_INPUT)           | 400         | Bad Request           |
+| 4 (NOT_FOUND)               | 404         | Not Found             |
+| 6 (VALIDATION_ERROR)        | 400         | Bad Request           |
+| 7 (LOCK_TIMEOUT)            | 408         | Request Timeout       |
+| 10-19 (hierarchy)           | 400         | Bad Request           |
+| 20-22 (concurrency)         | 409         | Conflict              |
+| 30-39 (session)             | 412         | Precondition Failed   |
+| 40-47 (verification)        | 403         | Forbidden             |
+| 50-54 (context)             | 412         | Precondition Failed   |
+| 60-67 (protocol)            | 400         | Bad Request           |
+| 70-79 (nexus)               | 500         | Internal Server Error |
+| 80-84 (lifecycle)           | 403         | Forbidden             |
+| 85-94 (artifact/provenance) | 500         | Internal Server Error |
+| 100+ (special)              | 200         | OK (not errors)       |
 
 ---
 
@@ -507,7 +541,7 @@ npm run generate-client    # Reads registry, emits src/web/client/api.generated.
 The script:
 
 1. Imports `OperationRegistry` from the compiled dispatch module
-2. Iterates all 152 operations
+2. Iterates the live registry surface
 3. For each operation, reads `ParamDef[]` metadata (name, type, required, enum values)
 4. Emits TypeScript interfaces for input params
 5. Emits typed wrapper functions that call `fetch('/api/query')` or `fetch('/api/mutate')`
@@ -534,17 +568,17 @@ export interface TasksAddParams {
   description?: string;
   parent?: string;
   depends?: string[];
-  priority?: 'critical' | 'high' | 'medium' | 'low';
+  priority?: "critical" | "high" | "medium" | "low";
   labels?: string[];
-  type?: 'epic' | 'task' | 'subtask';
+  type?: "epic" | "task" | "subtask";
 }
 
 export interface TasksUpdateParams {
   taskId: string;
   title?: string;
   description?: string;
-  status?: 'pending' | 'active' | 'blocked' | 'done' | 'cancelled';
-  priority?: 'critical' | 'high' | 'medium' | 'low';
+  status?: "pending" | "active" | "blocked" | "done" | "cancelled";
+  priority?: "critical" | "high" | "medium" | "low";
   notes?: string;
   labels?: string[];
   addLabels?: string[];
@@ -554,19 +588,23 @@ export interface TasksUpdateParams {
   removeDepends?: string[];
   acceptance?: string;
   parent?: string | null;
-  type?: 'epic' | 'task' | 'subtask';
-  size?: 'small' | 'medium' | 'large';
+  type?: "epic" | "task" | "subtask";
+  size?: "small" | "medium" | "large";
 }
 
-// ... (interfaces for all 152 operations)
+// ... (interfaces for all registry-defined operations)
 
 // --- API client ---
 
 function createCleoClient(baseUrl: string) {
-  async function query<T>(domain: string, operation: string, params?: Record<string, unknown>): Promise<T> {
+  async function query<T>(
+    domain: string,
+    operation: string,
+    params?: Record<string, unknown>,
+  ): Promise<T> {
     const res = await fetch(`${baseUrl}/api/query`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ domain, operation, params }),
     });
     if (!res.ok) {
@@ -576,10 +614,14 @@ function createCleoClient(baseUrl: string) {
     return res.json();
   }
 
-  async function mutate<T>(domain: string, operation: string, params?: Record<string, unknown>): Promise<T> {
+  async function mutate<T>(
+    domain: string,
+    operation: string,
+    params?: Record<string, unknown>,
+  ): Promise<T> {
     const res = await fetch(`${baseUrl}/api/mutate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ domain, operation, params }),
     });
     if (!res.ok) {
@@ -591,25 +633,26 @@ function createCleoClient(baseUrl: string) {
 
   return {
     tasks: {
-      show: (params: TasksShowParams) => query('tasks', 'show', params),
-      list: (params?: TasksListParams) => query('tasks', 'list', params),
-      find: (params?: TasksFindParams) => query('tasks', 'find', params),
-      add: (params: TasksAddParams) => mutate('tasks', 'add', params),
-      update: (params: TasksUpdateParams) => mutate('tasks', 'update', params),
-      complete: (params: TasksCompleteParams) => mutate('tasks', 'complete', params),
-      start: (params: TasksStartParams) => mutate('tasks', 'start', params),
-      stop: () => mutate('tasks', 'stop'),
-      current: () => query('tasks', 'current'),
-      // ... all 26 task operations
+      show: (params: TasksShowParams) => query("tasks", "show", params),
+      list: (params?: TasksListParams) => query("tasks", "list", params),
+      find: (params?: TasksFindParams) => query("tasks", "find", params),
+      add: (params: TasksAddParams) => mutate("tasks", "add", params),
+      update: (params: TasksUpdateParams) => mutate("tasks", "update", params),
+      complete: (params: TasksCompleteParams) =>
+        mutate("tasks", "complete", params),
+      start: (params: TasksStartParams) => mutate("tasks", "start", params),
+      stop: () => mutate("tasks", "stop"),
+      current: () => query("tasks", "current"),
+      // ... all registry-defined task operations
     },
     session: {
-      status: () => query('session', 'status'),
-      list: (params?: SessionListParams) => query('session', 'list', params),
-      start: (params: SessionStartParams) => mutate('session', 'start', params),
-      end: (params?: SessionEndParams) => mutate('session', 'end', params),
-      // ... all 17 session operations
+      status: () => query("session", "status"),
+      list: (params?: SessionListParams) => query("session", "list", params),
+      start: (params: SessionStartParams) => mutate("session", "start", params),
+      end: (params?: SessionEndParams) => mutate("session", "end", params),
+      // ... all registry-defined session operations
     },
-    // ... all 9 domains, all 152 operations
+    // ... all registry-defined domains and operations
   };
 }
 
@@ -619,7 +662,7 @@ export { createCleoClient };
 
 ### The Type Safety Guarantee
 
-The generated client provides precise types for ALL 152 operations because:
+The generated client provides precise types for the registry-defined surface because:
 
 1. **Input types** are derived from `ParamDef[]` metadata: required params become required fields, optional params become optional fields, enum constraints become union types.
 2. **Domain grouping** mirrors the canonical domain structure (`client.tasks.show()`, `client.session.start()`).
@@ -632,15 +675,15 @@ The generated client integrates with TanStack Query for reactive data fetching i
 
 ```typescript
 // src/web/client/hooks.ts
-import { createQuery, createMutation } from '@tanstack/svelte-query';
-import { createCleoClient } from './api.generated.js';
+import { createQuery, createMutation } from "@tanstack/svelte-query";
+import { createCleoClient } from "./api.generated.js";
 
 const api = createCleoClient(`http://localhost:${port}`);
 
 // Typed query hook
 export function useTaskShow(taskId: string) {
   return createQuery({
-    queryKey: ['tasks', 'show', taskId],
+    queryKey: ["tasks", "show", taskId],
     queryFn: () => api.tasks.show({ taskId }),
   });
 }
@@ -664,31 +707,31 @@ LAFS defines protocol guarantees (exit codes, MVI, field filtering, request trac
 
 ### LAFS Transport Compliance Matrix
 
-| Transport | Envelope in Body | Exit Code Channel | Metadata Channel | MVI Support | Field Filtering |
-|---|---|---|---|---|---|
-| **MCP** (stdio) | Always | `_meta.exitCode` in body | `_meta` in body | `_mvi` param | `_fields` param |
-| **CLI** (process) | Never | `process.exit(code)` | N/A (formatted output) | N/A | `--field` flag |
-| **HTTP** (default) | Never | HTTP status + `X-Cleo-Exit-Code` | `X-Cleo-*` headers | `_mvi` param (filters data) | `_fields` param (filters data) |
-| **HTTP** (LAFS mode) | Always | `_meta.exitCode` + HTTP status | `_meta` in body + headers | `_mvi` in body + param | `_fields` in body + param |
+| Transport            | Envelope in Body | Exit Code Channel                | Metadata Channel          | MVI Support                 | Field Filtering                |
+| -------------------- | ---------------- | -------------------------------- | ------------------------- | --------------------------- | ------------------------------ |
+| **MCP** (stdio)      | Always           | `_meta.exitCode` in body         | `_meta` in body           | `_mvi` param                | `_fields` param                |
+| **CLI** (process)    | Never            | `process.exit(code)`             | N/A (formatted output)    | N/A                         | `--field` flag                 |
+| **HTTP** (default)   | Never            | HTTP status + `X-Cleo-Exit-Code` | `X-Cleo-*` headers        | `_mvi` param (filters data) | `_fields` param (filters data) |
+| **HTTP** (LAFS mode) | Always           | `_meta.exitCode` + HTTP status   | `_meta` in body + headers | `_mvi` in body + param      | `_fields` in body + param      |
 
 ### Header-Based Metadata (Default Mode)
 
 All LAFS metadata is conveyed via response headers:
 
-| LAFS Field | HTTP Header |
-|---|---|
-| `_meta.requestId` | `X-Cleo-Request-Id` |
-| `_meta.sessionId` | `X-Cleo-Session-Id` |
-| `_meta.duration_ms` | `X-Cleo-Duration-Ms` |
-| `_meta.gateway` | `X-Cleo-Gateway` |
-| `_meta.domain` | `X-Cleo-Domain` |
-| `_meta.operation` | `X-Cleo-Operation` |
-| `_meta.mvi` | `X-Cleo-MVI` |
-| `_meta.transport` | `X-Cleo-Transport` (always `"http"`) |
-| `error.exitCode` | `X-Cleo-Exit-Code` |
-| `_meta.rateLimit.limit` | `X-RateLimit-Limit` |
-| `_meta.rateLimit.remaining` | `X-RateLimit-Remaining` |
-| `_meta.rateLimit.resetMs` | `X-RateLimit-Reset` |
+| LAFS Field                  | HTTP Header                                                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `_meta.requestId`           | `X-Cleo-Request-Id`                                                                                                          |
+| `_meta.sessionId`           | `X-Cleo-Session-Id`                                                                                                          |
+| `_meta.duration_ms`         | `X-Cleo-Duration-Ms`                                                                                                         |
+| `_meta.gateway`             | `X-Cleo-Gateway`                                                                                                             |
+| `_meta.domain`              | `X-Cleo-Domain`                                                                                                              |
+| `_meta.operation`           | `X-Cleo-Operation`                                                                                                           |
+| `_meta.mvi`                 | `X-Cleo-MVI`                                                                                                                 |
+| `_meta.transport`           | `X-Cleo-Transport` (`"http"` at the HTTP boundary; token telemetry MAY still report `"api"` during the compatibility window) |
+| `error.exitCode`            | `X-Cleo-Exit-Code`                                                                                                           |
+| `_meta.rateLimit.limit`     | `X-RateLimit-Limit`                                                                                                          |
+| `_meta.rateLimit.remaining` | `X-RateLimit-Remaining`                                                                                                      |
+| `_meta.rateLimit.resetMs`   | `X-RateLimit-Reset`                                                                                                          |
 
 ### On-Demand LAFS Envelope Mode
 
@@ -700,6 +743,7 @@ Clients MAY request full LAFS envelope wrapping via content negotiation:
 When LAFS mode is active, the response body contains the complete `DispatchResponse` with `_meta`, `success`, `data`/`error`. The `Content-Type` is `application/vnd.lafs+json`.
 
 This mode is intended for:
+
 - HTTP-based agent SDKs that need structured metadata for programmatic branching
 - NEXUS cross-project federation queries that need provenance metadata
 - Debugging/inspection tools
@@ -718,73 +762,111 @@ MVI progressive disclosure and `_fields` filtering work in both modes:
 
 ## 8. Domain Operation Mapping
 
-All 152 operations across 9 canonical domains are accessible via the dispatch endpoints. The domain and operation names used in HTTP requests match the MCP operation names exactly.
+The HTTP adapter is intended to expose the live dispatch registry surface. Exact operation totals and domain counts SHOULD be derived from the registry at build time, not frozen in this document. The domain and operation names used in HTTP requests match the MCP/dispatch names, with a small runtime compatibility layer for legacy analytics paths while registry and handlers converge. The examples below focus on the major domains plus the analytics-heavy admin surface; auxiliary domains such as `sticky` follow the same registry-driven mapping.
 
-### Domain: `tasks` (26 operations)
+### Domain: `tasks`
 
 **Purpose**: Task CRUD, hierarchy management, dependency tracking, active task work.
 
-**Queries (13)**: `show`, `list`, `find`, `exists`, `tree`, `blockers`, `depends`, `analyze`, `next`, `plan`, `relates`, `complexity.estimate`, `current`
+**Queries**: `show`, `list`, `find`, `exists`, `tree`, `blockers`, `depends`, `analyze`, `next`, `plan`, `relates`, `complexity.estimate`, `current`
 
-**Mutations (13)**: `add`, `update`, `complete`, `delete`, `archive`, `restore`, `reparent`, `promote`, `reorder`, `reopen`, `relates.add`, `start`, `stop`
+**Mutations**: `add`, `update`, `complete`, `delete`, `archive`, `restore`, `reparent`, `promote`, `reorder`, `reopen`, `relates.add`, `start`, `stop`
 
-### Domain: `session` (17 operations)
+### Domain: `session`
 
 **Purpose**: Session lifecycle, handoffs, briefings, decision logging.
 
-**Queries (10)**: `status`, `list`, `show`, `history`, `decision.log`, `context.drift`, `handoff.show`, `briefing.show`, `debrief.show`, `chain.show`
+**Queries**: `status`, `list`, `show`, `history`, `decision.log`, `context.drift`, `handoff.show`, `briefing.show`, `debrief.show`, `chain.show`
 
-**Mutations (7)**: `start`, `end`, `resume`, `suspend`, `gc`, `record.decision`, `record.assumption`
+**Mutations**: `start`, `end`, `resume`, `suspend`, `gc`, `record.decision`, `record.assumption`
 
-### Domain: `memory` (18 operations)
+### Domain: `memory`
 
 **Purpose**: Research management, BRAIN pattern/learning storage and retrieval, manifest operations.
 
-**Queries (12)**: `show`, `list`, `find`, `pending`, `stats`, `manifest.read`, `contradictions`, `superseded`, `pattern.search`, `pattern.stats`, `learning.search`, `learning.stats`
+**Queries**: `show`, `list`, `find`, `pending`, `stats`, `manifest.read`, `contradictions`, `superseded`, `pattern.search`, `pattern.stats`, `learning.search`, `learning.stats`
 
-**Mutations (6)**: `inject`, `link`, `manifest.append`, `manifest.archive`, `pattern.store`, `learning.store`
+**Mutations**: `inject`, `link`, `manifest.append`, `manifest.archive`, `pattern.store`, `learning.store`
 
-### Domain: `check` (12 operations)
+### Domain: `check`
 
 **Purpose**: Validation, compliance, testing.
 
-**Queries (10)**: `schema`, `protocol`, `task`, `manifest`, `output`, `compliance.summary`, `compliance.violations`, `test.status`, `test.coverage`, `coherence.check`
+**Queries**: `schema`, `protocol`, `task`, `manifest`, `output`, `compliance.summary`, `compliance.violations`, `test.status`, `test.coverage`, `coherence.check`, `grade`, `grade.list`
 
-**Mutations (2)**: `compliance.record`, `test.run`
+**Mutations**: `compliance.record`, `test.run`
 
-### Domain: `pipeline` (17 operations)
+### Domain: `pipeline`
 
 **Purpose**: RCASD-IVTR+C lifecycle management, release operations.
 
-**Queries (5)**: `stage.validate`, `stage.status`, `stage.history`, `stage.gates`, `stage.prerequisites`
+**Queries**: `stage.validate`, `stage.status`, `stage.history`, `stage.gates`, `stage.prerequisites`
 
-**Mutations (12)**: `stage.record`, `stage.skip`, `stage.reset`, `stage.gate.pass`, `stage.gate.fail`, `release.prepare`, `release.changelog`, `release.commit`, `release.tag`, `release.push`, `release.gates.run`, `release.rollback`
+**Mutations**: `stage.record`, `stage.skip`, `stage.reset`, `stage.gate.pass`, `stage.gate.fail`, `release.prepare`, `release.changelog`, `release.commit`, `release.tag`, `release.push`, `release.gates.run`, `release.rollback`
 
-### Domain: `orchestrate` (16 operations)
+### Domain: `orchestrate`
 
 **Purpose**: Multi-agent orchestration, wave computation, spawn management.
 
-**Queries (10)**: `status`, `next`, `ready`, `analyze`, `context`, `waves`, `skill.list`, `bootstrap`, `unblock.opportunities`, `critical.path`
+**Queries**: `status`, `next`, `ready`, `analyze`, `context`, `waves`, `skill.list`, `bootstrap`, `unblock.opportunities`, `critical.path`
 
-**Mutations (6)**: `start`, `spawn`, `validate`, `parallel.start`, `parallel.end`, `verify`
+**Mutations**: `start`, `spawn`, `validate`, `parallel.start`, `parallel.end`, `verify`
 
-### Domain: `tools` (27 operations)
+### Domain: `tools`
 
 **Purpose**: Issue management, skill ecosystem, provider management.
 
-**Queries (16)**: `issue.diagnostics`, `issue.templates`, `issue.validate.labels`, `skill.list`, `skill.show`, `skill.find`, `skill.dispatch`, `skill.verify`, `skill.dependencies`, `skill.catalog.protocols`, `skill.catalog.profiles`, `skill.catalog.resources`, `skill.catalog.info`, `provider.list`, `provider.detect`, `provider.inject.status`
+**Queries**: `issue.diagnostics`, `issue.templates`, `issue.validate.labels`, `skill.list`, `skill.show`, `skill.find`, `skill.dispatch`, `skill.verify`, `skill.dependencies`, `skill.catalog.protocols`, `skill.catalog.profiles`, `skill.catalog.resources`, `skill.catalog.info`, `provider.list`, `provider.detect`, `provider.inject.status`
 
-**Mutations (11)**: `issue.add.bug`, `issue.add.feature`, `issue.add.help`, `issue.generate.config`, `skill.install`, `skill.uninstall`, `skill.enable`, `skill.disable`, `skill.configure`, `skill.refresh`, `provider.inject`
+**Mutations**: `issue.add.bug`, `issue.add.feature`, `issue.add.help`, `issue.generate.config`, `skill.install`, `skill.uninstall`, `skill.enable`, `skill.disable`, `skill.configure`, `skill.refresh`, `provider.inject`
 
-### Domain: `admin` (26 operations)
+### Domain: `admin` (analytics expanded)
 
 **Purpose**: System administration, configuration, diagnostics, ADR management.
 
-**Queries (14+)**: `version`, `health`, `config.show`, `config.get`, `stats`, `context`, `runtime`, `job.status`, `job.list`, `dash`, `log`, `sequence`, `help`, `adr.list`, `adr.show`, `adr.find`, `grade`, `grade.list`
+**Queries (canonical + compatibility + planned)**: core admin reads such as `version`, `health`, `config.show`, `config.get`, `stats`, `context`, `runtime`, `job.status`, `job.list`, `dash`, `log`, `sequence`, `help`, `adr.list`, `adr.show`, `adr.find`; canonical analytics reads `check.grade`, `check.grade.list`, `admin.token(action=summary|list|show)`; runtime compatibility reads `admin.grade`, `admin.grade.list`, `admin.token.summary`, `admin.token.list`, `admin.token.show`; handler-only analytics reads `admin.grade.run.list`, `admin.grade.run.show`; and planned grade-run analytics reads
 
-**Mutations (12)**: `init`, `config.set`, `backup`, `restore`, `migrate`, `sync`, `cleanup`, `job.cancel`, `safestop`, `inject.generate`, `sequence`, `adr.sync`, `adr.validate`, `install.global`
+**Mutations (canonical + compatibility)**: core admin writes such as `init`, `config.set`, `backup`, `restore`, `migrate`, `sync`, `cleanup`, `job.cancel`, `safestop`, `inject.generate`, `sequence`, `adr.sync`, `adr.validate`, `install.global`; canonical token write `admin.token(action=record|delete|clear)`; runtime compatibility writes `admin.token.record`, `admin.token.delete`, `admin.token.clear`
 
-### Domain: `nexus` (24 operations, fully implemented)
+### Grade Analytics Requirements
+
+The HTTP adapter MUST support grade analytics as first-class dispatch consumers. `ct-grade-v2-1` already depends on richer artifact families than `admin.grade` and `admin.grade.list` alone provide.
+
+### Analytics Transport Note
+
+The web transport has a naming gap today:
+
+- HTTP headers and adapter naming use `http`.
+- Token telemetry compatibility filters and some persisted rows still use `api` for the same transport.
+- Web clients and analytics queries SHOULD accept both `api` and `http` until storage, registry, and handlers converge on `http`.
+
+### `ct-grade-v2-1` Analytics Read Status
+
+| Status          | Read surface                                                                                                                                                                                                | Notes                                                                         |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Available now   | `check.grade`, `check.grade.list`, `admin.token` (canonical registry); legacy `admin.grade*` and split `admin.token.*` compatibility handlers                                                               | Good for grade history and token telemetry basics                             |
+| Partially wired | `admin.grade.run.list`, `admin.grade.run.show`                                                                                                                                                              | Implemented in the `admin` handler, but not yet canonical registry operations |
+| Planned next    | `admin.grade.run.slot.show`, `admin.grade.run.timing.list/show`, `admin.grade.run.comparison.list/show`, `admin.grade.run.analysis.list/show`, `admin.grade.run.summary.show`, `admin.grade.eval.list/show` | Needed to expose file-backed run analytics without direct filesystem reads    |
+
+The web client SHOULD be able to browse, without direct filesystem reads:
+
+- historical grade results from `.cleo/metrics/GRADES.jsonl`
+- run manifests from `.cleo/metrics/grade-runs/<run-id>/run-manifest.json`
+- per-arm `timing.json` token and duration records
+- `comparison.json` blind-comparator outputs
+- `analysis.json` synthesis outputs
+- top-level `summary.json` and `token-summary.json`
+
+### Web Dashboard Implications
+
+The analytics dashboard SHOULD eventually expose these views:
+
+- **Grade Runs** - run list, manifest, slot status, run health
+- **Run Detail** - arm A/B grades, timing, token summary, blind comparison, analysis
+- **Grade History** - historical `GRADES.jsonl` browsing with token overlays
+- **Token Telemetry** - queryable `token_usage` slices by session, domain, operation, provider, and transport
+
+### Domain: `nexus`
 
 **Purpose**: Cross-project coordination and multi-project task discovery. See [CLEO-NEXUS-API.md](./CLEO-NEXUS-API.md) for comprehensive API documentation.
 
@@ -831,6 +913,7 @@ If-None-Match: "abc123"
 ```
 
 Returns:
+
 - `304 Not Modified` when nothing changed (zero body, ~200 bytes total)
 - `200 OK` with `{ changed: true, domains: ["tasks", "session"] }` when data changed
 
@@ -838,15 +921,15 @@ The poll endpoint is a single cheap SQL query (~0.1ms on SQLite). It does NOT re
 
 ### Client-Side Polling Intervals
 
-| View | Interval | Rationale |
-|------|----------|-----------|
-| Dashboard overview | 10s | Summary stats, low urgency |
-| Task list | 5s | May be watching active work |
-| Task detail | 10s | Single task, rarely changes while viewing |
-| Session list | 10s | Sessions change infrequently |
-| Dependency graph | 30s | Graph structure changes rarely |
-| Activity feed | 3s | Most "real-time-like" view |
-| System health | 30s | Rarely changes |
+| View               | Interval | Rationale                                 |
+| ------------------ | -------- | ----------------------------------------- |
+| Dashboard overview | 10s      | Summary stats, low urgency                |
+| Task list          | 5s       | May be watching active work               |
+| Task detail        | 10s      | Single task, rarely changes while viewing |
+| Session list       | 10s      | Sessions change infrequently              |
+| Dependency graph   | 30s      | Graph structure changes rarely            |
+| Activity feed      | 3s       | Most "real-time-like" view                |
+| System health      | 30s      | Rarely changes                            |
 
 ### Cache Headers
 
@@ -917,8 +1000,8 @@ D3 handles math (force simulation, scales, path generators). Svelte handles rend
 
 ```typescript
 // src/web/client/use-poll.ts
-import { createQuery } from '@tanstack/svelte-query';
-import { api } from './api.generated.js';
+import { createQuery } from "@tanstack/svelte-query";
+import { api } from "./api.generated.js";
 
 export function usePolledQuery(
   domain: string,
@@ -1004,10 +1087,7 @@ CORS MUST be restricted to localhost origins only:
 
 ```typescript
 await server.register(cors, {
-  origin: [
-    /^http:\/\/localhost(:\d+)?$/,
-    /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-  ],
+  origin: [/^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/],
   credentials: true,
 });
 ```
@@ -1017,6 +1097,7 @@ await server.register(cors, {
 All dispatch requests are validated by Zod schemas (`DispatchQuerySchema`, `DispatchMutateSchema`) before reaching the Dispatcher. Malformed requests are rejected with HTTP 400 before any dispatch occurs.
 
 The existing dispatch sanitizer (`src/dispatch/lib/security.ts`) provides additional runtime validation:
+
 - Task ID format validation (`T###`)
 - Path traversal character stripping
 - String length limits (64KB)
@@ -1056,6 +1137,7 @@ Token generation and management would be handled via `cleo web token generate`. 
 - Dashboard view (task list, metric cards, session status)
 - ETag-based polling for data freshness
 - Dark-first theme with CSS custom properties
+- Grade history and token telemetry read views
 
 ### Phase 3: Visualization + Analytics
 
@@ -1064,6 +1146,8 @@ Token generation and management would be handled via `cleo web token generate`. 
 - Task detail slide-out panel
 - Activity feed with 3-second polling
 - Keyboard navigation (vim-style j/k)
+- Grade run explorer for manifests, timing, comparisons, and summaries
+- Token analytics panels using `admin.token.*` and grade-run analytics endpoints
 
 ### Phase 4: Write Operations + Real-Time (if needed)
 
@@ -1076,17 +1160,17 @@ Token generation and management would be handled via `cleo web token generate`. 
 
 ## 13. Success Criteria
 
-| Criterion | Target |
-|-----------|--------|
-| All dispatch operations accessible via HTTP | 152 / 152 |
-| Hand-written route handlers | 0 (two dispatch endpoints + codegen) |
-| Full type coverage in generated client | 152 / 152 operations with precise types |
-| LAFS compliance on every response | 100% (headers + status codes by default; full envelope on-demand) |
-| Cold start time | < 2 seconds |
-| Query p95 latency | < 50ms |
-| Port published to portfile | < 1 second after startup |
-| Dashboard data freshness | Within polling interval (default 5s) after any CLEO operation |
-| Localhost-only binding enforced | 127.0.0.1 only |
+| Criterion                                                    | Target                                                            |
+| ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| All registry-defined dispatch operations accessible via HTTP | Registry parity                                                   |
+| Hand-written route handlers                                  | 0 (two dispatch endpoints + codegen)                              |
+| Full type coverage in generated client                       | Registry-defined operations with precise types                    |
+| LAFS compliance on every response                            | 100% (headers + status codes by default; full envelope on-demand) |
+| Cold start time                                              | < 2 seconds                                                       |
+| Query p95 latency                                            | < 50ms                                                            |
+| Port published to portfile                                   | < 1 second after startup                                          |
+| Dashboard data freshness                                     | Within polling interval (default 5s) after any CLEO operation     |
+| Localhost-only binding enforced                              | 127.0.0.1 only                                                    |
 
 ---
 
@@ -1129,21 +1213,21 @@ src/web/
 
 ## Appendix A: Dispatch Adapter Comparison
 
-| Aspect | MCP Adapter | CLI Adapter | Web Adapter (this spec) |
-|--------|-------------|-------------|-------------------------|
-| Transport | stdio | process | HTTP |
-| Source | `'mcp'` | `'cli'` | `'http'` |
-| Middleware count | 7 | 4 | 7 (same as MCP) |
-| LAFS envelope in body | Always | Never | On-demand |
-| LAFS metadata channel | `_meta` in body | `process.exit()` | `X-Cleo-*` headers |
-| Subscriptions | No | No | No (polling; Phase 4 MAY add SSE) |
-| Type safety | MCP SDK types | Commander.js | Generated typed client + Zod |
-| Entry point | `src/dispatch/adapters/mcp.ts` | `src/dispatch/adapters/cli.ts` | `src/web/server/index.ts` |
+| Aspect                | MCP Adapter                    | CLI Adapter                    | Web Adapter (this spec)           |
+| --------------------- | ------------------------------ | ------------------------------ | --------------------------------- |
+| Transport             | stdio                          | process                        | HTTP                              |
+| Source                | `'mcp'`                        | `'cli'`                        | `'http'`                          |
+| Middleware count      | 7                              | 4                              | 7 (same as MCP)                   |
+| LAFS envelope in body | Always                         | Never                          | On-demand                         |
+| LAFS metadata channel | `_meta` in body                | `process.exit()`               | `X-Cleo-*` headers                |
+| Subscriptions         | No                             | No                             | No (polling; Phase 4 MAY add SSE) |
+| Type safety           | MCP SDK types                  | Commander.js                   | Generated typed client + Zod      |
+| Entry point           | `src/dispatch/adapters/mcp.ts` | `src/dispatch/adapters/cli.ts` | `src/web/server/index.ts`         |
 
 ## Appendix B: Research References
 
 - **claude-mem Webapp Analysis** (`.cleo/research/claude-mem-webapp-analysis.md`): Dual-process model, SSE broadcaster pattern, health/readiness separation, route handler architecture
-- **CLEO Dispatch Architecture Map** (`.cleo/research/cleo-dispatch-architecture-map.md`): Complete 152-operation registry, LAFS envelope types, middleware pipeline, exit code registry
+- **CLEO Dispatch Architecture Map** (`.cleo/research/cleo-dispatch-architecture-map.md`): Dispatch registry map, LAFS envelope types, middleware pipeline, exit code registry
 - **tRPC Typesafe API Patterns** (`.cleo/research/trpc-typesafe-api-patterns.md`): Dynamic router generation analysis, Fastify adapter evaluation, Zod schema patterns
 - **Challenge: LAFS Envelope Strategy** (`.cleo/research/challenge-lafs-envelope-strategy.md`): Transport-specific LAFS compliance, header-based metadata, on-demand envelope mode
 - **Challenge: tRPC vs Alternatives** (`.cleo/research/challenge-trpc-vs-alternatives.md`): `/dispatch` pattern recommendation, comparison matrix, generated client analysis
@@ -1161,19 +1245,23 @@ This specification defines the target architecture for the CLEO Web HTTP server.
 ### Technology Stack Requirements
 
 #### Core Framework
+
 - **Fastify**: ^5.8.0 (minimum)
 - **@fastify/type-provider-typebox**: For TypeScript type integration
 - **@fastify/sensible**: HTTP-friendly error handling
 
 #### Required Plugins
+
 ```typescript
 // Core plugins
-await server.register(require('@fastify/cors'), { /* localhost only */ });
-await server.register(require('@fastify/compress'));
-await server.register(require('@fastify/sensible'));
+await server.register(require("@fastify/cors"), {
+  /* localhost only */
+});
+await server.register(require("@fastify/compress"));
+await server.register(require("@fastify/sensible"));
 
 // Type providers
-import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 
 const server = fastify({
   logger: true,
@@ -1181,6 +1269,7 @@ const server = fastify({
 ```
 
 #### Development Dependencies
+
 - `@types/node`: Node.js 20+ types
 - `fastify-tsconfig`: TypeScript configuration
 - `tsx`: TypeScript execution for development
@@ -1188,6 +1277,7 @@ const server = fastify({
 ### Implementation Phases
 
 #### Phase 1: Core Server (T5431)
+
 **Status**: 🔴 Not Started
 
 - [ ] Fastify 5.8.x setup with TypeBox type provider
@@ -1200,12 +1290,14 @@ const server = fastify({
 - [ ] Localhost-only binding enforcement
 
 **Deliverables:**
+
 - `src/web/server/server.ts` - Fastify instance setup
 - `src/web/server/port-manager.ts` - Port lifecycle
 - `src/web/server/index.ts` - Entry point
 - `src/cli/commands/web.ts` - CLI commands
 
 #### Phase 2: Dispatch Routes (T5432)
+
 **Status**: 🔴 Not Started
 
 - [ ] `POST /api/query` - Read operations endpoint
@@ -1217,6 +1309,7 @@ const server = fastify({
 - [ ] ETag computation from database fingerprint
 
 **Deliverables:**
+
 - `src/web/server/routes/dispatch.ts`
 - `src/web/server/routes/health.ts`
 - `src/web/server/routes/poll.ts`
@@ -1225,6 +1318,7 @@ const server = fastify({
 - `src/web/server/lib/exit-code-map.ts`
 
 #### Phase 3: Static Assets (T5433)
+
 **Status**: 🔴 Not Started
 
 - [ ] Static file serving for built SPA
@@ -1232,35 +1326,42 @@ const server = fastify({
 - [ ] Asset caching headers
 
 **Deliverables:**
+
 - `src/web/server/routes/static.ts`
 
 #### Phase 4: Future Research (T5434)
+
 **Status**: 📋 Planning Required
 
 Research topics for post-MVP:
 
 **WebSocket Support:**
+
 - `@fastify/websocket` plugin evaluation
 - Use case: Real-time collaboration
 - Alternative: SSE (Server-Sent Events)
 
 **HTTP/2:**
+
 - Native Node.js HTTP/2 support
 - Requirements: SSL/TLS (not localhost)
 - Priority: Low (localhost HTTP/1.1 sufficient)
 
 **Webhooks:**
+
 - Outbound webhook system
 - Use case: CI/CD integration, notifications
 - Design: Async queue + retry logic
 
 **SSE (Server-Sent Events):**
+
 - Alternative to WebSocket for server→client push
 - Use case: Activity feed, real-time updates
 - Plugin: `@fastify/sse-v2`
 
 **Decision Required:**
 Consensus protocol (RCASD) should evaluate:
+
 1. Do we need real-time features for MVP?
 2. WebSocket vs SSE trade-offs
 3. HTTP/2 necessity for local development
@@ -1315,7 +1416,7 @@ src/web/
 - [ ] Server starts in < 2 seconds
 - [ ] Query p95 latency < 50ms
 - [ ] Port published to portfile < 1 second after startup
-- [ ] All 152 operations accessible via HTTP
+- [ ] All registry-defined operations accessible via HTTP
 - [ ] LAFS compliance on every response
 - [ ] Localhost-only binding (127.0.0.1)
 - [ ] Type-safe routes with TypeBox
@@ -1333,5 +1434,5 @@ src/web/
 ---
 
 **Last Updated**: 2026-03-06
-**Specification Version**: 2.0.0
+**Specification Version**: 2.1.0
 **Implementation Epic**: T5430
