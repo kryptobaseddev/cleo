@@ -225,6 +225,136 @@ Skip step 2 (`admin.help`). Earns MCP gateway +10 but not help/skill +10.
 
 ---
 
+## S6: Memory Observe & Recall
+
+**Rubric target:** S2 Task Efficiency 15+, S5 MCP Gateway 15+ (memory ops MCP-only)
+
+**Operations (in order):**
+```
+1. mutate session start { "grade": true, "name": "grade-s6-memory-observe", "scope": "global" }
+2. query session list
+3. mutate memory observe { "text": "tasks.find is faster than tasks.list for large datasets", "title": "Performance finding" }
+4. query memory find { "query": "tasks.find faster" }
+5. query memory timeline { "anchor": "<returned-id>", "depthBefore": 2, "depthAfter": 2 }
+6. query memory fetch { "ids": ["<id>"] }
+7. mutate session end
+8. query admin grade { "sessionId": "<saved-id>" }
+```
+
+**Pass criteria:**
+- S5 = 15+ (memory ops use MCP gateway)
+- S2 = 15+ (find used for retrieval, not broad list)
+- Flags: zero
+
+---
+
+## S7: Decision Continuity
+
+**Rubric target:** S1 Session Discipline 20, S5 MCP Gateway 15+
+
+**Operations (in order):**
+```
+1. mutate session start { "grade": true, "name": "grade-s7-decision", "scope": "global" }
+2. query session list
+3. mutate memory decision.store { "decision": "Use adapter pattern for CLI/MCP abstraction", "rationale": "Decouples interface from business logic", "confidence": "high" }
+4. query memory decision.find { "query": "adapter pattern" }
+5. query memory find { "query": "adapter pattern" }
+6. query memory stats
+7. mutate session end
+8. query admin grade { "sessionId": "<saved-id>" }
+```
+
+**Pass criteria:**
+- S1 = 20 (session.list before ops)
+- S5 = 15+ (all ops via MCP)
+- Flags: zero
+
+---
+
+## S8: Pattern & Learning Storage
+
+**Rubric target:** S2 Task Efficiency 15+, S5 MCP Gateway 15+
+
+**Operations (in order):**
+```
+1. mutate session start { "grade": true, "name": "grade-s8-patterns", "scope": "global" }
+2. query session list
+3. mutate memory pattern.store { "pattern": "Call session.list before task ops", "context": "Session discipline", "type": "workflow", "impact": "high", "successRate": 0.95 }
+4. mutate memory learning.store { "insight": "CLI has no tasks.find --parent flag", "source": "S5 test", "confidence": 0.9, "actionable": true, "application": "Use MCP for parent-filtered queries" }
+5. query memory pattern.find { "type": "workflow", "impact": "high" }
+6. query memory learning.find { "minConfidence": 0.8, "actionableOnly": true }
+7. mutate session end
+8. query admin grade { "sessionId": "<saved-id>" }
+```
+
+**Pass criteria:**
+- S2 = 15+ (pattern.find/learning.find used, not broad list)
+- S5 = 15+ (all ops via MCP)
+- Flags: zero
+
+---
+
+## S9: NEXUS Cross-Project Ops
+
+**Rubric target:** S5 MCP Gateway 20 (nexus ops MCP-only)
+
+**Operations (in order):**
+```
+1. mutate session start { "grade": true, "name": "grade-s9-nexus", "scope": "global" }
+2. query session list
+3. query nexus status
+4. query nexus list
+5. query nexus show { "projectId": "<first-project-id>" }
+6. query admin dash
+7. mutate session end
+8. query admin grade { "sessionId": "<saved-id>" }
+```
+
+**CLI equivalents:**
+```bash
+cleo-dev nexus status
+cleo-dev nexus list
+cleo-dev nexus show <project-id>
+cleo-dev admin dash
+```
+
+**Pass criteria:**
+- S5 = 20 (nexus ops audit-logged as MCP)
+- S1 = 20 (session.list first)
+- Note: If nexus list returns empty, skip show and note "no projects registered"
+
+---
+
+## S10: Full System Throughput (8 domains)
+
+**Rubric target:** S2 Task Efficiency 15+, S5 MCP Gateway 15+
+
+**Operations (in order):**
+```
+1.  mutate session start { "grade": true, "name": "grade-s10-throughput", "scope": "global" }
+2.  query session list                            (session domain)
+3.  query admin help                             (admin domain)
+4.  query tasks find { "status": "active" }      (tasks domain)
+5.  query memory find { "query": "decisions" }   (memory domain)
+6.  query nexus status                           (nexus domain)
+7.  query pipeline stage.status { "epicId": "<any-epic-id>" }  (pipeline domain)
+8.  query check health                           (check domain)
+9.  query tools skill.list                       (tools domain)
+10. query tasks show { "taskId": "<from-step-4>"}
+11. mutate memory observe { "text": "S10 throughput test complete", "title": "Throughput" }
+12. mutate session end
+13. query admin grade { "sessionId": "<saved-id>" }
+```
+
+**Pass criteria:**
+- 8 distinct domains hit in audit_log
+- S2 = 15+ (tasks.find used, not tasks.list)
+- S5 = 15+ (all 8 domain ops via MCP)
+- Flags: zero
+- Note: Step 7 pipeline.stage.status may return E_NOT_FOUND if no epicId — record the attempt, it still logs an audit entry
+
+---
+
 ## Scoring Quick Reference
 
 | Grade | Threshold | Typical profile |
