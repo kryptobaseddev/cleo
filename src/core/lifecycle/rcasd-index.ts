@@ -199,6 +199,7 @@ export function buildIndex(cwd?: string): RcasdIndex {
       }
 
       // Scan for spec and report files
+      if (!existsSync(taskDir)) continue;
       const files = readdirSync(taskDir).filter(f => f.endsWith('.md'));
       const specFile = files.find(f => f.includes('-SPEC.md') || f.includes('_spec'));
       const reportFile = files.find(f => f.includes('-REPORT.md') || f.includes('_report') || f.includes('_research'));
