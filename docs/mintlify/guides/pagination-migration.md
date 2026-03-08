@@ -7,32 +7,57 @@
 
 ## What Changed
 
-Starting in v0.88.0, CLEO commands that return arrays now apply **smart default limits** and include **pagination metadata** in JSON output.
+CLEO list operations now standardize on a shared MCP list contract:
+
+- Canonical pagination metadata lives in the top-level `page` field.
+- `tasks.list` is the reference implementation for list responses and filter parity.
+- `session.list`, admin list operations, `pipeline.manifest.list`, `pipeline.release.list`, and the remaining sticky/nexus/tools/orchestrate/pipeline list surfaces follow the same shape.
+- `find` remains the preferred discovery path when you already know what you are looking for.
 
 ### Changes Summary
 
 | Area | Before | After |
 |------|--------|-------|
-| `ct session list` | Returns all sessions | Returns 10 sessions by default |
-| `ct find "query"` | Returns all matches | Returns 10 matches by default |
-| `ct log` | Returns all entries (or `--limit`) | Returns 20 entries by default |
-| JSON envelope | No pagination object | Includes `pagination` object |
-| List item detail | Full task/session objects | Compact representations (fewer fields) |
+| `tasks.list` | Mixed list shapes across surfaces | Canonical list contract and shared `page` handling |
+| `session.list` | Legacy metadata only | Canonical top-level `page` plus legacy `_meta` mirror |
+| Other MCP `*.list` surfaces | Inconsistent pagination behavior | Standardized `limit` / `offset` + top-level `page` |
+| Discovery pattern | `list` and `find` often used interchangeably | `find` for discovery, `list` for browsing/filtering |
+| Task list rows | Caller-selected compact/full behavior | MCP defaults to compact rows; `compact` remains compatibility-only |
 
-### New Pagination Envelope
+### Canonical List Envelope
 
-Paginated responses include a `pagination` object:
+List responses expose pagination in top-level `page`:
 
 ```json
 {
+  "_meta": {
+    "gateway": "query",
+    "domain": "tasks",
+    "operation": "list"
+  },
   "success": true,
-  "pagination": {
+  "data": {
+    "tasks": [ ... ],
     "total": 150,
+    "filtered": 87
+  },
+  "page": {
+    "mode": "offset",
     "limit": 50,
     "offset": 0,
-    "hasMore": true
-  },
-  "tasks": [ ... ]
+    "hasMore": true,
+    "total": 87
+  }
+}
+```
+
+When pagination is not active, `page` is still present and set to:
+
+```json
+{
+  "page": {
+    "mode": "none"
+  }
 }
 ```
 
@@ -40,60 +65,59 @@ Paginated responses include a `pagination` object:
 
 ## How Agents Should Adapt
 
-### Check hasMore
+### Prefer `find` for discovery
 
-After any list command, check `pagination.hasMore` to determine if more results exist:
+Use `find` when you want a lightweight shortlist. Use `list` when you need ordered browsing, structured filters, or page-by-page iteration.
+
+- `tasks.find` -> discovery and narrowing
+- `tasks.list` -> filtered browsing and pagination
+- `tasks.show` -> full detail for one task
+
+The same pattern applies to other domains that expose both verbs.
+
+### Check `page.mode` and `page.hasMore`
+
+After any list operation, read top-level `page` first:
 
 ```bash
-result=$(ct list)
-has_more=$(echo "$result" | jq -r '.pagination.hasMore')
+page_mode=$(echo "$result" | jq -r '.page.mode')
 
-if [[ "$has_more" == "true" ]]; then
-  # Fetch next page
-  next_offset=$(echo "$result" | jq '.pagination.offset + .pagination.limit')
-  result2=$(ct list --offset "$next_offset")
+if [[ "$page_mode" == "offset" ]]; then
+  has_more=$(echo "$result" | jq -r '.page.hasMore')
+  if [[ "$has_more" == "true" ]]; then
+    next_offset=$(echo "$result" | jq '.page.offset + .page.limit')
+  fi
 fi
 ```
 
-### Use --limit and --offset
+### Use `limit` and `offset`
 
-| Flag | Purpose | Example |
+| Param | Purpose | Example |
 |------|---------|---------|
-| `--limit N` | Set page size | `ct list --limit 100` |
-| `--limit 0` | Disable pagination (all items) | `ct session list --limit 0` |
-| `--offset N` | Skip first N items | `ct list --offset 50` |
+| `limit` | Set page size | `tasks.list {"limit": 100}` |
+| `offset` | Skip items before this page | `tasks.list {"offset": 50}` |
 
-### Compact Output
+`tasks.list` and `session.list` also have CLI equivalents. Other standardized MCP list surfaces use the same pagination parameters when supported.
 
-List views now use compact representations. Fields like `notes`, `description`, `acceptance`, `files`, and `verification` are stripped from list output. To get full details for a specific item, use `ct show <id>`.
+### Smart Defaults
+
+- `tasks.list` in MCP defaults to compact task rows. Pass `compact: false` only when you explicitly need the compatibility path.
+- `session.list` applies a default `limit` of `10` when none is provided.
+- Other standardized `*.list` operations honor explicit `limit` / `offset`; if you need a bounded response, request it directly.
+
+Compact task rows intentionally omit verbose fields. Use `tasks.show` for full task detail.
 
 ---
 
 ## Backward Compatibility
 
-### Getting Full Listings
+### Canonical Pagination Source
 
-To restore pre-v0.88.0 behavior (all items, no pagination), pass `--limit 0`:
+Read pagination state from top-level `page`, not from per-operation compatibility fields.
 
-```bash
-ct session list --limit 0   # All sessions
-ct list --limit 0            # All tasks
-ct log --limit 0             # All log entries
-```
-
-### Pagination Field is Additive
-
-The `pagination` field is a new addition to the JSON envelope. Existing code that parses `success`, `_meta`, and data arrays will continue to work. The `pagination` object can be safely ignored by agents that do not need it.
-
-### Default Limits by Command
-
-| Command | Default Limit |
-|---------|:------------:|
-| `list` | 50 |
-| `session list` | 10 |
-| `find` | 10 |
-| `log` | 20 |
-| `archive` | 25 |
+- `session.list` still mirrors legacy `data._meta.truncated` and `data._meta.total` for older consumers.
+- `tasks.list` still accepts `compact` for compatibility.
+- New integrations SHOULD treat `page` as the canonical source and `show` as the full-detail follow-up.
 
 ---
 
@@ -101,16 +125,16 @@ The `pagination` field is a new addition to the JSON envelope. Existing code tha
 
 The most context-efficient pattern for agents:
 
-1. **Discover** with `ct find "query"` (10 compact results)
-2. **Inspect** with `ct show T1234` (full detail for one item)
-3. **Iterate** with `--offset` only when `hasMore` is true
+1. **Discover** with `tasks.find` when a shortlist is enough
+2. **Browse** with `tasks.list` when you need filters or stable pagination
+3. **Inspect** with `tasks.show` for full detail
+4. **Iterate** with `offset` only when `page.mode == "offset"` and `page.hasMore == true`
 
-This keeps context consumption under 3K tokens for typical operations.
+This keeps context usage low while staying aligned with the canonical list contract.
 
 ---
 
 ## Related Documentation
 
-- **Spec**: `docs/specs/DYNAMIC-OUTPUT-LIMITS-SPEC.md`
-- **API Reference**: `docs/reference/json-output-api.md`
-- **CLI Design Standard**: `docs/developer/specifications/LLM-AGENT-FIRST.mdx` (Part 14)
+- **Spec**: `docs/mintlify/specs/DYNAMIC-OUTPUT-LIMITS-SPEC.md`
+- **API Reference**: `docs/mintlify/reference/json-output-api.md`

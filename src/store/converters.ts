@@ -6,7 +6,7 @@
  */
 
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
-import type { TaskRow, NewTaskRow, SessionRow } from './schema.js';
+import type { TaskRow, NewTaskRow, SessionRow } from './tasks-schema.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
 import type { Session, SessionScope, SessionStats } from './validation-schemas.js';
 import type { SessionStatus } from './status-registry.js';

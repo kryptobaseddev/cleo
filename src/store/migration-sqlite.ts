@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { getCleoDirAbsolute } from '../core/paths.js';
 import { getDb, dbExists, resolveMigrationsFolder } from './sqlite.js';
-import * as schema from './schema.js';
+import * as schema from './tasks-schema.js';
 import type { Task } from '../types/task.js';
 import type { Session } from '../types/session.js';
 import type { SessionStatus } from './status-registry.js';

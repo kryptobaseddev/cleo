@@ -96,7 +96,7 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
 async function writeToSqlite(entry: AuditEntry, requestId?: string): Promise<void> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
-    const { auditLog } = await import('../../store/schema.js');
+    const { auditLog } = await import('../../store/tasks-schema.js');
     const { AuditLogInsertSchema } = await import('../../store/validation-schemas.js');
     const { randomUUID } = await import('node:crypto');
 
@@ -225,7 +225,7 @@ export async function queryAudit(options?: {
 }): Promise<AuditEntry[]> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
-    const { auditLog } = await import('../../store/schema.js');
+    const { auditLog } = await import('../../store/tasks-schema.js');
     const { and, eq, gte, or } = await import('drizzle-orm');
 
     const db = await getDb(process.cwd());

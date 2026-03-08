@@ -14,11 +14,12 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq, and, like, or, desc, isNull } from 'drizzle-orm';
+import { eq, and, like, or, desc, isNull, count, gte, lte, type SQL } from 'drizzle-orm';
 
 import { getDb, getNativeDb } from '../../store/sqlite.js';
-import { pipelineManifest } from '../../store/schema.js';
+import { pipelineManifest } from '../../store/tasks-schema.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
+import { createPage } from '../pagination.js';
 
 import {
   filterManifestEntries,
@@ -34,6 +35,67 @@ import type { EngineResult } from '../../dispatch/engines/_error.js';
 export type ManifestEntry = ExtendedManifestEntry;
 export type { ResearchFilter, ContradictionDetail, SupersededDetail };
 export { filterManifestEntries };
+
+interface PipelineManifestListParams extends ResearchFilter {
+  type?: string;
+  offset?: number;
+}
+
+function normalizeLimit(limit: number | undefined): number | undefined {
+  return typeof limit === 'number' && limit > 0 ? limit : undefined;
+}
+
+function normalizeOffset(offset: number | undefined): number | undefined {
+  return typeof offset === 'number' && offset > 0 ? offset : undefined;
+}
+
+function effectivePageLimit(limit: number | undefined, offset: number | undefined): number | undefined {
+  return limit ?? (offset !== undefined ? 50 : undefined);
+}
+
+function buildManifestSqlFilters(filter: ResearchFilter): {
+  conditions: SQL[];
+  requiresInMemoryFiltering: boolean;
+} {
+  const conditions: SQL[] = [isNull(pipelineManifest.archivedAt)];
+
+  if (filter.status) {
+    const storedStatus = filter.status === 'completed' ? 'active' : filter.status;
+    conditions.push(eq(pipelineManifest.status, storedStatus));
+  }
+
+  if (filter.agent_type) {
+    conditions.push(eq(pipelineManifest.type, filter.agent_type));
+  }
+
+  if (filter.dateAfter) {
+    conditions.push(gte(pipelineManifest.createdAt, `${filter.dateAfter} 00:00:00`));
+  }
+
+  if (filter.dateBefore) {
+    conditions.push(lte(pipelineManifest.createdAt, `${filter.dateBefore} 23:59:59`));
+  }
+
+  return {
+    conditions,
+    requiresInMemoryFiltering: filter.taskId !== undefined
+      || filter.topic !== undefined
+      || filter.actionable !== undefined,
+  };
+}
+
+function applyManifestMemoryOnlyFilters(
+  entries: ExtendedManifestEntry[],
+  filter: ResearchFilter,
+): ExtendedManifestEntry[] {
+  const inMemoryFilter: ResearchFilter = {
+    taskId: filter.taskId,
+    topic: filter.topic,
+    actionable: filter.actionable,
+  };
+
+  return filterManifestEntries(entries, inMemoryFilter);
+}
 
 // ============================================================================
 // Internal helpers
@@ -176,29 +238,76 @@ export async function pipelineManifestShow(
 
 /** pipeline.manifest.list - List manifest entries with filters */
 export async function pipelineManifestList(
-  params: ResearchFilter & { type?: string },
+  params: PipelineManifestListParams,
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
     const db = await getDb(projectRoot);
-    const rows = await db
-      .select()
-      .from(pipelineManifest)
-      .where(isNull(pipelineManifest.archivedAt))
-      .orderBy(desc(pipelineManifest.createdAt));
-
-    const entries = rows.map(rowToEntry);
-
     const filter: ResearchFilter = { ...params };
     if (params.type) {
       filter.agent_type = params.type;
     }
 
-    const filtered = filterManifestEntries(entries, filter);
+    const limit = normalizeLimit(params.limit);
+    const offset = normalizeOffset(params.offset);
+    const pageLimit = effectivePageLimit(limit, offset);
+    const { conditions, requiresInMemoryFiltering } = buildManifestSqlFilters(filter);
+    const whereClause = and(...conditions);
+
+    const totalRow = await db
+      .select({ count: count() })
+      .from(pipelineManifest)
+      .where(isNull(pipelineManifest.archivedAt))
+      .get();
+    const total = totalRow?.count ?? 0;
+
+    if (!requiresInMemoryFiltering) {
+      const filteredRow = await db
+        .select({ count: count() })
+        .from(pipelineManifest)
+        .where(whereClause)
+        .get();
+      const filtered = filteredRow?.count ?? 0;
+
+      let query = db
+        .select()
+        .from(pipelineManifest)
+        .where(whereClause)
+        .orderBy(desc(pipelineManifest.createdAt));
+
+      if (pageLimit !== undefined) {
+        query = query.limit(pageLimit) as typeof query;
+      }
+      if (offset !== undefined) {
+        query = query.offset(offset) as typeof query;
+      }
+
+      const rows = await query;
+
+      return {
+        success: true,
+        data: { entries: rows.map(rowToEntry), total, filtered },
+        page: createPage({ total: filtered, limit: pageLimit, offset }),
+      };
+    }
+
+    const rows = await db
+      .select()
+      .from(pipelineManifest)
+      .where(whereClause)
+      .orderBy(desc(pipelineManifest.createdAt));
+
+    const filteredEntries = applyManifestMemoryOnlyFilters(rows.map(rowToEntry), filter);
+    const filtered = filteredEntries.length;
+    const start = offset ?? 0;
+    const pagedEntries = pageLimit !== undefined
+      ? filteredEntries.slice(start, start + pageLimit)
+      : filteredEntries.slice(start);
 
     return {
       success: true,
-      data: { entries: filtered, total: filtered.length },
+      data: { entries: pagedEntries, total, filtered },
+      page: createPage({ total: filtered, limit: pageLimit, offset }),
     };
   } catch (error) {
     return { success: false, error: { code: 'E_MANIFEST_LIST', message: error instanceof Error ? error.message : String(error) } };

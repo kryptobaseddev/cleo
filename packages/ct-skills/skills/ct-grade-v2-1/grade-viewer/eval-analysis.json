@@ -1,0 +1,41 @@
+{
+  "total_grades": 31,
+  "score_distribution": {
+    "F (0)": 7,
+    "D (45-59)": 10,
+    "C (60-74)": 5,
+    "B (75-89)": 8,
+    "A (90+)": 1
+  },
+  "score_stats": {
+    "mean": 64.6,
+    "min": 50,
+    "max": 95,
+    "grades_with_data": 24,
+    "zero_score_count": 7
+  },
+  "dimension_averages": {
+    "sessionDiscipline": 5.8,
+    "discoveryEfficiency": 9.0,
+    "taskHygiene": 15.4,
+    "errorProtocol": 15.3,
+    "disclosureUse": 4.5
+  },
+  "flag_frequency": {
+    "No admin.help calls": 21,
+    "session.list never called": 18,
+    "No MCP query calls": 13,
+    "session.end never called": 12,
+    "No audit entries": 7,
+    "tasks.list used (prefer find)": 5,
+    "Subtasks without exists check": 1,
+    "Duplicate task creates": 1
+  },
+  "avg_audit_entries": 9.5,
+  "token_estimate": {
+    "avg_per_session_chars": 0,
+    "avg_per_session_tokens": 1425.0,
+    "method": "entry_count * 150 proxy",
+    "note": "OTEL not enabled; enable with CLAUDE_CODE_ENABLE_TELEMETRY=1 for real counts"
+  }
+}

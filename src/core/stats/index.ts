@@ -26,7 +26,7 @@ interface AuditRow {
 async function queryAuditEntries(cwd?: string): Promise<AuditRow[]> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
-    const { auditLog } = await import('../../store/schema.js');
+    const { auditLog } = await import('../../store/tasks-schema.js');
     const db = await getDb(cwd ?? process.cwd());
     const rows = await db
       .select({
@@ -127,7 +127,7 @@ export async function getProjectStats(opts: {
   try {
     const { getDb } = await import('../../store/sqlite.js');
     const { count: dbCount, eq: dbEq, and: dbAnd } = await import('drizzle-orm');
-    const { tasks: tasksTable } = await import('../../store/schema.js');
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
     const db = await getDb(opts.cwd);
     const statusRows = await db
       .select({ status: tasksTable.status, c: dbCount() })
@@ -283,7 +283,7 @@ export async function getDashboard(opts: {
   try {
     const { getDb } = await import('../../store/sqlite.js');
     const { count: dbCount, eq: dbEq } = await import('drizzle-orm');
-    const { tasks: tasksTable } = await import('../../store/schema.js');
+    const { tasks: tasksTable } = await import('../../store/tasks-schema.js');
     const db = await getDb(opts.cwd);
     const row = await db
       .select({ c: dbCount() })

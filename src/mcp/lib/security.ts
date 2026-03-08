@@ -11,7 +11,7 @@
 import { resolve, normalize, relative, isAbsolute } from 'path';
 import {
   TASK_PRIORITIES,
-} from '../../store/schema.js';
+} from '../../store/tasks-schema.js';
 import {
   TASK_STATUSES,
   MANIFEST_STATUSES,

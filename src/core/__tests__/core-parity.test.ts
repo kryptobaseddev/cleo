@@ -349,6 +349,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
 
     expect(engineResult.success).toBe(true);
     expect(engineResult.data).toBeDefined();
+    expect(engineResult.page).toEqual(coreResult.page);
 
     // Same number of tasks
     expect(engineResult.data!.tasks.length).toBe(coreResult.tasks.length);
@@ -376,6 +377,7 @@ describe('Task CRUD Data Parity (T4796)', () => {
     const engineResult = await taskList(testDir, { status: 'pending' });
 
     expect(engineResult.success).toBe(true);
+    expect(engineResult.page).toEqual(coreResult.page);
     const coreIds = coreResult.tasks.map((t) => t.id).sort();
     const engineIds = engineResult.data!.tasks.map((t) => t.id).sort();
     expect(engineIds).toEqual(coreIds);
@@ -505,7 +507,7 @@ describe('Session Engine Delegation (T4796)', () => {
     expect(typeof result.data!.hasActiveSession).toBe('boolean');
   });
 
-  it('sessionList returns valid EngineResult with sessions and _meta', async () => {
+  it('sessionList returns valid EngineResult with canonical list metadata', async () => {
     const { sessionList } = await import(
       '../../dispatch/engines/session-engine.js'
     );
@@ -515,9 +517,12 @@ describe('Session Engine Delegation (T4796)', () => {
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
     expect(Array.isArray(result.data!.sessions)).toBe(true);
+    expect(typeof result.data!.total).toBe('number');
+    expect(typeof result.data!.filtered).toBe('number');
     expect(result.data!._meta).toBeDefined();
     expect(typeof result.data!._meta.truncated).toBe('boolean');
     expect(typeof result.data!._meta.total).toBe('number');
+    expect(result.page).toBeDefined();
   });
 
   it('sessionStart creates session and returns EngineResult', async () => {

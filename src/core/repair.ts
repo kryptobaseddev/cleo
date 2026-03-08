@@ -25,7 +25,7 @@ export async function repairMissingSizes(
   dryRun: boolean,
 ): Promise<RepairAction> {
   const { getDb } = await import('../store/sqlite.js');
-  const { tasks } = await import('../store/schema.js');
+  const { tasks } = await import('../store/tasks-schema.js');
   const db = await getDb(cwd);
 
   const affected = await db
@@ -70,7 +70,7 @@ export async function repairMissingCompletedAt(
   dryRun: boolean,
 ): Promise<RepairAction> {
   const { getDb } = await import('../store/sqlite.js');
-  const { tasks } = await import('../store/schema.js');
+  const { tasks } = await import('../store/tasks-schema.js');
   const db = await getDb(cwd);
 
   const affected = await db

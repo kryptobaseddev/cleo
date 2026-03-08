@@ -31,7 +31,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import { migrate } from 'drizzle-orm/sqlite-proxy/migrator';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import * as schema from './schema.js';
+import * as schema from './tasks-schema.js';
 import { getCleoDirAbsolute } from '../core/paths.js';
 import { openNativeDatabase, createDrizzleCallback, createBatchCallback } from './node-sqlite-adapter.js';
 import { getLogger } from '../core/logger.js';
@@ -276,7 +276,7 @@ export function resolveMigrationsFolder(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   // Both src/store/ and dist/store/ are 2 levels deep from package root
-  return join(__dirname, '..', '..', 'dev', 'migrations', 'drizzle-tasks');
+  return join(__dirname, '..', '..', 'migrations', 'drizzle-tasks');
 }
 
 /**

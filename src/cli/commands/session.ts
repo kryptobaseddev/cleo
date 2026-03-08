@@ -131,11 +131,12 @@ export function registerSessionCommand(program: Command): void {
     .description('List sessions')
     .option('--status <status>', 'Filter by status (active|ended|orphaned)')
     .option('--limit <n>', 'Max results', parseInt)
+    .option('--offset <n>', 'Skip first n results', parseInt)
     .action(async (opts: Record<string, unknown>) => {
-      const status = opts['status'] as string | undefined;
       await dispatchFromCli('query', 'session', 'list', {
-        active: status === 'active' ? true : undefined,
+        status: opts['status'] as string | undefined,
         limit: opts['limit'] as number | undefined,
+        offset: opts['offset'] as number | undefined,
       }, { command: 'session', operation: 'session.list' });
     });
 

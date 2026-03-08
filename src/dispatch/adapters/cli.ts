@@ -19,6 +19,7 @@ import { createFieldFilter } from '../middleware/field-filter.js';
 import { createAudit } from '../middleware/audit.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { cliOutput, cliError, type CliOutputOptions } from '../../cli/renderers/index.js';
+import { autoRecordDispatchTokenUsage } from '../../core/metrics/token-service.js';
 
 // Reverse mapping from string error codes to numeric exit codes.
 // Used when dispatch handlers return string error codes without exitCode.
@@ -151,11 +152,26 @@ export async function dispatchFromCli(
   });
 
   if (response.success) {
+    await autoRecordDispatchTokenUsage({
+      requestPayload: params,
+      responsePayload: { data: response.data, page: response.page },
+      transport: 'cli',
+      gateway,
+      domain,
+      operation,
+      sessionId: response._meta.sessionId,
+      requestId: response._meta.requestId,
+      cwd: getProjectRoot(),
+    });
+
     const opts: CliOutputOptions = {
       command: outputOpts?.command ?? operation,
       operation: outputOpts?.operation ?? `${domain}.${operation}`,
       ...outputOpts,
     };
+    if (opts.page === undefined && response.page !== undefined) {
+      opts.page = response.page;
+    }
     cliOutput(response.data, opts);
   } else {
     // Derive exit code from the string error code when exitCode is not set

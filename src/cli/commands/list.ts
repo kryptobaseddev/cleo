@@ -63,8 +63,8 @@ export function registerListCommand(program: Command): void {
         return;
       }
 
-      const total = (data?.total as number) ?? tasks.length;
-      const page = createPage({ total, limit, offset });
+      const filtered = (data?.filtered as number) ?? tasks.length;
+      const page = response.page ?? createPage({ total: filtered, limit, offset });
       cliOutput(data, { command: 'list', operation: 'tasks.list', page });
     });
 }

@@ -87,6 +87,7 @@ describe('NexusHandler', () => {
         projects: {
           abc123def456: {
             hash: 'abc123def456',
+            projectId: 'project-a',
             path: '/projects/a',
             name: 'project-a',
             registeredAt: '2026-03-01T00:00:00.000Z',
@@ -119,13 +120,15 @@ describe('NexusHandler', () => {
       const result = await handler.query('list');
 
       expect(result.success).toBe(true);
-      expect(result.data).toEqual({ projects: [], count: 0 });
+      expect(result.data).toEqual({ projects: [], count: 0, total: 0, filtered: 0 });
+      expect(result.page).toEqual({ mode: 'none' });
     });
 
     it('returns registered projects', async () => {
       const projects = [
         {
           hash: 'abc123def456',
+          projectId: 'project-a',
           path: '/projects/a',
           name: 'project-a',
           registeredAt: '2026-03-01T00:00:00.000Z',
@@ -140,10 +143,16 @@ describe('NexusHandler', () => {
       ];
       vi.mocked(nexusList).mockResolvedValue(projects);
 
-      const result = await handler.query('list');
+      const result = await handler.query('list', { limit: 1, offset: 0 });
 
       expect(result.success).toBe(true);
-      expect((result.data as { count: number }).count).toBe(1);
+      expect(result.data).toEqual({
+        projects: [projects[0]],
+        count: 1,
+        total: 1,
+        filtered: 1,
+      });
+      expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: false, total: 1 });
     });
   });
 
@@ -167,6 +176,7 @@ describe('NexusHandler', () => {
     it('returns project when found', async () => {
       const project = {
         hash: 'abc123def456',
+        projectId: 'project-a',
         path: '/projects/a',
         name: 'project-a',
         registeredAt: '2026-03-01T00:00:00.000Z',
@@ -319,7 +329,10 @@ describe('NexusHandler', () => {
           },
         ],
         count: 1,
+        total: 1,
+        filtered: 1,
       });
+      expect(result.page).toEqual({ mode: 'none' });
     });
   });
 

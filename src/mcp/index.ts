@@ -33,6 +33,7 @@ import { initLogger, getLogger, closeLogger } from '../core/logger.js';
 import { getProjectInfoSync } from '../core/project-info.js';
 import { getCleoVersion } from '../core/scaffold.js';
 import { pruneAuditLog } from '../core/audit-prune.js';
+import { autoRecordDispatchTokenUsage } from '../core/metrics/token-service.js';
 import { join } from 'node:path';
 
 /**
@@ -333,6 +334,18 @@ async function main(): Promise<void> {
         if (name === 'query' && result.success && !bypassCache) {
           cache.set(domain, operation, params, result);
         }
+
+        await autoRecordDispatchTokenUsage({
+          requestPayload: { domain, operation, params },
+          responsePayload: result,
+          transport: 'mcp',
+          gateway: name === 'query' ? 'query' : 'mutate',
+          domain,
+          operation,
+          sessionId: result._meta.sessionId,
+          requestId: result._meta.requestId,
+          cwd: process.cwd(),
+        });
 
         // Invalidate domain cache on mutate operations
         if (name === 'mutate') {

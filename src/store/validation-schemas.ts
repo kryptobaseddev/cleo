@@ -24,9 +24,10 @@ import {
   lifecycleTransitions,
   schemaMeta,
   auditLog,
+  tokenUsage,
   architectureDecisions,
   manifestEntries,
-} from './schema.js';
+} from './tasks-schema.js';
 import { SESSION_STATUSES } from './status-registry.js';
 
 // === TASKS ===
@@ -240,6 +241,14 @@ export type SelectAuditLog = z.infer<typeof selectAuditLogSchema>;
 export type AuditLogInsert = InsertAuditLog;
 /** Canonical type alias for audit log select (T4848). */
 export type AuditLogSelect = SelectAuditLog;
+
+// === TOKEN USAGE ===
+
+export const insertTokenUsageSchema = createInsertSchema(tokenUsage);
+export const selectTokenUsageSchema = createSelectSchema(tokenUsage);
+
+export type InsertTokenUsage = z.infer<typeof insertTokenUsageSchema>;
+export type SelectTokenUsage = z.infer<typeof selectTokenUsageSchema>;
 
 export type InsertArchitectureDecision = z.infer<typeof insertArchitectureDecisionSchema>;
 export type SelectArchitectureDecision = z.infer<typeof selectArchitectureDecisionSchema>;

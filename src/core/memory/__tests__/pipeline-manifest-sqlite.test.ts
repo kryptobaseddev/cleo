@@ -211,34 +211,53 @@ describe('pipeline-manifest-sqlite', () => {
       const result = await pipelineManifestList({}, testRoot);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(3);
+      expect((result.data as any).filtered).toBe(3);
+      expect(result.page).toEqual({ mode: 'none' });
     });
 
     it('should filter by status', async () => {
       await seedEntries(testRoot, [ENTRY_A, ENTRY_B, ENTRY_C]);
       const result = await pipelineManifestList({ status: 'partial' }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(1);
+      expect((result.data as any).total).toBe(3);
+      expect((result.data as any).filtered).toBe(1);
     });
 
     it('should filter by topic', async () => {
       await seedEntries(testRoot, [ENTRY_A, ENTRY_B, ENTRY_C]);
       const result = await pipelineManifestList({ topic: 'engine' }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(2);
+      expect((result.data as any).total).toBe(3);
+      expect((result.data as any).filtered).toBe(2);
     });
 
     it('should filter by type (agent_type)', async () => {
       await seedEntries(testRoot, [ENTRY_A, ENTRY_B, ENTRY_C]);
       const result = await pipelineManifestList({ type: 'research' }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(1);
+      expect((result.data as any).total).toBe(3);
+      expect((result.data as any).filtered).toBe(1);
     });
 
-    it('should apply limit', async () => {
+    it('should apply limit with top-level page metadata', async () => {
       await seedEntries(testRoot, [ENTRY_A, ENTRY_B, ENTRY_C]);
       const result = await pipelineManifestList({ limit: 2 }, testRoot);
       expect(result.success).toBe(true);
-      expect((result.data as any).total).toBe(2);
+      expect((result.data as any).entries).toHaveLength(2);
+      expect((result.data as any).total).toBe(3);
+      expect((result.data as any).filtered).toBe(3);
+      expect(result.page).toEqual({ mode: 'offset', limit: 2, offset: 0, hasMore: true, total: 3 });
+    });
+
+    it('should apply offset after filtering', async () => {
+      await seedEntries(testRoot, [ENTRY_A, ENTRY_B, ENTRY_C]);
+      const result = await pipelineManifestList({ topic: 'engine', limit: 1, offset: 1 }, testRoot);
+      expect(result.success).toBe(true);
+      expect((result.data as any).entries).toHaveLength(1);
+      expect((result.data as any).entries[0].id).toBe('T001-research');
+      expect((result.data as any).total).toBe(3);
+      expect((result.data as any).filtered).toBe(2);
+      expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
     });
   });
 

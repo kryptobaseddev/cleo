@@ -84,7 +84,7 @@ Measures whether the agent checks existing sessions before starting work and pro
 
 ### S2: Discovery Efficiency (20pts)
 
-Measures whether the agent uses `tasks.find` (lightweight, minimal fields) instead of `tasks.list` (heavy, full notes arrays) for task discovery.
+Measures whether the agent uses `tasks.find` for discovery instead of overusing `tasks.list` for the same job. `tasks.list` is now the canonical browse/filter operation and returns paged MCP responses, but `tasks.find` remains the lighter discovery path.
 
 | Points | Condition | Evidence |
 |--------|-----------|----------|
@@ -94,7 +94,7 @@ Measures whether the agent uses `tasks.find` (lightweight, minimal fields) inste
 | +5 | `tasks.show` used at least once for detail | `tasks.show used Nx for detail` |
 
 **Flags on violation:**
-- `tasks.list used Nx (prefer tasks.find for discovery)` -- excessive list usage detected
+- `tasks.list used Nx (prefer tasks.find for discovery)` -- excessive browse-style discovery detected
 
 **Scoring logic:** If no discovery calls at all, starts at 10 (benefit of doubt). Otherwise scores proportionally on find ratio (up to 15), then adds 5 for show usage. Capped at 20.
 

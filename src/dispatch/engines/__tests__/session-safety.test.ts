@@ -3,7 +3,7 @@
  *
  * Engine-level tests verifying:
  * - session.find returns minimal records (no heavy fields)
- * - session.list enforces default limit=10 with _meta truncation
+ * - session.list enforces default limit=10 with canonical page metadata
  * - session.list respects explicit limits
  * - session.find filters by status and scope
  * - Budget enforcement prevents unbounded queries
@@ -182,7 +182,7 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
 
-      const record = result.data![0] as Record<string, unknown>;
+      const record = result.data![0] as unknown as Record<string, unknown>;
       // These heavy fields must NOT be present
       expect(record['notes']).toBeUndefined();
       expect(record['taskWork']).toBeUndefined();
@@ -219,6 +219,9 @@ describe('Session Context Safety (T5122)', () => {
 
       expect(result.success).toBe(true);
       expect(result.data!.sessions).toHaveLength(10);
+      expect(result.data!.total).toBe(15);
+      expect(result.data!.filtered).toBe(15);
+      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: true, total: 15 });
     });
 
     it('sets _meta.truncated=true when total exceeds default limit', async () => {
@@ -237,6 +240,8 @@ describe('Session Context Safety (T5122)', () => {
       const result = await sessionList(PROJECT_ROOT);
 
       expect(result.data!._meta.total).toBe(15);
+      expect(result.data!.total).toBe(15);
+      expect(result.data!.filtered).toBe(15);
     });
   });
 
@@ -263,6 +268,7 @@ describe('Session Context Safety (T5122)', () => {
 
       expect(result.data!._meta.truncated).toBe(true);
       expect(result.data!._meta.total).toBe(15);
+      expect(result.page).toEqual({ mode: 'offset', limit: 5, offset: 0, hasMore: true, total: 15 });
     });
   });
 
@@ -281,6 +287,9 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.sessions).toHaveLength(3);
       expect(result.data!._meta.truncated).toBe(false);
       expect(result.data!._meta.total).toBe(3);
+      expect(result.data!.total).toBe(3);
+      expect(result.data!.filtered).toBe(3);
+      expect(result.page).toEqual({ mode: 'offset', limit: 100, offset: 0, hasMore: false, total: 3 });
     });
 
     it('returns all sessions when limit equals total', async () => {
@@ -293,6 +302,7 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.sessions).toHaveLength(5);
       expect(result.data!._meta.truncated).toBe(false);
       expect(result.data!._meta.total).toBe(5);
+      expect(result.page).toEqual({ mode: 'offset', limit: 5, offset: 0, hasMore: false, total: 5 });
     });
   });
 
@@ -396,6 +406,7 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!._meta.truncated).toBe(true);
       expect(result.data!._meta.total).toBe(20);
       expect(result.data!.sessions).toHaveLength(10);
+      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: true, total: 20 });
     });
 
     it('does not truncate when total is within default limit', async () => {
@@ -407,6 +418,7 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!._meta.truncated).toBe(false);
       expect(result.data!._meta.total).toBe(7);
       expect(result.data!.sessions).toHaveLength(7);
+      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 7 });
     });
   });
 
@@ -433,6 +445,9 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.sessions).toEqual([]);
       expect(result.data!._meta.truncated).toBe(false);
       expect(result.data!._meta.total).toBe(0);
+      expect(result.data!.total).toBe(0);
+      expect(result.data!.filtered).toBe(0);
+      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 });
     });
 
     it('session.list with active=true filter still enforces default limit', async () => {
@@ -445,6 +460,41 @@ describe('Session Context Safety (T5122)', () => {
       expect(result.data!.sessions).toHaveLength(10);
       expect(result.data!._meta.truncated).toBe(true);
       expect(result.data!._meta.total).toBe(15);
+      expect(result.data!.total).toBe(15);
+      expect(result.data!.filtered).toBe(15);
+    });
+
+    it('session.list supports offset pagination while preserving legacy _meta', async () => {
+      const sessions = makeSessions(15);
+      mockLoadSessions.mockResolvedValue(sessions);
+
+      const result = await sessionList(PROJECT_ROOT, { offset: 10, limit: 3 });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.sessions).toHaveLength(3);
+      expect(result.data!.sessions[0]?.id).toBe('session-011');
+      expect(result.data!.total).toBe(15);
+      expect(result.data!.filtered).toBe(15);
+      expect(result.data!._meta).toEqual({ truncated: true, total: 15 });
+      expect(result.page).toEqual({ mode: 'offset', limit: 3, offset: 10, hasMore: true, total: 15 });
+    });
+
+    it('session.list accepts canonical status filter', async () => {
+      const sessions = [
+        makeSession({ id: 'ses-1', status: 'active' }),
+        makeSession({ id: 'ses-2', status: 'ended' }),
+        makeSession({ id: 'ses-3', status: 'ended' }),
+      ];
+      mockLoadSessions.mockResolvedValue(sessions);
+
+      const result = await sessionList(PROJECT_ROOT, { status: 'ended' });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.sessions.map((session) => session.id)).toEqual(['ses-2', 'ses-3']);
+      expect(result.data!.total).toBe(3);
+      expect(result.data!.filtered).toBe(2);
+      expect(result.data!._meta).toEqual({ truncated: false, total: 2 });
+      expect(result.page).toEqual({ mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 2 });
     });
 
     it('session.find combined status+scope filters work together', async () => {

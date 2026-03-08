@@ -1,0 +1,19 @@
+{
+  "run_dir": null,
+  "confidence": "COARSE",
+  "method": "coarse",
+  "total_tokens": 400,
+  "by_domain": {},
+  "mcp_vs_cli": {
+    "mcp": {
+      "estimated_tokens": 0,
+      "ops_count": 0
+    },
+    "cli": {
+      "estimated_tokens": 0,
+      "ops_count": 0
+    }
+  },
+  "score_per_1k_tokens": null,
+  "note": "Confidence: COARSE (coarse average). Enable OTel for REAL token counts."
+}

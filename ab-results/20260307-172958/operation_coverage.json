@@ -1,0 +1,312 @@
+{
+  "generated_at": "2026-03-08T01:29:58.384070+00:00",
+  "coverage": {
+    "admin.config.set": {
+      "tested": true,
+      "mcp_calls": 2,
+      "cli_calls": 3
+    },
+    "admin.config.show": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 0
+    },
+    "admin.context": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 1
+    },
+    "admin.dash": {
+      "tested": true,
+      "mcp_calls": 5,
+      "cli_calls": 4
+    },
+    "admin.fix": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 1
+    },
+    "admin.grade": {
+      "tested": true,
+      "mcp_calls": 7,
+      "cli_calls": 1
+    },
+    "admin.grade.list": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 0
+    },
+    "admin.health": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 0
+    },
+    "admin.help": {
+      "tested": true,
+      "mcp_calls": 5,
+      "cli_calls": 5
+    },
+    "check.compliance.record": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 0
+    },
+    "check.test.run": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 0
+    },
+    "memory.brain.observe": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 0
+    },
+    "memory.find": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 0
+    },
+    "memory.inject": {
+      "tested": true,
+      "mcp_calls": 3,
+      "cli_calls": 0
+    },
+    "memory.manifest.append": {
+      "tested": true,
+      "mcp_calls": 3,
+      "cli_calls": 0
+    },
+    "memory.observe": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 2
+    },
+    "nexus.reconcile": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 1
+    },
+    "nexus.register": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 2
+    },
+    "orchestrate.spawn": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 268
+    },
+    "orchestrate.start": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 793
+    },
+    "pipeline.release.cancel": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 1
+    },
+    "pipeline.release.changelog": {
+      "tested": true,
+      "mcp_calls": 3,
+      "cli_calls": 11
+    },
+    "pipeline.release.gates.run": {
+      "tested": true,
+      "mcp_calls": 2,
+      "cli_calls": 0
+    },
+    "pipeline.release.prepare": {
+      "tested": true,
+      "mcp_calls": 3,
+      "cli_calls": 527
+    },
+    "pipeline.release.push": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 259
+    },
+    "pipeline.release.rollback": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 259
+    },
+    "pipeline.release.ship": {
+      "tested": true,
+      "mcp_calls": 16,
+      "cli_calls": 15
+    },
+    "pipeline.release.tag": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 259
+    },
+    "pipeline.stage.gate.fail": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 273
+    },
+    "pipeline.stage.gate.pass": {
+      "tested": true,
+      "mcp_calls": 6,
+      "cli_calls": 0
+    },
+    "pipeline.stage.record": {
+      "tested": true,
+      "mcp_calls": 2,
+      "cli_calls": 1646
+    },
+    "pipeline.stage.skip": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 2
+    },
+    "session.end": {
+      "tested": true,
+      "mcp_calls": 19,
+      "cli_calls": 298
+    },
+    "session.list": {
+      "tested": true,
+      "mcp_calls": 6,
+      "cli_calls": 13
+    },
+    "session.record.assumption": {
+      "tested": true,
+      "mcp_calls": 3,
+      "cli_calls": 0
+    },
+    "session.record.decision": {
+      "tested": true,
+      "mcp_calls": 3,
+      "cli_calls": 0
+    },
+    "session.resume": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 277
+    },
+    "session.start": {
+      "tested": true,
+      "mcp_calls": 16,
+      "cli_calls": 581
+    },
+    "session.status": {
+      "tested": true,
+      "mcp_calls": 2,
+      "cli_calls": 0
+    },
+    "session.suspend": {
+      "tested": true,
+      "mcp_calls": 5,
+      "cli_calls": 0
+    },
+    "sticky.add": {
+      "tested": true,
+      "mcp_calls": 4,
+      "cli_calls": 8
+    },
+    "sticky.archive": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 2
+    },
+    "sticky.convert": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 1
+    },
+    "sticky.purge": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 1
+    },
+    "tasks.add": {
+      "tested": true,
+      "mcp_calls": 349,
+      "cli_calls": 281
+    },
+    "tasks.archive": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 2
+    },
+    "tasks.complete": {
+      "tested": true,
+      "mcp_calls": 108,
+      "cli_calls": 779
+    },
+    "tasks.delete": {
+      "tested": true,
+      "mcp_calls": 36,
+      "cli_calls": 175
+    },
+    "tasks.exists": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 4
+    },
+    "tasks.find": {
+      "tested": true,
+      "mcp_calls": 12,
+      "cli_calls": 9
+    },
+    "tasks.list": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 1
+    },
+    "tasks.relates.add": {
+      "tested": true,
+      "mcp_calls": 28,
+      "cli_calls": 46
+    },
+    "tasks.reopen": {
+      "tested": true,
+      "mcp_calls": 388,
+      "cli_calls": 0
+    },
+    "tasks.reparent": {
+      "tested": true,
+      "mcp_calls": 0,
+      "cli_calls": 1
+    },
+    "tasks.restore": {
+      "tested": true,
+      "mcp_calls": 388,
+      "cli_calls": 0
+    },
+    "tasks.show": {
+      "tested": true,
+      "mcp_calls": 3,
+      "cli_calls": 8
+    },
+    "tasks.start": {
+      "tested": true,
+      "mcp_calls": 9,
+      "cli_calls": 294
+    },
+    "tasks.stop": {
+      "tested": true,
+      "mcp_calls": 1,
+      "cli_calls": 278
+    },
+    "tasks.update": {
+      "tested": true,
+      "mcp_calls": 118,
+      "cli_calls": 362
+    }
+  },
+  "total_operations_seen": 59,
+  "domains_seen": [
+    "admin",
+    "check",
+    "memory",
+    "nexus",
+    "orchestrate",
+    "pipeline",
+    "session",
+    "sticky",
+    "tasks"
+  ]
+}

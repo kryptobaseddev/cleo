@@ -18,6 +18,7 @@ import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { getAccessor } from '../../store/data-accessor.js';
+import { paginate } from '../../core/pagination.js';
 
 import {
   lifecycleStatus,
@@ -48,6 +49,7 @@ import {
   channelToDistTag,
   describeChannel,
 } from '../../core/release/channel.js';
+import type { ReleaseListOptions } from '../../core/release/release-manifest.js';
 
 import {
   showPhase,
@@ -360,7 +362,11 @@ export class PipelineHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     switch (sub) {
       case 'list': {
-        const result = await releaseList(this.projectRoot);
+        const result = await releaseList({
+          status: params?.status as ReleaseListOptions['status'],
+          limit: params?.limit as number | undefined,
+          offset: params?.offset as number | undefined,
+        }, this.projectRoot);
         return this.wrapEngineResult(result, 'query', 'release.list', startTime);
       }
 
@@ -592,7 +598,24 @@ export class PipelineHandler implements DomainHandler {
       case 'list': {
         const listAccessor = await getAccessor(this.projectRoot);
         const result = await listPhases(this.projectRoot, listAccessor);
-        return this.wrapEngineResult(result, 'query', 'phase.list', startTime);
+        if (!result.success || !result.data) {
+          return this.wrapEngineResult(result, 'query', 'phase.list', startTime);
+        }
+
+        const { limit, offset } = this.getListParams(params);
+        const page = paginate(result.data.phases, limit, offset);
+
+        return {
+          _meta: dispatchMeta('query', 'pipeline', 'phase.list', startTime),
+          success: true,
+          data: {
+            ...result.data,
+            phases: page.items,
+            total: result.data.summary.total,
+            filtered: result.data.summary.total,
+          },
+          page: page.page,
+        };
       }
 
       default:
@@ -746,7 +769,17 @@ export class PipelineHandler implements DomainHandler {
 
       case 'list': {
         const chains = await listChains(this.projectRoot);
-        return this.wrapEngineResult({ success: true, data: chains }, 'query', 'chain.list', startTime);
+        const { limit, offset } = this.getListParams(params);
+        const page = paginate(chains, limit, offset);
+        return this.wrapEngineResult({
+          success: true,
+          data: {
+            chains: page.items,
+            total: chains.length,
+            filtered: chains.length,
+          },
+          page: page.page,
+        }, 'query', 'chain.list', startTime);
       }
 
       case 'find': {
@@ -902,7 +935,12 @@ export class PipelineHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      page?: import('@cleocode/lafs-protocol').LAFSPage;
+      error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> };
+    },
     gateway: string,
     operation: string,
     startTime: number,
@@ -912,6 +950,7 @@ export class PipelineHandler implements DomainHandler {
         _meta: dispatchMeta(gateway, 'pipeline', operation, startTime),
         success: true,
         data: result.data,
+        ...(result.page ? { page: result.page } : {}),
       };
     }
     return {
@@ -954,5 +993,12 @@ export class PipelineHandler implements DomainHandler {
       message,
       startTime,
     );
+  }
+
+  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
+    return {
+      limit: typeof params?.limit === 'number' ? params.limit : undefined,
+      offset: typeof params?.offset === 'number' ? params.offset : undefined,
+    };
   }
 }

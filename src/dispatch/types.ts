@@ -222,6 +222,7 @@ export interface DispatchResponse {
   };
   success: boolean;
   data?: unknown;
+  page?: import('@cleocode/lafs-protocol').LAFSPage;
   partial?: boolean;
   error?: DispatchError;
 }

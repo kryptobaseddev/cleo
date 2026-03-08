@@ -49,6 +49,8 @@ describe('taskFind filter passthrough', () => {
     vi.mocked(coreFindTasks).mockResolvedValue({
       results: MOCK_TASKS as never[],
       total: 2,
+      query: 'test',
+      searchType: 'fuzzy',
     });
   });
 
@@ -175,6 +177,8 @@ describe('taskList compact mode', () => {
     vi.mocked(coreListTasks).mockResolvedValue({
       tasks: MOCK_TASKS as never[],
       total: 2,
+      filtered: 2,
+      page: { mode: 'none' },
     });
   });
 
@@ -200,14 +204,44 @@ describe('taskList compact mode', () => {
   });
 
   it('accepts params without compact (backward compat)', async () => {
-    const result = await taskList('/mock/project', { status: 'pending', limit: 5 });
+    const result = await taskList('/mock/project', {
+      status: 'pending',
+      priority: 'high',
+      type: 'task',
+      phase: 'build',
+      label: 'bug',
+      children: true,
+      limit: 5,
+      offset: 10,
+    });
 
     expect(result.success).toBe(true);
     expect(coreListTasks).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'pending', limit: 5 }),
+      expect.objectContaining({
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        phase: 'build',
+        label: 'bug',
+        children: true,
+        limit: 5,
+        offset: 10,
+      }),
       '/mock/project',
       expect.anything(),
     );
+  });
+
+  it('returns canonical counts in the list envelope', async () => {
+    const result = await taskList('/mock/project', { compact: false });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      tasks: MOCK_TASKS,
+      total: 2,
+      filtered: 2,
+    });
+    expect(result.page).toEqual({ mode: 'none' });
   });
 
   it('accepts no params at all (backward compat)', async () => {

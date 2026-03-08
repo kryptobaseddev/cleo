@@ -86,7 +86,7 @@ export function registerStickyCommand(program: Command): void {
           return;
         }
 
-        cliOutput(data, { command: 'sticky list', operation: 'sticky.list' });
+        cliOutput(data, { command: 'sticky list', operation: 'sticky.list', page: response.page });
       } catch (err) {
         if (err instanceof CleoError) {
           console.error(formatError(err));

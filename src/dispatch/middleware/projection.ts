@@ -126,7 +126,8 @@ export function createProjectionMiddleware(): Middleware {
 
     // MCP smart defaults: tasks.list defaults to compact mode
     if (req.source === 'mcp' && req.domain === 'tasks' && req.operation === 'list') {
-      if (req.params && req.params['compact'] === undefined) {
+      req.params ??= {};
+      if (req.params['compact'] === undefined) {
         req.params['compact'] = true;
       }
     }

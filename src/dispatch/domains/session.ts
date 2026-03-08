@@ -70,7 +70,12 @@ export class SessionHandler implements DomainHandler {
         }
 
         case 'list': {
-          const result = await sessionList(this.projectRoot, params as { active?: boolean; limit?: number });
+          const result = await sessionList(this.projectRoot, params as {
+            active?: boolean;
+            status?: string;
+            limit?: number;
+            offset?: number;
+          });
           return this.wrapEngineResult(result, 'query', 'session', operation, startTime);
         }
 
@@ -334,7 +339,12 @@ export class SessionHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      page?: import('@cleocode/lafs-protocol').LAFSPage;
+      error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> };
+    },
     gateway: string,
     domain: string,
     operation: string,
@@ -344,6 +354,7 @@ export class SessionHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
+      ...(result.page ? { page: result.page } : {}),
       ...(result.error ? {
         error: {
           code: result.error.code,

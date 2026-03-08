@@ -9,6 +9,7 @@
  */
 
 import { getLogger } from '../../core/logger.js';
+import type { LAFSPage } from '@cleocode/lafs-protocol';
 
 /**
  * Canonical EngineResult type used by all engines.
@@ -17,6 +18,7 @@ import { getLogger } from '../../core/logger.js';
 export interface EngineResult<T = unknown> {
   success: boolean;
   data?: T;
+  page?: LAFSPage;
   error?: {
     code: string;
     message: string;

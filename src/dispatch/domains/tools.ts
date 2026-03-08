@@ -17,6 +17,7 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
+import { paginate } from '../../core/pagination.js';
 
 import {
   parseIssueTemplates,
@@ -126,6 +127,7 @@ export class ToolsHandler implements DomainHandler {
         // skill
         'skill.list', 'skill.show', 'skill.find',
         'skill.dispatch', 'skill.verify', 'skill.dependencies', 'skill.spawn.providers',
+        'skill.precedence.show', 'skill.precedence.resolve',
         // skill.catalog
         'skill.catalog.protocols', 'skill.catalog.profiles',
         'skill.catalog.resources', 'skill.catalog.info',
@@ -251,16 +253,24 @@ export class ToolsHandler implements DomainHandler {
   ): Promise<DispatchResponse> {
     // Catalog sub-sub-domain
     if (sub.startsWith('catalog.')) {
-      return this.querySkillCatalog(sub.slice('catalog.'.length), startTime);
+      return this.querySkillCatalog(sub.slice('catalog.'.length), params, startTime);
     }
 
     switch (sub) {
       case 'list': {
         const skills = await discoverSkills(getCanonicalSkillsDir());
+        const { limit, offset } = this.getListParams(params);
+        const page = paginate(skills, limit, offset);
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.list', startTime),
           success: true,
-          data: { skills, count: skills.length },
+          data: {
+            skills: page.items,
+            count: skills.length,
+            total: skills.length,
+            filtered: skills.length,
+          },
+          page: page.page,
         };
       }
       case 'show': {
@@ -400,6 +410,7 @@ export class ToolsHandler implements DomainHandler {
 
   private querySkillCatalog(
     sub: string,
+    params: Record<string, unknown> | undefined,
     startTime: number,
   ): DispatchResponse {
     switch (sub) {
@@ -409,10 +420,18 @@ export class ToolsHandler implements DomainHandler {
           name,
           path: catalog.getProtocolPath(name) ?? null,
         }));
+        const { limit, offset } = this.getListParams(params);
+        const page = paginate(details, limit, offset);
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.catalog.protocols', startTime),
           success: true,
-          data: { protocols: details },
+          data: {
+            protocols: page.items,
+            count: details.length,
+            total: details.length,
+            filtered: details.length,
+          },
+          page: page.page,
         };
       }
 
@@ -428,10 +447,18 @@ export class ToolsHandler implements DomainHandler {
             skills: profile?.skills ?? [],
           };
         });
+        const { limit, offset } = this.getListParams(params);
+        const page = paginate(profiles, limit, offset);
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.catalog.profiles', startTime),
           success: true,
-          data: { profiles },
+          data: {
+            profiles: page.items,
+            count: profiles.length,
+            total: profiles.length,
+            filtered: profiles.length,
+          },
+          page: page.page,
         };
       }
 
@@ -441,10 +468,18 @@ export class ToolsHandler implements DomainHandler {
           name,
           path: catalog.getSharedResourcePath(name) ?? null,
         }));
+        const { limit, offset } = this.getListParams(params);
+        const page = paginate(details, limit, offset);
         return {
           _meta: dispatchMeta('query', 'tools', 'skill.catalog.resources', startTime),
           success: true,
-          data: { resources: details },
+          data: {
+            resources: page.items,
+            count: details.length,
+            total: details.length,
+            filtered: details.length,
+          },
+          page: page.page,
         };
       }
 
@@ -605,10 +640,18 @@ export class ToolsHandler implements DomainHandler {
     switch (sub) {
       case 'list': {
         const providers = getAllProviders();
+        const { limit, offset } = this.getListParams(params);
+        const page = paginate(providers, limit, offset);
         return {
           _meta: dispatchMeta('query', 'tools', 'provider.list', startTime),
           success: true,
-          data: { providers, count: providers.length },
+          data: {
+            providers: page.items,
+            count: providers.length,
+            total: providers.length,
+            filtered: providers.length,
+          },
+          page: page.page,
         };
       }
       case 'detect': {
@@ -760,5 +803,12 @@ export class ToolsHandler implements DomainHandler {
       message,
       startTime,
     );
+  }
+
+  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
+    return {
+      limit: typeof params?.limit === 'number' ? params.limit : undefined,
+      offset: typeof params?.offset === 'number' ? params.offset : undefined,
+    };
   }
 }

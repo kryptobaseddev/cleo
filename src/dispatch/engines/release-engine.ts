@@ -25,6 +25,7 @@ import {
   cancelRelease,
   pushRelease,
   markReleasePushed,
+  type ReleaseListOptions,
   type ReleaseTaskRecord,
 } from '../../core/release/release-manifest.js';
 
@@ -151,11 +152,18 @@ export async function releaseChangelog(
  * @task T4788
  */
 export async function releaseList(
+  optionsOrProjectRoot?: ReleaseListOptions | string,
   projectRoot?: string
 ): Promise<EngineResult> {
   try {
-    const data = await listManifestReleases(projectRoot);
-    return { success: true, data };
+    const options = typeof optionsOrProjectRoot === 'string' || optionsOrProjectRoot === undefined
+      ? {}
+      : optionsOrProjectRoot;
+    const effectiveProjectRoot = typeof optionsOrProjectRoot === 'string'
+      ? optionsOrProjectRoot
+      : projectRoot;
+    const data = await listManifestReleases(options, effectiveProjectRoot);
+    return { success: true, data: { releases: data.releases, total: data.total, filtered: data.filtered, latest: data.latest }, page: data.page };
   } catch (err: unknown) {
     return engineError('E_LIST_FAILED', (err as Error).message);
   }

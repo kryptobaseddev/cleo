@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
-import { schemaMeta } from '../../store/schema.js';
+import { schemaMeta } from '../../store/tasks-schema.js';
 import { setMetaValue } from '../../store/sqlite-data-accessor.js';
 import { createDataAccessor, type DataAccessor } from '../../store/data-accessor.js';
 

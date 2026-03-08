@@ -13,6 +13,7 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
+import { paginate } from '../../core/pagination.js';
 
 import {
   stickyAdd,
@@ -50,13 +51,37 @@ export class StickyHandler implements DomainHandler {
     try {
       switch (operation) {
         case 'list': {
-          const result = await stickyList(this.projectRoot, {
+          const filters = {
             status: params?.status as 'active' | 'converted' | 'archived' | undefined,
             color: params?.color as 'yellow' | 'blue' | 'green' | 'red' | 'purple' | undefined,
             priority: params?.priority as 'low' | 'medium' | 'high' | undefined,
-            limit: params?.limit as number | undefined,
-          });
-          return this.wrapEngineResult(result, 'query', 'sticky', operation, startTime);
+          };
+          const result = await stickyList(this.projectRoot, filters);
+          if (!result.success) {
+            return this.wrapEngineResult(result, 'query', 'sticky', operation, startTime);
+          }
+
+          const filteredStickies = result.data?.stickies ?? [];
+          const hasFilter = filters.status !== undefined || filters.color !== undefined || filters.priority !== undefined;
+          const totalResult = hasFilter ? await stickyList(this.projectRoot, {}) : result;
+          if (!totalResult.success) {
+            return this.wrapEngineResult(totalResult, 'query', 'sticky', operation, startTime);
+          }
+
+          const limit = params?.limit as number | undefined;
+          const offset = params?.offset as number | undefined;
+          const page = paginate(filteredStickies, limit, offset);
+
+          return {
+            _meta: dispatchMeta('query', 'sticky', operation, startTime),
+            success: true,
+            data: {
+              stickies: page.items,
+              total: totalResult.data?.total ?? filteredStickies.length,
+              filtered: filteredStickies.length,
+            },
+            page: page.page,
+          };
         }
 
         case 'show': {

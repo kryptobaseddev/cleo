@@ -223,6 +223,17 @@ describe('MCP compact default for tasks.list', () => {
     expect(capturedParams!['compact']).toBe(true);
   });
 
+  it('should initialize params before injecting compact', async () => {
+    const middleware = createProjectionMiddleware();
+    const req = makeRequest({ params: undefined });
+    let capturedParams: Record<string, unknown> | undefined;
+    await middleware(req, async () => {
+      capturedParams = req.params;
+      return makeSuccessResponse();
+    });
+    expect(capturedParams).toEqual({ compact: true });
+  });
+
   it('should NOT inject compact for CLI tasks.list', async () => {
     const middleware = createProjectionMiddleware();
     const req = makeRequest({ source: 'cli' });

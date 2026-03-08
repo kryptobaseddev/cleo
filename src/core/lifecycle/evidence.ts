@@ -11,7 +11,7 @@
 import { eq, like } from 'drizzle-orm';
 import { relative, basename } from 'node:path';
 import { getDb } from '../../store/sqlite.js';
-import * as schema from '../../store/schema.js';
+import * as schema from '../../store/tasks-schema.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import { getLogger } from '../logger.js';
 

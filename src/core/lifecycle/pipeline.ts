@@ -17,7 +17,7 @@
 
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
-import * as schema from '../../store/schema.js';
+import * as schema from '../../store/tasks-schema.js';
 import { CleoError } from '../errors.js';
 import { ExitCode } from '../../types/exit-codes.js';
 import type { Stage, StageStatus } from './stages.js';

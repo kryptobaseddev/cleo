@@ -134,7 +134,7 @@ As of 2026-03-06, implementation counts are:
 | Operation             | Description                      | Parameters                     | Returns                  |
 | --------------------- | -------------------------------- | ------------------------------ | ------------------------ |
 | `show`                | Get single task details          | `taskId`                       | Full task object         |
-| `list`                | List tasks with filters          | `parent?`, `status?`, `limit?` | Task array               |
+| `list`                | List tasks with filters          | `parent?`, `status?`, `priority?`, `type?`, `phase?`, `label?`, `children?`, `limit?`, `offset?`, `compact?` | Task array + count/page metadata |
 | `find`                | Fuzzy search tasks               | `query`, `limit?`              | Minimal task array       |
 | `exists`              | Check task existence             | `taskId`                       | Boolean                  |
 | `tree`                | Hierarchical task view           | `rootId?`, `depth?`            | Tree structure           |
@@ -151,7 +151,7 @@ As of 2026-03-06, implementation counts are:
 | Operation       | Description            | Parameters   | Returns             |
 | --------------- | ---------------------- | ------------ | ------------------- |
 | `status`        | Current session status | -            | Session object      |
-| `list`          | List all sessions      | `active?`    | Session array       |
+| `list`          | List sessions          | `status?`, `active?`, `limit?`, `offset?` | Session array + count/page metadata |
 | `show`          | Session details        | `sessionId`  | Full session object |
 | `history`       | Session history        | `limit?`     | History array       |
 | `decision.log`  | Decision audit log     | `sessionId?` | Decision array      |
@@ -456,6 +456,57 @@ All operations return a consistent envelope:
   }
 }
 ```
+
+### 3.1.1 List Response Contract
+
+List operations that support pagination return canonical pagination metadata in top-level `page`.
+
+```json
+{
+  "_meta": {
+    "gateway": "query",
+    "domain": "tasks",
+    "operation": "list",
+    "version": "1.0.0",
+    "timestamp": "2026-03-07T18:35:00Z",
+    "duration_ms": 12
+  },
+  "success": true,
+  "data": {
+    "tasks": [
+      { "id": "T1001", "title": "Optimize list output", "status": "active", "priority": "high" }
+    ],
+    "total": 150,
+    "filtered": 23
+  },
+  "page": {
+    "mode": "offset",
+    "limit": 10,
+    "offset": 0,
+    "hasMore": true,
+    "total": 23
+  }
+}
+```
+
+Rules:
+
+- `page` is the canonical pagination source for MCP list responses.
+- `page.total` is the filtered result count for the current operation.
+- `page.mode` is `none` when pagination is not active.
+- `tasks.list` is the reference implementation for list response shape and filter parity.
+- `session.list` still mirrors legacy `data._meta.truncated` and `data._meta.total`, but agents SHOULD read top-level `page` first.
+- `tasks.list` still accepts `compact` for compatibility; new agents SHOULD treat compact MCP rows as the default browse shape and use `tasks.show` for full detail.
+
+### 3.1.2 List vs Find Guidance
+
+When both verbs exist:
+
+- Use `find` for lightweight discovery and narrowing.
+- Use `list` for ordered browsing, structured filters, and pagination.
+- Use `show` after `find` or `list` when you need the full record.
+
+This pattern applies to `tasks.*` and to other domains that expose both `find` and `list` surfaces.
 
 ### 3.2 Error Response
 

@@ -1,0 +1,14 @@
+[
+  {"query": "validate my skill against v2 standard", "should_trigger": true},
+  {"query": "check if this skill folder is v2 compliant", "should_trigger": true},
+  {"query": "audit the skill structure and frontmatter", "should_trigger": true},
+  {"query": "run v2 compliance check on ct-skill-creator", "should_trigger": true},
+  {"query": "is my SKILL.md missing required fields", "should_trigger": true},
+  {"query": "verify skill passes all CLEO validation tiers", "should_trigger": true},
+  {"query": "prepare skill for distribution, check for issues", "should_trigger": true},
+  {"query": "create a new skill from scratch", "should_trigger": false},
+  {"query": "write a Python script to parse JSON", "should_trigger": false},
+  {"query": "run the test suite for my TypeScript project", "should_trigger": false},
+  {"query": "commit my changes to git", "should_trigger": false},
+  {"query": "help me debug this import error in my code", "should_trigger": false}
+]

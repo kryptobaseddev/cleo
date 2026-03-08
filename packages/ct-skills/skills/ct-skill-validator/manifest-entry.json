@@ -1,0 +1,20 @@
+{
+  "_comment": "CLEO-only metadata -- add to packages/ct-skills/skills/manifest.json",
+  "name": "ct-skill-validator",
+  "version": "1.0.0",
+  "tier": 2,
+  "token_budget": 6000,
+  "capabilities": {
+    "inputs": [],
+    "outputs": [],
+    "dispatch_triggers": [],
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": [],
+    "dispatch_keywords": { "primary": [], "secondary": [] }
+  },
+  "constraints": {
+    "max_context_tokens": 60000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}

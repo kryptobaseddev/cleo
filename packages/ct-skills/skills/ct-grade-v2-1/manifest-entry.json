@@ -1,0 +1,31 @@
+{
+  "_comment": "CLEO-only metadata — merge into packages/ct-skills/skills/manifest.json",
+  "name": "ct-grade",
+  "version": "2.1.0",
+  "tier": 2,
+  "token_budget": 16000,
+  "capabilities": {
+    "inputs": ["SESSION_ID", "SCENARIO_ID", "DOMAIN", "OPERATION_LIST"],
+    "outputs": ["grade-result", "ab-comparison", "token-report", "analysis-report"],
+    "dispatch_triggers": ["grade", "ab-test", "blind-test", "token-efficiency", "scenario"],
+    "compatible_subagent_types": ["general-purpose", "Explore"],
+    "agents": ["scenario-runner", "blind-comparator", "analysis-reporter"],
+    "chains_to": ["ct-cleo", "ct-research-agent"],
+    "dispatch_keywords": {
+      "primary": ["grade", "ab-test", "blind-test", "token-efficiency"],
+      "secondary": ["mcp-cli-comparison", "behavioral-compliance", "session-quality", "playbook"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 80000,
+    "requires_session": false,
+    "requires_epic": false
+  },
+  "references": [
+    "skills/ct-grade-v2-1/references/grade-spec-v2.md",
+    "skills/ct-grade-v2-1/references/playbook-v2.md",
+    "skills/ct-grade-v2-1/references/ab-testing.md",
+    "skills/ct-grade-v2-1/references/token-tracking.md",
+    "skills/ct-grade-v2-1/references/domains-ssot.md"
+  ]
+}

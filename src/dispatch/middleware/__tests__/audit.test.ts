@@ -61,7 +61,7 @@ vi.mock('../../../store/sqlite.js', () => ({
   }),
 }));
 
-vi.mock('../../../store/schema.js', () => ({
+vi.mock('../../../store/tasks-schema.js', () => ({
   auditLog: { _: 'mock_audit_log_table' },
 }));
 

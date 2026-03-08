@@ -48,6 +48,7 @@ export interface AdrListResult {
     filePath: string;
   }>;
   total: number;
+  filtered: number;
 }
 
 export interface AdrFindResult {

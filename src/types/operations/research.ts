@@ -93,6 +93,7 @@ export interface ResearchStatsResult {
 export interface ResearchManifestReadParams {
   filter?: string;
   limit?: number;
+  offset?: number;
 }
 export type ResearchManifestReadResult = ManifestEntry[];
 

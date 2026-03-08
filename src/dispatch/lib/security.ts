@@ -12,7 +12,7 @@ import { resolve, normalize, relative, isAbsolute } from 'path';
 import { normalizeTaskId } from '../../core/tasks/id-generator.js';
 import {
   TASK_PRIORITIES,
-} from '../../store/schema.js';
+} from '../../store/tasks-schema.js';
 import {
   TASK_STATUSES,
   MANIFEST_STATUSES,

@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../../lib/engine.js', () => ({
   // Task engine
   taskShow: vi.fn(() => ({ success: true, data: { id: 'T001', title: 'Test' } })),
-  taskList: vi.fn(() => ({ success: true, data: [] })),
+   taskList: vi.fn(() => ({ success: true, data: [], page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 } })),
   taskFind: vi.fn(() => ({ success: true, data: [] })),
   taskExists: vi.fn(() => ({ success: true, data: { exists: true, taskId: 'T001' } })),
   taskCreate: vi.fn(() => ({ success: true, data: { id: 'T001', title: 'New' } })),
@@ -30,7 +30,7 @@ vi.mock('../../lib/engine.js', () => ({
   taskStop: vi.fn(() => ({ success: true, data: {} })),
   // Session engine
   sessionStatus: vi.fn(() => ({ success: true, data: {} })),
-  sessionList: vi.fn(() => ({ success: true, data: { sessions: [], _meta: { truncated: false, total: 0 } } })),
+   sessionList: vi.fn(() => ({ success: true, data: { sessions: [], _meta: { truncated: false, total: 0 } }, page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 } })),
   sessionShow: vi.fn(() => ({ success: true, data: {} })),
   sessionStart: vi.fn(() => ({ success: true, data: {} })),
   sessionEnd: vi.fn(() => ({ success: true, data: {} })),
@@ -246,6 +246,19 @@ describe('CLI Adapter', () => {
           command: 'my-cmd',
           operation: 'custom.op',
           message: 'OK',
+        }),
+      );
+    });
+
+    it('passes response.page through to cliOutput when not overridden', async () => {
+      await dispatchFromCli('query', 'session', 'list', {} , { command: 'session' });
+
+      expect(cliOutput).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          command: 'session',
+          operation: 'session.list',
+          page: { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 0 },
         }),
       );
     });

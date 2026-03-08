@@ -10,8 +10,8 @@
 
 import { eq, and, sql, inArray, asc, isNull, ne, count } from 'drizzle-orm';
 import { getDb, getNativeDb } from './sqlite.js';
-import * as schema from './schema.js';
-import type { TaskRow, NewTaskRow } from './schema.js';
+import * as schema from './tasks-schema.js';
+import type { TaskRow, NewTaskRow } from './tasks-schema.js';
 import type { Task, TaskStatus, TaskPriority, TaskType, TaskSize } from '../types/task.js';
 import {
   safeCreateTask,

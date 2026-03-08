@@ -4,6 +4,10 @@ vi.mock('../../../core/paths.js', () => ({
   getProjectRoot: vi.fn(() => '/mock/project'),
 }));
 
+vi.mock('../../../store/data-accessor.js', () => ({
+  getAccessor: vi.fn(async () => ({})),
+}));
+
 vi.mock('../../lib/engine.js', () => ({
   lifecycleStatus: vi.fn(),
   lifecycleHistory: vi.fn(),
@@ -48,6 +52,13 @@ vi.mock('../../../core/memory/pipeline-manifest-sqlite.js', () => ({
   pipelineManifestArchive: vi.fn(),
 }));
 
+vi.mock('../../engines/release-engine.js', () => ({
+  releaseShip: vi.fn(),
+  releaseList: vi.fn(),
+  releaseShow: vi.fn(),
+  releaseCancel: vi.fn(),
+}));
+
 vi.mock('../../../core/lifecycle/chain-store.js', () => ({
   showChain: vi.fn(),
   listChains: vi.fn(),
@@ -59,6 +70,7 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
 }));
 
 import { PipelineHandler } from '../pipeline.js';
+import { listPhases } from '../../../core/pipeline/phase.js';
 import {
   showChain,
   listChains,
@@ -68,6 +80,7 @@ import {
   showInstance,
   advanceInstance,
 } from '../../../core/lifecycle/chain-store.js';
+import { releaseList } from '../../engines/release-engine.js';
 
 describe('PipelineHandler chain operations', () => {
   let handler: PipelineHandler;
@@ -112,10 +125,15 @@ describe('PipelineHandler chain operations', () => {
   it('keeps chain.list behavior intact', async () => {
     vi.mocked(listChains).mockResolvedValue([{ id: 'chain-1' }, { id: 'chain-2' }] as any);
 
-    const result = await handler.query('chain.list');
+    const result = await handler.query('chain.list', { limit: 1, offset: 1 });
     expect(result.success).toBe(true);
     expect(listChains).toHaveBeenCalledWith('/mock/project');
-    expect((result.data as Array<{ id: string }>).map((chain) => chain.id)).toEqual(['chain-1', 'chain-2']);
+    expect(result.data).toEqual({
+      chains: [{ id: 'chain-2' }],
+      total: 2,
+      filtered: 2,
+    });
+    expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
   });
 
   it('keeps chain.show behavior intact', async () => {
@@ -124,6 +142,44 @@ describe('PipelineHandler chain operations', () => {
     const result = await handler.query('chain.show', { chainId: 'chain-1' });
     expect(result.success).toBe(true);
     expect(showChain).toHaveBeenCalledWith('chain-1', '/mock/project');
+  });
+
+  it('returns canonical phase.list envelope while preserving summary', async () => {
+    vi.mocked(listPhases).mockResolvedValue({
+      success: true,
+      data: {
+        currentPhase: 'implementation',
+        phases: [
+          { slug: 'research', name: 'Research', order: 1, status: 'completed', startedAt: null, completedAt: null, isCurrent: false },
+          { slug: 'implementation', name: 'Implementation', order: 2, status: 'active', startedAt: null, completedAt: null, isCurrent: true },
+        ],
+        summary: {
+          total: 2,
+          pending: 0,
+          active: 1,
+          completed: 1,
+        },
+      },
+    } as any);
+
+    const result = await handler.query('phase.list', { limit: 1, offset: 1 });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      currentPhase: 'implementation',
+      phases: [
+        { slug: 'implementation', name: 'Implementation', order: 2, status: 'active', startedAt: null, completedAt: null, isCurrent: true },
+      ],
+      summary: {
+        total: 2,
+        pending: 0,
+        active: 1,
+        completed: 1,
+      },
+      total: 2,
+      filtered: 2,
+    });
+    expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
   });
 
   it('keeps chain.add behavior intact', async () => {
@@ -225,5 +281,25 @@ describe('PipelineHandler chain operations', () => {
       ]),
       '/mock/project',
     );
+  });
+
+  it('surfaces release.list page metadata and filters', async () => {
+    vi.mocked(releaseList).mockResolvedValue({
+      success: true,
+      data: {
+        releases: [{ version: 'v1.0.0' }],
+        total: 2,
+        filtered: 1,
+        latest: 'v1.0.0',
+      },
+      page: { mode: 'offset', limit: 1, offset: 0, hasMore: false, total: 1 },
+    } as any);
+
+    const result = await handler.query('release.list', { status: 'prepared', limit: 1 });
+
+    expect(result.success).toBe(true);
+    expect(releaseList).toHaveBeenCalledWith({ status: 'prepared', limit: 1, offset: undefined }, '/mock/project');
+    expect((result.data as { filtered: number }).filtered).toBe(1);
+    expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: false, total: 1 });
   });
 });

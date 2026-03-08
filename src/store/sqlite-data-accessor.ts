@@ -17,7 +17,7 @@ import type { TaskFile, Task, ProjectMeta, TaskWorkState, FileMeta } from '../ty
 import type { Session } from '../types/session.js';
 import type { ArchiveFields } from './db-helpers.js';
 import { getDb, closeDb, getNativeTasksDb } from './sqlite.js';
-import * as schema from './schema.js';
+import * as schema from './tasks-schema.js';
 import { computeChecksum } from './json.js';
 import { rowToTask, taskToRow, archivedTaskToRow, rowToSession } from './converters.js';
 import { upsertTask, upsertSession, updateDependencies, batchUpdateDependencies, loadDependenciesForTasks, loadRelationsForTasks } from './db-helpers.js';

@@ -17,6 +17,7 @@ import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
 import { OPERATIONS } from '../registry.js';
+import { paginate } from '../../core/pagination.js';
 
 import {
   listAdrs, showAdr, syncAdrsToDb, validateAllAdrs, findAdrs
@@ -60,6 +61,14 @@ import {
   getVersion,
   initProject,
 } from '../lib/engine.js';
+import {
+  clearTokenUsage,
+  deleteTokenUsage,
+  listTokenUsage,
+  recordTokenExchange,
+  showTokenUsage,
+  summarizeTokenUsage,
+} from '../../core/metrics/token-service.js';
 
 // ---------------------------------------------------------------------------
 // AdminHandler
@@ -70,6 +79,12 @@ export class AdminHandler implements DomainHandler {
 
   constructor() {
     this.projectRoot = getProjectRoot();
+  }
+
+  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
+    const limit = typeof params?.limit === 'number' && params.limit > 0 ? params.limit : undefined;
+    const offset = typeof params?.offset === 'number' && params.offset > 0 ? params.offset : undefined;
+    return { limit, offset };
   }
 
   // -----------------------------------------------------------------------
@@ -143,8 +158,20 @@ export class AdminHandler implements DomainHandler {
             return this.errorResponse('query', 'admin', operation, 'E_NOT_AVAILABLE', 'Job manager not initialized', startTime);
           }
           const statusFilter = params?.status as string | undefined;
-          const jobs = mgr.listJobs(statusFilter);
-          return this.wrapEngineResult({ success: true, data: { jobs, count: jobs.length } }, 'query', 'admin', operation, startTime);
+          const { limit, offset } = this.getListParams(params);
+          const allJobs = mgr.listJobs();
+          const filteredJobs = statusFilter ? mgr.listJobs(statusFilter) : allJobs;
+          const page = paginate(filteredJobs, limit, offset);
+          return this.wrapEngineResult({
+            success: true,
+            data: {
+              jobs: page.items,
+              count: filteredJobs.length,
+              total: allJobs.length,
+              filtered: filteredJobs.length,
+            },
+            page: page.page,
+          }, 'query', 'admin', operation, startTime);
         }
 
         case 'dash': {
@@ -235,14 +262,18 @@ export class AdminHandler implements DomainHandler {
         }
 
         case 'adr.list': {
+          const { limit, offset } = this.getListParams(params);
           const result = await listAdrs(this.projectRoot, {
             status: params?.status as string | undefined,
             since: params?.since as string | undefined,
+            limit,
+            offset,
           });
           return {
             _meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
             data: result,
+            page: paginate(Array.from({ length: result.filtered }), limit, offset).page,
           };
         }
 
@@ -310,7 +341,86 @@ export class AdminHandler implements DomainHandler {
 
         case 'grade.list': {
           const { readGrades } = await import('../../core/sessions/session-grade.js');
-          const result = await readGrades(undefined, this.projectRoot);
+          const { limit, offset } = this.getListParams(params);
+          const allGrades = await readGrades(undefined, this.projectRoot);
+          const sessionId = params?.sessionId as string | undefined;
+          const filteredGrades = sessionId
+            ? allGrades.filter((grade) => grade.sessionId === sessionId)
+            : allGrades;
+          const page = paginate(filteredGrades, limit, offset);
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: {
+              grades: page.items,
+              total: allGrades.length,
+              filtered: filteredGrades.length,
+            },
+            page: page.page,
+          };
+        }
+
+        case 'token.summary': {
+          const result = await summarizeTokenUsage({
+            provider: params?.provider as string | undefined,
+            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+            gateway: params?.gateway as string | undefined,
+            domain: params?.domain as string | undefined,
+            operation: params?.operationName as string | undefined,
+            sessionId: params?.sessionId as string | undefined,
+            taskId: params?.taskId as string | undefined,
+            method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
+            confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
+            requestId: params?.requestId as string | undefined,
+            since: params?.since as string | undefined,
+            until: params?.until as string | undefined,
+          }, this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'token.list': {
+          const { limit, offset } = this.getListParams(params);
+          const result = await listTokenUsage({
+            provider: params?.provider as string | undefined,
+            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+            gateway: params?.gateway as string | undefined,
+            domain: params?.domain as string | undefined,
+            operation: params?.operationName as string | undefined,
+            sessionId: params?.sessionId as string | undefined,
+            taskId: params?.taskId as string | undefined,
+            method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
+            confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
+            requestId: params?.requestId as string | undefined,
+            since: params?.since as string | undefined,
+            until: params?.until as string | undefined,
+            limit,
+            offset,
+          }, this.projectRoot);
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: {
+              records: result.records,
+              total: result.total,
+              filtered: result.filtered,
+            },
+            page: paginate(Array.from({ length: result.filtered }), limit, offset).page,
+          };
+        }
+
+        case 'token.show': {
+          const tokenId = params?.tokenId as string;
+          if (!tokenId) {
+            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'tokenId is required', startTime);
+          }
+          const result = await showTokenUsage(tokenId, this.projectRoot);
+          if (!result) {
+            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Token usage record not found: ${tokenId}`, startTime);
+          }
           return {
             _meta: dispatchMeta('query', 'admin', operation, startTime),
             success: true,
@@ -613,6 +723,64 @@ export class AdminHandler implements DomainHandler {
           }, 'mutate', 'admin', operation, startTime);
         }
 
+        case 'token.record': {
+          const result = await recordTokenExchange({
+            provider: params?.provider as string | undefined,
+            model: params?.model as string | undefined,
+            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+            gateway: params?.gateway as string | undefined,
+            domain: params?.domain as string | undefined,
+            operation: params?.operationName as string | undefined,
+            sessionId: params?.sessionId as string | undefined,
+            taskId: params?.taskId as string | undefined,
+            requestId: params?.requestId as string | undefined,
+            requestPayload: params?.requestPayload,
+            responsePayload: params?.responsePayload,
+            metadata: params?.metadata as Record<string, unknown> | undefined,
+            cwd: this.projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'token.delete': {
+          const tokenId = params?.tokenId as string;
+          if (!tokenId) {
+            return this.errorResponse('mutate', 'admin', operation, 'E_INVALID_INPUT', 'tokenId is required', startTime);
+          }
+          const result = await deleteTokenUsage(tokenId, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
+        case 'token.clear': {
+          const result = await clearTokenUsage({
+            provider: params?.provider as string | undefined,
+            transport: params?.transport as 'cli' | 'mcp' | 'api' | 'agent' | 'unknown' | undefined,
+            gateway: params?.gateway as string | undefined,
+            domain: params?.domain as string | undefined,
+            operation: params?.operationName as string | undefined,
+            sessionId: params?.sessionId as string | undefined,
+            taskId: params?.taskId as string | undefined,
+            method: params?.method as 'otel' | 'provider_api' | 'tokenizer' | 'heuristic' | undefined,
+            confidence: params?.confidence as 'real' | 'high' | 'estimated' | 'coarse' | undefined,
+            requestId: params?.requestId as string | undefined,
+            since: params?.since as string | undefined,
+            until: params?.until as string | undefined,
+          }, this.projectRoot);
+          return {
+            _meta: dispatchMeta('mutate', 'admin', operation, startTime),
+            success: true,
+            data: result,
+          };
+        }
+
         default:
           return this.unsupported('mutate', 'admin', operation, startTime);
       }
@@ -631,12 +799,13 @@ export class AdminHandler implements DomainHandler {
         'version', 'health', 'doctor', 'config.show', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
-        'sync.status', 'export', 'snapshot.export', 'export.tasks',
+        'token.summary', 'token.list', 'token.show', 'sync.status', 'export', 'snapshot.export', 'export.tasks',
       ],
       mutate: [
         'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
         'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
         'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks', 'detect',
+        'token.record', 'token.delete', 'token.clear',
       ],
     };
   }
@@ -646,7 +815,12 @@ export class AdminHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      page?: import('@cleocode/lafs-protocol').LAFSPage;
+      error?: { code: string; message: string; details?: unknown; fix?: string; alternatives?: Array<{ action: string; command: string }> };
+    },
     gateway: string,
     domain: string,
     operation: string,
@@ -656,6 +830,7 @@ export class AdminHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
+      ...(result.page ? { page: result.page } : {}),
       ...(result.error ? {
         error: {
           code: result.error.code,
