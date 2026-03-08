@@ -473,7 +473,7 @@ All sticky operations are tier 0 (quick capture). Sticky notes are lightweight c
 | admin | 23 | 21 | 44 |
 | nexus | 17 | 14 | 31 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **148** | **114** | **262** |
+| **Total** | **151** | **117** | **268** |
 
 ---
 

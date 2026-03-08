@@ -108,7 +108,7 @@ describe('AdminHandler', () => {
         'version', 'health', 'doctor', 'config.show', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
         'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
-        'sync.status', 'export', 'snapshot.export', 'export.tasks',
+        'token.summary', 'token.list', 'token.show', 'sync.status', 'export', 'snapshot.export', 'export.tasks',
       ]);
     });
 
@@ -118,6 +118,7 @@ describe('AdminHandler', () => {
         'init', 'fix', 'config.set', 'backup', 'restore', 'backup.restore', 'migrate',
         'sync', 'sync.clear', 'cleanup', 'job.cancel', 'safestop', 'inject.generate', 'sequence',
         'adr.sync', 'adr.validate', 'import', 'snapshot.import', 'import.tasks', 'detect',
+        'token.record', 'token.delete', 'token.clear',
       ]);
     });
   });
