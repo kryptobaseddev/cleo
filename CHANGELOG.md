@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.3.24] (2026-03-08)
+
+### Bug Fixes
+- **Fix 18 CLI routing bugs**: Align all CLI commands with T5615 registry consolidation — validate, compliance, verify, doctor, testing, consensus, contribution, decomposition, implementation, specification, phase, nexus (5 ops), adr. (T5671)
+- **Fix task-engine param forwarding**: Add missing phase, size, acceptance, notes, files params to taskCreate engine function. (T5671)
+- **Fix memory stats routing**: Redirect stats subcommand from removed pattern.stats/learning.stats to find operations. (T5671)
+- **Replace deprecated commands handler**: Replace COMMANDS-INDEX.json reader with admin.help dispatch. (T5671)
+- **Sync server.json version**: Update from 2026.3.7 to current, add to versionBump files config. (T5671)
+- **Fix 7 test regressions**: Update test assertions for canonical operation routing. (T5671)
+
+---
 ## [2026.3.23] (2026-03-08)
 
 ### Features
