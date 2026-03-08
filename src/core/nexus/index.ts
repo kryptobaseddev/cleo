@@ -25,7 +25,6 @@ export {
   // Path helpers
   getNexusHome,
   getNexusCacheDir,
-  getRegistryPath,
   // Operations
   readRegistry,
   readRegistryRequired,

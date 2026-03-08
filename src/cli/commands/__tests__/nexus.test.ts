@@ -65,7 +65,6 @@ beforeEach(async () => {
   process.env['CLEO_HOME'] = registryDir;
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
   process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
-  process.env['NEXUS_REGISTRY_FILE'] = join(registryDir, 'projects-registry.json');
   process.env['NEXUS_SKIP_PERMISSION_CHECK'] = 'true';
   process.env['NEXUS_CURRENT_PROJECT'] = 'project-alpha';
 });
@@ -74,7 +73,6 @@ afterEach(async () => {
   delete process.env['CLEO_HOME'];
   delete process.env['NEXUS_HOME'];
   delete process.env['NEXUS_CACHE_DIR'];
-  delete process.env['NEXUS_REGISTRY_FILE'];
   delete process.env['NEXUS_SKIP_PERMISSION_CHECK'];
   delete process.env['NEXUS_CURRENT_PROJECT'];
   await closeAllDatabases();

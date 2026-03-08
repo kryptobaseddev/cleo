@@ -60,7 +60,6 @@ beforeEach(async () => {
   process.env['CLEO_HOME'] = registryDir;
   process.env['NEXUS_HOME'] = join(registryDir, 'nexus');
   process.env['NEXUS_CACHE_DIR'] = join(registryDir, 'nexus', 'cache');
-  process.env['NEXUS_REGISTRY_FILE'] = join(registryDir, 'projects-registry.json');
 
   // Reset nexus.db singleton so each test gets a fresh database
   resetNexusDbState();
@@ -70,7 +69,6 @@ afterEach(async () => {
   delete process.env['CLEO_HOME'];
   delete process.env['NEXUS_HOME'];
   delete process.env['NEXUS_CACHE_DIR'];
-  delete process.env['NEXUS_REGISTRY_FILE'];
   resetNexusDbState();
   resetDbState();
   await rm(testDir, { recursive: true, force: true });
