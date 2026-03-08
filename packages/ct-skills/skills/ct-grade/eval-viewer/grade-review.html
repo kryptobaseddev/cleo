@@ -6,119 +6,134 @@
   <title>ct-grade — Grade Review</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Lora:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg:         #faf9f5;
-      --surface:    #ffffff;
-      --surface2:   #f4f2ec;
-      --border:     #e8e6dc;
-      --text:       #141413;
-      --text-muted: #8a8880;
-      --accent:     #d97757;
-      --header-bg:  #141413;
-      --header-text:#faf9f5;
+      --bg:         #0d1117;
+      --surface:    #161b22;
+      --surface2:   #1c2128;
+      --border:     #30363d;
+      --text:       #e6edf3;
+      --text-muted: #7d8590;
+      --accent:     #f78166;
       --radius:     6px;
-      --mono:       'JetBrains Mono', 'Fira Code', monospace;
-      --grade-a:  #4a8c5c; --grade-a-bg: #eaf4ee;
-      --grade-b:  #3a7fa8; --grade-b-bg: #e8f2f9;
-      --grade-c:  #b07d2a; --grade-c-bg: #fdf4e3;
-      --grade-d:  #c45d30; --grade-d-bg: #fceee8;
-      --grade-f:  #c03030; --grade-f-bg: #fce8e8;
-      --dim1: #7b68c8; --dim2: #4a8fa5; --dim3: #4a8c5c;
-      --dim4: #c4923a; --dim5: #d97757;
-      --mcp:  #4a8fa5; --cli:  #7b68c8; --tie: #8a8880;
-      --win:  #4a8c5c; --loss: #c03030;
+      --mono:       'JetBrains Mono', monospace;
+      --grade-a: #3fb950; --grade-a-bg: #0d2818;
+      --grade-b: #58a6ff; --grade-b-bg: #0d1f3c;
+      --grade-c: #e3b341; --grade-c-bg: #2d1d00;
+      --grade-d: #f0883e; --grade-d-bg: #2c1700;
+      --grade-f: #f85149; --grade-f-bg: #2d0f0d;
+      --mcp: #58a6ff; --cli: #a371f7; --tie: #7d8590;
+      --win: #3fb950; --loss: #f85149;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Lora', Georgia, serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; font-size: 14px; }
-    .header { background: var(--header-bg); color: var(--header-text); padding: .75rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 1rem; }
+    body { font-family: 'Poppins', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; font-size: 14px; }
+
+    /* Header */
+    .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: .75rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 1rem; }
     .header-left { display: flex; align-items: center; gap: .75rem; }
-    .header-logo { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; background: var(--accent); color: #fff; padding: .2em .5em; border-radius: 3px; }
-    .header-title { font-family: 'Poppins', sans-serif; font-size: 1rem; font-weight: 600; color: #fff; }
-    .header-subtitle { font-size: .75rem; color: #888; }
-    .header-meta { font-size: .7rem; color: #666; text-align: right; line-height: 1.6; }
-    .tabs-bar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; padding: 0 1.5rem; gap: .25rem; flex-shrink: 0; }
-    .tab-btn { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 500; padding: .6rem .9rem; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; letter-spacing: .02em; }
+    .header-logo { font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; background: var(--accent); color: #fff; padding: .2em .5em; border-radius: 3px; }
+    .header-title { font-size: 1rem; font-weight: 600; }
+    .header-subtitle { font-size: .75rem; color: var(--text-muted); }
+    .header-meta { font-size: .7rem; color: var(--text-muted); text-align: right; line-height: 1.6; }
+
+    /* Tabs */
+    .tabs-bar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; padding: 0 1.5rem; gap: .25rem; flex-shrink: 0; overflow-x: auto; }
+    .tab-btn { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 500; padding: .6rem .9rem; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; letter-spacing: .02em; white-space: nowrap; }
     .tab-btn:hover { color: var(--text); }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
     .tab-badge { display: inline-block; background: var(--surface2); border-radius: 9px; font-size: .65rem; padding: .1em .45em; margin-left: .3em; color: var(--text-muted); }
-    .tab-btn.active .tab-badge { background: #fde8df; color: var(--accent); }
+    .tab-btn.active .tab-badge { background: rgba(247,129,102,.15); color: var(--accent); }
+
+    /* Layout */
     .main { display: flex; flex: 1; overflow: hidden; }
     .tab-panel { display: none; width: 100%; overflow: hidden; }
     .tab-panel.active { display: flex; }
-    /* Sidebar */
-    .sidebar { width: 240px; min-width: 180px; border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
-    .sidebar-header { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: .75rem 1rem .4rem; }
+    .sidebar { width: 260px; min-width: 200px; border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+    .sidebar-header { font-size: .65rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: .75rem 1rem .4rem; }
     .sidebar-item { padding: .55rem 1rem; cursor: pointer; display: flex; align-items: center; gap: .5rem; border-left: 3px solid transparent; transition: background .1s; font-size: .8rem; }
-    .sidebar-item:hover { background: var(--bg); }
-    .sidebar-item.active { background: var(--bg); border-left-color: var(--accent); }
+    .sidebar-item:hover { background: var(--surface2); }
+    .sidebar-item.active { background: var(--surface2); border-left-color: var(--accent); }
     .item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .item-score { font-family: var(--mono); font-size: .7rem; font-weight: 500; }
-    /* Content area */
+    .item-scenario { font-size: .6rem; color: var(--text-muted); background: var(--surface2); border: 1px solid var(--border); padding: .05em .35em; border-radius: 3px; margin-left: .25rem; }
     .content { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
-    /* Grade card */
-    .grade-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
-    .grade-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-    .grade-score-block { display: flex; align-items: center; gap: 1rem; }
-    .grade-letter-badge { font-family: 'Poppins', sans-serif; font-size: 2.5rem; font-weight: 700; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
-    .grade-letter-badge.A { background: var(--grade-a-bg); color: var(--grade-a); }
-    .grade-letter-badge.B { background: var(--grade-b-bg); color: var(--grade-b); }
-    .grade-letter-badge.C { background: var(--grade-c-bg); color: var(--grade-c); }
-    .grade-letter-badge.D { background: var(--grade-d-bg); color: var(--grade-d); }
-    .grade-letter-badge.F { background: var(--grade-f-bg); color: var(--grade-f); }
-    .grade-score-details h2 { font-family: 'Poppins', sans-serif; font-size: 1.5rem; font-weight: 700; line-height: 1; }
-    .grade-score-details .pct { font-size: .85rem; color: var(--text-muted); }
-    .grade-session-id { font-family: var(--mono); font-size: .65rem; color: var(--text-muted); background: var(--surface2); padding: .2em .5em; border-radius: 3px; }
+    .scroll-panel { width: 100%; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* Cards */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+    .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .score-block { display: flex; align-items: center; gap: 1rem; }
+    .letter-badge { font-size: 2.5rem; font-weight: 700; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+    .letter-badge.sm { font-size: 1.1rem; width: 36px; height: 36px; border-radius: 5px; }
+    .letter-badge.A { background: var(--grade-a-bg); color: var(--grade-a); }
+    .letter-badge.B { background: var(--grade-b-bg); color: var(--grade-b); }
+    .letter-badge.C { background: var(--grade-c-bg); color: var(--grade-c); }
+    .letter-badge.D { background: var(--grade-d-bg); color: var(--grade-d); }
+    .letter-badge.F { background: var(--grade-f-bg); color: var(--grade-f); }
+    .score-details h2 { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+    .score-details .pct { font-size: .85rem; color: var(--text-muted); }
+    .session-chip { font-family: var(--mono); font-size: .65rem; color: var(--text-muted); background: var(--surface2); padding: .2em .5em; border-radius: 3px; }
+    .section-title { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-bottom: .75rem; }
+
     /* Dimensions */
     .dimensions { display: flex; flex-direction: column; gap: .65rem; }
-    .dimension-row { display: flex; align-items: center; gap: .75rem; }
-    .dimension-name { font-family: 'Poppins', sans-serif; font-size: .7rem; font-weight: 500; width: 155px; flex-shrink: 0; }
-    .dimension-bar-wrap { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
-    .dimension-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
-    .dimension-score-label { font-family: var(--mono); font-size: .7rem; width: 42px; text-align: right; flex-shrink: 0; }
+    .dim-row { display: flex; align-items: center; gap: .75rem; }
+    .dim-name { font-size: .7rem; font-weight: 500; width: 155px; flex-shrink: 0; }
+    .dim-bar-wrap { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+    .dim-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .dim-score { font-family: var(--mono); font-size: .7rem; width: 42px; text-align: right; flex-shrink: 0; }
+
     /* Flags */
-    .flags-section h3 { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: .6rem; }
-    .flags-list { display: flex; flex-direction: column; gap: .4rem; }
-    .flag-item { display: flex; align-items: flex-start; gap: .5rem; font-size: .78rem; padding: .4rem .6rem; background: var(--grade-f-bg); border-left: 3px solid var(--grade-f); border-radius: 0 var(--radius) var(--radius) 0; line-height: 1.4; }
+    .flags-section h3 { font-size: .75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: .6rem; }
+    .flag-item { display: flex; align-items: flex-start; gap: .5rem; font-size: .78rem; padding: .4rem .6rem; background: var(--grade-f-bg); border-left: 3px solid var(--grade-f); border-radius: 0 var(--radius) var(--radius) 0; line-height: 1.4; margin-bottom: .35rem; }
     .no-flags { font-size: .78rem; color: var(--win); background: var(--grade-a-bg); padding: .4rem .6rem; border-left: 3px solid var(--win); border-radius: 0 var(--radius) var(--radius) 0; }
+
+    /* Evidence collapsible */
+    .evidence-toggle { font-size: .72rem; color: var(--accent); cursor: pointer; background: none; border: none; padding: .25rem 0; }
+    .evidence-toggle:hover { text-decoration: underline; }
+    .evidence-list { display: none; padding-left: .75rem; }
+    .evidence-list.open { display: block; }
+    .ev-bullet { font-size: .74rem; padding: .15rem 0; color: var(--text-muted); }
+
     /* Token meta */
-    .token-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .6rem; }
+    .token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .6rem; }
     .token-stat { background: var(--surface2); border-radius: var(--radius); padding: .6rem .75rem; }
-    .token-stat-label { font-family: 'Poppins', sans-serif; font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .2rem; }
+    .token-stat-label { font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .2rem; }
     .token-stat-value { font-family: var(--mono); font-size: .95rem; font-weight: 500; }
-    /* Sparkline canvas */
-    canvas.sparkline { width: 100%; height: 60px; display: block; }
-    /* Full-width panels */
-    .full-panel { width: 100%; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; }
-    /* Section title */
-    .section-title { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-bottom: .75rem; }
-    /* A/B */
-    .ab-summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
-    .ab-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem 1rem; }
-    .ab-stat-label { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .3rem; }
-    .ab-stat-value { font-family: var(--mono); font-size: 1.3rem; font-weight: 500; }
-    .ab-stat-value.win { color: var(--win); }
-    .ab-stat-value.loss { color: var(--loss); }
-    .ab-stat-value.neutral { color: var(--text-muted); }
-    .ab-winner-banner { display: flex; align-items: center; gap: .6rem; padding: .6rem 1rem; border-radius: var(--radius); font-family: 'Poppins', sans-serif; font-size: .8rem; font-weight: 600; }
-    .ab-winner-banner.mcp { background: #e8f2f9; color: var(--mcp); }
-    .ab-winner-banner.cli { background: #ede8f9; color: var(--cli); }
-    .ab-winner-banner.tie { background: var(--surface2); color: var(--text-muted); }
-    .ab-table-wrap { overflow-x: auto; }
-    table.ab-table { width: 100%; border-collapse: collapse; font-size: .76rem; }
-    .ab-table th { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .4rem .75rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
-    .ab-table td { padding: .45rem .75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    .ab-table tr:hover td { background: var(--bg); }
+    .confidence-badge { display: inline-block; padding: .15em .5em; border-radius: 9px; font-size: .65rem; font-weight: 600; text-transform: uppercase; }
+    .confidence-badge.real { background: var(--grade-a-bg); color: var(--grade-a); }
+    .confidence-badge.high { background: var(--grade-b-bg); color: var(--grade-b); }
+    .confidence-badge.estimated { background: var(--grade-c-bg); color: var(--grade-c); }
+    .confidence-badge.coarse { background: var(--grade-d-bg); color: var(--grade-d); }
+
+    /* Tables */
+    table.data-table { width: 100%; border-collapse: collapse; font-size: .76rem; }
+    .data-table th { font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .5rem .75rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+    .data-table td { padding: .45rem .75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .data-table tr:hover td { background: var(--surface2); }
+    .table-wrap { overflow-x: auto; }
     .op-name { font-family: var(--mono); font-size: .72rem; }
-    .win-pill { display: inline-block; padding: .15em .5em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; }
-    .win-pill.mcp { background: #d0e8f4; color: var(--mcp); }
-    .win-pill.cli { background: #ddd8f4; color: var(--cli); }
-    .win-pill.tie { background: var(--surface2); color: var(--text-muted); }
+
+    /* Pills */
+    .pill { display: inline-block; padding: .15em .5em; border-radius: 9px; font-size: .65rem; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+    .pill.mcp { background: rgba(88,166,255,.15); color: var(--mcp); }
+    .pill.cli { background: rgba(163,113,247,.15); color: var(--cli); }
+    .pill.tie { background: var(--surface2); color: var(--text-muted); }
+    .pill.query { background: rgba(88,166,255,.15); color: var(--mcp); }
+    .pill.mutate { background: rgba(247,129,102,.15); color: var(--accent); }
+    .pill.active { background: var(--grade-a-bg); color: var(--grade-a); }
+    .pill.ended { background: var(--surface2); color: var(--text-muted); }
+    .pill.pass { background: var(--grade-a-bg); color: var(--grade-a); }
+    .pill.fail { background: var(--grade-f-bg); color: var(--grade-f); }
+    .pill.not-run { background: var(--surface2); color: var(--text-muted); }
+
+    /* Delta colors */
     .delta-pos { color: var(--loss); font-family: var(--mono); font-size: .72rem; }
     .delta-neg { color: var(--win); font-family: var(--mono); font-size: .72rem; }
     .delta-zero { color: var(--text-muted); font-family: var(--mono); font-size: .72rem; }
-    /* Token analysis */
+
+    /* Bar charts */
     .bar-chart { display: flex; flex-direction: column; gap: .5rem; }
     .bar-row { display: flex; align-items: center; gap: .75rem; }
     .bar-label { font-family: var(--mono); font-size: .72rem; width: 130px; flex-shrink: 0; text-align: right; }
@@ -126,75 +141,117 @@
     .bar-fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
     .bar-val { font-family: var(--mono); font-size: .7rem; width: 80px; flex-shrink: 0; }
     .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
-    .chart-card-title { font-family: 'Poppins', sans-serif; font-size: .8rem; font-weight: 600; margin-bottom: 1rem; }
-    /* Confidence badge */
-    .confidence-badge { display: inline-block; padding: .2em .55em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-    .confidence-badge.REAL { background: #eaf4ee; color: var(--grade-a); }
-    .confidence-badge.ESTIMATED { background: var(--grade-c-bg); color: var(--grade-c); }
-    .confidence-badge.COARSE { background: var(--grade-d-bg); color: var(--grade-d); }
-    /* Operation Matrix */
-    .matrix-controls { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-    .matrix-controls label { font-family: 'Poppins', sans-serif; font-size: .72rem; font-weight: 600; color: var(--text-muted); }
-    .matrix-controls select { font-family: 'Poppins', sans-serif; font-size: .72rem; padding: .3em .6em; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
-    .matrix-count { font-family: var(--mono); font-size: .7rem; color: var(--text-muted); }
-    table.matrix-table { width: 100%; border-collapse: collapse; font-size: .74rem; }
-    .matrix-table th { font-family: 'Poppins', sans-serif; font-size: .63rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .4rem .6rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; }
-    .matrix-table td { padding: .4rem .6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    .matrix-table tr:hover td { background: var(--bg); }
-    .tier-badge { display: inline-block; padding: .1em .4em; border-radius: 3px; font-family: var(--mono); font-size: .65rem; background: var(--surface2); color: var(--text-muted); }
-    .gateway-pill { display: inline-block; padding: .1em .4em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .63rem; font-weight: 600; text-transform: uppercase; }
-    .gateway-pill.query { background: #d0e8f4; color: var(--mcp); }
-    .gateway-pill.mutate { background: #fde8df; color: var(--accent); }
-    .tested-yes { color: var(--win); font-size: .85rem; }
-    .tested-no { color: var(--border); font-size: .85rem; }
-    /* Eval report */
+    .chart-title { font-size: .8rem; font-weight: 600; margin-bottom: 1rem; }
+
+    /* Summary grid */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem 1rem; }
+    .stat-label { font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .3rem; }
+    .stat-value { font-family: var(--mono); font-size: 1.3rem; font-weight: 500; }
+    .stat-value.win { color: var(--win); }
+    .stat-value.loss { color: var(--loss); }
+    .stat-value.neutral { color: var(--text-muted); }
+
+    /* Winner banner */
+    .winner-banner { display: flex; align-items: center; gap: .6rem; padding: .6rem 1rem; border-radius: var(--radius); font-size: .8rem; font-weight: 600; }
+    .winner-banner.mcp { background: rgba(88,166,255,.1); color: var(--mcp); }
+    .winner-banner.cli { background: rgba(163,113,247,.1); color: var(--cli); }
+    .winner-banner.tie { background: var(--surface2); color: var(--text-muted); }
+
+    /* Filter bar */
+    .filter-bar { display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; padding: .5rem 0; }
+    .filter-bar select, .filter-bar input { font-family: var(--mono); font-size: .72rem; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: .35rem .5rem; outline: none; }
+    .filter-bar select:focus, .filter-bar input:focus { border-color: var(--accent); }
+    .filter-bar label { font-size: .68rem; color: var(--text-muted); font-weight: 500; }
+
+    /* Session row expand */
+    .session-row { cursor: pointer; }
+    .session-expand { display: none; }
+    .session-expand.open { display: table-row; }
+    .session-expand td { padding: 1rem; background: var(--surface2); }
+    .pulse-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--grade-a); animation: pulse 1.5s ease-in-out infinite; margin-right: .35rem; vertical-align: middle; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+    /* Session detail expand */
+    .session-detail { padding: .25rem 0; }
+    .session-detail-header { display: flex; align-items: center; gap: 1.5rem; padding: .5rem 0 .75rem; flex-wrap: wrap; }
+    .session-detail-stat { font-size: .72rem; color: var(--text-muted); }
+    .session-detail-stat strong { color: var(--text); font-weight: 600; }
+    .token-summary { display: flex; gap: 1.25rem; padding: .5rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: .75rem; flex-wrap: wrap; }
+    .token-stat { font-size: .72rem; color: var(--text-muted); }
+    .token-stat strong { font-family: var(--mono); color: var(--accent); }
+    .audit-table-wrap { overflow-x: auto; }
+    .audit-table { width: 100%; border-collapse: collapse; font-size: .72rem; }
+    .audit-table th { text-align: left; padding: .4rem .6rem; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .audit-table td { padding: .35rem .6rem; border-bottom: 1px solid rgba(48,54,61,.5); vertical-align: middle; white-space: nowrap; }
+    .audit-table tr:last-child td { border-bottom: none; }
+    .audit-table tr:hover td { background: rgba(255,255,255,.02); }
+    .audit-time { font-family: var(--mono); color: var(--text-muted); font-size: .68rem; }
+    .audit-domain { font-family: var(--mono); font-size: .72rem; }
+    .audit-op { font-family: var(--mono); font-size: .75rem; font-weight: 500; }
+    .audit-source { font-size: .68rem; color: var(--text-muted); }
+    .audit-ms { font-family: var(--mono); font-size: .7rem; text-align: right; color: var(--text-muted); }
+    .audit-ms.slow { color: var(--grade-c); }
+    .audit-ms.vslow { color: var(--grade-d); }
+    .audit-success { text-align: center; font-size: .85rem; }
+    .gw-pill { display: inline-block; padding: .12em .5em; border-radius: 3px; font-size: .65rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .gw-pill.mutate { background: rgba(247,129,102,.15); color: #f78166; border: 1px solid rgba(247,129,102,.3); }
+    .gw-pill.query  { background: rgba(88,166,255,.15);  color: #58a6ff; border: 1px solid rgba(88,166,255,.3); }
+    .audit-section-title { font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: .6rem 0 .4rem; }
+    .audit-loading { font-size: .75rem; color: var(--text-muted); padding: .5rem 0; font-style: italic; }
+    .audit-count-chip { font-family: var(--mono); font-size: .65rem; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: .1em .5em; margin-left: .5rem; color: var(--text-muted); }
+    .session-chain { display: flex; align-items: center; gap: .5rem; padding: .4rem 0 .6rem; font-size: .72rem; flex-wrap: wrap; }
+    .session-chain-label { color: var(--text-muted); font-size: .65rem; text-transform: uppercase; letter-spacing: .07em; margin-right: .25rem; }
+    .chain-sep { color: var(--text-muted); }
+    .chain-current { background: var(--accent); color: #fff; }
+    .session-scope { font-size: .72rem; color: var(--text-muted); padding: .25rem 0 .5rem; }
+    .session-scope strong { color: var(--text); }
+    .debrief-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem .85rem; margin-bottom: .6rem; display: flex; flex-direction: column; gap: .35rem; }
+    .debrief-row { font-size: .72rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .debrief-label { color: var(--text-muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; min-width: 90px; }
+    .debrief-note { font-size: .73rem; color: var(--text); font-style: italic; padding: .25rem 0; }
+    .git-branch { font-family: var(--mono); font-size: .7rem; color: var(--grade-b); }
+    .git-hash { font-family: var(--mono); font-size: .68rem; color: var(--text-muted); }
+    .uncommitted-badge { background: rgba(248,81,73,.15); color: var(--grade-f); border: 1px solid rgba(248,81,73,.3); padding: .1em .4em; border-radius: 3px; font-size: .63rem; font-weight: 600; }
+    .clean-badge { background: rgba(63,185,80,.15); color: var(--grade-a); border: 1px solid rgba(63,185,80,.3); padding: .1em .4em; border-radius: 3px; font-size: .63rem; }
+    .notes-toggle { font-size: .68rem; color: var(--accent); cursor: pointer; user-select: none; }
+    .notes-list { display: none; }
+    .notes-list.open { display: block; }
+    .note-entry { font-size: .7rem; color: var(--text-muted); padding: .2rem 0; border-bottom: 1px solid var(--border); display: flex; gap: .5rem; }
+    .note-ts { font-family: var(--mono); color: var(--text-muted); opacity: .6; flex-shrink: 0; font-size: .67rem; }
+    .note-text { color: var(--text); }
+
+    /* Eval cards */
     .eval-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
-    .eval-card-header { display: flex; align-items: center; gap: .75rem; margin-bottom: .85rem; }
-    .eval-name { font-family: 'Poppins', sans-serif; font-size: .85rem; font-weight: 600; flex: 1; }
-    .pass-badge { display: inline-block; padding: .15em .5em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 700; text-transform: uppercase; }
-    .pass-badge.pass { background: #eaf4ee; color: var(--grade-a); }
-    .pass-badge.fail { background: var(--grade-f-bg); color: var(--grade-f); }
-    .expectation-list { display: flex; flex-direction: column; gap: .35rem; }
-    .expectation-item { display: flex; align-items: flex-start; gap: .5rem; font-size: .76rem; padding: .35rem .5rem; border-radius: var(--radius); }
-    .expectation-item.pass { background: #f4fbf6; }
-    .expectation-item.fail { background: #fdf4f4; }
-    .expect-icon { flex-shrink: 0; font-size: .85rem; }
-    .expect-desc { flex: 1; }
-    .expect-evidence { font-family: var(--mono); font-size: .65rem; color: var(--text-muted); margin-top: .15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
-    /* Live session */
-    .live-header { display: flex; align-items: center; gap: .75rem; }
-    .live-badge { display: flex; align-items: center; gap: .35rem; font-family: 'Poppins', sans-serif; font-size: .72rem; font-weight: 600; color: var(--win); }
-    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--win); animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .session-id-label { font-family: var(--mono); font-size: .7rem; color: var(--text-muted); background: var(--surface2); padding: .2em .5em; border-radius: 3px; }
-    table.live-table { width: 100%; border-collapse: collapse; font-size: .74rem; }
-    .live-table th { font-family: 'Poppins', sans-serif; font-size: .63rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .4rem .6rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
-    .live-table td { padding: .4rem .6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    .live-table tr:hover td { background: var(--bg); }
-    .success-yes { color: var(--win); }
-    .success-no { color: var(--loss); }
-    /* Evidence section */
-    .ev-title { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .75rem; }
-    .ev-row { margin-bottom: .5rem; }
-    .ev-dim { font-family: 'Poppins', sans-serif; font-size: .68rem; font-weight: 600; margin-bottom: .2rem; }
-    .ev-bullet { font-size: .74rem; padding: .15rem 0 .15rem .75rem; color: var(--text-muted); }
-    /* Note */
-    .ab-note { font-size: .72rem; color: var(--text-muted); background: var(--grade-c-bg); border-left: 3px solid var(--grade-c); padding: .5rem .75rem; border-radius: 0 4px 4px 0; }
-    .info-note { font-size: .72rem; color: var(--text-muted); background: var(--grade-b-bg); border-left: 3px solid var(--mcp); padding: .5rem .75rem; border-radius: 0 4px 4px 0; }
-    /* Scrollbars */
+    .eval-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .75rem; }
+    .eval-card-title { font-weight: 600; font-size: .85rem; }
+    .pass-rate-bar { width: 120px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+    .pass-rate-fill { height: 100%; border-radius: 3px; background: var(--grade-a); }
+    .expectation-row { display: flex; align-items: flex-start; gap: .5rem; font-size: .76rem; padding: .3rem 0; border-bottom: 1px solid var(--border); }
+    .expectation-row:last-child { border-bottom: none; }
+    .expect-icon { flex-shrink: 0; font-size: .8rem; }
+    .expect-evidence { font-size: .7rem; color: var(--text-muted); margin-top: .15rem; }
+
+    /* Note block */
+    .note-block { font-size: .72rem; color: var(--text-muted); background: var(--grade-c-bg); border-left: 3px solid var(--grade-c); padding: .5rem .75rem; border-radius: 0 4px 4px 0; }
+    .api-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: .85rem; }
+    .api-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }
+    .api-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem .85rem; }
+    .api-box-title { font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .45rem; }
+    .api-list { display: flex; flex-direction: column; gap: .3rem; }
+    .api-list code { font-family: var(--mono); font-size: .7rem; color: var(--text); }
+
+    /* Empty state */
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: 3rem 2rem; color: var(--text-muted); text-align: center; }
+    .empty-state h3 { font-size: .9rem; color: var(--text); }
+    .empty-state p { font-size: .78rem; max-width: 380px; line-height: 1.6; }
+    .empty-cmd { font-family: var(--mono); background: var(--surface2); padding: .25em .5em; border-radius: 3px; font-size: .74rem; display: inline-block; margin-top: .25rem; }
+
+    /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-    /* Empty state */
-    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: 3rem 2rem; color: var(--text-muted); text-align: center; }
-    .empty-state h3 { font-family: 'Poppins', sans-serif; font-size: .9rem; color: var(--text); }
-    .empty-state p { font-size: .78rem; max-width: 380px; line-height: 1.6; }
-    .empty-cmd { font-family: var(--mono); background: var(--surface2); padding: .25em .5em; border-radius: 3px; font-size: .74rem; display: inline-block; margin-top: .25rem; }
-    /* Overflow panel for matrix which needs its own scroll context */
-    .matrix-panel { width: 100%; display: flex; flex-direction: column; overflow: hidden; }
-    .matrix-panel-inner { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
-    .matrix-table-wrap { overflow: auto; }
   </style>
 </head>
 <body>
@@ -212,132 +269,103 @@
 
 <div class="tabs-bar">
   <button class="tab-btn active" data-tab="grades">Grades <span class="tab-badge" id="tb-grades">0</span></button>
-  <button class="tab-btn"        data-tab="ab">A/B Comparison <span class="tab-badge" id="tb-ab">0</span></button>
-  <button class="tab-btn"        data-tab="tokens">Token Analysis</button>
-  <button class="tab-btn"        data-tab="matrix">Operation Matrix <span class="tab-badge" id="tb-matrix">0</span></button>
-  <button class="tab-btn"        data-tab="evals">Eval Report <span class="tab-badge" id="tb-evals">0</span></button>
-  <button class="tab-btn"        data-tab="live">Live Session</button>
+  <button class="tab-btn" data-tab="sessions">Sessions <span class="tab-badge" id="tb-sessions">0</span></button>
+  <button class="tab-btn" data-tab="ab">A/B <span class="tab-badge" id="tb-ab">0</span></button>
+  <button class="tab-btn" data-tab="tokens">Token Economy</button>
+  <button class="tab-btn" data-tab="matrix">Operation Matrix <span class="tab-badge" id="tb-matrix">0</span></button>
+  <button class="tab-btn" data-tab="evals">Eval Report <span class="tab-badge" id="tb-evals">0</span></button>
 </div>
 
 <div class="main">
   <div class="tab-panel active" id="panel-grades">
     <div class="sidebar" id="grade-sidebar"></div>
-    <div class="content"  id="grade-content"></div>
+    <div class="content" id="grade-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-sessions">
+    <div class="scroll-panel" id="sessions-content"></div>
   </div>
   <div class="tab-panel" id="panel-ab">
-    <div class="full-panel" id="ab-content"></div>
+    <div class="scroll-panel" id="ab-content"></div>
   </div>
   <div class="tab-panel" id="panel-tokens">
-    <div class="full-panel" id="token-content"></div>
+    <div class="scroll-panel" id="tokens-content"></div>
   </div>
   <div class="tab-panel" id="panel-matrix">
-    <div class="matrix-panel">
-      <div class="matrix-panel-inner" id="matrix-content"></div>
-    </div>
+    <div class="scroll-panel" id="matrix-content"></div>
   </div>
   <div class="tab-panel" id="panel-evals">
-    <div class="full-panel" id="evals-content"></div>
-  </div>
-  <div class="tab-panel" id="panel-live">
-    <div class="full-panel" id="live-content"></div>
+    <div class="scroll-panel" id="evals-content"></div>
   </div>
 </div>
 
+<script id="grade-data" type="application/json">{{EMBEDDED_DATA}}</script>
 <script>
-/*__EMBEDDED_GRADE_DATA__*/
+// ── Data ──────────────────────────────────────────────────────────────────────
+var DATA = {};
+try { DATA = JSON.parse(document.getElementById('grade-data').textContent || '{}'); } catch(e) { DATA = {}; }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function scoreLetter(s) {
-  if (s == null) return '?';
-  if (s >= 90) return 'A';
-  if (s >= 75) return 'B';
-  if (s >= 60) return 'C';
-  if (s >= 45) return 'D';
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function scoreToLetter(score, max) {
+  if (score == null) return '?';
+  var pct = (score / (max || 100)) * 100;
+  if (pct >= 90) return 'A';
+  if (pct >= 80) return 'B';
+  if (pct >= 70) return 'C';
+  if (pct >= 60) return 'D';
   return 'F';
 }
-
-function scoreColor(s) {
-  if (s >= 90) return 'var(--grade-a)';
-  if (s >= 75) return 'var(--grade-b)';
-  if (s >= 60) return 'var(--grade-c)';
-  if (s >= 45) return 'var(--grade-d)';
-  return 'var(--grade-f)';
+function gradeColor(letter) {
+  var m = { A: 'var(--grade-a)', B: 'var(--grade-b)', C: 'var(--grade-c)', D: 'var(--grade-d)', F: 'var(--grade-f)' };
+  return m[letter] || 'var(--text-muted)';
 }
-
-var DIM_COLORS = ['var(--dim1)', 'var(--dim2)', 'var(--dim3)', 'var(--dim4)', 'var(--dim5)'];
-var DIM_NAMES  = ['Session Discipline', 'Discovery Efficiency', 'Task Hygiene', 'Error Protocol', 'Progressive Disclosure'];
-var DIM_KEYS   = ['sessionDiscipline', 'discoveryEfficiency', 'taskHygiene', 'errorProtocol', 'disclosureUse'];
-
-var DOMAIN_BAR_COLORS = [
-  'var(--dim1)', 'var(--dim2)', 'var(--dim3)', 'var(--dim4)', 'var(--dim5)',
-  'var(--accent)', 'var(--mcp)', 'var(--cli)', '#9b7ec8', '#5a9a6a'
-];
+var DIM_NAMES = ['S1 Session Discipline', 'S2 Discovery Efficiency', 'S3 Task Hygiene', 'S4 Error Protocol', 'S5 Progressive Disclosure'];
+var DIM_KEYS = ['sessionDiscipline', 'discoveryEfficiency', 'taskHygiene', 'errorProtocol', 'disclosureUse'];
+var DIM_COLORS = ['#a371f7', '#58a6ff', '#3fb950', '#e3b341', '#f78166'];
 
 function fmtNum(n, fallback) {
   if (n == null) return fallback !== undefined ? fallback : '\u2014';
-  return (typeof n === 'number' && !Number.isInteger(n)) ? n.toFixed(1) : String(n);
+  return typeof n === 'number' && !Number.isInteger(n) ? n.toFixed(1) : String(n);
 }
-
 function fmtDate(s) {
   if (!s) return '';
-  try {
-    return new Date(s).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
-  } catch (e) {
-    return s;
-  }
+  try { return new Date(s).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); } catch(e) { return s; }
+}
+function fmtDuration(ms) {
+  if (!ms && ms !== 0) return '\u2014';
+  if (ms < 1000) return ms + 'ms';
+  var s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  var m = Math.floor(s / 60);
+  return m + 'm ' + (s % 60) + 's';
 }
 
-function fmtTime(s) {
-  if (!s) return '';
-  try {
-    return new Date(s).toLocaleTimeString(undefined, { timeStyle: 'medium' });
-  } catch (e) {
-    return s;
-  }
-}
-
-// Safe element builder — no innerHTML used anywhere
+// Safe element builders
 function mk(tag, cls, text) {
   var e = document.createElement(tag);
   if (cls) e.className = cls;
   if (text != null) e.textContent = String(text);
   return e;
 }
-
 function mks(tag, css, text) {
   var e = document.createElement(tag);
   if (css) e.style.cssText = css;
   if (text != null) e.textContent = String(text);
   return e;
 }
-
 function app(parent) {
   for (var i = 1; i < arguments.length; i++) {
     if (arguments[i] != null) parent.appendChild(arguments[i]);
   }
   return parent;
 }
-
-function mkTd(child) {
-  var td = document.createElement('td');
-  if (child != null) {
-    if (typeof child === 'string' || typeof child === 'number') {
-      td.textContent = String(child);
-    } else {
-      td.appendChild(child);
-    }
-  }
-  return td;
+function emptyState(title, desc, cmd) {
+  var d = mk('div', 'empty-state');
+  app(d, mk('h3', null, title), mk('p', null, desc));
+  if (cmd) app(d, mk('span', 'empty-cmd', cmd));
+  return d;
 }
 
-function mkTh(text) {
-  var th = document.createElement('th');
-  th.textContent = text;
-  return th;
-}
-
-// ── Tab switching ──────────────────────────────────────────────────────────
+// ── Tab switching ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
     document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
@@ -347,300 +375,813 @@ document.querySelectorAll('.tab-btn').forEach(function(btn) {
   });
 });
 
-// ── Empty state ────────────────────────────────────────────────────────────
-function emptyState(icon, title, desc, cmd) {
-  var d = mk('div', 'empty-state');
-  var iconEl = document.createElement('div');
-  iconEl.style.fontSize = '2.5rem';
-  iconEl.textContent = icon;
-  app(d, iconEl, mk('h3', null, title), mk('p', null, desc));
-  if (cmd) app(d, mk('span', 'empty-cmd', cmd));
-  return d;
-}
-
-// ── Canvas Sparkline ───────────────────────────────────────────────────────
-function drawSparkline(canvas, grades) {
-  var ctx = canvas.getContext('2d');
-  var w = canvas.width = canvas.offsetWidth || 300;
-  var h = canvas.height = 60;
-  ctx.clearRect(0, 0, w, h);
-  if (!grades || grades.length < 2) return;
-  var scores = grades.slice(-20).map(function(g) {
-    return g.totalScore != null ? g.totalScore : (g.score || 0);
-  });
-  var minS = Math.min.apply(null, scores);
-  var maxS = Math.max.apply(null, scores) || 100;
-  var pad = 4;
-  var uW = w - pad * 2;
-  var uH = h - pad * 2;
-
-  function toX(i) { return pad + (i / (scores.length - 1)) * uW; }
-  function toY(s) { return (h - pad) - ((s - minS) / (maxS - minS || 1)) * uH; }
-
-  // Fill gradient
-  var grad = ctx.createLinearGradient(0, pad, 0, h - pad);
-  grad.addColorStop(0, 'rgba(73,143,165,.25)');
-  grad.addColorStop(1, 'rgba(73,143,165,.02)');
-  ctx.beginPath();
-  scores.forEach(function(s, i) {
-    if (i === 0) ctx.moveTo(toX(i), toY(s));
-    else ctx.lineTo(toX(i), toY(s));
-  });
-  ctx.lineTo(toX(scores.length - 1), h - pad);
-  ctx.lineTo(toX(0), h - pad);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  // Line
-  ctx.strokeStyle = 'var(--accent)';
-  ctx.lineWidth = 1.5;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  scores.forEach(function(s, i) {
-    if (i === 0) ctx.moveTo(toX(i), toY(s));
-    else ctx.lineTo(toX(i), toY(s));
-  });
-  ctx.stroke();
-
-  // Dots
-  scores.forEach(function(s, i) {
-    ctx.beginPath();
-    ctx.arc(toX(i), toY(s), 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = scoreColor(s);
-    ctx.fill();
-  });
-}
-
-// ── Grade History Tab ──────────────────────────────────────────────────────
+// ── Tab 1: Grades ─────────────────────────────────────────────────────────────
 function renderGradesTab(grades) {
   var sidebar = document.getElementById('grade-sidebar');
   var content = document.getElementById('grade-content');
   sidebar.textContent = '';
   content.textContent = '';
-
   if (!grades || !grades.length) {
-    content.appendChild(emptyState(
-      '\uD83D\uDCCA', 'No grade results yet',
-      'Run a scenario to generate grades:',
-      'python scripts/run_scenario.py --scenario S1 --cleo cleo-dev'
-    ));
+    content.appendChild(emptyState('No grade results yet', 'Run a scenario to generate grades.', 'python scripts/run_scenario.py --scenario S1'));
     return;
   }
-
   document.getElementById('tb-grades').textContent = grades.length;
   app(sidebar, mk('div', 'sidebar-header', 'Sessions'));
-
   grades.forEach(function(g, i) {
     var score = g.totalScore != null ? g.totalScore : g.score;
-    var letter = scoreLetter(score);
+    var letter = scoreToLetter(score, g.maxScore);
     var sid = (g.sessionId || '').slice(0, 22) || ('Run ' + (i + 1));
-
     var item = mk('div', 'sidebar-item' + (i === 0 ? ' active' : ''));
-
-    var ls = document.createElement('span');
-    ls.style.cssText = 'font-family:Poppins,sans-serif;font-weight:700;font-size:.85rem;flex-shrink:0;width:18px;';
-    ls.style.color = scoreColor(score);
-    ls.textContent = letter;
-
+    var ls = mks('span', 'font-weight:700;font-size:.85rem;color:' + gradeColor(letter) + ';flex-shrink:0;width:18px;', letter);
     var lab = mk('span', 'item-label', sid);
-
-    var sc = mk('span', 'item-score', score != null ? (score + '/100') : '\u2014');
-    sc.style.color = scoreColor(score);
-
-    app(item, ls, lab, sc);
+    var sc = mk('span', 'item-score');
+    sc.textContent = score != null ? (score + '/100') : '\u2014';
+    sc.style.color = gradeColor(letter);
+    app(item, ls, lab);
+    if (g._scenarioId || g.scenario) {
+      app(item, mk('span', 'item-scenario', g._scenarioId || g.scenario));
+    }
+    app(item, sc);
     item.addEventListener('click', (function(g2, item2) {
       return function() {
         sidebar.querySelectorAll('.sidebar-item').forEach(function(x) { x.classList.remove('active'); });
         item2.classList.add('active');
-        renderGradeDetail(g2, content, grades);
+        renderGradeDetail(g2, content);
       };
     })(g, item));
     sidebar.appendChild(item);
   });
-
-  renderGradeDetail(grades[0], content, grades);
+  renderGradeDetail(grades[0], content);
 }
 
-function renderGradeDetail(g, container, allGrades) {
+function renderGradeDetail(g, container) {
   container.textContent = '';
-  var score  = g.totalScore != null ? g.totalScore : (g.score || 0);
-  var max    = g.maxScore || 100;
-  var letter = scoreLetter(score);
-  var pct    = Math.round((score / max) * 100);
-  var dims   = g.dimensions || {};
-  var flags  = g.flags || [];
-  var tmeta  = g._tokenMeta || null;
+  var score = g.totalScore != null ? g.totalScore : (g.score || 0);
+  var max = g.maxScore || 100;
+  var letter = scoreToLetter(score, max);
+  var pct = Math.round((score / max) * 100);
+  var dims = g.dimensions || {};
+  var flags = g.flags || [];
+  var tmeta = g._tokenMeta || null;
   var scenario = g._scenarioId || g.scenario || '';
 
   // Score card
-  var card = mk('div', 'grade-card');
-  var hdr  = mk('div', 'grade-card-header');
-  var sb   = mk('div', 'grade-score-block');
-
-  var badge = mk('div', 'grade-letter-badge ' + letter, letter);
-
-  var sd = mk('div', 'grade-score-details');
-  var h2 = mk('h2', null, score + '/' + max);
-  h2.style.color = scoreColor(score);
-  var pctText = pct + '% \u2014 Grade ' + letter + (scenario ? ' \u2014 ' + scenario : '');
-  var pctEl = mk('div', 'pct', pctText);
+  var card = mk('div', 'card');
+  var hdr = mk('div', 'card-header');
+  var sb = mk('div', 'score-block');
+  var badge = mk('div', 'letter-badge ' + letter, letter);
+  var sd = mk('div', 'score-details');
+  var h2 = mk('h2'); h2.textContent = score + '/' + max; h2.style.color = gradeColor(letter);
+  var pctEl = mk('div', 'pct', pct + '% \u2014 Grade ' + letter + (scenario ? ' \u2014 ' + scenario : ''));
   app(sd, h2, pctEl);
-  if (g.timestamp) {
-    app(sd, mks('div', 'font-size:.68rem;color:var(--text-muted);margin-top:.25rem;', fmtDate(g.timestamp)));
-  }
+  if (g.timestamp) app(sd, mks('div', 'font-size:.68rem;color:var(--text-muted);margin-top:.25rem;', fmtDate(g.timestamp)));
   app(sb, badge, sd);
   app(hdr, sb);
-  if (g.sessionId) {
-    app(hdr, mk('code', 'grade-session-id', g.sessionId));
-  }
+  if (g.sessionId) app(hdr, mk('code', 'session-chip', g.sessionId));
   card.appendChild(hdr);
 
-  // Dimension progress bars
+  // Dimension bars
   var dimsWrap = mk('div', 'dimensions');
   DIM_KEYS.forEach(function(key, i) {
-    var d = dims[key];
-    if (!d) return;
-    var ds = d.score || 0, dm = d.max || 20;
-    var dp = Math.round((ds / dm) * 100);
-    var row = mk('div', 'dimension-row');
-    var bar = mk('div', 'dimension-bar');
+    var d = dims[key]; if (!d) return;
+    var ds = d.score || 0, dm = d.max || 20, dp = Math.round((ds / dm) * 100);
+    var row = mk('div', 'dim-row');
+    var bar = mk('div', 'dim-bar');
     bar.style.cssText = 'width:' + dp + '%;background:' + DIM_COLORS[i] + ';';
-    var bw = mk('div', 'dimension-bar-wrap');
-    bw.appendChild(bar);
-    var sl = mk('span', 'dimension-score-label', ds + '/' + dm);
+    var bw = mk('div', 'dim-bar-wrap'); bw.appendChild(bar);
+    var sl = mk('span', 'dim-score', ds + '/' + dm);
     sl.style.color = DIM_COLORS[i];
-    app(row, mk('span', 'dimension-name', DIM_NAMES[i]), bw, sl);
-    if (d.evidence && d.evidence.length) {
-      row.title = d.evidence.join(' | ');
-    }
+    app(row, mk('span', 'dim-name', DIM_NAMES[i]), bw, sl);
     dimsWrap.appendChild(row);
   });
   card.appendChild(dimsWrap);
-
-  // Sparkline trend for all grades
-  if (allGrades && allGrades.length >= 2) {
-    var sparkWrap = mks('div', 'margin-top:1rem;');
-    var sparkLabel = mks('div', 'font-family:Poppins,sans-serif;font-size:.65rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.35rem;', 'Score Trend (last 20)');
-    var canvas = document.createElement('canvas');
-    canvas.className = 'sparkline';
-    app(sparkWrap, sparkLabel, canvas);
-    card.appendChild(sparkWrap);
-    requestAnimationFrame(function() { drawSparkline(canvas, allGrades); });
-  }
-
   container.appendChild(card);
 
   // Flags
-  var fs = mk('div', 'grade-card flags-section');
+  var fs = mk('div', 'card flags-section');
   var ft = mk('h3', null, 'Flags' + (flags.length ? ' (' + flags.length + ')' : ''));
-  var fl = mk('div', 'flags-list');
+  fs.appendChild(ft);
   if (!flags.length) {
-    fl.appendChild(mk('div', 'no-flags', '\u2713 No flags \u2014 all protocol checks passed'));
+    fs.appendChild(mk('div', 'no-flags', '\u2713 Clean \u2014 all protocol checks passed'));
   } else {
     flags.forEach(function(f) {
-      var fi = mk('div', 'flag-item');
-      app(fi, mks('span', 'flex-shrink:0;', '\u26A0'), mk('span', null, f));
-      fl.appendChild(fi);
+      var item = mk('div', 'flag-item');
+      app(item, mks('span', 'flex-shrink:0;', '\u26A0'), mk('span', null, f));
+      fs.appendChild(item);
     });
   }
-  app(fs, ft, fl);
   container.appendChild(fs);
 
-  // Evidence
-  var hasEvidence = DIM_KEYS.some(function(k) {
-    return dims[k] && dims[k].evidence && dims[k].evidence.length;
-  });
+  // Evidence (collapsed, expandable per dimension)
+  var hasEvidence = DIM_KEYS.some(function(k) { return dims[k] && dims[k].evidence && dims[k].evidence.length; });
   if (hasEvidence) {
-    var ec = mk('div', 'grade-card');
-    ec.appendChild(mk('div', 'ev-title', 'Evidence'));
+    var ec = mk('div', 'card');
+    ec.appendChild(mk('div', 'section-title', 'Evidence'));
     DIM_KEYS.forEach(function(key, i) {
-      var d = dims[key];
-      if (!d || !d.evidence || !d.evidence.length) return;
-      var row = mk('div', 'ev-row');
-      var dl = mk('div', 'ev-dim', DIM_NAMES[i]);
-      dl.style.color = DIM_COLORS[i];
-      row.appendChild(dl);
-      d.evidence.forEach(function(ev) {
-        row.appendChild(mk('div', 'ev-bullet', '\u2022 ' + ev));
+      var d = dims[key]; if (!d || !d.evidence || !d.evidence.length) return;
+      var dimLabel = mk('div', 'dim-name', DIM_NAMES[i]);
+      dimLabel.style.cssText = 'color:' + DIM_COLORS[i] + ';width:auto;margin-bottom:.25rem;';
+      ec.appendChild(dimLabel);
+      var toggle = mk('button', 'evidence-toggle', 'Show ' + d.evidence.length + ' evidence item(s)');
+      var list = mk('div', 'evidence-list');
+      d.evidence.forEach(function(ev) { list.appendChild(mk('div', 'ev-bullet', '\u2022 ' + ev)); });
+      toggle.addEventListener('click', function() {
+        var open = list.classList.toggle('open');
+        toggle.textContent = (open ? 'Hide' : 'Show ' + d.evidence.length) + ' evidence item(s)';
       });
-      ec.appendChild(row);
+      app(ec, toggle, list);
     });
     container.appendChild(ec);
   }
 
-  // Token metadata
-  var tokCard = mk('div', 'grade-card');
-  tokCard.appendChild(mk('div', 'ev-title', 'Token Metadata'));
-  var grid = mk('div', 'token-meta-grid');
-
+  // Token display
+  var tokCard = mk('div', 'card');
+  tokCard.appendChild(mk('div', 'section-title', 'Token Metadata'));
+  var grid = mk('div', 'token-grid');
   function addStat(label, value) {
     var s = mk('div', 'token-stat');
     app(s, mk('div', 'token-stat-label', label), mk('div', 'token-stat-value', fmtNum(value, '\u2014')));
     grid.appendChild(s);
   }
-
-  if (tmeta) {
-    if (tmeta.confidence) addStat('Confidence', tmeta.confidence);
-    if (tmeta.estimationMethod || tmeta.estimation_method) {
-      addStat('Method', tmeta.estimationMethod || tmeta.estimation_method);
-    }
-    if (tmeta.total_tokens != null) addStat('Total Tokens', tmeta.total_tokens);
-    if (tmeta.totalEstimatedTokens != null) addStat('Est. Tokens', tmeta.totalEstimatedTokens);
-    if (tmeta.inputTokens != null) addStat('Input Tokens', tmeta.inputTokens);
-    if (tmeta.outputTokens != null) addStat('Output Tokens', tmeta.outputTokens);
-    if (tmeta.cacheReadTokens != null) addStat('Cache Read', tmeta.cacheReadTokens);
+  if (tmeta && tmeta.confidence !== 'heuristic') {
+    var conf = (tmeta.confidence || tmeta.estimationMethod || 'estimated').toLowerCase();
+    var confBadge = mk('span', 'confidence-badge ' + conf, conf.toUpperCase());
+    var confWrap = mk('div', 'token-stat');
+    app(confWrap, mk('div', 'token-stat-label', 'Confidence'), confBadge);
+    grid.appendChild(confWrap);
+    if (tmeta.totalEstimatedTokens || tmeta.total_tokens) addStat('Total Tokens', tmeta.totalEstimatedTokens || tmeta.total_tokens);
+    if (tmeta.inputTokens) addStat('Input', tmeta.inputTokens);
+    if (tmeta.outputTokens) addStat('Output', tmeta.outputTokens);
+    if (tmeta.cacheReadTokens) addStat('Cache Read', tmeta.cacheReadTokens);
   } else if (g.entryCount) {
-    addStat('Audit Entries', g.entryCount);
-    addStat('Est. Tokens', '~' + (g.entryCount * 150));
-    addStat('Method', 'entry_count_proxy');
+    var coarseBadge = mk('span', 'confidence-badge coarse', 'COARSE');
+    var cWrap = mk('div', 'token-stat');
+    app(cWrap, mk('div', 'token-stat-label', 'Confidence'), coarseBadge);
+    grid.appendChild(cWrap);
+    addStat('Estimate', '~' + (g.entryCount * 150) + 't');
+    addStat('Basis', g.entryCount + ' entries x ~150t');
   } else {
-    addStat('Note', 'Enable OTEL or use run_scenario.py for token data');
+    addStat('Note', 'Enable OTEL for token data');
   }
   app(tokCard, grid);
   container.appendChild(tokCard);
 }
 
-// ── A/B Comparison Tab ─────────────────────────────────────────────────────
-function renderABTab(ab) {
-  var container = document.getElementById('ab-content');
+// ── Tab 2: Sessions ───────────────────────────────────────────────────────────
+function renderSessionsTab(sessions) {
+  var container = document.getElementById('sessions-content');
   container.textContent = '';
+  if (!sessions || !sessions.length) {
+    container.appendChild(emptyState('No sessions found', 'Session data will appear here after graded sessions run.'));
+    return;
+  }
+  document.getElementById('tb-sessions').textContent = sessions.length;
 
-  if (!ab || !ab.total_runs) {
-    container.appendChild(emptyState(
-      '\u2696\uFE0F', 'No A/B results yet',
-      'Run a blind comparison:',
-      'python scripts/run_ab_test.py --domain tasks --runs 3 --cleo cleo-dev'
-    ));
+  // Grade coverage summary
+  var summary = DATA.grade_summary || {};
+  if (summary.total > 0) {
+    var statsRow = mk('div', 'token-summary');
+    function gstat(label, val, color) {
+      var el = mk('div', 'token-stat');
+      var lbl = document.createElement('span'); lbl.textContent = label + ': ';
+      var v = document.createElement('strong');
+      v.textContent = val != null ? String(val) : '\u2014';
+      if (color) v.style.color = color;
+      el.appendChild(lbl); el.appendChild(v);
+      return el;
+    }
+    var letter = summary.avgScore != null ? scoreToLetter(summary.avgScore) : null;
+    app(statsRow,
+      gstat('Total grades', summary.total),
+      gstat('Graded sessions', summary.graded),
+      gstat('Avg score', summary.avgScore != null ? summary.avgScore + '/100' : null, letter ? gradeColor(letter) : null),
+      gstat('Best', summary.maxScore),
+      gstat('Worst', summary.minScore)
+    );
+    // Distribution badges
+    if (summary.distribution) {
+      var distEl = mk('div', 'token-stat');
+      var distLbl = document.createElement('span'); distLbl.textContent = 'Distribution: ';
+      distEl.appendChild(distLbl);
+      ['A','B','C','D','F'].forEach(function(l) {
+        var n = summary.distribution[l];
+        if (n) {
+          var badge = mk('span', 'pill', l + ':' + n);
+          badge.style.cssText = 'background:' + gradeColorBg(l) + ';color:' + gradeColor(l) + ';margin-left:3px;padding:.1em .4em;border-radius:3px;font-size:.65rem;font-weight:700;';
+          distEl.appendChild(badge);
+        }
+      });
+      statsRow.appendChild(distEl);
+    }
+    container.appendChild(statsRow);
+  }
+
+  // Filter bar
+  var filterBar = mk('div', 'filter-bar');
+  var statusSel = document.createElement('select');
+  [['all', 'All'], ['active', 'Active'], ['ended', 'Ended']].forEach(function(opt) {
+    var o = document.createElement('option'); o.value = opt[0]; o.textContent = opt[1]; statusSel.appendChild(o);
+  });
+  var sortSel = document.createElement('select');
+  [['newest', 'Newest first'], ['oldest', 'Oldest first'], ['score', 'By score']].forEach(function(opt) {
+    var o = document.createElement('option'); o.value = opt[0]; o.textContent = opt[1]; sortSel.appendChild(o);
+  });
+  var searchInput = document.createElement('input');
+  searchInput.type = 'text'; searchInput.placeholder = 'Search sessions...';
+  app(filterBar, mk('label', null, 'Status:'), statusSel, mk('label', null, 'Sort:'), sortSel, searchInput);
+  container.appendChild(filterBar);
+
+  var tableWrap = mk('div', 'table-wrap');
+  container.appendChild(tableWrap);
+
+  function renderTable() {
+    tableWrap.textContent = '';
+    var filtered = sessions.slice();
+    var statusVal = statusSel.value;
+    if (statusVal !== 'all') {
+      filtered = filtered.filter(function(s) {
+        var st = (s.status || '').toLowerCase();
+        return statusVal === 'active' ? (st === 'active' || st === 'running') : (st === 'ended' || st === 'completed');
+      });
+    }
+    var q = searchInput.value.toLowerCase();
+    if (q) {
+      filtered = filtered.filter(function(s) {
+        return (s.name || '').toLowerCase().indexOf(q) >= 0 ||
+               (s.sessionId || '').toLowerCase().indexOf(q) >= 0 ||
+               (s.scope || '').toLowerCase().indexOf(q) >= 0;
+      });
+    }
+    var sortVal = sortSel.value;
+    filtered.sort(function(a, b) {
+      if (sortVal === 'score') return (b.gradeScore || 0) - (a.gradeScore || 0);
+      if (sortVal === 'oldest') return new Date(a.startedAt || 0) - new Date(b.startedAt || 0);
+      return new Date(b.startedAt || 0) - new Date(a.startedAt || 0);
+    });
+
+    if (!filtered.length) {
+      tableWrap.appendChild(emptyState('No matching sessions', 'Try adjusting your filters.'));
+      return;
+    }
+
+    var tbl = document.createElement('table'); tbl.className = 'data-table';
+    var thead = document.createElement('thead');
+    var hrow = document.createElement('tr');
+    ['Status', 'Session Name', 'Session ID', 'Scope', 'Started', 'Duration', 'Grade Score', 'Grade Letter', 'Audit Entries', 'MCP Calls', 'CLI Calls'].forEach(function(h) {
+      hrow.appendChild(mk('th', null, h));
+    });
+    thead.appendChild(hrow); tbl.appendChild(thead);
+    var tbody = document.createElement('tbody');
+
+    filtered.forEach(function(s) {
+      var row = document.createElement('tr'); row.className = 'session-row';
+      var isActive = (s.status || '').toLowerCase() === 'active' || (s.status || '').toLowerCase() === 'running';
+      var letter = s.gradeLetter || (s.gradeScore != null ? scoreToLetter(s.gradeScore) : '\u2014');
+
+      // Status pill
+      var statusTd = document.createElement('td');
+      if (isActive) {
+        var dot = mk('span', 'pulse-dot');
+        statusTd.appendChild(dot);
+      }
+      statusTd.appendChild(mk('span', 'pill ' + (isActive ? 'active' : 'ended'), isActive ? 'Active' : 'Ended'));
+      row.appendChild(statusTd);
+
+      // Name with grade mode badge
+      var nameTd = document.createElement('td');
+      if (s.gradeMode) {
+        var gmBadge = mk('span', 'gw-pill query', '\u{1F4CA}');
+        gmBadge.style.cssText = 'font-size:.6rem;padding:.1em .3em;margin-right:.35rem;';
+        gmBadge.title = 'Graded session';
+        nameTd.appendChild(gmBadge);
+      }
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = s.name || '\u2014';
+      nameTd.appendChild(nameSpan);
+      row.appendChild(nameTd);
+      // Session ID chip
+      var idTd = document.createElement('td');
+      idTd.appendChild(mk('code', 'session-chip', (s.sessionId || '').slice(0, 18)));
+      row.appendChild(idTd);
+      // Scope
+      row.appendChild(mk('td', null, s.scope || '\u2014'));
+      // Started
+      row.appendChild(mk('td', null, fmtDate(s.startedAt)));
+      // Duration
+      row.appendChild(mk('td', null, s.durationMs ? fmtDuration(s.durationMs) : '\u2014'));
+      // Grade Score
+      var scoreTd = mk('td', null, s.gradeScore != null ? String(s.gradeScore) : '\u2014');
+      if (s.gradeScore != null) scoreTd.style.color = gradeColor(scoreToLetter(s.gradeScore));
+      row.appendChild(scoreTd);
+      // Grade Letter
+      var letterTd = mk('td');
+      if (letter !== '\u2014') {
+        letterTd.style.fontWeight = '700';
+        letterTd.style.color = gradeColor(letter);
+      }
+      letterTd.textContent = letter;
+      row.appendChild(letterTd);
+      // Audit entries
+      row.appendChild(mk('td', null, fmtNum(s.auditEntries, '0')));
+      // MCP Calls
+      row.appendChild(mk('td', null, fmtNum(s.mcpCalls, '0')));
+      // CLI Calls
+      row.appendChild(mk('td', null, fmtNum(s.cliCalls, '0')));
+
+      tbody.appendChild(row);
+
+      // Expandable detail row
+      var expandRow = document.createElement('tr'); expandRow.className = 'session-expand';
+      var expandTd = document.createElement('td'); expandTd.colSpan = 11;
+
+      row.addEventListener('click', function() {
+        var open = expandRow.classList.toggle('open');
+        if (open && !expandTd.hasChildNodes()) {
+          renderSessionExpand(s, expandTd);
+        }
+      });
+      expandRow.appendChild(expandTd);
+      tbody.appendChild(expandRow);
+    });
+    tbl.appendChild(tbody);
+    tableWrap.appendChild(tbl);
+  }
+
+  statusSel.addEventListener('change', renderTable);
+  sortSel.addEventListener('change', renderTable);
+  searchInput.addEventListener('input', renderTable);
+  renderTable();
+}
+
+function renderSessionExpand(s, td) {
+  var wrap = mk('div', 'session-detail');
+  td.appendChild(wrap);
+
+  // ── Header: session metadata ──────────────────────────────────────────────
+  var hdr = mk('div', 'session-detail-header');
+  function stat(label, val) {
+    var el = mk('div', 'session-detail-stat');
+    var lbl = document.createElement('span'); lbl.textContent = label + ': ';
+    var v = document.createElement('strong'); v.textContent = val || '\u2014';
+    el.appendChild(lbl); el.appendChild(v); return el;
+  }
+  app(hdr,
+    stat('ID', s.sessionId || s.id),
+    stat('Scope', s.scope || ((s.scopeType || '') + (s.scopeRootTaskId ? ':' + s.scopeRootTaskId : ''))),
+    stat('Started', fmtDate(s.startedAt)),
+    stat('Duration', s.durationMs ? fmtDuration(s.durationMs) : (s.endedAt ? fmtDuration(new Date(s.endedAt) - new Date(s.startedAt)) : 'Active')),
+    stat('Resumes', s.resumeCount != null ? String(s.resumeCount) : '0'),
+    stat('Tasks Done', s.tasksCompleted != null ? String(s.tasksCompleted) : '\u2014')
+  );
+
+  // Grade badge inline
+  if (s.gradeScore != null) {
+    var letter = s.gradeLetter || scoreToLetter(s.gradeScore);
+    var gbadge = mk('div', 'letter-badge sm ' + letter, letter);
+    gbadge.style.cssText = 'width:24px;height:24px;font-size:.75rem;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;font-weight:700;background:' + gradeColorBg(letter) + ';color:' + gradeColor(letter) + ';flex-shrink:0;';
+    var ginfo = mks('span', 'font-size:.75rem;color:var(--text-muted);margin-left:.4rem;', s.gradeScore + '/100 \u2014 Grade ' + letter);
+    var gline = mk('div', 'session-detail-stat');
+    gline.style.display = 'flex'; gline.style.alignItems = 'center';
+    app(gline, gbadge, ginfo);
+    hdr.appendChild(gline);
+  }
+  wrap.appendChild(hdr);
+
+  // ── Token summary (if available) ─────────────────────────────────────────
+  if (s.totalTokens || s.tokenRecords) {
+    var tsumm = mk('div', 'token-summary');
+    function tstat(label, val) {
+      var el = mk('div', 'token-stat');
+      var lbl = document.createElement('span'); lbl.textContent = label + ': ';
+      var v = document.createElement('strong'); v.textContent = val != null ? String(val) : '\u2014';
+      el.appendChild(lbl); el.appendChild(v); return el;
+    }
+    app(tsumm,
+      tstat('Total tokens', s.totalTokens ? fmtNum(s.totalTokens) : '\u2014'),
+      tstat('Token records', s.tokenRecords || 0)
+    );
+    wrap.appendChild(tsumm);
+  }
+
+  // ── Grade dimension mini-chart (from session-grade join) ────────────────
+  var gradeDetails = s.gradeDetails || {};
+  var gradeFlags = s.gradeFlags || [];
+  if (gradeDetails && typeof gradeDetails === 'object' && Object.keys(gradeDetails).length) {
+    var dims = ['sessionDiscipline','discoveryEfficiency','taskHygiene','errorProtocol','disclosureUse'];
+    var dimNames = ['S1 Discipline','S2 Efficiency','S3 Hygiene','S4 Protocol','S5 MCP Gateway'];
+    var dimColors = ['#a371f7','#58a6ff','#3fb950','#e3b341','#f78166'];
+    var dimCard = mk('div', 'token-summary');
+    dimCard.style.flexDirection = 'column';
+    dims.forEach(function(k, i) {
+      var dim = gradeDetails[k] || {};
+      var score = dim.score != null ? dim.score : (typeof dim === 'number' ? dim : null);
+      var maxS = dim.max != null ? dim.max : 20;
+      if (score === null) return;
+      var row = mk('div', '');
+      row.style.cssText = 'display:flex;align-items:center;gap:.5rem;margin:.2rem 0;';
+      var label = mk('span', '');
+      label.style.cssText = 'font-size:.68rem;color:var(--text-muted);width:100px;flex-shrink:0;';
+      label.textContent = dimNames[i];
+      var track = mk('div', '');
+      track.style.cssText = 'flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;';
+      var fill = mk('div', '');
+      var pct = maxS > 0 ? Math.min(100, (score / maxS) * 100) : 0;
+      fill.style.cssText = 'height:100%;border-radius:3px;background:' + dimColors[i] + ';width:' + pct + '%;';
+      track.appendChild(fill);
+      var val = mk('span', '');
+      val.style.cssText = 'font-family:var(--mono);font-size:.65rem;color:var(--text-muted);width:40px;flex-shrink:0;text-align:right;';
+      val.textContent = score + '/' + maxS;
+      app(row, label, track, val);
+      dimCard.appendChild(row);
+    });
+    if (gradeFlags.length) {
+      var flagRow = mk('div', '');
+      flagRow.style.cssText = 'margin-top:.4rem;display:flex;gap:.3rem;flex-wrap:wrap;';
+      gradeFlags.forEach(function(f) {
+        flagRow.appendChild(mk('span', 'pill', f.replace(/_/g,' ')));
+      });
+      dimCard.appendChild(flagRow);
+    }
+    wrap.appendChild(dimCard);
+  }
+
+  // ── Audit log section (fetched from /sessions-data) ───────────────────────
+  var auditTitle = mk('div', 'audit-section-title');
+  var countChip = mk('span', 'audit-count-chip', s.auditEntries ? fmtNum(s.auditEntries) + ' entries' : '…');
+  auditTitle.textContent = 'Audit Log';
+  auditTitle.appendChild(countChip);
+  wrap.appendChild(auditTitle);
+
+  var tableWrap = mk('div', 'audit-table-wrap');
+  wrap.appendChild(tableWrap);
+  var loadingMsg = mk('div', 'audit-loading', 'Loading audit entries…');
+  tableWrap.appendChild(loadingMsg);
+
+  // Fetch full audit data from the server
+  var sid = s.sessionId || s.id || '';
+  if (!sid) {
+    loadingMsg.textContent = 'No session ID available.';
     return;
   }
 
-  document.getElementById('tb-ab').textContent = ab.total_runs || 0;
-  var wins = ab.global_wins || {};
-  var mcpW = wins.mcp || 0;
-  var cliW = wins.cli || 0;
-  var tieW = wins.tie || 0;
+  fetch('/sessions-data?sessionId=' + encodeURIComponent(sid))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      tableWrap.textContent = '';
+      var entries = (data.entries || []);
+      var tokens = data.tokens || {};
 
-  var winnerClass = mcpW > cliW ? 'mcp' : cliW > mcpW ? 'cli' : 'tie';
-  var winnerLabel = winnerClass === 'mcp' ? '\u26A1 MCP Wins Overall'
-    : winnerClass === 'cli' ? '\u26A1 CLI Wins Overall'
-    : '\u2194 Overall Tie';
+      // Update token summary if richer data available
+      if (tokens.total_tokens && !s.totalTokens) {
+        var tsumm2 = mk('div', 'token-summary');
+        function tstat2(label, val) {
+          var el = mk('div', 'token-stat');
+          var lbl = document.createElement('span'); lbl.textContent = label + ': ';
+          var v = document.createElement('strong'); v.textContent = val != null ? String(val) : '\u2014';
+          el.appendChild(lbl); el.appendChild(v); return el;
+        }
+        app(tsumm2,
+          tstat2('Total tokens', fmtNum(tokens.total_tokens)),
+          tstat2('Input', fmtNum(tokens.input_tokens || 0)),
+          tstat2('Output', fmtNum(tokens.output_tokens || 0)),
+          tstat2('Records', tokens.records || 0)
+        );
+        wrap.insertBefore(tsumm2, auditTitle);
+      }
 
-  var banner = mk('div', 'ab-winner-banner ' + winnerClass, winnerLabel);
+      // ── Rich session detail sections ────────────────────────────────────
+      var sess = data.session || {};
+
+      // 1. Stats card from session.stats
+      var sstats = sess.stats;
+      if (sstats) {
+        var statsCard = mk('div', 'token-summary');
+        function sstat(label, val) {
+          var el = mk('div', 'token-stat');
+          var lbl = document.createElement('span'); lbl.textContent = label + ': ';
+          var v = document.createElement('strong'); v.textContent = val != null ? String(val) : '\u2014';
+          el.appendChild(lbl); el.appendChild(v); return el;
+        }
+        app(statsCard,
+          sstat('Tasks Done', sstats.tasksCompleted),
+          sstat('Tasks Created', sstats.tasksCreated),
+          sstat('Focus Changes', sstats.focusChanges),
+          sstat('Active', sstats.totalActiveMinutes != null ? sstats.totalActiveMinutes + ' min' : '\u2014'),
+          sstat('Suspends', sstats.suspendCount),
+          sstat('Resumes', sess.resumeCount != null ? sess.resumeCount : 0)
+        );
+        wrap.insertBefore(statsCard, auditTitle);
+      }
+
+      // 2. Session chain (prev / current / next)
+      if (sess.previousSessionId || sess.nextSessionId) {
+        var chainDiv = mk('div', 'session-chain');
+        var chainLabel = mk('span', 'session-chain-label', 'Session Chain');
+        chainDiv.appendChild(chainLabel);
+
+        if (sess.previousSessionId) {
+          var prevChip = mk('code', 'session-chip', '\u2190 ' + sess.previousSessionId);
+          chainDiv.appendChild(prevChip);
+        } else {
+          var prevDim = mk('span', 'chain-sep', '\u2014');
+          chainDiv.appendChild(prevDim);
+        }
+
+        var sep1 = mk('span', 'chain-sep', '\u2022');
+        chainDiv.appendChild(sep1);
+
+        var curChip = mk('code', 'session-chip chain-current', sess.id || sid);
+        chainDiv.appendChild(curChip);
+
+        var sep2 = mk('span', 'chain-sep', '\u2022');
+        chainDiv.appendChild(sep2);
+
+        if (sess.nextSessionId) {
+          var nextChip = mk('code', 'session-chip', sess.nextSessionId + ' \u2192');
+          chainDiv.appendChild(nextChip);
+        } else {
+          var nextDim = mk('span', 'chain-sep', '\u2014');
+          chainDiv.appendChild(nextDim);
+        }
+
+        wrap.insertBefore(chainDiv, auditTitle);
+      }
+
+      // 3. Scope section
+      var scope = sess.scope;
+      if (scope && scope.computedTaskIds && scope.computedTaskIds.length) {
+        var scopeDiv = mk('div', 'session-scope');
+        var scopeLabel = document.createElement('span');
+        scopeLabel.textContent = 'Scope: ';
+        var scopeStrong = document.createElement('strong');
+        scopeStrong.textContent = (scope.type || 'epic') + ':' + (scope.rootTaskId || '\u2014');
+        var scopeCount = document.createElement('span');
+        scopeCount.textContent = '  \u2022  ' + scope.computedTaskIds.length + ' tasks in scope';
+        scopeDiv.appendChild(scopeLabel);
+        scopeDiv.appendChild(scopeStrong);
+        scopeDiv.appendChild(scopeCount);
+        wrap.insertBefore(scopeDiv, auditTitle);
+      }
+
+      // 4. Debrief section
+      var debrief = sess.debrief;
+      if (debrief) {
+        var ho = debrief.handoff || debrief;
+        var debriefCard = mk('div', 'debrief-card');
+
+        // Note
+        if (ho.note) {
+          var noteDiv = mk('div', 'debrief-note', ho.note);
+          debriefCard.appendChild(noteDiv);
+        }
+
+        // Git state
+        var git = ho.gitState || debrief.gitState;
+        if (git) {
+          var gitRow = mk('div', 'debrief-row');
+          var gitLabel = mk('span', 'debrief-label', 'Git');
+          gitRow.appendChild(gitLabel);
+          if (git.branch) {
+            var brSpan = mk('span', 'git-branch', git.branch);
+            gitRow.appendChild(brSpan);
+          }
+          if (git.commit) {
+            var hashSpan = mk('span', 'git-hash', String(git.commit).slice(0, 7));
+            gitRow.appendChild(hashSpan);
+          }
+          if (git.uncommittedChanges || git.dirty) {
+            var ucBadge = mk('span', 'uncommitted-badge', 'uncommitted changes');
+            gitRow.appendChild(ucBadge);
+          } else {
+            var cleanBadge = mk('span', 'clean-badge', 'clean');
+            gitRow.appendChild(cleanBadge);
+          }
+          debriefCard.appendChild(gitRow);
+        }
+
+        // Chain position
+        var chainPos = ho.chainPosition || debrief.chainPosition;
+        var chainLen = ho.chainLength || debrief.chainLength;
+        if (chainPos != null && chainLen != null) {
+          var posRow = mk('div', 'debrief-row');
+          var posLabel = mk('span', 'debrief-label', 'Chain');
+          posRow.appendChild(posLabel);
+          var posVal = document.createElement('span');
+          posVal.textContent = 'Position ' + chainPos + ' of ' + chainLen;
+          posRow.appendChild(posVal);
+          debriefCard.appendChild(posRow);
+        }
+
+        // Next suggested
+        var nextSugg = ho.nextSuggested || debrief.nextSuggested;
+        if (nextSugg && nextSugg.length) {
+          var nsRow = mk('div', 'debrief-row');
+          var nsLabel = mk('span', 'debrief-label', 'Next');
+          nsRow.appendChild(nsLabel);
+          nextSugg.forEach(function(tid) {
+            var chip = mk('code', 'session-chip', tid);
+            nsRow.appendChild(chip);
+          });
+          debriefCard.appendChild(nsRow);
+        }
+
+        // Open blockers
+        var blockers = ho.openBlockers || debrief.openBlockers;
+        if (blockers && blockers.length) {
+          var blRow = mk('div', 'debrief-row');
+          var blLabel = mk('span', 'debrief-label', 'Blockers');
+          blRow.appendChild(blLabel);
+          var blCount = document.createElement('span');
+          blCount.textContent = blockers.length;
+          blCount.style.color = 'var(--grade-d)';
+          blCount.style.fontWeight = '600';
+          blRow.appendChild(blCount);
+          debriefCard.appendChild(blRow);
+        }
+
+        wrap.insertBefore(debriefCard, auditTitle);
+      }
+
+      // 5. Session notes
+      var notes = sess.notes;
+      if (notes && notes.length) {
+        var notesWrap = mk('div', '');
+        var toggle = mk('span', 'notes-toggle', 'Session Notes (' + notes.length + ') \u25B6');
+        var notesList = mk('div', 'notes-list');
+
+        var displayNotes = notes.slice(-5);
+        displayNotes.forEach(function(n) {
+          var entry = mk('div', 'note-entry');
+          var ts = mk('span', 'note-ts', '');
+          var noteText = typeof n === 'string' ? n : (n.text || n.note || '');
+          var noteTs = typeof n === 'object' && n.timestamp ? fmtTime(n.timestamp) : '';
+          ts.textContent = noteTs ? '[' + noteTs + ']' : '';
+          var txt = mk('span', 'note-text', noteText);
+          entry.appendChild(ts);
+          entry.appendChild(txt);
+          notesList.appendChild(entry);
+        });
+
+        toggle.addEventListener('click', function() {
+          var open = notesList.classList.toggle('open');
+          toggle.textContent = 'Session Notes (' + notes.length + ') ' + (open ? '\u25BC' : '\u25B6');
+        });
+
+        notesWrap.appendChild(toggle);
+        notesWrap.appendChild(notesList);
+        wrap.insertBefore(notesWrap, auditTitle);
+      }
+
+      // Update count chip
+      countChip.textContent = fmtNum(entries.length) + ' entries';
+
+      if (!entries.length) {
+        tableWrap.appendChild(mks('div', 'color:var(--text-muted);font-size:.75rem;padding:.5rem 0;', 'No audit entries found for this session.'));
+        return;
+      }
+
+      // Build full audit table
+      var tbl = document.createElement('table'); tbl.className = 'audit-table';
+      var thead = document.createElement('thead');
+      var hrow = document.createElement('tr');
+      ['Time', 'Domain', 'Operation', 'Source', 'Gateway', 'Duration ms', 'Success'].forEach(function(h) {
+        var th = document.createElement('th'); th.textContent = h; hrow.appendChild(th);
+      });
+      thead.appendChild(hrow); tbl.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      entries.forEach(function(e) {
+        var tr = document.createElement('tr');
+
+        // Time
+        var timeTd = document.createElement('td');
+        timeTd.className = 'audit-time';
+        timeTd.textContent = fmtTime(e.timestamp);
+        tr.appendChild(timeTd);
+
+        // Domain
+        var domTd = document.createElement('td');
+        domTd.className = 'audit-domain';
+        domTd.textContent = e.domain || '\u2014';
+        tr.appendChild(domTd);
+
+        // Operation
+        var opTd = document.createElement('td');
+        opTd.className = 'audit-op';
+        opTd.textContent = e.operation || '\u2014';
+        tr.appendChild(opTd);
+
+        // Source
+        var srcTd = document.createElement('td');
+        srcTd.className = 'audit-source';
+        srcTd.textContent = e.source || '\u2014';
+        tr.appendChild(srcTd);
+
+        // Gateway pill
+        var gwTd = document.createElement('td');
+        var gw = (e.gateway || '').toUpperCase();
+        var pill = mk('span', 'gw-pill ' + (e.gateway || '').toLowerCase(), gw || '\u2014');
+        gwTd.appendChild(pill);
+        tr.appendChild(gwTd);
+
+        // Duration ms
+        var ms = e.duration_ms != null ? e.duration_ms : null;
+        var msTd = document.createElement('td');
+        msTd.className = 'audit-ms' + (ms > 2000 ? ' vslow' : ms > 500 ? ' slow' : '');
+        msTd.textContent = ms != null ? ms : '\u2014';
+        tr.appendChild(msTd);
+
+        // Success
+        var sucTd = document.createElement('td');
+        sucTd.className = 'audit-success';
+        var sucSpan = document.createElement('span');
+        sucSpan.textContent = e.success ? '\u2713' : '\u2717';
+        sucSpan.style.color = e.success ? 'var(--grade-a)' : 'var(--grade-f)';
+        sucSpan.style.fontWeight = '700';
+        sucTd.appendChild(sucSpan);
+        tr.appendChild(sucTd);
+
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      tableWrap.appendChild(tbl);
+    })
+    .catch(function(err) {
+      tableWrap.textContent = '';
+      tableWrap.appendChild(mks('div', 'color:var(--grade-f);font-size:.75rem;padding:.5rem 0;', 'Failed to load audit entries: ' + err.message));
+    });
+}
+
+function fmtTime(ts) {
+  if (!ts) return '\u2014';
+  try {
+    var d = new Date(ts);
+    return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  } catch(e) { return String(ts).slice(11, 19) || ts; }
+}
+
+function gradeColorBg(l) {
+  var m = {'A':'var(--grade-a-bg)','B':'var(--grade-b-bg)','C':'var(--grade-c-bg)','D':'var(--grade-d-bg)','F':'var(--grade-f-bg)'};
+  return m[l] || 'var(--surface2)';
+}
+
+// ── Tab 3: A/B Comparison ─────────────────────────────────────────────────────
+function renderABTab(abResults, abHistory) {
+  var container = document.getElementById('ab-content');
+  container.textContent = '';
+  var history = abHistory || [];
+  if (!history.length && (!abResults || !abResults.total_runs)) {
+    container.appendChild(emptyState('No A/B results yet', 'Run a blind comparison to generate data.', 'python scripts/run_ab_test.py --domain tasks --runs 3'));
+    return;
+  }
+
+  // Run selector
+  if (history.length) {
+    var selWrap = mk('div', 'filter-bar');
+    selWrap.appendChild(mk('label', null, 'Run:'));
+    var runSel = document.createElement('select');
+    history.sort(function(a, b) { return new Date(b.createdAt || 0) - new Date(a.createdAt || 0); });
+    history.forEach(function(run, i) {
+      var o = document.createElement('option'); o.value = i;
+      o.textContent = (run.name || 'Run ' + (i + 1)) + ' \u2014 ' + fmtDate(run.createdAt);
+      runSel.appendChild(o);
+    });
+    app(selWrap, runSel);
+    container.appendChild(selWrap);
+  }
+
+  renderABContent(abResults, container);
+  document.getElementById('tb-ab').textContent = (abResults && abResults.total_runs) || history.length || 0;
+}
+
+function renderABContent(ab, container) {
+  if (!ab || !ab.total_runs) return;
+  var wins = ab.global_wins || {}, wr = ab.global_win_rate || {};
+  var delta = ab.avg_token_delta_mcp_minus_cli;
+  var winner = ab.overall_winner || 'tie';
+
+  // Winner banner
+  var banner = mk('div', 'winner-banner ' + winner);
+  var wlabel = winner === 'mcp' ? 'MCP wins overall' : winner === 'cli' ? 'CLI wins overall' : 'Overall tie';
+  banner.appendChild(mk('span', null, wlabel));
+  if (delta != null) {
+    var sign = delta > 0 ? '+' : '';
+    banner.appendChild(mks('span', 'font-size:.7rem;font-weight:400;opacity:.8;margin-left:.5rem;',
+      'MCP uses ' + sign + delta.toFixed(1) + ' tokens/op vs CLI'));
+  }
   container.appendChild(banner);
 
   // Summary grid
-  container.appendChild(mk('div', 'section-title', 'Summary'));
-  var grid = mk('div', 'ab-summary-grid');
-  var summaryRows = [
+  container.appendChild(mk('div', 'section-title', 'Global Stats'));
+  var grid = mk('div', 'stat-grid');
+  [
     ['Total Runs', ab.total_runs, ''],
-    ['MCP Wins',   mcpW, winnerClass === 'mcp' ? 'win' : ''],
-    ['CLI Wins',   cliW, winnerClass === 'cli' ? 'win' : ''],
-    ['Ties',       tieW, 'neutral'],
-  ];
-  summaryRows.forEach(function(row) {
-    var c = mk('div', 'ab-stat-card');
-    app(c, mk('div', 'ab-stat-label', row[0]), mk('div', 'ab-stat-value ' + row[2], String(row[1])));
+    ['Arm A Wins', wins.mcp || 0, 'win'],
+    ['Arm B Wins', wins.cli || 0, winner === 'cli' ? 'win' : ''],
+    ['Ties', wins.tie || 0, 'neutral'],
+  ].forEach(function(row) {
+    var c = mk('div', 'stat-card');
+    app(c, mk('div', 'stat-label', row[0]), mk('div', 'stat-value ' + row[2], String(row[1])));
     grid.appendChild(c);
   });
   container.appendChild(grid);
@@ -654,507 +1195,379 @@ function renderABTab(ab) {
   } else if (rawPerOp && typeof rawPerOp === 'object') {
     perOp = rawPerOp;
   }
-
   if (perOp && Object.keys(perOp).length) {
     container.appendChild(mk('div', 'section-title', 'Per-Operation Results'));
-    var wrap = mk('div', 'ab-table-wrap');
-    var tbl = document.createElement('table');
-    tbl.className = 'ab-table';
-
-    var thead = document.createElement('thead');
-    var hrow = document.createElement('tr');
-    ['Operation', 'Winner', 'MCP ms', 'CLI ms', 'Token \u0394', 'MCP Chars', 'CLI Chars'].forEach(function(h) {
-      hrow.appendChild(mkTh(h));
+    var wrap = mk('div', 'table-wrap');
+    var tbl = document.createElement('table'); tbl.className = 'data-table';
+    var thead = document.createElement('thead'), hrow = document.createElement('tr');
+    ['Operation', 'Winner', 'MCP Calls', 'CLI Calls', 'Token \u0394', 'MCP ms', 'CLI ms', 'MCP Chars', 'CLI Chars'].forEach(function(h) {
+      hrow.appendChild(mk('th', null, h));
     });
-    thead.appendChild(hrow);
-    tbl.appendChild(thead);
-
+    thead.appendChild(hrow); tbl.appendChild(thead);
     var tbody = document.createElement('tbody');
     Object.keys(perOp).sort().forEach(function(opKey) {
-      var d = perOp[opKey];
-      var delta = d.avg_token_delta != null ? d.avg_token_delta : 0;
-      var dcls = delta > 10 ? 'delta-pos' : delta < -10 ? 'delta-neg' : 'delta-zero';
-      var opW = d.winner || (d.wins && d.wins.mcp > d.wins.cli ? 'mcp'
-        : d.wins && d.wins.cli > d.wins.mcp ? 'cli' : 'tie');
-
-      var tr = document.createElement('tr');
-      tr.appendChild(mkTd(mk('span', 'op-name', opKey)));
-      tr.appendChild(mkTd(mk('span', 'win-pill ' + opW, opW.toUpperCase())));
-      tr.appendChild(mkTd(d.avg_mcp_ms != null ? fmtNum(d.avg_mcp_ms) + 'ms' : '\u2014'));
-      tr.appendChild(mkTd(d.avg_cli_ms != null ? fmtNum(d.avg_cli_ms) + 'ms' : '\u2014'));
-      tr.appendChild(mkTd(mk('span', dcls, (delta > 0 ? '+' : '') + delta.toFixed(0) + 't')));
-      tr.appendChild(mkTd(fmtNum(d.avg_mcp_chars)));
-      tr.appendChild(mkTd(fmtNum(d.avg_cli_chars)));
-      tbody.appendChild(tr);
+      var d = perOp[opKey], row = document.createElement('tr');
+      var dt = d.avg_token_delta != null ? d.avg_token_delta : 0;
+      var dcls = dt > 10 ? 'delta-pos' : dt < -10 ? 'delta-neg' : 'delta-zero';
+      var opW = d.winner || (d.mcp_wins > d.cli_wins ? 'mcp' : d.cli_wins > d.mcp_wins ? 'cli' : 'tie');
+      var cells = [
+        mk('span', 'op-name', opKey),
+        mk('span', 'pill ' + opW, opW.toUpperCase()),
+        document.createTextNode(String(d.mcp_wins || d.mcp_calls || 0)),
+        document.createTextNode(String(d.cli_wins || d.cli_calls || 0)),
+        mk('span', dcls, (dt > 0 ? '+' : '') + dt.toFixed(0) + 't'),
+        document.createTextNode(fmtNum(d.avg_mcp_ms) + 'ms'),
+        document.createTextNode(fmtNum(d.avg_cli_ms) + 'ms'),
+        document.createTextNode(fmtNum(d.avg_mcp_chars)),
+        document.createTextNode(fmtNum(d.avg_cli_chars)),
+      ];
+      cells.forEach(function(c) { var td = document.createElement('td'); td.appendChild(c); row.appendChild(td); });
+      tbody.appendChild(row);
     });
-    tbl.appendChild(tbody);
-    wrap.appendChild(tbl);
-    container.appendChild(wrap);
+    tbl.appendChild(tbody); wrap.appendChild(tbl); container.appendChild(wrap);
   }
-
-  container.appendChild(mk('div', 'ab-note',
-    '\u26A0 CLI-only sessions always score 0 on S5 (Progressive Disclosure) \u2014 ' +
-    'metadata.gateway is not set by the CLI adapter. MCP earns +10 for query gateway usage automatically.'));
 }
 
-// ── Token Analysis Tab ─────────────────────────────────────────────────────
-function renderTokenTab(ta) {
-  var container = document.getElementById('token-content');
+// ── Tab 4: Token Economy ──────────────────────────────────────────────────────
+function renderTokensTab(ta) {
+  var container = document.getElementById('tokens-content');
   container.textContent = '';
-
-  if (!ta || !Object.keys(ta).length) {
-    container.appendChild(emptyState(
-      '\uD83D\uDD22', 'No token data yet',
-      'Generate token analysis by running graded scenarios with OTel enabled.',
-      'source .cleo/setup-otel.sh'
-    ));
+  if (!ta || (!ta.by_transport && !ta.by_domain)) {
+    container.appendChild(emptyState('No token data yet', 'Token economy data will appear after graded sessions with OTEL enabled.', 'source .cleo/setup-otel.sh'));
     return;
+  }
+
+  var apiSurface = DATA.api_surface || {};
+  if (apiSurface.canonical || apiSurface.webApi) {
+    var apiCard = mk('div', 'api-card');
+    apiCard.appendChild(mk('div', 'chart-title', 'API Guidance'));
+    var apiGrid = mk('div', 'api-grid');
+
+    function apiBox(title, items) {
+      var box = mk('div', 'api-box');
+      box.appendChild(mk('div', 'api-box-title', title));
+      var list = mk('div', 'api-list');
+      (items || []).forEach(function(item) {
+        var row = document.createElement('code');
+        row.textContent = item;
+        list.appendChild(row);
+      });
+      box.appendChild(list);
+      return box;
+    }
+
+    apiGrid.appendChild(apiBox('Canonical Query Ops', ((apiSurface.canonical || {}).query) || []));
+    apiGrid.appendChild(apiBox('Compatibility Aliases', ((apiSurface.compatibility || {}).query) || []));
+    apiGrid.appendChild(apiBox('Planned Grade Run Reads', apiSurface.planned || []));
+    apiGrid.appendChild(apiBox('Web API', [
+      ((apiSurface.webApi || {}).queryEndpoint) || '/api/query',
+      ((apiSurface.webApi || {}).mutateEndpoint) || '/api/mutate'
+    ].concat(((apiSurface.webApi || {}).lafsHeaders) || [])));
+    apiCard.appendChild(apiGrid);
+    if ((apiSurface.webApi || {}).transportAliasNote) {
+      apiCard.appendChild(mk('div', 'note-block', apiSurface.webApi.transportAliasNote));
+    }
+    container.appendChild(apiCard);
   }
 
   // Confidence badge
-  var conf = ta.confidence || (ta.method === 'task_notifications' ? 'ESTIMATED' : 'COARSE');
-  var confRow = mks('div', 'display:flex;align-items:center;gap:.6rem;');
-  var confLabel = mks('span', 'font-family:Poppins,sans-serif;font-size:.72rem;color:var(--text-muted);', 'Data confidence:');
-  var confBadge = mk('span', 'confidence-badge ' + conf, conf);
-  app(confRow, confLabel, confBadge);
-  container.appendChild(confRow);
+  if (ta.confidence) {
+    var conf = ta.confidence.toLowerCase();
+    var confCard = mk('div', 'card');
+    confCard.style.cssText = 'display:flex;align-items:center;gap:.75rem;';
+    confCard.appendChild(mk('div', 'section-title', 'Data Confidence'));
+    confCard.appendChild(mk('span', 'confidence-badge ' + conf, conf.toUpperCase()));
+    container.appendChild(confCard);
+  }
 
-  // Domain bar chart
-  var byDomain = ta.by_domain || ta.breakdown_by_domain;
-  if (byDomain && Object.keys(byDomain).length) {
-    var domainEntries = Object.keys(byDomain).sort().map(function(k) {
-      var v = byDomain[k];
-      var tok = typeof v === 'object' ? (v.estimated_tokens || v.mean || 0) : v;
-      return [k, tok];
+  // By Transport
+  if (ta.by_transport && Object.keys(ta.by_transport).length) {
+    var entries = Object.entries(ta.by_transport).map(function(kv) {
+      return [kv[0], kv[1].mean || kv[1].avg || kv[1].total || 0, kv[1].count || kv[1].samples || 0];
     });
-    var maxD = Math.max.apply(null, domainEntries.map(function(e) { return e[1]; }).concat([1]));
-    var dcard = mk('div', 'chart-card');
-    dcard.appendChild(mk('div', 'chart-card-title', 'Estimated Tokens by Domain'));
-    var dchart = mk('div', 'bar-chart');
-    domainEntries.forEach(function(entry, i) {
-      var pct = maxD > 0 ? Math.min((entry[1] / maxD) * 90, 90) : 0;
+    var maxT = Math.max.apply(null, entries.map(function(e) { return e[1]; }).concat([1]));
+    var tColors = { mcp: 'var(--mcp)', cli: 'var(--cli)', agent: 'var(--grade-c)', api: 'var(--accent)' };
+    var card = mk('div', 'chart-card');
+    card.appendChild(mk('div', 'chart-title', 'By Transport'));
+    var chart = mk('div', 'bar-chart');
+    entries.forEach(function(row) {
+      var pct = maxT > 0 ? Math.min((row[1] / maxT) * 90, 90) : 0;
       var r = mk('div', 'bar-row');
       var track = mk('div', 'bar-track');
       var fill = mk('div', 'bar-fill');
-      fill.style.cssText = 'width:' + pct + '%;background:' + DOMAIN_BAR_COLORS[i % DOMAIN_BAR_COLORS.length] + ';';
+      fill.style.cssText = 'width:' + pct + '%;background:' + (tColors[row[0]] || 'var(--accent)') + ';';
       track.appendChild(fill);
-      var opsCount = byDomain[entry[0]] && byDomain[entry[0]].ops_count
-        ? ' (' + byDomain[entry[0]].ops_count + ' ops)' : '';
-      app(r, mk('span', 'bar-label', entry[0]), track, mk('span', 'bar-val', fmtNum(entry[1]) + 't' + opsCount));
-      dchart.appendChild(r);
+      app(r, mk('span', 'bar-label', row[0]), track, mk('span', 'bar-val', fmtNum(row[1]) + 't (n=' + row[2] + ')'));
+      chart.appendChild(r);
     });
-    dcard.appendChild(dchart);
-    container.appendChild(dcard);
+    card.appendChild(chart);
+    if (entries.some(function(row) { return row[0] === 'http'; })) {
+      card.appendChild(mk('div', 'note-block', 'Transport view normalizes legacy token rows labeled api into http, following CLEO-WEB-API v2.1.'));
+    }
+    container.appendChild(card);
   }
 
-  // MCP vs CLI split
-  var mcpVsCli = ta.mcp_vs_cli;
-  if (mcpVsCli) {
-    var mcpTok = mcpVsCli.mcp ? (mcpVsCli.mcp.estimated_tokens || 0) : 0;
-    var cliTok = mcpVsCli.cli ? (mcpVsCli.cli.estimated_tokens || 0) : 0;
-    var splitGrid = mks('div', 'display:grid;grid-template-columns:1fr 1fr;gap:.75rem;');
-    var mcpCard = mk('div', 'ab-stat-card');
-    app(mcpCard, mk('div', 'ab-stat-label', 'MCP Tokens'), mk('div', 'ab-stat-value', fmtNum(mcpTok)));
-    var cliCard = mk('div', 'ab-stat-card');
-    app(cliCard, mk('div', 'ab-stat-label', 'CLI Tokens'), mk('div', 'ab-stat-value', fmtNum(cliTok)));
-    app(splitGrid, mcpCard, cliCard);
-    container.appendChild(splitGrid);
-  } else if (ta.by_interface) {
-    var ifaceGrid = mks('div', 'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.75rem;');
-    Object.keys(ta.by_interface).sort().forEach(function(iface) {
-      var v = ta.by_interface[iface];
-      var c = mk('div', 'ab-stat-card');
-      app(c, mk('div', 'ab-stat-label', iface), mk('div', 'ab-stat-value', fmtNum(v.mean) + 't'));
-      ifaceGrid.appendChild(c);
+  // By Domain
+  if (ta.by_domain && Object.keys(ta.by_domain).length) {
+    var dEntries = Object.entries(ta.by_domain).map(function(kv) {
+      return [kv[0], kv[1].mean || kv[1].avg || kv[1].total || 0];
     });
-    container.appendChild(ifaceGrid);
-  }
-
-  // Score per 1k tokens
-  var spt = ta.score_per_1k_tokens;
-  if (spt && typeof spt === 'object') {
-    var sptCard = mk('div', 'chart-card');
-    sptCard.appendChild(mk('div', 'chart-card-title', 'Score per 1k Tokens (Efficiency)'));
-    var sptTable = document.createElement('table');
-    sptTable.className = 'ab-table';
-    var sHead = document.createElement('thead');
-    var sHrow = document.createElement('tr');
-    ['Interface', 'Score / 1k tokens'].forEach(function(h) { sHrow.appendChild(mkTh(h)); });
-    sHead.appendChild(sHrow);
-    sptTable.appendChild(sHead);
-    var sTbody = document.createElement('tbody');
-    Object.keys(spt).sort().forEach(function(k) {
-      var tr = document.createElement('tr');
-      tr.appendChild(mkTd(k));
-      tr.appendChild(mkTd(spt[k] != null ? fmtNum(spt[k]) : '\u2014'));
-      sTbody.appendChild(tr);
+    dEntries.sort(function(a, b) { return b[1] - a[1]; });
+    var maxD = Math.max.apply(null, dEntries.map(function(e) { return e[1]; }).concat([1]));
+    var domColors = ['#a371f7', '#58a6ff', '#3fb950', '#e3b341', '#f78166', '#f0883e', '#7d8590', '#3fb950', '#58a6ff', '#a371f7'];
+    var dCard = mk('div', 'chart-card');
+    dCard.appendChild(mk('div', 'chart-title', 'By Domain'));
+    var dChart = mk('div', 'bar-chart');
+    dEntries.forEach(function(row, i) {
+      var pct = maxD > 0 ? Math.min((row[1] / maxD) * 90, 90) : 0;
+      var r = mk('div', 'bar-row');
+      var track = mk('div', 'bar-track');
+      var fill = mk('div', 'bar-fill');
+      fill.style.cssText = 'width:' + pct + '%;background:' + domColors[i % domColors.length] + ';';
+      track.appendChild(fill);
+      app(r, mk('span', 'bar-label', row[0]), track, mk('span', 'bar-val', fmtNum(row[1]) + 't'));
+      dChart.appendChild(r);
     });
-    sptTable.appendChild(sTbody);
-    sptCard.appendChild(sptTable);
-    container.appendChild(sptCard);
-  } else if (ta.score_per_1k_tokens != null) {
-    // Scalar value
-    var sptRow = mk('div', 'ab-stat-card');
-    app(sptRow, mk('div', 'ab-stat-label', 'Score / 1k Tokens'), mk('div', 'ab-stat-value', fmtNum(ta.score_per_1k_tokens)));
-    container.appendChild(sptRow);
+    dCard.appendChild(dChart);
+    container.appendChild(dCard);
   }
-
-  container.appendChild(mk('div', 'info-note',
-    '\u2139 Token figures shown with confidence level. Enable OTel for REAL token tracking: source .cleo/setup-otel.sh'));
 }
 
-// ── Operation Matrix Tab ───────────────────────────────────────────────────
-
-// Canonical 202 operations fallback
-var CANONICAL_OPS = (function() {
-  var ops = [];
-  function add(domain, tier, gateway, names) {
-    names.forEach(function(n) {
-      ops.push({ op: domain + '.' + n, domain: domain, tier: tier, gateway: gateway });
-    });
-  }
-  add('tasks', 0, 'query',  ['find','show','list','tree','plan','exists']);
-  add('tasks', 0, 'mutate', ['add','update','complete','cancel','archive','restore','relates','depends','history']);
-  add('session', 0, 'query',  ['status','list','briefing.show','handoff.show','context.drift']);
-  add('session', 0, 'mutate', ['start','end','decision.log','record.decision','context.inject']);
-  add('admin', 0, 'query',  ['dash','health','help','stats','doctor','grade','grade.list','adr.find']);
-  add('memory', 1, 'query',  ['find','timeline','fetch','pattern.find','learning.find']);
-  add('memory', 1, 'mutate', ['observe']);
-  add('tools', 1, 'query',  ['skill.list','skill.show','provider.list','provider.show']);
-  add('check', 1, 'query',  ['health','schema','compliance']);
-  add('pipeline', 1, 'query',  ['stage.status','manifest.list']);
-  add('pipeline', 1, 'mutate', ['stage.record','stage.gate.pass','stage.validate','manifest.add','manifest.remove']);
-  add('orchestrate', 2, 'query',  ['analyze','ready','next']);
-  add('orchestrate', 2, 'mutate', ['spawn','start']);
-  add('nexus', 2, 'query',  ['status','project.list','project.show']);
-  add('nexus', 2, 'mutate', ['project.add']);
-  add('sticky', 2, 'query',  ['list']);
-  add('sticky', 2, 'mutate', ['add','archive']);
-  return ops;
-})();
-
-var ALL_DOMAINS = ['tasks','session','admin','memory','tools','check','pipeline','orchestrate','nexus','sticky'];
-
-function renderMatrixTab(opMatrix) {
+// ── Tab 5: Operation Matrix ───────────────────────────────────────────────────
+function renderMatrixTab(matrix) {
   var container = document.getElementById('matrix-content');
   container.textContent = '';
-
-  // Merge canonical ops with audit data
-  var merged = {};
-  CANONICAL_OPS.forEach(function(co) {
-    merged[co.op] = {
-      op: co.op, domain: co.domain, tier: co.tier, gateway: co.gateway,
-      mcp_calls: 0, cli_calls: 0, avg_mcp_ms: null, avg_cli_ms: null, tested: false
-    };
-  });
-  if (opMatrix && typeof opMatrix === 'object') {
-    Object.keys(opMatrix).forEach(function(opKey) {
-      var d = opMatrix[opKey];
-      if (merged[opKey]) {
-        merged[opKey].mcp_calls  = d.mcp_calls || 0;
-        merged[opKey].cli_calls  = d.cli_calls || 0;
-        merged[opKey].avg_mcp_ms = d.avg_mcp_ms || null;
-        merged[opKey].avg_cli_ms = d.avg_cli_ms || null;
-        merged[opKey].tested     = !!(d.tested || d.mcp_calls || d.cli_calls);
-        if (d.tier != null) merged[opKey].tier = d.tier;
-        if (d.gateway)      merged[opKey].gateway = d.gateway;
-      } else {
-        // Unexpected op from audit data — include it
-        merged[opKey] = {
-          op: opKey,
-          domain: opKey.split('.')[0] || 'unknown',
-          tier: d.tier != null ? d.tier : 0,
-          gateway: d.gateway || 'query',
-          mcp_calls: d.mcp_calls || 0,
-          cli_calls: d.cli_calls || 0,
-          avg_mcp_ms: d.avg_mcp_ms || null,
-          avg_cli_ms: d.avg_cli_ms || null,
-          tested: !!(d.tested || d.mcp_calls || d.cli_calls)
-        };
-      }
-    });
+  if (!matrix || !matrix.length) {
+    container.appendChild(emptyState('No operation matrix data', 'Operation matrix data is generated from the 202-op registry.'));
+    return;
   }
+  document.getElementById('tb-matrix').textContent = matrix.length;
 
-  var allRows = Object.values(merged).sort(function(a, b) {
-    if (a.domain !== b.domain) return a.domain.localeCompare(b.domain);
-    return a.op.localeCompare(b.op);
+  // Collect unique domains and gateways
+  var domains = ['all'];
+  var domainSet = {};
+  matrix.forEach(function(op) {
+    if (op.domain && !domainSet[op.domain]) { domainSet[op.domain] = true; domains.push(op.domain); }
   });
 
-  document.getElementById('tb-matrix').textContent = allRows.length;
-
-  // Controls
-  var controls = mk('div', 'matrix-controls');
-  var label = mk('label', null, 'Domain:');
-  var sel = document.createElement('select');
-  var optAll = document.createElement('option');
-  optAll.value = '';
-  optAll.textContent = 'All';
-  sel.appendChild(optAll);
-  ALL_DOMAINS.forEach(function(d) {
-    var opt = document.createElement('option');
-    opt.value = d;
-    opt.textContent = d;
-    sel.appendChild(opt);
+  // Filter row
+  var filterBar = mk('div', 'filter-bar');
+  var domainSel = document.createElement('select');
+  domains.forEach(function(d) {
+    var o = document.createElement('option'); o.value = d; o.textContent = d === 'all' ? 'All Domains' : d; domainSel.appendChild(o);
   });
-  var countEl = mk('span', 'matrix-count', allRows.length + ' operations');
-  app(controls, label, sel, countEl);
-  container.appendChild(controls);
-
-  // Table
-  var wrap = mk('div', 'matrix-table-wrap');
-  var tbl = document.createElement('table');
-  tbl.className = 'matrix-table';
-
-  var thead = document.createElement('thead');
-  var hrow = document.createElement('tr');
-  ['Operation', 'Tier', 'Gateway', 'Tested', 'MCP Calls', 'CLI Calls', 'Avg MCP ms', 'Avg CLI ms'].forEach(function(h) {
-    hrow.appendChild(mkTh(h));
+  var gatewaySel = document.createElement('select');
+  [['all', 'All Gateways'], ['query', 'Query'], ['mutate', 'Mutate']].forEach(function(opt) {
+    var o = document.createElement('option'); o.value = opt[0]; o.textContent = opt[1]; gatewaySel.appendChild(o);
   });
-  thead.appendChild(hrow);
-  tbl.appendChild(thead);
+  var testedSel = document.createElement('select');
+  [['all', 'All'], ['tested', 'Tested'], ['untested', 'Untested']].forEach(function(opt) {
+    var o = document.createElement('option'); o.value = opt[0]; o.textContent = opt[1]; testedSel.appendChild(o);
+  });
+  app(filterBar, mk('label', null, 'Domain:'), domainSel, mk('label', null, 'Gateway:'), gatewaySel, mk('label', null, 'Tested:'), testedSel);
+  container.appendChild(filterBar);
 
-  var tbody = document.createElement('tbody');
-  tbl.appendChild(tbody);
-  wrap.appendChild(tbl);
-  container.appendChild(wrap);
+  var tableWrap = mk('div', 'table-wrap');
+  container.appendChild(tableWrap);
 
-  function buildRows(domain) {
-    tbody.textContent = '';
-    var filtered = domain ? allRows.filter(function(r) { return r.domain === domain; }) : allRows;
-    countEl.textContent = filtered.length + ' operations';
-    filtered.forEach(function(r) {
-      var tr = document.createElement('tr');
+  function renderMatrix() {
+    tableWrap.textContent = '';
+    var filtered = matrix.slice();
+    if (domainSel.value !== 'all') filtered = filtered.filter(function(op) { return op.domain === domainSel.value; });
+    if (gatewaySel.value !== 'all') filtered = filtered.filter(function(op) { return op.gateway === gatewaySel.value; });
+    if (testedSel.value === 'tested') filtered = filtered.filter(function(op) { return op.tested; });
+    if (testedSel.value === 'untested') filtered = filtered.filter(function(op) { return !op.tested; });
 
+    if (!filtered.length) {
+      tableWrap.appendChild(emptyState('No operations match filters', 'Adjust the filters above.'));
+      return;
+    }
+
+    var tbl = document.createElement('table'); tbl.className = 'data-table';
+    var thead = document.createElement('thead');
+    var hrow = document.createElement('tr');
+    ['Operation', 'Domain', 'Gateway', 'Tested', 'MCP Calls', 'CLI Calls', 'Avg MCP ms', 'Avg CLI ms'].forEach(function(h) {
+      hrow.appendChild(mk('th', null, h));
+    });
+    thead.appendChild(hrow); tbl.appendChild(thead);
+    var tbody = document.createElement('tbody');
+
+    filtered.forEach(function(op) {
+      var row = document.createElement('tr');
       // Operation name
-      tr.appendChild(mkTd(mk('span', 'op-name', r.op)));
-
-      // Tier
-      tr.appendChild(mkTd(mk('span', 'tier-badge', 'T' + r.tier)));
-
+      row.appendChild((function() { var td = document.createElement('td'); td.appendChild(mk('span', 'op-name', op.operation || op.name || '')); return td; })());
+      // Domain
+      row.appendChild(mk('td', null, op.domain || '\u2014'));
       // Gateway pill
-      var gw = r.gateway || 'query';
-      tr.appendChild(mkTd(mk('span', 'gateway-pill ' + gw, gw)));
-
+      var gwTd = document.createElement('td');
+      gwTd.appendChild(mk('span', 'pill ' + (op.gateway || ''), (op.gateway || '').toUpperCase()));
+      row.appendChild(gwTd);
       // Tested
-      var testedTd = document.createElement('td');
-      if (r.tested) {
-        testedTd.appendChild(mk('span', 'tested-yes', '\u2713'));
-      } else {
-        testedTd.appendChild(mk('span', 'tested-no', '\u2014'));
-      }
-      tr.appendChild(testedTd);
-
-      // Calls
-      tr.appendChild(mkTd(r.mcp_calls || 0));
-      tr.appendChild(mkTd(r.cli_calls || 0));
-
-      // Avg ms
-      tr.appendChild(mkTd(r.avg_mcp_ms != null ? fmtNum(r.avg_mcp_ms) + 'ms' : '\u2014'));
-      tr.appendChild(mkTd(r.avg_cli_ms != null ? fmtNum(r.avg_cli_ms) + 'ms' : '\u2014'));
-
-      tbody.appendChild(tr);
+      var testedTd = mk('td');
+      testedTd.textContent = op.tested ? '\u2713' : '\u2014';
+      testedTd.style.color = op.tested ? 'var(--win)' : 'var(--text-muted)';
+      row.appendChild(testedTd);
+      // MCP Calls
+      row.appendChild(mk('td', null, fmtNum(op.mcpCalls || op.mcp_calls, '0')));
+      // CLI Calls
+      row.appendChild(mk('td', null, fmtNum(op.cliCalls || op.cli_calls, '0')));
+      // Avg MCP ms
+      row.appendChild(mk('td', null, op.avgMcpMs || op.avg_mcp_ms ? fmtNum(op.avgMcpMs || op.avg_mcp_ms) + 'ms' : '\u2014'));
+      // Avg CLI ms
+      row.appendChild(mk('td', null, op.avgCliMs || op.avg_cli_ms ? fmtNum(op.avgCliMs || op.avg_cli_ms) + 'ms' : '\u2014'));
+      tbody.appendChild(row);
     });
+    tbl.appendChild(tbody);
+    tableWrap.appendChild(tbl);
   }
 
-  buildRows('');
-  sel.addEventListener('change', function() { buildRows(sel.value); });
+  domainSel.addEventListener('change', renderMatrix);
+  gatewaySel.addEventListener('change', renderMatrix);
+  testedSel.addEventListener('change', renderMatrix);
+  renderMatrix();
 }
 
-// ── Eval Report Tab ────────────────────────────────────────────────────────
+// ── Tab 6: Eval Report ────────────────────────────────────────────────────────
 function renderEvalsTab(evalReport) {
   var container = document.getElementById('evals-content');
   container.textContent = '';
-
-  if (!evalReport || !evalReport.length) {
-    container.appendChild(emptyState(
-      '\uD83D\uDCCB', 'No eval results yet',
-      'Eval results appear after running graded scenarios with expectation checks.',
-      'python scripts/run_scenario.py --scenario S1 --eval'
-    ));
+  if (!evalReport || (!evalReport.evals && !evalReport.results)) {
+    container.appendChild(emptyState('No eval report data', 'Eval results will appear after running the eval suite.'));
     return;
   }
 
-  document.getElementById('tb-evals').textContent = evalReport.length;
+  var evals = evalReport.evals || evalReport.results || [];
+  if (!Array.isArray(evals)) {
+    // Could be object keyed by eval ID
+    evals = Object.entries(evals).map(function(kv) { var e = kv[1]; e.id = e.id || kv[0]; return e; });
+  }
+  document.getElementById('tb-evals').textContent = evals.length;
 
-  evalReport.forEach(function(ev) {
-    var card = mk('div', 'eval-card');
-    var hdr = mk('div', 'eval-card-header');
-    var nameEl = mk('div', 'eval-name', ev.name || ev.eval_id || 'Unnamed Eval');
-    var overallPassed = ev.passed !== false;
-    var badge = mk('span', 'pass-badge ' + (overallPassed ? 'pass' : 'fail'), overallPassed ? 'PASS' : 'FAIL');
-    app(hdr, nameEl, badge);
-    card.appendChild(hdr);
-
-    var expectations = ev.expectations || [];
-    if (expectations.length) {
-      var list = mk('div', 'expectation-list');
-      expectations.forEach(function(exp) {
-        var passed = exp.passed !== false;
-        var item = mk('div', 'expectation-item ' + (passed ? 'pass' : 'fail'));
-        var icon = mk('span', 'expect-icon', passed ? '\u2713' : '\u2717');
-        var right = mk('div', null);
-        right.appendChild(mk('div', 'expect-desc', exp.description || ''));
-        if (exp.evidence) {
-          var evText = String(exp.evidence);
-          if (evText.length > 100) evText = evText.slice(0, 97) + '...';
-          right.appendChild(mk('div', 'expect-evidence', evText));
-        }
-        app(item, icon, right);
-        list.appendChild(item);
-      });
-      card.appendChild(list);
-    } else {
-      card.appendChild(mks('p', 'font-size:.75rem;color:var(--text-muted);margin-top:.5rem;', 'No individual expectations recorded.'));
-    }
-
-    container.appendChild(card);
+  // Sort controls
+  var sortBar = mk('div', 'filter-bar');
+  var sortSel = document.createElement('select');
+  [['id', 'By ID'], ['passRate', 'By Pass Rate'], ['name', 'By Name']].forEach(function(opt) {
+    var o = document.createElement('option'); o.value = opt[0]; o.textContent = opt[1]; sortSel.appendChild(o);
   });
-}
+  app(sortBar, mk('label', null, 'Sort:'), sortSel);
+  container.appendChild(sortBar);
 
-// ── Live Session Tab ───────────────────────────────────────────────────────
-function renderLiveTab(liveData) {
-  var container = document.getElementById('live-content');
-  container.textContent = '';
+  var cardsWrap = mk('div', null);
+  cardsWrap.style.cssText = 'display:flex;flex-direction:column;gap:1rem;';
+  container.appendChild(cardsWrap);
 
-  var topRow = mk('div', 'live-header');
-  var liveBadge = mk('div', 'live-badge');
-  var dot = mk('span', 'live-dot');
-  liveBadge.appendChild(dot);
-  liveBadge.appendChild(document.createTextNode(' Live'));
-  var sidEl = mk('span', 'session-id-label');
-  sidEl.id = 'live-session-id';
-  sidEl.textContent = (liveData && liveData.session_id) ? liveData.session_id : 'No active session';
-  app(topRow, liveBadge, sidEl);
-  container.appendChild(topRow);
+  function renderEvals() {
+    cardsWrap.textContent = '';
+    var sorted = evals.slice();
+    var sortVal = sortSel.value;
+    sorted.sort(function(a, b) {
+      if (sortVal === 'passRate') {
+        var aRate = getPassRate(a), bRate = getPassRate(b);
+        return bRate - aRate;
+      }
+      if (sortVal === 'name') return (a.name || '').localeCompare(b.name || '');
+      return (a.id || '').localeCompare(b.id || '');
+    });
 
-  var tableWrap = mk('div', 'ab-table-wrap');
-  var tbl = document.createElement('table');
-  tbl.className = 'live-table';
+    sorted.forEach(function(ev) {
+      var card = mk('div', 'eval-card');
+      var header = mk('div', 'eval-card-header');
 
-  var thead = document.createElement('thead');
-  var hrow = document.createElement('tr');
-  ['Time', 'Domain', 'Operation', 'Source', 'Gateway', 'Duration ms', 'Success'].forEach(function(h) {
-    hrow.appendChild(mkTh(h));
-  });
-  thead.appendChild(hrow);
-  tbl.appendChild(thead);
+      // Title + badge
+      var titleWrap = mk('div');
+      app(titleWrap, mk('span', 'eval-card-title', (ev.id ? ev.id + ': ' : '') + (ev.name || ev.description || 'Eval')));
+      header.appendChild(titleWrap);
 
-  var tbody = document.createElement('tbody');
-  tbody.id = 'live-table-body';
-  tbl.appendChild(tbody);
-  tableWrap.appendChild(tbl);
-  container.appendChild(tableWrap);
+      // Status badge
+      var status = getEvalStatus(ev);
+      header.appendChild(mk('span', 'pill ' + status.cls, status.label));
+      card.appendChild(header);
 
-  var emptyRow = document.createElement('tr');
-  var emptyCell = document.createElement('td');
-  emptyCell.setAttribute('colspan', '7');
-  emptyCell.style.textAlign = 'center';
-  emptyCell.style.padding = '2rem';
-  emptyCell.style.color = 'var(--text-muted)';
-  emptyCell.style.fontStyle = 'italic';
-  emptyCell.textContent = 'No active session. Start a graded session to see live data.';
-  emptyRow.appendChild(emptyCell);
-  tbody.appendChild(emptyRow);
-  tbody.dataset.empty = '1';
+      // Pass rate bar
+      var expectations = ev.expectations || ev.results || [];
+      if (expectations.length) {
+        var passed = expectations.filter(function(e) { return e.pass || e.passed || e.result === 'pass'; }).length;
+        var total = expectations.length;
+        var pct = Math.round((passed / total) * 100);
 
-  if (liveData && liveData.entries && liveData.entries.length) {
-    updateLiveTable(tbody, liveData.entries);
+        var rateRow = mk('div', null);
+        rateRow.style.cssText = 'display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem;';
+        rateRow.appendChild(mks('span', 'font-family:var(--mono);font-size:.72rem;', passed + '/' + total + ' (' + pct + '%)'));
+        var prBar = mk('div', 'pass-rate-bar');
+        var prFill = mk('div', 'pass-rate-fill');
+        prFill.style.width = pct + '%';
+        if (pct < 60) prFill.style.background = 'var(--grade-f)';
+        else if (pct < 80) prFill.style.background = 'var(--grade-c)';
+        prBar.appendChild(prFill);
+        rateRow.appendChild(prBar);
+        card.appendChild(rateRow);
+
+        // Expectation list
+        expectations.forEach(function(exp) {
+          var expRow = mk('div', 'expectation-row');
+          var passed2 = exp.pass || exp.passed || exp.result === 'pass';
+          var icon = mk('span', 'expect-icon');
+          icon.textContent = passed2 ? '\u2713' : '\u2717';
+          icon.style.color = passed2 ? 'var(--win)' : 'var(--loss)';
+          expRow.appendChild(icon);
+          var expContent = mk('div');
+          expContent.appendChild(mk('div', null, exp.name || exp.description || exp.expectation || 'Expectation'));
+          if (exp.evidence) {
+            expContent.appendChild(mk('div', 'expect-evidence', exp.evidence));
+          }
+          expRow.appendChild(expContent);
+          card.appendChild(expRow);
+        });
+      }
+      cardsWrap.appendChild(card);
+    });
   }
 
-  container.appendChild(mk('div', 'info-note',
-    '\u2139 Live data updates every 5 seconds while the Live tab is open. Data is read from the active session audit log.'));
+  sortSel.addEventListener('change', renderEvals);
+  renderEvals();
 }
 
-function updateLiveTable(tbody, entries) {
-  tbody.textContent = '';
-  if (!entries || !entries.length) {
-    var emptyRow = document.createElement('tr');
-    var emptyCell = document.createElement('td');
-    emptyCell.setAttribute('colspan', '7');
-    emptyCell.style.textAlign = 'center';
-    emptyCell.style.padding = '2rem';
-    emptyCell.style.color = 'var(--text-muted)';
-    emptyCell.style.fontStyle = 'italic';
-    emptyCell.textContent = 'No active session. Start a graded session to see live data.';
-    emptyRow.appendChild(emptyCell);
-    tbody.appendChild(emptyRow);
-    return;
-  }
-  entries.forEach(function(e) {
-    var tr = document.createElement('tr');
-    tr.appendChild(mkTd(fmtTime(e.timestamp)));
-    tr.appendChild(mkTd(e.domain || ''));
-    tr.appendChild(mkTd(mk('span', 'op-name', e.operation || '')));
-    tr.appendChild(mkTd(e.source || ''));
-    var gwPill = e.gateway ? mk('span', 'gateway-pill ' + e.gateway, e.gateway) : null;
-    tr.appendChild(mkTd(gwPill || (e.gateway || '\u2014')));
-    tr.appendChild(mkTd(e.duration_ms != null ? String(e.duration_ms) : '\u2014'));
-    var successEl;
-    if (e.success === true) {
-      successEl = mk('span', 'success-yes', '\u2713');
-    } else if (e.success === false) {
-      successEl = mk('span', 'success-no', '\u2717');
-    } else {
-      successEl = document.createTextNode('\u2014');
-    }
-    tr.appendChild(mkTd(successEl));
-    tbody.appendChild(tr);
-  });
+function getPassRate(ev) {
+  var expectations = ev.expectations || ev.results || [];
+  if (!expectations.length) return -1;
+  var passed = expectations.filter(function(e) { return e.pass || e.passed || e.result === 'pass'; }).length;
+  return passed / expectations.length;
 }
 
-// Live polling
-var _livePollingStarted = false;
-
-function startLivePolling() {
-  if (_livePollingStarted) return;
-  _livePollingStarted = true;
-  var liveTableBody = document.getElementById('live-table-body');
-  var sessionIdEl = document.getElementById('live-session-id');
-
-  function poll() {
-    fetch('/live-data')
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        updateLiveTable(liveTableBody, data.entries || []);
-        if (sessionIdEl) {
-          sessionIdEl.textContent = data.session_id || 'No active session';
-        }
-      })
-      .catch(function() { /* silently ignore poll errors in static mode */ });
-  }
-
-  poll();
-  setInterval(poll, 5000);
+function getEvalStatus(ev) {
+  var expectations = ev.expectations || ev.results || [];
+  if (!expectations.length) return { cls: 'not-run', label: 'NOT RUN' };
+  var passed = expectations.filter(function(e) { return e.pass || e.passed || e.result === 'pass'; }).length;
+  if (passed === expectations.length) return { cls: 'pass', label: 'PASS' };
+  return { cls: 'fail', label: 'FAIL' };
 }
 
-document.querySelector('[data-tab="live"]').addEventListener('click', startLivePolling);
-
-// ── Init ───────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────────
 (function() {
-  var data = typeof EMBEDDED_GRADE_DATA !== 'undefined' ? EMBEDDED_GRADE_DATA : {};
-
-  // Header
-  var title = data.title || 'ct-grade \u2014 Grade Review';
-  document.getElementById('hdr-title').textContent = title;
-  document.title = title;
-  if (data.subtitle) {
-    document.getElementById('hdr-sub').textContent = data.subtitle;
+  var meta = DATA.metadata || {};
+  document.getElementById('hdr-title').textContent = 'ct-grade v2.1 \u2014 Grade Review';
+  if (meta.workspace) document.getElementById('hdr-sub').textContent = meta.workspace;
+  var hdrMeta = document.getElementById('hdr-meta');
+  if (meta.generated_at) {
+    hdrMeta.appendChild(document.createTextNode('Generated ' + fmtDate(meta.generated_at)));
+    hdrMeta.appendChild(document.createElement('br'));
   }
-  if (data.generated_at) {
-    var m = document.getElementById('hdr-meta');
-    m.appendChild(document.createTextNode('Generated ' + fmtDate(data.generated_at)));
-    m.appendChild(document.createElement('br'));
-    var gradeCount = (data.grades || []).length;
-    var abCount = (data.ab_results && data.ab_results.total_runs) || 0;
-    m.appendChild(document.createTextNode(gradeCount + ' grade(s) \u00b7 ' + abCount + ' A/B run(s)'));
+  var grades = DATA.grades || [];
+  var sessions = DATA.sessions || [];
+  hdrMeta.appendChild(document.createTextNode(
+    grades.length + ' grade(s) \u00b7 ' + sessions.length + ' session(s)'
+  ));
+  if (meta.skill_version) {
+    hdrMeta.appendChild(document.createElement('br'));
+    hdrMeta.appendChild(document.createTextNode('v' + meta.skill_version));
   }
 
-  renderGradesTab(data.grades || []);
-  renderABTab(data.ab_results || {});
-  renderTokenTab(data.token_analysis || {});
-  renderMatrixTab(data.operation_matrix || {});
-  renderEvalsTab(data.eval_report || []);
-  renderLiveTab(data.live_session || {});
+  renderGradesTab(grades);
+  renderSessionsTab(sessions);
+  renderABTab(DATA.ab_results || {}, DATA.ab_history || []);
+  renderTokensTab(DATA.token_analysis || {});
+  renderMatrixTab(DATA.operation_matrix || []);
+  renderEvalsTab(DATA.eval_report || {});
 })();
 </script>
 </body>

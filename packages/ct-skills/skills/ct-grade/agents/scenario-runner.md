@@ -50,7 +50,8 @@ mutate session end
 ### Step 5: Grade the session
 
 ```
-query admin grade { "sessionId": "<saved-id>" }
+query check grade { "sessionId": "<saved-id>" }
+# Compatibility alias: query admin grade { "sessionId": "<saved-id>" }
 ```
 
 Save the full GradeResult JSON.
@@ -66,7 +67,7 @@ Record every operation you executed as a JSONL file. Each line:
 
 Write to `<OUTPUT_DIR>/<SCENARIO>/arm-<INTERFACE>/`:
 
-**grade.json** — The GradeResult from admin.grade:
+**grade.json** — The GradeResult from the canonical `check.grade` read (or legacy `admin.grade` alias):
 ```json
 {
   "sessionId": "...",

@@ -15,7 +15,8 @@ session.start(grade: true)
   -> CLEO_SESSION_GRADE=true (env)
   -> audit middleware logs ALL ops (query + mutate)
 session.end
-  -> query admin grade { sessionId }
+  -> query check grade { sessionId }   # canonical registry surface
+  -> query admin grade { sessionId }   # runtime compatibility alias
   -> Reads audit_log from tasks.db
   -> Applies 5-dimension rubric
   -> Appends to .cleo/metrics/GRADES.jsonl
@@ -225,3 +226,11 @@ The grading system detects MCP usage via `metadata.gateway === 'query'`. This me
 - **Mixed**: Any single MCP query call is enough for the +10
 
 This is why A/B tests between MCP and CLI interfaces will reliably show S5 differences.
+
+
+## API Surface Update
+
+- Canonical reads now live under `check.grade` and `check.grade.list`.
+- `admin.grade` and `admin.grade.list` remain compatibility handlers during the registry transition.
+- Token telemetry should be read through `admin.token` with `action=summary|list|show` rather than inferring split legacy operations.
+- Web clients should use `POST /api/query` and `POST /api/mutate`; default HTTP responses carry LAFS metadata in `X-Cleo-*` headers.

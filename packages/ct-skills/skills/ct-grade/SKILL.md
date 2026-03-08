@@ -84,11 +84,16 @@ ct grade --list
 
 ```
 # Grade a session
-query({ domain: "admin", operation: "grade",
+# Canonical registry surface (preferred)
+query({ domain: "check", operation: "grade",
   params: { sessionId: "abc-123" }})
 
 # List past grades
-query({ domain: "admin", operation: "grade.list" })
+query({ domain: "check", operation: "grade.list" })
+
+# Compatibility aliases still work at runtime
+query({ domain: "admin", operation: "grade",
+  params: { sessionId: "abc-123" }})
 ```
 
 ## Understanding the 5 Dimensions
@@ -210,5 +215,16 @@ Grade results are stored in `.cleo/metrics/GRADES.jsonl` as append-only JSONL. E
 
 | Gateway | Domain | Operation | Description |
 |---------|--------|-----------|-------------|
-| `query` | `admin` | `grade` | Grade a session (`params: { sessionId }`) |
-| `query` | `admin` | `grade.list` | List all past grade results |
+| `query` | `check` | `grade` | Canonical grade read (`params: { sessionId }`) |
+| `query` | `check` | `grade.list` | Canonical grade history read |
+| `query` | `admin` | `grade` | Compatibility alias for runtime handlers |
+| `query` | `admin` | `grade.list` | Compatibility alias for runtime handlers |
+| `query` | `admin` | `token` | Canonical token telemetry read (`action=summary|list|show`) |
+
+
+## API Update Notes
+
+- Prefer the canonical registry surface from `docs/specs/CLEO-API.md`: `check.grade`, `check.grade.list`, and `admin.token` with an `action` param.
+- `admin.grade*` and split `admin.token.*` paths remain compatibility handlers and may still appear in existing automation.
+- Browser clients should target `POST /api/query` and `POST /api/mutate`; LAFS metadata is carried in `X-Cleo-*` headers by default.
+- Treat persisted token transport values `api` and `http` as equivalent during the compatibility window described in `docs/specs/CLEO-WEB-API.md`.

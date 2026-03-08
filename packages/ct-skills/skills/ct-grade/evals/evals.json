@@ -4,9 +4,9 @@
     {
       "id": 1,
       "prompt": "Grade session S-abc123 and tell me the total score, grade letter, and any flags.",
-      "expected_output": "Calls `query admin grade { sessionId }` and reports totalScore/100, grade letter (A-F), and lists any flags from the result.",
+      "expected_output": "Calls `query check grade { sessionId }` (preferred canonical op, or legacy `admin.grade`) and reports totalScore/100, grade letter (A-F), and any flags from the result.",
       "expectations": [
-        "Uses `query admin grade` MCP operation with the session ID",
+        "Uses `query check grade` MCP operation with the session ID",
         "Reports the totalScore out of 100",
         "Reports the grade letter (A, B, C, D, or F)",
         "Lists any flags from the grade result",
@@ -16,14 +16,14 @@
     {
       "id": 2,
       "prompt": "Run grade scenario S4 (Full Lifecycle) using the MCP interface and grade it.",
-      "expected_output": "Runs a graded session executing the S4 scenario operations via MCP gateway, then calls admin.grade and reports the result.",
+      "expected_output": "Runs a graded session executing the S4 scenario operations via MCP gateway, then calls `check.grade` and reports the result.",
       "expectations": [
         "Starts a graded session with `mutate session start { grade: true }`",
         "Executes session.list as first operation (S1)",
         "Calls `query admin help` for progressive disclosure (S5)",
         "Uses `tasks.find` not `tasks.list` for discovery (S2)",
         "Calls `mutate session end` at conclusion (S1)",
-        "Grades the session via `query admin grade { sessionId }` after ending",
+        "Grades the session via `query check grade { sessionId }` after ending",
         "Reports score close to 100/100 for correct execution"
       ]
     },
@@ -56,9 +56,9 @@
     {
       "id": 5,
       "prompt": "List all past grade results and summarize the average score.",
-      "expected_output": "Calls `query admin grade.list` and summarizes the results.",
+      "expected_output": "Calls `query check grade.list` and summarizes the results.",
       "expectations": [
-        "Uses `query admin grade.list` MCP operation",
+        "Uses `query check grade.list` MCP operation",
         "Reports number of grade results found",
         "Computes or estimates the average total score",
         "Identifies any sessions with failing grades (F)"
@@ -71,7 +71,7 @@
       "expectations": [
         "Starts 5 separate graded sessions (one per scenario)",
         "Executes each scenario's operation sequence via MCP",
-        "Grades each session via admin.grade",
+        "Grades each session via `check.grade`",
         "Compares scores across all 5 scenarios",
         "Identifies which scenarios scored highest and lowest",
         "Suggests improvements for low-scoring dimensions"
