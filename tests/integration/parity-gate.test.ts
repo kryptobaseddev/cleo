@@ -26,9 +26,9 @@ import { CANONICAL_DOMAINS, type CanonicalDomain } from '../../src/dispatch/type
 // Constants — update these ONLY when operations are intentionally changed
 // ===========================================================================
 
-const EXPECTED_TOTAL = 262;
-const EXPECTED_QUERY = 148;
-const EXPECTED_MUTATE = 114;
+const EXPECTED_TOTAL = 268;
+const EXPECTED_QUERY = 151;
+const EXPECTED_MUTATE = 117;
 
 const EXPECTED_DOMAIN_COUNTS: Record<string, { query: number; mutate: number; total: number }> = {
   tasks:       { query: 17, mutate: 15, total: 32 },
@@ -38,7 +38,7 @@ const EXPECTED_DOMAIN_COUNTS: Record<string, { query: number; mutate: number; to
   pipeline:    { query: 17, mutate: 25, total: 42 },
   orchestrate: { query: 11, mutate:  8, total: 19 },
   tools:       { query: 21, mutate: 11, total: 32 },
-  admin:       { query: 23, mutate: 21, total: 44 },
+  admin:       { query: 26, mutate: 24, total: 50 },
   nexus:       { query: 17, mutate: 14, total: 31 },
   sticky:      { query:  2, mutate:  4, total:  6 },
 };

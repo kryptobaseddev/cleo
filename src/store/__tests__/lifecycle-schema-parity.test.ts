@@ -12,7 +12,7 @@ import { PIPELINE_STAGES, CONTRIBUTION_STAGE } from '../../core/lifecycle/stages
 
 function getMigrationSqlFiles(): Array<{ name: string; sql: string }> {
   const projectRoot = process.cwd();
-  const drizzleDir = join(projectRoot, 'dev', 'migrations', 'drizzle-tasks');
+  const drizzleDir = join(projectRoot, 'migrations', 'drizzle-tasks');
   const migrationDirs = readdirSync(drizzleDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
