@@ -190,18 +190,43 @@ bats tests/unit/add-task.bats
 git submodule update --init --recursive
 ```
 
-### Database Schema Changes (CRITICAL — read before touching schema.ts)
-```bash
-# Standard path — drizzle-kit diffs schema.ts vs last snapshot:
-npx drizzle-kit generate             # → creates migration.sql + snapshot.json
+### Database Schema Changes (CRITICAL — read before touching schema files)
 
-# Exception path — change drizzle-kit cannot detect (e.g. CHECK constraint values):
+CLEO has **three separate SQLite databases**, each with its own schema, config, and migration history:
+
+| Database | Schema file | Config | Migrations | Lives at |
+|----------|-------------|--------|-----------|----------|
+| `tasks.db` | `src/store/schema.ts` | `drizzle.config.ts` | `dev/migrations/drizzle-tasks/` | per-project `.cleo/tasks.db` |
+| `brain.db` | `src/store/brain-schema.ts` | `drizzle-brain.config.ts` | `dev/migrations/drizzle-brain/` | per-project `.cleo/brain.db` |
+| `nexus.db` | `src/store/nexus-schema.ts` | `drizzle-nexus.config.ts` | `dev/migrations/drizzle-nexus/` | global `~/.cleo/nexus.db` |
+
+All three configs live at the **project root** and are invoked from there. `drizzle-kit` default picks up `drizzle.config.ts` (tasks.db). Use `--config` for the others.
+
+**Zod validation schemas** are generated via `drizzle-orm/zod` (`createInsertSchema`/`createSelectSchema`) in `src/store/validation-schemas.ts`. No separate `drizzle-zod` package — it is part of `drizzle-orm` v1 beta.
+
+```bash
+# Generate migrations (npm scripts)
+npm run db:generate              # tasks.db — drizzle.config.ts
+npm run db:generate:brain        # brain.db — drizzle-brain.config.ts
+npm run db:generate:nexus        # nexus.db — drizzle-nexus.config.ts
+npm run db:generate:custom       # tasks.db custom migration (CHECK constraints)
+
+# Or directly with drizzle-kit:
+npx drizzle-kit generate
+npx drizzle-kit generate --config drizzle-brain.config.ts
+npx drizzle-kit generate --config drizzle-nexus.config.ts
+
+# Exception path — CHECK constraint / enum values drizzle-kit cannot detect:
 npx drizzle-kit generate --custom --name "describe-the-change"
-# → creates migration.sql (empty, you fill it in) + snapshot.json (generated, do not touch)
+
+# Studio (visual browser for each database)
+npm run db:studio                # tasks.db
+npm run db:studio:brain          # brain.db
+npm run db:studio:nexus          # nexus.db
 ```
 
 **Rules enforced by pre-commit hook:**
-- Every `drizzle/*/migration.sql` MUST have a sibling `snapshot.json` in the same directory
+- Every `dev/migrations/drizzle-*/*/migration.sql` MUST have a sibling `snapshot.json` in the same directory
 - `snapshot.json` is generated automatically — never hand-write it
 - A migration without a snapshot breaks the diff chain: the next `drizzle-kit generate` will produce incorrect output
 
@@ -209,23 +234,24 @@ npx drizzle-kit generate --custom --name "describe-the-change"
 - Create a migration directory and write `migration.sql` by hand without running `drizzle-kit generate` or `drizzle-kit generate --custom` first
 - Copy a `snapshot.json` from another migration and edit it
 - Create a `snapshot.json` with `"ddl": []` or `"prevIds": []`
+- Create drizzle config files inside `dev/migrations/` — configs belong at the project root
 
 **When to use `--custom`:**
-drizzle-kit v7 SQLite snapshots store column type (`text`) but not CHECK constraint values.
+drizzle-kit v1 beta SQLite snapshots store column type (`text`) but not CHECK constraint values.
 `{ enum: [...] }` on a SQLite column is TypeScript-only metadata — drizzle-kit cannot diff it.
 Any migration that modifies a CHECK constraint (e.g. adding a status value) will return
 "No schema changes" from plain `drizzle-kit generate`. Use `--custom` in that case.
 
-**Workflow (standard):**
-1. Edit `src/store/schema.ts`
-2. Run `npx drizzle-kit generate` → inspect the generated SQL
+**Workflow (standard — tasks.db example, same pattern for brain/nexus):**
+1. Edit the relevant schema file (`src/store/schema.ts`, `brain-schema.ts`, or `nexus-schema.ts`)
+2. Run the matching generate script → inspect the generated SQL
 3. If the generated SQL has already-applied statements (from a broken prior chain), trim those statements from `migration.sql` — **leave `snapshot.json` untouched**
-4. Commit both files together
+4. Commit both files together under `dev/migrations/drizzle-{tasks|brain|nexus}/`
 
 **Workflow (CHECK constraint / enum value change):**
-1. Edit `src/store/schema.ts` and `src/store/status-registry.ts`
-2. Run `npx drizzle-kit generate` — if it says "No schema changes", proceed to step 3
-3. Run `npx drizzle-kit generate --custom --name "describe-the-change"`
+1. Edit schema file and `src/store/status-registry.ts` (if status enum)
+2. Run `npm run db:generate` — if it says "No schema changes", proceed to step 3
+3. Run `npm run db:generate:custom --name "describe-the-change"`
 4. Fill in the generated (empty) `migration.sql` with the table-rebuild SQL
 5. Commit `migration.sql` + `snapshot.json` together
 

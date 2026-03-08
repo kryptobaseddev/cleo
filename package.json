@@ -35,7 +35,14 @@
     "adr:validate": "tsx dev/validate-adrs.ts",
     "adr:manifest": "tsx dev/generate-adr-manifest.ts",
     "features:generate": "tsx dev/generate-features.ts",
-    "version:sync": "tsx dev/version-sync.ts"
+    "version:sync": "tsx dev/version-sync.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:generate:brain": "drizzle-kit generate --config drizzle-brain.config.ts",
+    "db:generate:nexus": "drizzle-kit generate --config drizzle-nexus.config.ts",
+    "db:generate:custom": "drizzle-kit generate --custom",
+    "db:studio": "drizzle-kit studio",
+    "db:studio:brain": "drizzle-kit studio --config drizzle-brain.config.ts",
+    "db:studio:nexus": "drizzle-kit studio --config drizzle-nexus.config.ts"
   },
   "engines": {
     "node": ">=24.13.1"
