@@ -16,10 +16,11 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 VALID_MODES = ["scenario", "ab", "blind"]
-VALID_SCENARIOS = ["s1", "s2", "s3", "s4", "s5", "all"]
+VALID_SCENARIOS = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "all"]
 VALID_INTERFACES = ["mcp", "cli", "both"]
 
 SCENARIO_LABELS = {
@@ -28,14 +29,29 @@ SCENARIO_LABELS = {
     "s3": "Error Recovery",
     "s4": "Full Lifecycle",
     "s5": "Multi-Domain Analysis",
+    "s6": "Memory Observe & Recall",
+    "s7": "Decision Continuity",
+    "s8": "Pattern & Learning Storage",
+    "s9": "NEXUS Cross-Project",
+    "s10": "Full System Throughput",
 }
 
 DEFAULT_DOMAINS = ["tasks", "session"]
 
 
+def find_cleo_dir(start_dir="."):
+    """Walk up from start_dir to find a directory containing .cleo/tasks.db."""
+    p = Path(start_dir).resolve()
+    while p != p.parent:
+        if (p / '.cleo' / 'tasks.db').exists():
+            return p
+        p = p.parent
+    return Path(start_dir).resolve()
+
+
 def expand_scenarios(scenario_arg):
     if scenario_arg == "all":
-        return ["s1", "s2", "s3", "s4", "s5"]
+        return ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"]
     return [s.strip() for s in scenario_arg.split(",") if s.strip() in SCENARIO_LABELS]
 
 
@@ -57,9 +73,15 @@ def main():
     parser.add_argument("--interface", default="both", choices=VALID_INTERFACES)
     parser.add_argument("--domains", default="tasks,session")
     parser.add_argument("--runs", type=int, default=3)
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--output-dir", required=False, default=None,
+                        help="Output directory (default: .cleo/metrics/grade-runs/run-<timestamp>)")
     parser.add_argument("--project-dir", default=".")
     args = parser.parse_args()
+
+    if args.output_dir is None:
+        workspace = find_cleo_dir(args.project_dir)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        args.output_dir = str(workspace / '.cleo' / 'metrics' / 'grade-runs' / f"run-{ts}")
 
     scenarios = expand_scenarios(args.scenario)
     interfaces = expand_interfaces(args.interface)
@@ -88,9 +110,11 @@ def main():
                     "interface": iface,
                     "slot": slot,
                     "run": run,
+                    "session_id": None,
                     "executor_start": None,
                     "executor_end": None,
                     "executor_duration_seconds": None,
+                    "token_usage_id": None,
                     "total_tokens": None,
                     "duration_ms": None,
                 }

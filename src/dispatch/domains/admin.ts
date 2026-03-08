@@ -360,6 +360,102 @@ export class AdminHandler implements DomainHandler {
           };
         }
 
+        case 'grade.run.list': {
+          const fs = await import('node:fs');
+          const nodePath = await import('node:path');
+          const gradeRunsDir = nodePath.join(this.projectRoot, '.cleo', 'metrics', 'grade-runs');
+          const runs: Array<{
+            runId: string;
+            mode: string;
+            createdAt: string;
+            scenarios: string[];
+            status: string;
+            arms: Record<string, unknown>;
+            slotCount: number;
+          }> = [];
+          try {
+            if (fs.existsSync(gradeRunsDir)) {
+              for (const runId of fs.readdirSync(gradeRunsDir)) {
+                const manifestPath = nodePath.join(gradeRunsDir, runId, 'run-manifest.json');
+                if (fs.existsSync(manifestPath)) {
+                  try {
+                    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                    runs.push({
+                      runId,
+                      mode: manifest.mode ?? 'unknown',
+                      createdAt: manifest.created_at ?? '',
+                      scenarios: manifest.scenarios ?? [],
+                      status: manifest.status ?? 'unknown',
+                      arms: manifest.arms ?? {},
+                      slotCount: (manifest.slots ?? []).length,
+                    });
+                  } catch {
+                    // skip malformed manifest
+                  }
+                }
+              }
+            }
+          } catch {
+            // grade-runs dir missing — return empty
+          }
+          runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: { runs, total: runs.length },
+          };
+        }
+
+        case 'grade.run.show': {
+          const runId = params?.runId as string;
+          if (!runId) {
+            return this.errorResponse('query', 'admin', operation, 'E_INVALID_INPUT', 'runId is required', startTime);
+          }
+          const fs = await import('node:fs');
+          const nodePath = await import('node:path');
+          const runDir = nodePath.join(this.projectRoot, '.cleo', 'metrics', 'grade-runs', runId);
+          if (!fs.existsSync(runDir)) {
+            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `Run ${runId} not found`, startTime);
+          }
+          const manifestPath = nodePath.join(runDir, 'run-manifest.json');
+          if (!fs.existsSync(manifestPath)) {
+            return this.errorResponse('query', 'admin', operation, 'E_NOT_FOUND', `run-manifest.json not found for run ${runId}`, startTime);
+          }
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          const slots: Record<string, unknown> = {};
+          for (const slot of (manifest.slots ?? [])) {
+            const slotData: Record<string, unknown> = {};
+            for (const [armKey, armInfo] of Object.entries(manifest.arms ?? {})) {
+              const info = armInfo as Record<string, unknown>;
+              const iface = info.interface as string;
+              const armDir = nodePath.join(runDir, slot, 'run-01', `arm-${iface}`);
+              let grade: unknown = null;
+              let tokens: unknown = null;
+              const gradeFile = nodePath.join(armDir, 'grade.json');
+              if (fs.existsSync(gradeFile)) {
+                try { grade = JSON.parse(fs.readFileSync(gradeFile, 'utf8')); } catch { /* skip */ }
+              }
+              const sessionId = (grade as Record<string, unknown>)?.sessionId as string | undefined;
+              if (sessionId) {
+                try {
+                  tokens = await summarizeTokenUsage({ sessionId }, this.projectRoot);
+                } catch { /* skip */ }
+              }
+              slotData[`arm${armKey}`] = { grade, tokens };
+            }
+            const comparisonFile = nodePath.join(runDir, slot, 'run-01', 'comparison.json');
+            if (fs.existsSync(comparisonFile)) {
+              try { slotData.comparison = JSON.parse(fs.readFileSync(comparisonFile, 'utf8')); } catch { /* skip */ }
+            }
+            slots[slot] = slotData;
+          }
+          return {
+            _meta: dispatchMeta('query', 'admin', operation, startTime),
+            success: true,
+            data: { manifest, slots },
+          };
+        }
+
         case 'token.summary': {
           const result = await summarizeTokenUsage({
             provider: params?.provider as string | undefined,
@@ -798,7 +894,7 @@ export class AdminHandler implements DomainHandler {
       query: [
         'version', 'health', 'doctor', 'config.show', 'stats', 'context',
         'runtime', 'job.status', 'job.list', 'dash', 'log', 'sequence', 'help',
-        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'archive.stats',
+        'adr.list', 'adr.show', 'adr.find', 'grade', 'grade.list', 'grade.run.list', 'grade.run.show', 'archive.stats',
         'token.summary', 'token.list', 'token.show', 'sync.status', 'export', 'snapshot.export', 'export.tasks',
       ],
       mutate: [
