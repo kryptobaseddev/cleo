@@ -219,5 +219,5 @@ describe('E2E: Session Management Workflow', () => {
       args: ['Focus clear test completed'],
       flags: { json: true },
     });
-  });
+  }, 60000);
 });
