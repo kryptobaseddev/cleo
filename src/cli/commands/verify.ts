@@ -17,10 +17,11 @@ export function registerVerifyCommand(program: Command): void {
     .option('--all', 'Mark all required gates as passed')
     .option('--reset', 'Reset verification to initial state')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
+      const isWrite = !!(opts['gate'] || opts['all'] || opts['reset']);
       await dispatchFromCli(
-        'query',
+        isWrite ? 'mutate' : 'query',
         'check',
-        'gate.status',
+        isWrite ? 'gate.set' : 'gate.status',
         {
           taskId,
           gate: opts['gate'] as string | undefined,

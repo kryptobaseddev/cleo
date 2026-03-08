@@ -1772,6 +1772,16 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'check',
+    operation: 'compliance.sync',
+    description: 'check.compliance.sync (mutate) — sync project compliance metrics to global',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'check',
     operation: 'gate.set',
     description:
       'check.gate.set (mutate) — write path of former gate.verify; set/reset gates (T5615)',

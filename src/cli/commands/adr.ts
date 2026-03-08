@@ -39,9 +39,9 @@ export function registerAdrCommand(program: Command): void {
       await dispatchFromCli(
         'mutate',
         'admin',
-        'adr.validate',
-        {},
-        { command: 'adr validate', operation: 'admin.adr.validate' },
+        'adr.sync',
+        { validate: true },
+        { command: 'adr validate', operation: 'admin.adr.sync' },
       );
     });
 

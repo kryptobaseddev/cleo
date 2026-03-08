@@ -241,8 +241,8 @@ export function cliError(
     return;
   }
 
-  // JSON: caller already uses formatError, so this is a fallback
-  console.error(
+  // JSON envelope always goes to stdout for consistent machine-readable output
+  console.log(
     JSON.stringify({
       success: false,
       error: { code: code ?? 1, message },

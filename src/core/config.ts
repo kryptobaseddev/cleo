@@ -58,6 +58,13 @@ const DEFAULTS: CleoConfig = {
     commitAllowlist: [],
     denylist: [],
   },
+  signaldock: {
+    enabled: false,
+    mode: 'http',
+    endpoint: 'http://localhost:4000',
+    agentPrefix: 'cleo-',
+    privacyTier: 'private',
+  },
 };
 
 /** Environment variable to config path mapping. */
@@ -78,6 +85,8 @@ const ENV_MAP: Record<string, string> = {
   CLEO_LOG_LEVEL: 'logging.level',
   CLEO_LOG_FILE: 'logging.filePath',
   CLEO_AUDIT_RETENTION_DAYS: 'logging.auditRetentionDays',
+  CLEO_SIGNALDOCK_ENABLED: 'signaldock.enabled',
+  CLEO_SIGNALDOCK_ENDPOINT: 'signaldock.endpoint',
 };
 
 /**

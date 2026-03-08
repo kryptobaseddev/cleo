@@ -361,6 +361,19 @@ export class CheckHandler implements DomainHandler {
           return this.wrapEngineResult(result, 'mutate', 'check', operation, startTime);
         }
 
+        case 'compliance.sync': {
+          const { syncComplianceMetrics } = await import('../../core/compliance/index.js');
+          const result = await syncComplianceMetrics({
+            force: params?.force as boolean | undefined,
+            cwd: this.projectRoot,
+          });
+          return {
+            _meta: dispatchMeta('mutate', 'check', operation, startTime),
+            success: (result.success as boolean) ?? true,
+            data: result,
+          };
+        }
+
         case 'gate.set': {
           const taskId = params?.taskId as string;
           if (!taskId) {
@@ -414,7 +427,7 @@ export class CheckHandler implements DomainHandler {
         'grade.list',
         'chain.validate',
       ],
-      mutate: ['compliance.record', 'test.run', 'gate.set'],
+      mutate: ['compliance.record', 'compliance.sync', 'test.run', 'gate.set'],
     };
   }
 

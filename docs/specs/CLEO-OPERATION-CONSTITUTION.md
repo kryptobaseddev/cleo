@@ -141,7 +141,7 @@ interface OperationDef {
 
 ## 6. Domain Operation Tables
 
-### 6.1 tasks (25 operations)
+### 6.1 tasks (26 operations)
 
 | Gateway | Operation | Description | Tier | Required Params | Idempotent |
 |---------|-----------|-------------|------|-----------------|------------|
@@ -157,6 +157,7 @@ interface OperationDef {
 | query | `relates` | Show related tasks; accepts `mode:"suggest"\|"discover"` | 1 | -- | Yes |
 | query | `complexity.estimate` | Estimate task complexity | 1 | -- | Yes |
 | query | `current` | Show currently active task | 0 | -- | Yes |
+| query | `history` | Show task work history (time tracked per task) | 1 | -- | Yes |
 | query | `label.list` | List all labels; accepts optional `label` filter | 1 | -- | Yes |
 | mutate | `add` | Create new task | 0 | -- | No |
 | mutate | `update` | Modify task properties (`status=done` MUST route to completion semantics) | 0 | -- | No |
@@ -243,7 +244,7 @@ All memory operations target **brain.db** (SQLite with FTS5). The memory domain 
 
 **Promoted to tier 0:** `memory.find` and `memory.observe` (both appear in the mandatory efficiency sequence)
 
-### 6.4 check (16 operations)
+### 6.4 check (17 operations)
 
 Includes 3 operations moved in from admin.
 
@@ -263,6 +264,7 @@ Includes 3 operations moved in from admin.
 | query | `grade.list` | List grade history | 2 | -- | Yes |
 | query | `archive.stats` | Archive statistics and analytics | 1 | -- | Yes |
 | mutate | `compliance.record` | Record compliance check result | 1 | -- | No |
+| mutate | `compliance.sync` | Sync project compliance metrics to global | 1 | -- | No |
 | mutate | `test.run` | Execute test suite | 1 | -- | No |
 | mutate | `gate.set` | Set or reset verification gate state | 1 | `taskId` | No |
 
@@ -282,7 +284,7 @@ Includes 3 operations moved in from admin.
 - `admin.grade.list` → `check.grade.list`
 - `admin.archive.stats` → `check.archive.stats`
 
-### 6.5 pipeline (27 operations)
+### 6.5 pipeline (31 operations)
 
 The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact ledger, and release orchestration. The entire domain is tier 1 except WarpChain (`chain.*`) which is tier 2.
 
@@ -309,6 +311,10 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 | mutate | `stage.gate.fail` | Mark lifecycle gate as failed | 1 | -- | No |
 | mutate | `manifest.append` | Append entry to MANIFEST.jsonl | 1 | `entry` | No |
 | mutate | `manifest.archive` | Archive old manifest entries | 1 | `beforeDate` | No |
+| mutate | `phase.set` | Set the active phase; absorbs `phase.start` and `phase.complete` via action param | 1 | `phaseId` | No |
+| mutate | `phase.advance` | Complete current phase and start next | 1 | -- | No |
+| mutate | `phase.rename` | Rename a phase and update all task references | 1 | `oldName`, `newName` | No |
+| mutate | `phase.delete` | Delete a phase with task reassignment protection | 1 | `phaseId` | No |
 | mutate | `release.ship` | Execute release step; accepts `step:"prepare"\|"changelog"\|"commit"\|"tag"\|"push"\|"gates"` | 1 | -- | No |
 | mutate | `release.rollback` | Rollback failed release | 1 | -- | No |
 | mutate | `release.cancel` | Cancel in-progress release | 1 | -- | No |
@@ -326,12 +332,8 @@ The pipeline domain manages RCSD lifecycle stages, the MANIFEST.jsonl artifact l
 - `pipeline.release.tag` → use `pipeline.release.ship {step:"tag"}`
 - `pipeline.release.push` → use `pipeline.release.ship {step:"push"}`
 - `pipeline.release.gates.run` → use `pipeline.release.ship {step:"gates"}`
-- `pipeline.phase.start` → removed from registry
-- `pipeline.phase.complete` → removed from registry
-- `pipeline.phase.set` → removed from registry
-- `pipeline.phase.advance` → removed from registry
-- `pipeline.phase.rename` → removed from registry
-- `pipeline.phase.delete` → removed from registry
+- `pipeline.phase.start` → use `pipeline.phase.set {action:"start"}`
+- `pipeline.phase.complete` → use `pipeline.phase.set {action:"complete"}`
 - `pipeline.chain.find` → removed from registry
 - `pipeline.chain.gate.pass` → removed from registry
 - `pipeline.chain.gate.fail` → removed from registry
@@ -557,14 +559,14 @@ All sticky operations are tier 1. Sticky notes are lightweight capture entries t
 | tasks | 14 | 12 | 26 |
 | session | 8 | 7 | 15 |
 | memory | 11 | 7 | 18 |
-| check | 13 | 3 | 16 |
+| check | 13 | 4 | 17 |
 | pipeline | 14 | 17 | 31 |
 | orchestrate | 9 | 7 | 16 |
 | tools | 16 | 6 | 22 |
 | admin | 15 | 15 | 30 |
 | nexus | 12 | 8 | 20 |
 | sticky | 2 | 4 | 6 |
-| **Total** | **114** | **86** | **200** |
+| **Total** | **114** | **87** | **201** |
 
 > These counts match `src/dispatch/registry.ts` exactly. The registry is the authoritative source of truth.
 

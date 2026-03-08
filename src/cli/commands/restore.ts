@@ -1,6 +1,6 @@
 /**
  * CLI restore command - universal restoration (backup, archived, cancelled, completed tasks).
- * Delegates to dispatch operations (tasks.restore, tasks.reopen, tasks.unarchive, admin.backup.restore).
+ * Delegates to dispatch operations (tasks.restore, admin.backup.restore).
  * @task T4454
  * @task T4795
  * @task T4904
@@ -161,21 +161,22 @@ export function registerRestoreCommand(program: Command): void {
                 {
                   command: 'restore',
                   message: 'Dry run - no changes made',
-                  operation: 'tasks.reopen',
+                  operation: 'tasks.restore',
                 },
               );
               return;
             }
             const targetStatus = opts['preserveStatus'] ? undefined : (opts['status'] as string);
-            const response = await dispatchRaw('mutate', 'tasks', 'reopen', {
+            const response = await dispatchRaw('mutate', 'tasks', 'restore', {
               taskId,
+              from: 'done',
               status: targetStatus,
               reason: opts['reason'] as string | undefined,
             });
             if (!response.success) {
               const code =
                 ExitCode[response.error?.code as keyof typeof ExitCode] ?? ExitCode.GENERAL_ERROR;
-              throw new CleoError(code, response.error?.message ?? 'Task reopen failed');
+              throw new CleoError(code, response.error?.message ?? 'Task restore failed');
             }
             const resultData = response.data as Record<string, unknown>;
             cliOutput(
@@ -186,7 +187,7 @@ export function registerRestoreCommand(program: Command): void {
                 newStatus: resultData?.newStatus,
                 source: 'active-tasks',
               },
-              { command: 'restore', operation: 'tasks.reopen' },
+              { command: 'restore', operation: 'tasks.restore' },
             );
             return;
           } else {
@@ -219,7 +220,7 @@ export function registerRestoreCommand(program: Command): void {
                   {
                     command: 'restore',
                     message: 'Dry run - no changes made',
-                    operation: 'tasks.unarchive',
+                    operation: 'tasks.restore',
                   },
                 );
                 return;
@@ -238,8 +239,9 @@ export function registerRestoreCommand(program: Command): void {
         // Delegate to unarchive via dispatch
         try {
           const targetStatus = opts['preserveStatus'] ? undefined : (opts['status'] as string);
-          const response = await dispatchRaw('mutate', 'tasks', 'unarchive', {
+          const response = await dispatchRaw('mutate', 'tasks', 'restore', {
             taskId,
+            from: 'archive',
             status: targetStatus,
             preserveStatus: !!opts['preserveStatus'],
           });
@@ -257,7 +259,7 @@ export function registerRestoreCommand(program: Command): void {
               newStatus: resultData?.status,
               source: 'archive',
             },
-            { command: 'restore', operation: 'tasks.unarchive' },
+            { command: 'restore', operation: 'tasks.restore' },
           );
         } catch {
           throw new CleoError(

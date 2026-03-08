@@ -53,7 +53,7 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.session.length).toBe(7);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(7);
     expect(MUTATE_OPERATIONS.memory.length).toBe(7);
-    expect(MUTATE_OPERATIONS.check.length).toBe(3);
+    expect(MUTATE_OPERATIONS.check.length).toBe(4);
     expect(MUTATE_OPERATIONS.pipeline.length).toBe(17);
     expect(MUTATE_OPERATIONS.admin.length).toBe(15);
     expect(MUTATE_OPERATIONS.tools.length).toBe(6);
@@ -464,7 +464,7 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('session')).toBe(7);
     expect(getMutateOperationCount('orchestrate')).toBe(7);
     expect(getMutateOperationCount('memory')).toBe(7);
-    expect(getMutateOperationCount('check')).toBe(3);
+    expect(getMutateOperationCount('check')).toBe(4);
     expect(getMutateOperationCount('pipeline')).toBe(17);
     expect(getMutateOperationCount('admin')).toBe(15);
     expect(getMutateOperationCount('tools')).toBe(6);

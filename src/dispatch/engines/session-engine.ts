@@ -288,8 +288,17 @@ export async function sessionStart(
   },
 ): Promise<EngineResult<Session>> {
   try {
-    const accessor = await getAccessor(projectRoot);
-    const taskData = await accessor.loadTaskFile();
+    let accessor = await getAccessor(projectRoot);
+    let taskData = await accessor.loadTaskFile();
+
+    // Auto-end any active session before starting a new one
+    const activeSessionId = taskData._meta?.activeSession;
+    if (activeSessionId) {
+      await sessionEnd(projectRoot);
+      // Reload after auto-end modified the task file
+      accessor = await getAccessor(projectRoot);
+      taskData = await accessor.loadTaskFile();
+    }
 
     // Parse scope (e.g., "epic:T001" -> { type: 'epic', rootTaskId: 'T001' })
     const scopeParts = params.scope.split(':');
@@ -485,7 +494,12 @@ export async function sessionEnd(
     const accessor = await getAccessor(projectRoot);
     const taskData = await accessor.loadTaskFile();
 
-    const sessionId = taskData._meta?.activeSession || 'default';
+    const sessionId = taskData._meta?.activeSession;
+    if (!sessionId) {
+      return engineError('E_SESSION_NOT_FOUND', 'No active session to end', {
+        fix: 'Start a session first with: session start --scope <scope> --name <name>',
+      });
+    }
     const now = new Date().toISOString();
 
     // NOTE: Do NOT clear grade mode env vars here — gradeSession() needs them

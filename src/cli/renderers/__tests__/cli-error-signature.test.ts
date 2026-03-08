@@ -109,7 +109,7 @@ describe('cliError signature compatibility (T4808 regression)', () => {
   // 7. Verify output includes message and code
   // -----------------------------------------------------------------------
   it('outputs message and code in JSON format', () => {
-    const spy = vi.spyOn(console, 'error');
+    const spy = vi.spyOn(console, 'log');
     spy.mockClear();
     cliError('Not found', 4);
 

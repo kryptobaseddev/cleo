@@ -93,9 +93,8 @@ export function registerComplianceCommand(program: Command): void {
       await dispatchFromCli(
         'mutate',
         'check',
-        'compliance.record',
+        'compliance.sync',
         {
-          action: 'sync',
           force: opts['force'],
         },
         { command: 'compliance' },

@@ -22,17 +22,19 @@ export function registerResearchCommand(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',
-        'session',
-        'context.inject',
+        'pipeline',
+        'manifest.append',
         {
-          taskId: opts['task'],
-          topic: opts['topic'],
-          findings: opts['findings']
-            ? (opts['findings'] as string).split(',').map((s) => s.trim())
-            : undefined,
-          sources: opts['sources']
-            ? (opts['sources'] as string).split(',').map((s) => s.trim())
-            : undefined,
+          entry: {
+            taskId: opts['task'],
+            topic: opts['topic'],
+            findings: opts['findings']
+              ? (opts['findings'] as string).split(',').map((s) => s.trim())
+              : undefined,
+            sources: opts['sources']
+              ? (opts['sources'] as string).split(',').map((s) => s.trim())
+              : undefined,
+          },
         },
         { command: 'research' },
       );
@@ -42,7 +44,7 @@ export function registerResearchCommand(program: Command): void {
     .command('show <id>')
     .description('Show a research entry')
     .action(async (id: string) => {
-      await dispatchFromCli('query', 'memory', 'show', { entryId: id }, { command: 'research' });
+      await dispatchFromCli('query', 'pipeline', 'manifest.show', { entryId: id }, { command: 'research' });
     });
 
   research
@@ -69,7 +71,7 @@ export function registerResearchCommand(program: Command): void {
     .command('pending')
     .description('List pending research entries')
     .action(async () => {
-      await dispatchFromCli('query', 'pipeline', 'manifest.pending', {}, { command: 'research' });
+      await dispatchFromCli('query', 'pipeline', 'manifest.list', { status: 'pending' }, { command: 'research' });
     });
 
   research
@@ -78,11 +80,14 @@ export function registerResearchCommand(program: Command): void {
     .action(async (researchId: string, taskId: string) => {
       await dispatchFromCli(
         'mutate',
-        'memory',
-        'link',
+        'pipeline',
+        'manifest.append',
         {
-          entryId: researchId,
-          taskId,
+          entry: {
+            type: 'link',
+            entryId: researchId,
+            taskId,
+          },
         },
         { command: 'research' },
       );
@@ -97,18 +102,20 @@ export function registerResearchCommand(program: Command): void {
     .action(async (id: string, opts: Record<string, unknown>) => {
       await dispatchFromCli(
         'mutate',
-        'session',
-        'context.inject',
+        'pipeline',
+        'manifest.append',
         {
-          entryId: id,
-          action: 'update',
-          findings: opts['findings']
-            ? (opts['findings'] as string).split(',').map((s) => s.trim())
-            : undefined,
-          sources: opts['sources']
-            ? (opts['sources'] as string).split(',').map((s) => s.trim())
-            : undefined,
-          status: opts['status'],
+          entry: {
+            type: 'update',
+            entryId: id,
+            findings: opts['findings']
+              ? (opts['findings'] as string).split(',').map((s) => s.trim())
+              : undefined,
+            sources: opts['sources']
+              ? (opts['sources'] as string).split(',').map((s) => s.trim())
+              : undefined,
+            status: opts['status'],
+          },
         },
         { command: 'research' },
       );
@@ -118,21 +125,24 @@ export function registerResearchCommand(program: Command): void {
     .command('stats')
     .description('Show research statistics')
     .action(async () => {
-      await dispatchFromCli('query', 'memory', 'stats', {}, { command: 'research' });
+      await dispatchFromCli('query', 'pipeline', 'manifest.stats', {}, { command: 'research' });
     });
 
   research
     .command('links <taskId>')
     .description('Show research entries linked to a task')
     .action(async (taskId: string) => {
-      await dispatchFromCli('query', 'memory', 'find', { taskId }, { command: 'research' });
+      await dispatchFromCli('query', 'pipeline', 'manifest.find', { taskId }, { command: 'research' });
     });
 
   research
     .command('archive')
     .description('Archive completed research entries')
-    .action(async () => {
-      await dispatchFromCli('mutate', 'pipeline', 'manifest.archive', {}, { command: 'research' });
+    .option('--before-date <date>', 'Archive entries before this date (YYYY-MM-DD)')
+    .action(async (opts: Record<string, unknown>) => {
+      await dispatchFromCli('mutate', 'pipeline', 'manifest.archive', {
+        beforeDate: opts['beforeDate'] as string | undefined,
+      }, { command: 'research' });
     });
 
   research

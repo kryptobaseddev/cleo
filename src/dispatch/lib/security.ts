@@ -13,6 +13,7 @@ import { normalizeTaskId } from '../../core/tasks/id-generator.js';
 import {
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,
+  SESSION_STATUSES,
   TASK_STATUSES,
 } from '../../store/status-registry.js';
 import { TASK_PRIORITIES } from '../../store/tasks-schema.js';
@@ -400,6 +401,7 @@ export function sanitizeParams(
       const isLifecycleStageStatus =
         context?.domain === 'pipeline' && context?.operation === 'stage.record';
       const isAdrStatus = context?.domain === 'admin' && context?.operation?.startsWith('adr.');
+      const isSessionStatus = context?.domain === 'session';
 
       sanitized[key] = validateEnum(
         value,
@@ -407,7 +409,9 @@ export function sanitizeParams(
           ? [...LIFECYCLE_STAGE_STATUSES]
           : isAdrStatus
             ? ['proposed', 'accepted', 'superseded', 'deprecated']
-            : [...TASK_STATUSES, ...MANIFEST_STATUSES],
+            : isSessionStatus
+              ? [...SESSION_STATUSES]
+              : [...TASK_STATUSES, ...MANIFEST_STATUSES],
         'status',
       );
       continue;

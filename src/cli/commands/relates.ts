@@ -22,12 +22,12 @@ export function registerRelatesCommand(program: Command): void {
     .description('Suggest related tasks based on shared attributes')
     .option('--threshold <n>', 'Minimum similarity threshold (0-100)', '50')
     .action(async (taskId: string, opts: Record<string, unknown>) => {
-      const response = await dispatchRaw('query', 'tasks', 'relates.find', {
+      const response = await dispatchRaw('query', 'tasks', 'relates', {
         taskId,
         mode: 'suggest',
         threshold: opts['threshold'] ? Number(opts['threshold']) : 50,
       });
-      handleRawError(response, { command: 'relates', operation: 'relates.find' });
+      handleRawError(response, { command: 'relates', operation: 'relates' });
       cliOutput(response.data ?? {}, { command: 'relates' });
     });
 
@@ -48,11 +48,11 @@ export function registerRelatesCommand(program: Command): void {
     .command('discover <taskId>')
     .description('Discover related tasks using various methods')
     .action(async (taskId: string) => {
-      const response = await dispatchRaw('query', 'tasks', 'relates.find', {
+      const response = await dispatchRaw('query', 'tasks', 'relates', {
         taskId,
         mode: 'discover',
       });
-      handleRawError(response, { command: 'relates', operation: 'relates.find' });
+      handleRawError(response, { command: 'relates', operation: 'relates' });
       cliOutput(response.data ?? {}, { command: 'relates' });
     });
 

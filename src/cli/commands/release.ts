@@ -83,8 +83,8 @@ export function registerReleaseCommand(program: Command): void {
       await dispatchFromCli(
         'mutate',
         'pipeline',
-        'release.changelog',
-        { version },
+        'release.ship',
+        { version, step: 'changelog' },
         { command: 'release' },
       );
     });

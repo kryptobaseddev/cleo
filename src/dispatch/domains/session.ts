@@ -365,6 +365,9 @@ export class SessionHandler implements DomainHandler {
 
         // backward-compat alias — context.inject moved to admin domain (T5615)
         case 'context.inject': {
+          console.warn(
+            '[CLEO deprecation] session.context.inject is deprecated and will be removed in a future version. Use admin.context.inject instead.',
+          );
           const protocolType = params?.protocolType as string;
           if (!protocolType) {
             return this.errorResponse(
