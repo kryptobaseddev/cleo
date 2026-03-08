@@ -195,21 +195,44 @@ export async function taskList(
   params?: {
     parent?: string;
     status?: string;
+    priority?: string;
+    type?: string;
+    phase?: string;
+    label?: string;
+    children?: boolean;
     limit?: number;
+    offset?: number;
     compact?: boolean;
   }
-): Promise<EngineResult<{ tasks: TaskRecord[] | CompactTask[]; total: number }>> {
+): Promise<EngineResult<{ tasks: TaskRecord[] | CompactTask[]; total: number; filtered: number }>> {
   try {
     const accessor = await getAccessor(projectRoot);
     const result = await coreListTasks({
       parentId: params?.parent ?? undefined,
       status: params?.status as import('../../types/task.js').TaskStatus | undefined,
+      priority: params?.priority as import('../../types/task.js').TaskPriority | undefined,
+      type: params?.type as import('../../types/task.js').TaskType | undefined,
+      phase: params?.phase,
+      label: params?.label,
+      children: params?.children,
       limit: params?.limit,
+      offset: params?.offset,
     }, projectRoot, accessor);
+    const tasks = params?.compact
+      ? result.tasks.map(t => toCompact(t))
+      : tasksToRecords(result.tasks);
     if (params?.compact) {
-      return { success: true, data: { tasks: result.tasks.map(t => toCompact(t)), total: result.total } };
+      return {
+        success: true,
+        data: { tasks, total: result.total, filtered: result.filtered },
+        page: result.page,
+      };
     }
-    return { success: true, data: { tasks: tasksToRecords(result.tasks), total: result.total } };
+    return {
+      success: true,
+      data: { tasks, total: result.total, filtered: result.filtered },
+      page: result.page,
+    };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
   }

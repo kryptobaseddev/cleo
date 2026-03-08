@@ -46,7 +46,7 @@ class GroupedHelp extends Help {
     'Admin': [
       'config', 'backup', 'export-tasks', 'import-tasks',
       'env', 'mcp-install', 'testing', 'skills', 'self-update',
-      'install-global', 'grade', 'migrate-claude-mem', 'migrate', 'otel', 'adr', 'commands'
+      'install-global', 'grade', 'migrate-claude-mem', 'migrate', 'otel', 'token', 'adr', 'commands'
     ]
   };
 
@@ -248,6 +248,7 @@ import { registerLogCommand } from './commands/log.js';
 import { registerNextCommand } from './commands/next.js';
 import { registerPlanCommand } from './commands/plan.js';
 import { registerOtelCommand } from './commands/otel.js';
+import { registerTokenCommand } from './commands/token.js';
 import { registerPhasesCommand } from './commands/phases.js';
 import { registerPromoteCommand } from './commands/promote.js';
 import { registerRelatesCommand } from './commands/relates.js';
@@ -453,6 +454,7 @@ registerLogCommand(program);
 registerNextCommand(program);
 registerPlanCommand(program);
 registerOtelCommand(program);
+registerTokenCommand(program);
 registerPhasesCommand(program);
 registerPromoteCommand(program);
 registerRelatesCommand(program);

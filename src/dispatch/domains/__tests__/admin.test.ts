@@ -34,6 +34,23 @@ vi.mock('../../../core/scaffold.js', () => ({
   ensureContributorMcp: vi.fn().mockResolvedValue({ action: 'skipped', path: '/mock/project/.mcp.json', details: 'Not a contributor project' }),
 }));
 
+vi.mock('../../../mcp/lib/job-manager-accessor.js', () => ({
+  getJobManager: vi.fn(),
+}));
+
+vi.mock('../../../core/adrs/index.js', () => ({
+  listAdrs: vi.fn(),
+  showAdr: vi.fn(),
+  syncAdrsToDb: vi.fn(),
+  validateAllAdrs: vi.fn(),
+  findAdrs: vi.fn(),
+}));
+
+vi.mock('../../../core/sessions/session-grade.js', () => ({
+  readGrades: vi.fn(),
+  gradeSession: vi.fn(),
+}));
+
 // Mock registry OPERATIONS for help tests
 vi.mock('../../registry.js', () => ({
   OPERATIONS: [
@@ -67,6 +84,9 @@ import {
   systemStats,
   systemSync
 } from '../../lib/engine.js';
+import { listAdrs } from '../../../core/adrs/index.js';
+import { getJobManager } from '../../../mcp/lib/job-manager-accessor.js';
+import { readGrades } from '../../../core/sessions/session-grade.js';
 import { AdminHandler } from '../admin.js';
 
 describe('AdminHandler', () => {
@@ -259,6 +279,71 @@ describe('AdminHandler', () => {
       expect(res.error?.code).toBe('E_NOT_AVAILABLE');
     });
 
+    it('should return canonical paged envelope for job.list', async () => {
+      const jobs = [
+        { id: 'job-1', status: 'running' },
+        { id: 'job-2', status: 'queued' },
+        { id: 'job-3', status: 'running' },
+      ];
+      const mockManager = {
+        listJobs: vi.fn((status?: string) => status ? jobs.filter((job) => job.status === status) : jobs),
+      };
+      vi.mocked(getJobManager).mockReturnValue(mockManager as never);
+
+      const res = await handler.query('job.list', { status: 'running', limit: 1, offset: 1 });
+
+      expect(res.success).toBe(true);
+      expect(res.data).toEqual({
+        jobs: [{ id: 'job-3', status: 'running' }],
+        count: 2,
+        total: 3,
+        filtered: 2,
+      });
+      expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
+    });
+
+    it('should return canonical paged envelope for grade.list', async () => {
+      vi.mocked(readGrades).mockResolvedValue([
+        { sessionId: 'ses-1', score: 92 },
+        { sessionId: 'ses-2', score: 74 },
+        { sessionId: 'ses-1', score: 88 },
+      ] as never);
+
+      const res = await handler.query('grade.list', { sessionId: 'ses-1', limit: 1, offset: 1 });
+
+      expect(res.success).toBe(true);
+      expect(res.data).toEqual({
+        grades: [{ sessionId: 'ses-1', score: 88 }],
+        total: 3,
+        filtered: 2,
+      });
+      expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
+    });
+
+    it('should return canonical paged envelope for adr.list', async () => {
+      vi.mocked(listAdrs).mockResolvedValue({
+        adrs: [{ id: 'ADR-002', title: 'Second', status: 'accepted', date: '2026-02-02', filePath: '.cleo/adrs/ADR-002.md' }],
+        total: 3,
+        filtered: 2,
+      });
+
+      const res = await handler.query('adr.list', { status: 'accepted', limit: 1, offset: 1 });
+
+      expect(res.success).toBe(true);
+      expect(res.data).toEqual({
+        adrs: [{ id: 'ADR-002', title: 'Second', status: 'accepted', date: '2026-02-02', filePath: '.cleo/adrs/ADR-002.md' }],
+        total: 3,
+        filtered: 2,
+      });
+      expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
+      expect(listAdrs).toHaveBeenCalledWith('/mock/project', {
+        status: 'accepted',
+        since: undefined,
+        limit: 1,
+        offset: 1,
+      });
+    });
+
     it('should return E_INVALID_OPERATION for unknown query', async () => {
       const res = await handler.query('nonexistent');
 
@@ -391,6 +476,8 @@ describe('AdminHandler', () => {
     });
 
     it('should return E_NOT_AVAILABLE for job.cancel when no job manager', async () => {
+      vi.mocked(getJobManager).mockReturnValue(undefined as never);
+
       const res = await handler.mutate('job.cancel', { jobId: 'job-1' });
 
       expect(res.success).toBe(false);

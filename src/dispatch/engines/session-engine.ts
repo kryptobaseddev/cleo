@@ -43,6 +43,7 @@ import {
 } from '../../core/task-work/index.js';
 import type { TaskWorkHistoryEntry } from '../../core/task-work/index.js';
 import { CleoError } from '../../core/errors.js';
+import { paginate } from '../../core/pagination.js';
 import { getExitCodeName } from '../../types/exit-codes.js';
 import { engineError, type EngineResult } from './_error.js';
 
@@ -102,31 +103,43 @@ const SESSION_LIST_DEFAULT_LIMIT = 10;
  */
 export async function sessionList(
   projectRoot: string,
-  params?: { active?: boolean; limit?: number },
-): Promise<EngineResult<{ sessions: Session[]; _meta: { truncated: boolean; total: number } }>> {
+  params?: { active?: boolean; status?: string; limit?: number; offset?: number },
+): Promise<EngineResult<{
+  sessions: Session[];
+  total: number;
+  filtered: number;
+  _meta: { truncated: boolean; total: number };
+}>> {
   try {
     const accessor = await getAccessor(projectRoot);
 
-    let result = await accessor.loadSessions();
+    const sessions = await accessor.loadSessions();
+    let result = sessions;
 
-    if (params?.active === true) {
+    if (params?.status) {
+      result = result.filter((s: Session) => s.status === params.status);
+    } else if (params?.active === true) {
       result = result.filter((s: Session) => s.status === 'active');
     } else if (params?.active === false) {
       result = result.filter((s: Session) => s.status !== 'active');
     }
 
-    const total = result.length;
+    const total = sessions.length;
+    const filtered = result.length;
     const limit = (params?.limit && params.limit > 0) ? params.limit : SESSION_LIST_DEFAULT_LIMIT;
-    const truncated = total > limit;
-
-    result = result.slice(0, limit);
+    const offset = typeof params?.offset === 'number' && params.offset > 0 ? params.offset : 0;
+    const pageResult = paginate(result, limit, offset);
+    const truncated = filtered !== pageResult.items.length || offset > 0;
 
     return {
       success: true,
       data: {
-        sessions: result,
-        _meta: { truncated, total },
+        sessions: pageResult.items,
+        total,
+        filtered,
+        _meta: { truncated, total: filtered },
       },
+      page: pageResult.page,
     };
   } catch {
     return engineError('E_NOT_INITIALIZED', 'Task database not initialized');

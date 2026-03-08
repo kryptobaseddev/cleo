@@ -73,11 +73,18 @@ describe('ToolsHandler', () => {
   it('returns skill list via CAAMP', async () => {
     mocks.discoverSkills.mockResolvedValueOnce([
       { name: 'ct-test', metadata: { description: 'test skill' } },
+      { name: 'ct-second', metadata: { description: 'second skill' } },
     ] as any);
     const handler = new ToolsHandler();
-    const res = await handler.query('skill.list');
+    const res = await handler.query('skill.list', { limit: 1, offset: 1 });
     expect(res.success).toBe(true);
-    expect((res.data as { count: number }).count).toBe(1);
+    expect(res.data).toEqual({
+      skills: [{ name: 'ct-second', metadata: { description: 'second skill' } }],
+      count: 2,
+      total: 2,
+      filtered: 2,
+    });
+    expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
   });
 
   it('installs a skill via CAAMP', async () => {
@@ -88,10 +95,24 @@ describe('ToolsHandler', () => {
   });
 
   it('returns provider list via CAAMP', async () => {
+    mocks.getAllProviders.mockReturnValueOnce([{ id: 'claude-code' }, { id: 'opencode' }] as any);
     const handler = new ToolsHandler();
-    const res = await handler.query('provider.list');
+    const res = await handler.query('provider.list', { limit: 1 });
     expect(res.success).toBe(true);
-    expect((res.data as { count: number }).count).toBe(1);
+    expect(res.data).toEqual({
+      providers: [{ id: 'claude-code' }],
+      count: 2,
+      total: 2,
+      filtered: 2,
+    });
+    expect(res.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: true, total: 2 });
+  });
+
+  it('exposes precedence operations in supported queries', () => {
+    const handler = new ToolsHandler();
+    const ops = handler.getSupportedOperations();
+    expect(ops.query).toContain('skill.precedence.show');
+    expect(ops.query).toContain('skill.precedence.resolve');
   });
 
   it('runs provider injection via CAAMP', async () => {

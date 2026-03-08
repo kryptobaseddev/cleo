@@ -374,6 +374,7 @@ export interface ResearchFilter {
   agent_type?: string;
   topic?: string;
   limit?: number;
+  offset?: number;
   actionable?: boolean;
   dateAfter?: string;
   dateBefore?: string;
@@ -437,6 +438,10 @@ export function filterManifestEntries(entries: ExtendedManifestEntry[], filter: 
 
   if (filter.dateBefore) {
     filtered = filtered.filter(e => e.date < filter.dateBefore!);
+  }
+
+  if (filter.offset && filter.offset > 0) {
+    filtered = filtered.slice(filter.offset);
   }
 
   if (filter.limit && filter.limit > 0) {

@@ -93,7 +93,7 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('query: manifest.show', () => {
     it('should return manifest entry by ID', async () => {
-      vi.mocked(pipelineManifestShow).mockReturnValue({
+      vi.mocked(pipelineManifestShow).mockResolvedValue({
         success: true,
         data: { id: 'R001', title: 'Auth Research', file: '.cleo/research/auth.md', fileExists: true },
       });
@@ -118,19 +118,22 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('query: manifest.list', () => {
     it('should return manifest entries', async () => {
-      vi.mocked(pipelineManifestList).mockReturnValue({
+      vi.mocked(pipelineManifestList).mockResolvedValue({
         success: true,
-        data: { entries: [{ id: 'R001' }, { id: 'R002' }], total: 2 },
+        data: { entries: [{ id: 'R001' }, { id: 'R002' }], total: 3, filtered: 2 },
+        page: { mode: 'offset', limit: 2, offset: 0, hasMore: false, total: 2 },
       });
 
       const result = await handler.query('manifest.list', {});
       expect(result.success).toBe(true);
-      expect((result.data as { total: number }).total).toBe(2);
+      expect((result.data as { total: number }).total).toBe(3);
+      expect((result.data as { filtered: number }).filtered).toBe(2);
+      expect(result.page).toEqual({ mode: 'offset', limit: 2, offset: 0, hasMore: false, total: 2 });
       expect(pipelineManifestList).toHaveBeenCalled();
     });
 
     it('should pass filter params', async () => {
-      vi.mocked(pipelineManifestList).mockReturnValue({
+      vi.mocked(pipelineManifestList).mockResolvedValue({
         success: true,
         data: { entries: [], total: 0 },
       });
@@ -149,7 +152,7 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('query: manifest.find', () => {
     it('should search manifest entries by text', async () => {
-      vi.mocked(pipelineManifestFind).mockReturnValue({
+      vi.mocked(pipelineManifestFind).mockResolvedValue({
         success: true,
         data: {
           query: 'authentication',
@@ -168,7 +171,7 @@ describe('PipelineHandler manifest operations', () => {
     });
 
     it('should pass confidence and limit params', async () => {
-      vi.mocked(pipelineManifestFind).mockReturnValue({
+      vi.mocked(pipelineManifestFind).mockResolvedValue({
         success: true,
         data: { query: 'auth', results: [], total: 0 },
       });
@@ -195,7 +198,7 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('query: manifest.pending', () => {
     it('should return pending manifest items', async () => {
-      vi.mocked(pipelineManifestPending).mockReturnValue({
+      vi.mocked(pipelineManifestPending).mockResolvedValue({
         success: true,
         data: { entries: [], total: 0, byStatus: { partial: 0, blocked: 0, needsFollowup: 0 } },
       });
@@ -206,7 +209,7 @@ describe('PipelineHandler manifest operations', () => {
     });
 
     it('should pass epicId filter', async () => {
-      vi.mocked(pipelineManifestPending).mockReturnValue({
+      vi.mocked(pipelineManifestPending).mockResolvedValue({
         success: true,
         data: { entries: [], total: 0, byStatus: {} },
       });
@@ -222,7 +225,7 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('query: manifest.stats', () => {
     it('should return manifest statistics', async () => {
-      vi.mocked(pipelineManifestStats).mockReturnValue({
+      vi.mocked(pipelineManifestStats).mockResolvedValue({
         success: true,
         data: { total: 25, byStatus: { completed: 20, partial: 5 }, actionable: 8, needsFollowup: 3, averageFindings: 2.5 },
       });
@@ -234,7 +237,7 @@ describe('PipelineHandler manifest operations', () => {
     });
 
     it('should pass epicId filter', async () => {
-      vi.mocked(pipelineManifestStats).mockReturnValue({
+      vi.mocked(pipelineManifestStats).mockResolvedValue({
         success: true,
         data: { total: 5 },
       });
@@ -250,7 +253,7 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('mutate: manifest.append', () => {
     it('should append entry to manifest', async () => {
-      vi.mocked(pipelineManifestAppend).mockReturnValue({
+      vi.mocked(pipelineManifestAppend).mockResolvedValue({
         success: true,
         data: { appended: true, entryId: 'R001' },
       });
@@ -285,7 +288,7 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('mutate: manifest.archive', () => {
     it('should archive old manifest entries', async () => {
-      vi.mocked(pipelineManifestArchive).mockReturnValue({
+      vi.mocked(pipelineManifestArchive).mockResolvedValue({
         success: true,
         data: { archived: 5, remaining: 20 },
       });
@@ -328,7 +331,7 @@ describe('PipelineHandler manifest operations', () => {
 
   describe('response metadata', () => {
     it('should include _meta with pipeline domain', async () => {
-      vi.mocked(pipelineManifestStats).mockReturnValue({
+      vi.mocked(pipelineManifestStats).mockResolvedValue({
         success: true,
         data: { total: 0 },
       });
@@ -341,7 +344,7 @@ describe('PipelineHandler manifest operations', () => {
     });
 
     it('should include _meta in mutate responses', async () => {
-      vi.mocked(pipelineManifestArchive).mockReturnValue({
+      vi.mocked(pipelineManifestArchive).mockResolvedValue({
         success: true,
         data: { archived: 0, remaining: 0 },
       });

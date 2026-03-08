@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { cancelRelease, prepareRelease, showManifestRelease } from '../release-manifest.js';
 import { getDb } from '../../../store/sqlite.js';
-import * as schema from '../../../store/schema.js';
+import * as schema from '../../../store/tasks-schema.js';
 
 let testDir: string;
 

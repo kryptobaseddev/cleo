@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { TaskRow } from '../../store/schema.js';
+import type { TaskRow } from '../../store/tasks-schema.js';
 import { getAccessor } from '../../store/data-accessor.js';
 
 import { depsReady } from './deps-ready.js';

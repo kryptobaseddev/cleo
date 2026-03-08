@@ -153,7 +153,7 @@ describe('Migration Safety Integration Tests', () => {
         // If DB exists, it should be empty/invalid
         const { getDb } = await import('../sqlite.js');
         const { count } = await import('drizzle-orm');
-        const { tasks } = await import('../schema.js');
+        const { tasks } = await import('../tasks-schema.js');
         const db = await getDb();
         const taskCount = db.select({ count: count() }).from(tasks).get();
         expect(taskCount?.count ?? 0).toBe(0);
@@ -164,7 +164,7 @@ describe('Migration Safety Integration Tests', () => {
       // Setup: Create initial DB with data
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       const { getDb, closeDb } = await import('../sqlite.js');
-      const { tasks } = await import('../schema.js');
+      const { tasks } = await import('../tasks-schema.js');
       const { eq } = await import('drizzle-orm');
 
       // First migration: create initial DB
@@ -373,7 +373,7 @@ describe('Migration Safety Integration Tests', () => {
 
       // Verify all tasks were imported correctly
       const { getDb } = await import('../sqlite.js');
-      const { tasks: taskSchema } = await import('../schema.js');
+      const { tasks: taskSchema } = await import('../tasks-schema.js');
       const { count } = await import('drizzle-orm');
       const db = await getDb();
 
@@ -464,7 +464,7 @@ describe('Migration Safety Integration Tests', () => {
 
       // Verify both tasks are present
       const { getDb } = await import('../sqlite.js');
-      const { tasks: taskSchema } = await import('../schema.js');
+      const { tasks: taskSchema } = await import('../tasks-schema.js');
       const { count } = await import('drizzle-orm');
       const db = await getDb();
 
@@ -881,7 +881,7 @@ describe('Migration Safety Integration Tests', () => {
       await migrateJsonToSqlite();
 
       const { getDb } = await import('../sqlite.js');
-      const { tasks } = await import('../schema.js');
+      const { tasks } = await import('../tasks-schema.js');
       const { eq } = await import('drizzle-orm');
       const db = await getDb();
 

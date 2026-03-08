@@ -15,6 +15,7 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getLogger } from '../../core/logger.js';
 import { getProjectRoot } from '../../core/paths.js';
+import { paginate } from '../../core/pagination.js';
 
 import {
   nexusInit,
@@ -107,10 +108,14 @@ export class NexusHandler implements DomainHandler {
 
         case 'list': {
           const projects = await nexusList();
+          const { limit, offset } = this.getListParams(params);
+          const page = paginate(projects, limit, offset);
           return this.successResponse('query', operation, startTime, {
-            projects,
+            projects: page.items,
             count: projects.length,
-          });
+            total: projects.length,
+            filtered: projects.length,
+          }, page.page);
         }
 
         case 'show': {
@@ -171,10 +176,14 @@ export class NexusHandler implements DomainHandler {
         case 'orphans.list':
         case 'orphans': {
           const orphans = await orphanDetection();
+          const { limit, offset } = this.getListParams(params);
+          const page = paginate(orphans, limit, offset);
           return this.successResponse('query', operation, startTime, {
-            orphans,
+            orphans: page.items,
             count: orphans.length,
-          });
+            total: orphans.length,
+            filtered: orphans.length,
+          }, page.page);
         }
 
         case 'discover': {
@@ -220,10 +229,18 @@ export class NexusHandler implements DomainHandler {
 
         case 'share.remotes': {
           const remotes = await listRemotes(this.projectRoot);
+          const { limit, offset } = this.getListParams(params);
+          const page = paginate(remotes, limit, offset);
           return {
             _meta: dispatchMeta('query', 'nexus', operation, startTime),
             success: true,
-            data: { remotes },
+            data: {
+              remotes: page.items,
+              count: remotes.length,
+              total: remotes.length,
+              filtered: remotes.length,
+            },
+            page: page.page,
           };
         }
 
@@ -653,11 +670,20 @@ export class NexusHandler implements DomainHandler {
     operation: string,
     startTime: number,
     data: unknown,
+    page?: import('@cleocode/lafs-protocol').LAFSPage,
   ): DispatchResponse {
     return {
       _meta: dispatchMeta(gateway, 'nexus', operation, startTime),
       success: true,
       data,
+      ...(page ? { page } : {}),
+    };
+  }
+
+  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
+    return {
+      limit: typeof params?.limit === 'number' ? params.limit : undefined,
+      offset: typeof params?.offset === 'number' ? params.offset : undefined,
     };
   }
 

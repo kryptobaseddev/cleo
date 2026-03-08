@@ -213,7 +213,7 @@ export async function readAuditEntries(
 ): Promise<any[]> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
-    const { auditLog } = await import('../../store/schema.js');
+    const { auditLog } = await import('../../store/tasks-schema.js');
     const db = await getDb(projectRoot);
     const rows = await db.select().from(auditLog).orderBy(auditLog.timestamp);
 

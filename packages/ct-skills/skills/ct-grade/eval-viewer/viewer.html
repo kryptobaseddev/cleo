@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ct-grade Eval Review</title>
+  <style>
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #21263a; --border: #2a2f45;
+      --text: #e8eaf0; --muted: #6b7280; --accent: #6366f1; --accent-dim: #3730a3;
+      --green: #22c55e; --green-bg: rgba(34,197,94,.12);
+      --red: #ef4444; --red-bg: rgba(239,68,68,.12);
+      --yellow: #eab308; --yellow-bg: rgba(234,179,8,.12);
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; font-size: 14px; }
+    .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .header h1 { font-size: 1rem; font-weight: 600; }
+    .badge { background: var(--accent-dim); color: var(--accent); font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600; margin-left: 8px; }
+    .layout { flex: 1; display: flex; overflow: hidden; }
+    .sidebar { width: 260px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; padding: 8px; }
+    .main { flex: 1; overflow-y: auto; padding: 20px; }
+    .run-item { padding: 10px 12px; border-radius: var(--radius); cursor: pointer; margin-bottom: 4px; border: 1px solid transparent; }
+    .run-item:hover { background: var(--surface2); border-color: var(--border); }
+    .run-item.active { background: var(--accent-dim); border-color: var(--accent); }
+    .run-id { font-size: 11px; color: var(--muted); font-family: monospace; margin-bottom: 4px; }
+    .run-prompt { font-size: 12px; line-height: 1.4; }
+    .run-pass { font-size: 11px; margin-top: 5px; font-weight: 600; }
+    .pass-good { color: var(--green); } .pass-mid { color: var(--yellow); } .pass-bad { color: var(--red); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+    .card-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+    .card-body { padding: 16px; }
+    .prompt-box { background: var(--surface2); border-left: 3px solid var(--accent); border-radius: 4px; padding: 12px; font-size: 13px; line-height: 1.6; }
+    .exp-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .exp-row:last-child { border-bottom: none; }
+    .exp-icon { font-size: 14px; flex-shrink: 0; margin-top: 2px; }
+    .exp-text { font-size: 13px; line-height: 1.5; }
+    .exp-evidence { font-size: 11px; color: var(--muted); margin-top: 3px; font-style: italic; }
+    .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .pill { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .pill-green { background: var(--green-bg); color: var(--green); } .pill-red { background: var(--red-bg); color: var(--red); } .pill-yellow { background: var(--yellow-bg); color: var(--yellow); }
+    .file-tabs { display: flex; gap: 4px; padding: 8px 16px; background: var(--surface2); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .ftab { padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: monospace; border: 1px solid transparent; color: var(--muted); background: none; }
+    .ftab:hover { border-color: var(--border); color: var(--text); }
+    .ftab.active { background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+    .file-body { padding: 16px; max-height: 400px; overflow-y: auto; }
+    .file-pre { font-family: monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+    .feedback-ta { width: 100%; min-height: 80px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 10px; font-size: 13px; font-family: inherit; resize: vertical; }
+    .feedback-ta:focus { outline: none; border-color: var(--accent); }
+    .btn { padding: 6px 14px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 13px; font-weight: 600; background: var(--accent); color: white; }
+    .btn:hover { background: #4f46e5; }
+    .save-msg { font-size: 12px; color: var(--muted); margin-left: 10px; }
+    .empty-msg { padding: 60px 20px; text-align: center; color: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="header">
+  <h1>ct-grade <span class="badge">Eval Review</span></h1>
+  <span id="hdr-stats" style="font-size:12px;color:var(--muted)"></span>
+</div>
+<div class="layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="main" id="main"><div class="empty-msg"><p>Select an eval run from the sidebar.</p></div></main>
+</div>
+<script>
+/*__EMBEDDED_DATA__*/
+const {runs, benchmark} = EMBEDDED_DATA;
+let feedback = {reviews: []};
+let curRun = null, curFileIdx = {};
+
+function el(tag, props, ...children) {
+  const e = document.createElement(tag);
+  if (props) for (const [k, v] of Object.entries(props)) {
+    if (k === 'cls') e.className = v;
+    else if (k === 'text') e.textContent = v;
+    else if (k === 'onclick') e.onclick = v;
+    else e.setAttribute(k, v);
+  }
+  for (const c of children) { if (c) e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); }
+  return e;
+}
+
+function passClass(r) { return r >= 0.8 ? 'pass-good' : r >= 0.5 ? 'pass-mid' : 'pass-bad'; }
+function pillClass(r) { return r >= 0.8 ? 'pill-green' : r >= 0.5 ? 'pill-yellow' : 'pill-red'; }
+
+fetch('/api/feedback').then(r => r.json()).then(d => { feedback = d; }).catch(() => {});
+
+function buildSidebar() {
+  const sb = document.getElementById('sidebar');
+  sb.textContent = '';
+  if (!runs || !runs.length) { sb.appendChild(el('div', {style: 'padding:16px;color:var(--muted);font-size:12px', text: 'No eval runs found.'})); return; }
+  let tot = 0, pass = 0;
+  runs.forEach((run, i) => {
+    const item = el('div', {cls: 'run-item', onclick: () => selectRun(i)});
+    item.dataset.idx = i;
+    item.appendChild(el('div', {cls: 'run-id', text: `eval-${run.eval_id || i+1}`}));
+    item.appendChild(el('div', {cls: 'run-prompt', text: run.prompt || '(no prompt)'}));
+    const g = run.grading;
+    if (g && g.summary) {
+      pass += g.summary.passed; tot += g.summary.total;
+      const rate = g.summary.pass_rate;
+      const rp = el('div', {cls: 'run-pass ' + passClass(rate), text: `${g.summary.passed}/${g.summary.total} passed (${Math.round(rate*100)}%)`});
+      item.appendChild(rp);
+    }
+    sb.appendChild(item);
+  });
+  if (tot > 0) {
+    const hdr = document.getElementById('hdr-stats');
+    hdr.textContent = `${runs.length} evals · ${pass}/${tot} expectations · ${Math.round(pass/tot*100)}% pass`;
+  }
+}
+
+function selectRun(idx) {
+  curRun = idx;
+  document.querySelectorAll('.run-item').forEach(e => e.classList.remove('active'));
+  const item = document.querySelector(`.run-item[data-idx="${idx}"]`);
+  if (item) item.classList.add('active');
+  renderMain(runs[idx]);
+}
+
+function renderMain(run) {
+  const main = document.getElementById('main');
+  main.textContent = '';
+
+  // Prompt card
+  const promptCard = el('div', {cls: 'card'});
+  promptCard.appendChild(el('div', {cls: 'card-header', text: 'Prompt'}));
+  const pb = el('div', {cls: 'card-body'});
+  pb.appendChild(el('div', {cls: 'prompt-box', text: run.prompt || '(no prompt)'}));
+  promptCard.appendChild(pb);
+  main.appendChild(promptCard);
+
+  // Grading card
+  const g = run.grading;
+  if (g && g.summary) {
+    const gradeCard = el('div', {cls: 'card'});
+    gradeCard.appendChild(el('div', {cls: 'card-header', text: 'Grade Result'}));
+    const gb = el('div', {cls: 'card-body'});
+    const rate = g.summary.pass_rate;
+    const pr = el('div', {cls: 'pill-row'});
+    pr.appendChild(el('span', {cls: 'pill ' + pillClass(rate), text: `${g.summary.passed}/${g.summary.total} passed`}));
+    pr.appendChild(el('span', {cls: 'pill ' + pillClass(rate), text: `${Math.round(rate*100)}%`}));
+    gb.appendChild(pr);
+    if (g.expectations) {
+      for (const exp of g.expectations) {
+        const row = el('div', {cls: 'exp-row'});
+        row.appendChild(el('span', {cls: 'exp-icon', text: exp.passed ? '✓' : '✗', style: exp.passed ? 'color:var(--green)' : 'color:var(--red)'}));
+        const textWrap = el('div');
+        textWrap.appendChild(el('div', {cls: 'exp-text', text: exp.text || ''}));
+        if (exp.evidence) textWrap.appendChild(el('div', {cls: 'exp-evidence', text: exp.evidence}));
+        row.appendChild(textWrap);
+        gb.appendChild(row);
+      }
+    }
+    gradeCard.appendChild(gb);
+    main.appendChild(gradeCard);
+  }
+
+  // Files card
+  const runKey = run.id;
+  if (!curFileIdx[runKey]) curFileIdx[runKey] = 0;
+  if (run.outputs && run.outputs.length > 0) {
+    const filesCard = el('div', {cls: 'card'});
+    filesCard.appendChild(el('div', {cls: 'card-header', text: 'Output Files'}));
+    const ftabs = el('div', {cls: 'file-tabs'});
+    run.outputs.forEach((f, i) => {
+      const tab = el('button', {cls: 'ftab' + (i === curFileIdx[runKey] ? ' active' : ''), text: f.name, onclick: () => { curFileIdx[runKey] = i; renderMain(run); }});
+      ftabs.appendChild(tab);
+    });
+    filesCard.appendChild(ftabs);
+    const body = el('div', {cls: 'file-body'});
+    const active = run.outputs[curFileIdx[runKey]];
+    if (active && active.type === 'text') {
+      body.appendChild(el('pre', {cls: 'file-pre', text: active.content || ''}));
+    } else if (active) {
+      body.appendChild(el('div', {style: 'color:var(--muted);font-size:12px', text: `[Binary file: ${active.name}]`}));
+    }
+    filesCard.appendChild(body);
+    main.appendChild(filesCard);
+  }
+
+  // Feedback card
+  const fbCard = el('div', {cls: 'card'});
+  fbCard.appendChild(el('div', {cls: 'card-header', text: 'Feedback'}));
+  const fbb = el('div', {cls: 'card-body'});
+  const saved = (feedback.reviews || []).find(r => r.run_id === run.id)?.feedback || '';
+  const ta = el('textarea', {cls: 'feedback-ta', placeholder: 'Notes on this eval run...'});
+  ta.value = saved;
+  ta.id = `fb-${run.id}`;
+  fbb.appendChild(ta);
+  const btnRow = el('div', {style: 'display:flex;align-items:center;margin-top:8px'});
+  const saveMsg = el('span', {cls: 'save-msg'});
+  const btn = el('button', {cls: 'btn', text: 'Save', onclick: () => saveFeedback(run.id, saveMsg)});
+  btnRow.appendChild(btn);
+  btnRow.appendChild(saveMsg);
+  fbb.appendChild(btnRow);
+  fbCard.appendChild(fbb);
+  main.appendChild(fbCard);
+}
+
+function saveFeedback(runId, msgEl) {
+  const ta = document.getElementById(`fb-${runId}`);
+  if (!ta) return;
+  const text = ta.value.trim();
+  const reviews = feedback.reviews || [];
+  const idx = reviews.findIndex(r => r.run_id === runId);
+  if (idx >= 0) reviews[idx].feedback = text; else reviews.push({run_id: runId, feedback: text});
+  feedback.reviews = reviews;
+  fetch('/api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(feedback)})
+    .then(r => r.json()).then(() => { if (msgEl) { msgEl.textContent = 'Saved'; setTimeout(() => { msgEl.textContent = ''; }, 2000); } })
+    .catch(() => { if (msgEl) msgEl.textContent = 'Save failed'; });
+}
+
+buildSidebar();
+if (runs && runs.length > 0) selectRun(0);
+</script>
+</body>
+</html>

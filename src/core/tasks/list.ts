@@ -6,6 +6,10 @@
 
 import type { Task, TaskStatus, TaskPriority, TaskType } from '../../types/task.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import type { LAFSPage } from '@cleocode/lafs-protocol';
+import { paginate } from '../pagination.js';
+
+const TASK_LIST_DEFAULT_LIMIT = 10;
 
 /** Compact task representation — minimal fields for MCP list responses. */
 export interface CompactTask {
@@ -47,6 +51,7 @@ export interface ListTasksResult {
   tasks: Task[];
   total: number;
   filtered: number;
+  page: LAFSPage;
   pagination?: {
     limit: number;
     offset: number;
@@ -100,31 +105,28 @@ export async function listTasks(options: ListTasksOptions = {}, cwd?: string, ac
   // Sort by position within parent groups
   filtered.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-  // Apply pagination
-  const limit = options.limit ?? 0;
-  const offset = options.offset ?? 0;
-
-  if (limit > 0) {
-    const paginated = filtered.slice(offset, offset + limit);
-    return {
-      tasks: paginated,
-      total,
-      filtered: filteredCount,
-      pagination: {
-        limit,
-        offset,
-        hasMore: offset + limit < filteredCount,
-      },
-    };
-  }
-
-  if (offset > 0) {
-    filtered = filtered.slice(offset);
-  }
+  const limit = options.limit === 0
+    ? undefined
+    : typeof options.limit === 'number' && options.limit > 0
+      ? options.limit
+      : TASK_LIST_DEFAULT_LIMIT;
+  const offset = typeof options.offset === 'number' && options.offset > 0
+    ? options.offset
+    : undefined;
+  const { items: tasks, page } = paginate(filtered, limit, offset);
+  const pagination = page.mode === 'offset'
+    ? {
+        limit: page.limit,
+        offset: page.offset,
+        hasMore: page.hasMore,
+      }
+    : undefined;
 
   return {
-    tasks: filtered,
+    tasks,
     total,
     filtered: filteredCount,
+    page,
+    pagination,
   };
 }

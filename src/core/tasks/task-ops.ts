@@ -1441,7 +1441,7 @@ export async function coreTaskHistory(
 ): Promise<Array<Record<string, unknown>>> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
-    const { auditLog } = await import('../../store/schema.js');
+    const { auditLog } = await import('../../store/tasks-schema.js');
     const { sql } = await import('drizzle-orm');
 
     const db = await getDb(projectRoot);

@@ -12,9 +12,9 @@ import { existsSync, renameSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, count, and } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
-import * as schema from '../../store/schema.js';
+import * as schema from '../../store/tasks-schema.js';
 import { getCleoDirAbsolute, getProjectRoot } from '../paths.js';
 import { readJson } from '../../store/json.js';
 import { parseChangelogBlocks, writeChangelogSection } from './changelog-writer.js';
@@ -24,6 +24,7 @@ import { resolveChannelFromBranch } from './channel.js';
 import type { ReleaseChannel } from './channel.js';
 import { loadReleaseConfig, getGitFlowConfig, getChannelConfig, getPushMode } from './release-config.js';
 import type { PushMode } from './release-config.js';
+import { createPage } from '../pagination.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -42,6 +43,24 @@ export interface ReleaseManifest {
   previousVersion?: string;
   commitSha?: string;
   gitTag?: string;
+}
+
+export interface ReleaseListOptions {
+  status?: ReleaseManifest['status'];
+  limit?: number;
+  offset?: number;
+}
+
+function normalizeLimit(limit: number | undefined): number | undefined {
+  return typeof limit === 'number' && limit > 0 ? limit : undefined;
+}
+
+function normalizeOffset(offset: number | undefined): number | undefined {
+  return typeof offset === 'number' && offset > 0 ? offset : undefined;
+}
+
+function effectivePageLimit(limit: number | undefined, offset: number | undefined): number | undefined {
+  return limit ?? (offset !== undefined ? 50 : undefined);
 }
 
 /** Task record shape needed for release operations. */
@@ -425,20 +444,58 @@ export async function generateReleaseChangelog(
  * @task T4788
  */
 export async function listManifestReleases(
+  optionsOrCwd?: ReleaseListOptions | string,
   cwd?: string,
 ): Promise<{
   releases: Array<{ version: string; status: string; createdAt: string; taskCount: number }>;
   total: number;
+  filtered: number;
   latest?: string;
+  page: ReturnType<typeof createPage>;
 }> {
-  const db = await getDb(cwd);
-  const rows = await db
+  const options = typeof optionsOrCwd === 'string' || optionsOrCwd === undefined
+    ? {}
+    : optionsOrCwd;
+  const effectiveCwd = typeof optionsOrCwd === 'string' ? optionsOrCwd : cwd;
+  const limit = normalizeLimit(options.limit);
+  const offset = normalizeOffset(options.offset);
+  const pageLimit = effectivePageLimit(limit, offset);
+
+  const db = await getDb(effectiveCwd);
+  const totalRow = await db
+    .select({ count: count() })
+    .from(schema.releaseManifests)
+    .get();
+  const total = totalRow?.count ?? 0;
+
+  const conditions = options.status
+    ? [eq(schema.releaseManifests.status, options.status)]
+    : [];
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const filteredRow = await db
+    .select({ count: count() })
+    .from(schema.releaseManifests)
+    .where(whereClause)
+    .get();
+  const filtered = filteredRow?.count ?? 0;
+
+  let query = db
     .select()
     .from(schema.releaseManifests)
-    .orderBy(desc(schema.releaseManifests.createdAt))
-    .all();
+    .where(whereClause)
+    .orderBy(desc(schema.releaseManifests.createdAt));
 
-  const latest = await findLatestPushedVersion(cwd);
+  if (pageLimit !== undefined) {
+    query = query.limit(pageLimit) as typeof query;
+  }
+  if (offset !== undefined) {
+    query = query.offset(offset) as typeof query;
+  }
+
+  const rows = await query.all();
+
+  const latest = await findLatestPushedVersion(effectiveCwd);
 
   return {
     releases: rows.map((r) => ({
@@ -447,8 +504,10 @@ export async function listManifestReleases(
       createdAt: r.createdAt,
       taskCount: (JSON.parse(r.tasksJson) as string[]).length,
     })),
-    total: rows.length,
+    total,
+    filtered,
     latest,
+    page: createPage({ total: filtered, limit: pageLimit, offset }),
   };
 }
 

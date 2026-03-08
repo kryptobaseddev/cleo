@@ -1,0 +1,52 @@
+{
+  "skill_name": "ct-skill-validator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Validate the ct-skill-creator skill against the v2 standard and show me a full report",
+      "expected_output": "A complete tier-by-tier validation report showing pass/fail/warn status for ct-skill-creator, with an HTML report opened in the browser",
+      "expectations": [
+        "Claude runs validate.py against ct-skill-creator",
+        "The output shows results for all 5 tiers",
+        "Claude runs generate_validation_report.py to produce an HTML report",
+        "Claude tells the user the report path or opens it in the browser",
+        "The report correctly identifies PASS or FAIL based on actual skill contents"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Check if this skill folder is v2 compliant: packages/ct-skills/skills/ct-orchestrator",
+      "expected_output": "Validation results for ct-orchestrator with tier breakdown, and an HTML report",
+      "expectations": [
+        "Claude validates ct-orchestrator not some other skill",
+        "Tier 1 structure check runs",
+        "Tier 2 frontmatter quality check runs",
+        "Tier 3 body quality check runs",
+        "An HTML report is generated and presented to the user"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Audit the ct-skill-validator skill itself — run all checks and give me a full findings report",
+      "expected_output": "Full self-audit of ct-skill-validator including validate gauntlet and audit_body, with HTML report",
+      "expectations": [
+        "Claude runs validate.py against ct-skill-validator",
+        "Claude runs audit_body.py for the deep body quality audit",
+        "An HTML report combining all findings is generated",
+        "Claude opens or links the HTML report for the user",
+        "The result correctly reflects ct-skill-validator's actual compliance status"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Run the manifest alignment check for ct-skill-validator against the CLEO manifest",
+      "expected_output": "Manifest alignment results showing whether ct-skill-validator is registered correctly in manifest.json and dispatch-config.json",
+      "expectations": [
+        "Claude passes --manifest to validate.py or check_manifest.py",
+        "The manifest.json path is correctly resolved",
+        "The output shows Tier 4 CLEO Integration results",
+        "Claude reports whether the skill is found in manifest.json"
+      ]
+    }
+  ]
+}

@@ -61,7 +61,7 @@ async function writeTodoJson(
   },
 ): Promise<void> {
   const { getDb } = await import('../../../store/sqlite.js');
-  const { tasks: tasksTable, taskDependencies } = await import('../../../store/schema.js');
+  const { tasks: tasksTable, taskDependencies } = await import('../../../store/tasks-schema.js');
   const db = await getDb(TEST_ROOT);
   const taskIds = new Set(tasks.map(t => t.id));
 

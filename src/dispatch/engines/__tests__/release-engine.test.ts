@@ -111,12 +111,27 @@ describe('Release Engine', () => {
       const result = await releaseList(TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(2);
+      expect((result.data as any).filtered).toBe(2);
+      expect(result.page).toEqual({ mode: 'none' });
     });
 
     it('should return empty list when no releases', async () => {
       const result = await releaseList(TEST_ROOT);
       expect(result.success).toBe(true);
       expect((result.data as any).total).toBe(0);
+    });
+
+    it('should support status filtering with top-level page metadata', async () => {
+      await releasePrepare('v1.0.0', ['T001'], undefined, TEST_ROOT);
+      await releasePrepare('v1.1.0', ['T002'], undefined, TEST_ROOT);
+      await releaseCommit('v1.0.0', TEST_ROOT);
+
+      const result = await releaseList({ status: 'prepared', limit: 1 }, TEST_ROOT);
+      expect(result.success).toBe(true);
+      expect((result.data as any).releases).toHaveLength(1);
+      expect((result.data as any).total).toBe(2);
+      expect((result.data as any).filtered).toBe(1);
+      expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 0, hasMore: false, total: 1 });
     });
   });
 

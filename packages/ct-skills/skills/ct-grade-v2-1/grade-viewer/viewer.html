@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLEO Grade Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Lora:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:         #faf9f5;
+      --surface:    #ffffff;
+      --surface2:   #f4f2ec;
+      --border:     #e8e6dc;
+      --text:       #141413;
+      --text-muted: #8a8880;
+      --accent:     #d97757;
+      --header-bg:  #141413;
+      --header-text:#faf9f5;
+      --radius:     6px;
+      --mono:       'JetBrains Mono', 'Fira Code', monospace;
+      --grade-a:  #4a8c5c; --grade-a-bg: #eaf4ee;
+      --grade-b:  #3a7fa8; --grade-b-bg: #e8f2f9;
+      --grade-c:  #b07d2a; --grade-c-bg: #fdf4e3;
+      --grade-d:  #c45d30; --grade-d-bg: #fceee8;
+      --grade-f:  #c03030; --grade-f-bg: #fce8e8;
+      --dim1: #7b68c8; --dim2: #4a8fa5; --dim3: #4a8c5c;
+      --dim4: #c4923a; --dim5: #d97757;
+      --mcp:  #4a8fa5; --cli:  #7b68c8; --tie: #8a8880;
+      --win:  #4a8c5c; --loss: #c03030;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Lora', Georgia, serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; font-size: 14px; }
+    .header { background: var(--header-bg); color: var(--header-text); padding: .75rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 1rem; }
+    .header-left { display: flex; align-items: center; gap: .75rem; }
+    .header-logo { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; background: var(--accent); color: #fff; padding: .2em .5em; border-radius: 3px; }
+    .header-title { font-family: 'Poppins', sans-serif; font-size: 1rem; font-weight: 600; color: #fff; }
+    .header-subtitle { font-size: .75rem; color: #888; }
+    .header-meta { font-size: .7rem; color: #666; text-align: right; line-height: 1.6; }
+    .tabs-bar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; padding: 0 1.5rem; gap: .25rem; flex-shrink: 0; }
+    .tab-btn { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 500; padding: .6rem .9rem; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; letter-spacing: .02em; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-badge { display: inline-block; background: var(--surface2); border-radius: 9px; font-size: .65rem; padding: .1em .45em; margin-left: .3em; color: var(--text-muted); }
+    .tab-btn.active .tab-badge { background: #fde8df; color: var(--accent); }
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .tab-panel { display: none; width: 100%; overflow: hidden; }
+    .tab-panel.active { display: flex; }
+    .sidebar { width: 240px; min-width: 180px; border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+    .sidebar-header { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: .75rem 1rem .4rem; }
+    .sidebar-item { padding: .55rem 1rem; cursor: pointer; display: flex; align-items: center; gap: .5rem; border-left: 3px solid transparent; transition: background .1s; font-size: .8rem; }
+    .sidebar-item:hover { background: var(--bg); }
+    .sidebar-item.active { background: var(--bg); border-left-color: var(--accent); }
+    .item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-score { font-family: var(--mono); font-size: .7rem; font-weight: 500; }
+    .content { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+    .grade-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+    .grade-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .grade-score-block { display: flex; align-items: center; gap: 1rem; }
+    .grade-letter-badge { font-family: 'Poppins', sans-serif; font-size: 2.5rem; font-weight: 700; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+    .grade-letter-badge.A { background: var(--grade-a-bg); color: var(--grade-a); }
+    .grade-letter-badge.B { background: var(--grade-b-bg); color: var(--grade-b); }
+    .grade-letter-badge.C { background: var(--grade-c-bg); color: var(--grade-c); }
+    .grade-letter-badge.D { background: var(--grade-d-bg); color: var(--grade-d); }
+    .grade-letter-badge.F { background: var(--grade-f-bg); color: var(--grade-f); }
+    .grade-score-details h2 { font-family: 'Poppins', sans-serif; font-size: 1.5rem; font-weight: 700; line-height: 1; }
+    .grade-score-details .pct { font-size: .85rem; color: var(--text-muted); }
+    .grade-session-id { font-family: var(--mono); font-size: .65rem; color: var(--text-muted); background: var(--surface2); padding: .2em .5em; border-radius: 3px; }
+    .dimensions { display: flex; flex-direction: column; gap: .65rem; }
+    .dimension-row { display: flex; align-items: center; gap: .75rem; }
+    .dimension-name { font-family: 'Poppins', sans-serif; font-size: .7rem; font-weight: 500; width: 145px; flex-shrink: 0; }
+    .dimension-bar-wrap { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+    .dimension-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .dimension-score-label { font-family: var(--mono); font-size: .7rem; width: 42px; text-align: right; flex-shrink: 0; }
+    .flags-section h3 { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: .6rem; }
+    .flags-list { display: flex; flex-direction: column; gap: .4rem; }
+    .flag-item { display: flex; align-items: flex-start; gap: .5rem; font-size: .78rem; padding: .4rem .6rem; background: var(--grade-f-bg); border-left: 3px solid var(--grade-f); border-radius: 0 var(--radius) var(--radius) 0; line-height: 1.4; }
+    .flag-icon { flex-shrink: 0; }
+    .no-flags { font-size: .78rem; color: var(--win); background: var(--grade-a-bg); padding: .4rem .6rem; border-left: 3px solid var(--win); border-radius: 0 var(--radius) var(--radius) 0; }
+    .token-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .6rem; }
+    .token-stat { background: var(--surface2); border-radius: var(--radius); padding: .6rem .75rem; }
+    .token-stat-label { font-family: 'Poppins', sans-serif; font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .2rem; }
+    .token-stat-value { font-family: var(--mono); font-size: .95rem; font-weight: 500; }
+    .ab-panel, .token-panel, .history-panel { width: 100%; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; }
+    .section-title { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-bottom: .75rem; }
+    .ab-summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
+    .ab-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem 1rem; }
+    .ab-stat-label { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .3rem; }
+    .ab-stat-value { font-family: var(--mono); font-size: 1.3rem; font-weight: 500; }
+    .ab-stat-value.win { color: var(--win); } .ab-stat-value.loss { color: var(--loss); } .ab-stat-value.neutral { color: var(--text-muted); }
+    .ab-winner-banner { display: flex; align-items: center; gap: .6rem; padding: .6rem 1rem; border-radius: var(--radius); font-family: 'Poppins', sans-serif; font-size: .8rem; font-weight: 600; }
+    .ab-winner-banner.mcp { background: #e8f2f9; color: var(--mcp); }
+    .ab-winner-banner.cli { background: #ede8f9; color: var(--cli); }
+    .ab-winner-banner.tie { background: var(--surface2); color: var(--text-muted); }
+    .ab-table-wrap { overflow-x: auto; }
+    table.ab-table { width: 100%; border-collapse: collapse; font-size: .76rem; }
+    .ab-table th { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .4rem .75rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .ab-table td { padding: .45rem .75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .ab-table tr:hover td { background: var(--bg); }
+    .op-name { font-family: var(--mono); font-size: .72rem; }
+    .win-pill { display: inline-block; padding: .15em .5em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; }
+    .win-pill.mcp { background: #d0e8f4; color: var(--mcp); } .win-pill.cli { background: #ddd8f4; color: var(--cli); } .win-pill.tie { background: var(--surface2); color: var(--text-muted); }
+    .delta-pos { color: var(--loss); font-family: var(--mono); font-size: .72rem; }
+    .delta-neg { color: var(--win); font-family: var(--mono); font-size: .72rem; }
+    .delta-zero { color: var(--text-muted); font-family: var(--mono); font-size: .72rem; }
+    .bar-chart { display: flex; flex-direction: column; gap: .5rem; }
+    .bar-row { display: flex; align-items: center; gap: .75rem; }
+    .bar-label { font-family: var(--mono); font-size: .72rem; width: 130px; flex-shrink: 0; text-align: right; }
+    .bar-track { flex: 1; height: 16px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
+    .bar-val { font-family: var(--mono); font-size: .7rem; width: 70px; flex-shrink: 0; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
+    .chart-card-title { font-family: 'Poppins', sans-serif; font-size: .8rem; font-weight: 600; margin-bottom: 1rem; }
+    .history-list { display: flex; flex-direction: column; gap: .5rem; }
+    .history-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem 1rem; display: flex; align-items: center; gap: 1rem; cursor: pointer; transition: border-color .15s; }
+    .history-item:hover { border-color: var(--accent); }
+    .history-grade-badge { font-family: 'Poppins', sans-serif; font-size: 1.1rem; font-weight: 700; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 5px; flex-shrink: 0; }
+    .history-grade-badge.A { background: var(--grade-a-bg); color: var(--grade-a); } .history-grade-badge.B { background: var(--grade-b-bg); color: var(--grade-b); }
+    .history-grade-badge.C { background: var(--grade-c-bg); color: var(--grade-c); } .history-grade-badge.D { background: var(--grade-d-bg); color: var(--grade-d); }
+    .history-grade-badge.F { background: var(--grade-f-bg); color: var(--grade-f); }
+    .history-item-main { flex: 1; min-width: 0; }
+    .history-session-id { font-family: var(--mono); font-size: .7rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-item-meta { display: flex; gap: .6rem; font-size: .7rem; color: var(--text-muted); margin-top: .2rem; flex-wrap: wrap; }
+    .history-score-bar { width: 120px; height: 5px; background: var(--surface2); border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+    .history-score-fill { height: 100%; border-radius: 3px; }
+    canvas.trend { width: 100%; height: 90px; display: block; }
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: 3rem 2rem; color: var(--text-muted); text-align: center; }
+    .empty-state .empty-icon { font-size: 2.5rem; }
+    .empty-state h3 { font-family: 'Poppins', sans-serif; font-size: .9rem; color: var(--text); }
+    .empty-state p { font-size: .78rem; max-width: 380px; line-height: 1.6; }
+    .empty-cmd { font-family: var(--mono); background: var(--surface2); padding: .25em .5em; border-radius: 3px; font-size: .74rem; display: inline-block; margin-top: .25rem; }
+    .ev-title { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .75rem; }
+    .ev-row { margin-bottom: .5rem; }
+    .ev-dim { font-family: 'Poppins', sans-serif; font-size: .68rem; font-weight: 600; margin-bottom: .2rem; }
+    .ev-bullet { font-size: .74rem; padding: .15rem 0 .15rem .75rem; color: var(--text-muted); }
+    .ab-note { font-size: .72rem; color: var(--text-muted); background: var(--grade-c-bg); border-left: 3px solid var(--grade-c); padding: .5rem .75rem; border-radius: 0 4px 4px 0; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <span class="header-logo">CLEO</span>
+    <div>
+      <div class="header-title" id="hdr-title">Grade Review</div>
+      <div class="header-subtitle" id="hdr-sub"></div>
+    </div>
+  </div>
+  <div class="header-meta" id="hdr-meta"></div>
+</div>
+
+<div class="tabs-bar">
+  <button class="tab-btn active" data-tab="grades">Grades <span class="tab-badge" id="tb-grades">0</span></button>
+  <button class="tab-btn"        data-tab="ab">A/B Comparison <span class="tab-badge" id="tb-ab">0</span></button>
+  <button class="tab-btn"        data-tab="tokens">Token Analysis</button>
+  <button class="tab-btn"        data-tab="history">History <span class="tab-badge" id="tb-history">0</span></button>
+</div>
+
+<div class="main">
+  <div class="tab-panel active" id="panel-grades">
+    <div class="sidebar" id="grade-sidebar"></div>
+    <div class="content"  id="grade-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-ab">
+    <div class="ab-panel" id="ab-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-tokens">
+    <div class="token-panel" id="token-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-history">
+    <div class="history-panel" id="history-content"></div>
+  </div>
+</div>
+
+<script>
+/*__EMBEDDED_GRADE_DATA__*/
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function scoreLetter(s) {
+  if (s == null) return '?';
+  if (s >= 90) return 'A'; if (s >= 75) return 'B';
+  if (s >= 60) return 'C'; if (s >= 45) return 'D'; return 'F';
+}
+function scoreColor(s) {
+  if (s >= 90) return 'var(--grade-a)'; if (s >= 75) return 'var(--grade-b)';
+  if (s >= 60) return 'var(--grade-c)'; if (s >= 45) return 'var(--grade-d)';
+  return 'var(--grade-f)';
+}
+const DIM_COLORS = ['var(--dim1)','var(--dim2)','var(--dim3)','var(--dim4)','var(--dim5)'];
+const DIM_NAMES  = ['Session Discipline','Discovery Efficiency','Task Hygiene','Error Protocol','Progressive Disclosure'];
+const DIM_KEYS   = ['sessionDiscipline','discoveryEfficiency','taskHygiene','errorProtocol','disclosureUse'];
+
+function fmtNum(n, fallback) {
+  if (n == null) return fallback !== undefined ? fallback : '\u2014';
+  return typeof n === 'number' && !Number.isInteger(n) ? n.toFixed(1) : String(n);
+}
+function fmtDate(s) {
+  if (!s) return '';
+  try { return new Date(s).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; }
+}
+
+// Safe element builder — never uses innerHTML with data
+function mk(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = String(text);
+  return e;
+}
+function mks(tag, css, text) { // inline style variant
+  var e = document.createElement(tag);
+  if (css) e.style.cssText = css;
+  if (text != null) e.textContent = String(text);
+  return e;
+}
+function app(parent) {
+  for (var i = 1; i < arguments.length; i++) {
+    if (arguments[i] != null) parent.appendChild(arguments[i]);
+  }
+  return parent;
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Empty state ────────────────────────────────────────────────────────────
+function emptyState(icon, title, desc, cmd) {
+  var d = mk('div', 'empty-state');
+  app(d, mks('div', 'font-size:2.5rem;', icon), mk('h3', null, title), mk('p', null, desc));
+  if (cmd) app(d, mk('span', 'empty-cmd', cmd));
+  return d;
+}
+
+// ── Grades Tab ─────────────────────────────────────────────────────────────
+function renderGradesTab(grades) {
+  var sidebar = document.getElementById('grade-sidebar');
+  var content = document.getElementById('grade-content');
+  sidebar.textContent = '';
+  content.textContent = '';
+  if (!grades || !grades.length) {
+    content.appendChild(emptyState('📊', 'No grade results yet',
+      'Run a scenario to generate grades:', 'python scripts/run_scenario.py --scenario S1 --cleo cleo-dev'));
+    return;
+  }
+  document.getElementById('tb-grades').textContent = grades.length;
+  app(sidebar, mk('div', 'sidebar-header', 'Sessions'));
+  grades.forEach(function(g, i) {
+    var score = g.totalScore != null ? g.totalScore : g.score;
+    var letter = scoreLetter(score);
+    var sid = (g.sessionId || '').slice(0, 22) || ('Run ' + (i + 1));
+    var item = mk('div', 'sidebar-item' + (i === 0 ? ' active' : ''));
+    var ls = mks('span', 'font-family:Poppins,sans-serif;font-weight:700;font-size:.85rem;color:' + scoreColor(score) + ';flex-shrink:0;width:18px;', letter);
+    var lab = mk('span', 'item-label', sid);
+    var sc = mks('span', null, score != null ? (score + '/100') : '\u2014');
+    sc.className = 'item-score'; sc.style.color = scoreColor(score);
+    app(item, ls, lab, sc);
+    item.addEventListener('click', (function(g2, item2) {
+      return function() {
+        sidebar.querySelectorAll('.sidebar-item').forEach(function(x) { x.classList.remove('active'); });
+        item2.classList.add('active');
+        renderGradeDetail(g2, content);
+      };
+    })(g, item));
+    sidebar.appendChild(item);
+  });
+  renderGradeDetail(grades[0], content);
+}
+
+function renderGradeDetail(g, container) {
+  container.textContent = '';
+  var score  = g.totalScore != null ? g.totalScore : (g.score || 0);
+  var max    = g.maxScore || 100;
+  var letter = scoreLetter(score);
+  var pct    = Math.round((score / max) * 100);
+  var dims   = g.dimensions || {};
+  var flags  = g.flags || [];
+  var tmeta  = g._tokenMeta || null;
+  var scenario = g._scenarioId || g.scenario || '';
+
+  // Score card
+  var card = mk('div', 'grade-card');
+  var hdr = mk('div', 'grade-card-header');
+  var sb = mk('div', 'grade-score-block');
+  var badge = mk('div', 'grade-letter-badge ' + letter, letter);
+  var sd = mk('div', 'grade-score-details');
+  var h2 = mk('h2'); h2.textContent = score + '/' + max; h2.style.color = scoreColor(score);
+  var pctEl = mk('div', 'pct', pct + '% \u2014 Grade ' + letter + (scenario ? ' \u2014 ' + scenario : ''));
+  app(sd, h2, pctEl);
+  if (g.timestamp) app(sd, mks('div', 'font-size:.68rem;color:var(--text-muted);margin-top:.25rem;', fmtDate(g.timestamp)));
+  app(sb, badge, sd);
+  app(hdr, sb);
+  if (g.sessionId) app(hdr, mk('code', 'grade-session-id', g.sessionId));
+  card.appendChild(hdr);
+
+  // Dimension bars
+  var dimsWrap = mk('div', 'dimensions');
+  DIM_KEYS.forEach(function(key, i) {
+    var d = dims[key]; if (!d) return;
+    var ds = d.score || 0, dm = d.max || 20, dp = Math.round((ds / dm) * 100);
+    var row = mk('div', 'dimension-row');
+    var bar = mk('div', 'dimension-bar');
+    bar.style.cssText = 'width:' + dp + '%;background:' + DIM_COLORS[i] + ';';
+    var bw = mk('div', 'dimension-bar-wrap'); bw.appendChild(bar);
+    var sl = mk('span', 'dimension-score-label', ds + '/' + dm);
+    sl.style.color = DIM_COLORS[i];
+    app(row, mk('span', 'dimension-name', DIM_NAMES[i]), bw, sl);
+    if (d.evidence && d.evidence.length) row.title = d.evidence.join(' | ');
+    dimsWrap.appendChild(row);
+  });
+  card.appendChild(dimsWrap);
+  container.appendChild(card);
+
+  // Flags
+  var fs = mk('div', 'grade-card flags-section');
+  var ft = mk('h3', null, 'Flags' + (flags.length ? ' (' + flags.length + ')' : ''));
+  var fl = mk('div', 'flags-list');
+  if (!flags.length) {
+    fl.appendChild(mk('div', 'no-flags', '\u2713 No flags \u2014 all protocol checks passed'));
+  } else {
+    flags.forEach(function(f) {
+      var item = mk('div', 'flag-item');
+      app(item, mks('span', 'flex-shrink:0;', '\u26A0'), mk('span', null, f));
+      fl.appendChild(item);
+    });
+  }
+  app(fs, ft, fl);
+  container.appendChild(fs);
+
+  // Evidence
+  var hasEvidence = DIM_KEYS.some(function(k) { return dims[k] && dims[k].evidence && dims[k].evidence.length; });
+  if (hasEvidence) {
+    var ec = mk('div', 'grade-card');
+    ec.appendChild(mk('div', 'ev-title', 'Evidence'));
+    DIM_KEYS.forEach(function(key, i) {
+      var d = dims[key]; if (!d || !d.evidence || !d.evidence.length) return;
+      var row = mk('div', 'ev-row');
+      var dimLabel = mk('div', 'ev-dim', DIM_NAMES[i]); dimLabel.style.color = DIM_COLORS[i];
+      row.appendChild(dimLabel);
+      d.evidence.forEach(function(ev) { row.appendChild(mk('div', 'ev-bullet', '\u2022 ' + ev)); });
+      ec.appendChild(row);
+    });
+    container.appendChild(ec);
+  }
+
+  // Token metadata
+  var tokCard = mk('div', 'grade-card');
+  tokCard.appendChild(mk('div', 'ev-title', 'Token Metadata'));
+  var grid = mk('div', 'token-meta-grid');
+  function addStat(label, value) {
+    var s = mk('div', 'token-stat');
+    app(s, mk('div', 'token-stat-label', label), mk('div', 'token-stat-value', fmtNum(value, '\u2014')));
+    grid.appendChild(s);
+  }
+  if (tmeta) {
+    addStat('Method', tmeta.estimationMethod || tmeta.estimation_method || '\u2014');
+    if (tmeta.totalEstimatedTokens) addStat('Est. Tokens', tmeta.totalEstimatedTokens);
+    if (tmeta.inputTokens)          addStat('Input Tokens', tmeta.inputTokens);
+    if (tmeta.outputTokens)         addStat('Output Tokens', tmeta.outputTokens);
+    if (tmeta.cacheReadTokens)      addStat('Cache Read', tmeta.cacheReadTokens);
+  } else if (g.entryCount) {
+    addStat('Audit Entries', g.entryCount);
+    addStat('Est. Tokens', '~' + (g.entryCount * 150));
+    addStat('Method', 'entry_count_proxy');
+  } else {
+    addStat('Note', 'Enable OTEL or use run_scenario.py for token data');
+  }
+  app(tokCard, grid);
+  container.appendChild(tokCard);
+}
+
+// ── A/B Tab ────────────────────────────────────────────────────────────────
+function renderABTab(ab) {
+  var container = document.getElementById('ab-content');
+  container.textContent = '';
+  if (!ab || !ab.total_runs) {
+    container.appendChild(emptyState('⚖️', 'No A/B results yet',
+      'Run a blind comparison:', 'python scripts/run_ab_test.py --domain tasks --runs 3 --cleo cleo-dev'));
+    return;
+  }
+  document.getElementById('tb-ab').textContent = ab.total_runs || 0;
+  var wins = ab.global_wins || {}, wr = ab.global_win_rate || {};
+  var delta = ab.avg_token_delta_mcp_minus_cli, winner = ab.overall_winner || 'tie';
+  var banner = mk('div', 'ab-winner-banner ' + winner);
+  var wlabel = winner === 'mcp' ? '\u26A1 MCP wins overall' : winner === 'cli' ? '\u26A1 CLI wins overall' : '\u2194 Overall tie';
+  banner.appendChild(mk('span', null, wlabel));
+  if (delta != null) {
+    var sign = delta > 0 ? '+' : '';
+    banner.appendChild(mks('span', 'font-size:.7rem;font-weight:400;opacity:.8;',
+      ' \u2014 MCP uses ' + sign + delta.toFixed(1) + ' tokens/op vs CLI'));
+  }
+  container.appendChild(banner);
+
+  var sumTitle = mk('div', 'section-title', 'Summary'); container.appendChild(sumTitle);
+  var grid = mk('div', 'ab-summary-grid');
+  [
+    ['Total Runs', ab.total_runs, ''],
+    ['MCP Wins',   wins.mcp || 0, 'win'],
+    ['CLI Wins',   wins.cli || 0, winner === 'cli' ? 'win' : ''],
+    ['Ties',       wins.tie || 0, 'neutral'],
+    ['MCP Win %',  ((wr.mcp || 0) * 100).toFixed(1) + '%', winner === 'mcp' ? 'win' : ''],
+    ['CLI Win %',  ((wr.cli || 0) * 100).toFixed(1) + '%', winner === 'cli' ? 'win' : ''],
+    ['Token Delta', delta != null ? ((delta > 0 ? '+' : '') + delta.toFixed(1) + 't') : '\u2014',
+      delta > 10 ? 'loss' : delta < -10 ? 'win' : 'neutral'],
+  ].forEach(function(row) {
+    var c = mk('div', 'ab-stat-card');
+    app(c, mk('div', 'ab-stat-label', row[0]), mk('div', 'ab-stat-value ' + row[2], String(row[1])));
+    grid.appendChild(c);
+  });
+  container.appendChild(grid);
+
+  var rawPerOp = ab.per_operation;
+  var perOp = null;
+  if (Array.isArray(rawPerOp)) {
+    perOp = {};
+    rawPerOp.forEach(function(s) { if (s && s.operation) perOp[s.operation] = s; });
+  } else if (rawPerOp && typeof rawPerOp === 'object') {
+    perOp = rawPerOp;
+  }
+  if (perOp && Object.keys(perOp).length) {
+    container.appendChild(mks('div', 'font-family:Poppins,sans-serif;font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-top:.5rem;', 'Per-Operation Results'));
+    var wrap = mk('div', 'ab-table-wrap');
+    var tbl = document.createElement('table'); tbl.className = 'ab-table';
+    var thead = document.createElement('thead'), hrow = document.createElement('tr');
+    ['Operation','Winner','MCP Wins','CLI Wins','Ties','Token \u0394','MCP chars','CLI chars','MCP ms','CLI ms'].forEach(function(h) {
+      hrow.appendChild(mk('th', null, h));
+    });
+    thead.appendChild(hrow); tbl.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    Object.keys(perOp).sort().forEach(function(opKey) {
+      var d = perOp[opKey], row = document.createElement('tr');
+      var delta2 = d.avg_token_delta != null ? d.avg_token_delta : 0;
+      var dcls = delta2 > 10 ? 'delta-pos' : delta2 < -10 ? 'delta-neg' : 'delta-zero';
+      var opW = d.winner || (d.mcp_wins > d.cli_wins ? 'mcp' : d.cli_wins > d.mcp_wins ? 'cli' : 'tie');
+      var cells = [
+        mk('span', 'op-name', opKey),
+        mk('span', 'win-pill ' + opW, opW.toUpperCase()),
+        document.createTextNode(String(d.mcp_wins || 0)),
+        document.createTextNode(String(d.cli_wins || 0)),
+        document.createTextNode(String(d.ties || 0)),
+        mk('span', dcls, (delta2 > 0 ? '+' : '') + delta2.toFixed(0) + 't'),
+        document.createTextNode(fmtNum(d.avg_mcp_chars)),
+        document.createTextNode(fmtNum(d.avg_cli_chars)),
+        document.createTextNode(fmtNum(d.avg_mcp_ms) + 'ms'),
+        document.createTextNode(fmtNum(d.avg_cli_ms) + 'ms'),
+      ];
+      cells.forEach(function(c) { var td = document.createElement('td'); td.appendChild(c); row.appendChild(td); });
+      tbody.appendChild(row);
+    });
+    tbl.appendChild(tbody); wrap.appendChild(tbl); container.appendChild(wrap);
+  }
+  container.appendChild(mk('div', 'ab-note',
+    '\u26A0 CLI-only sessions always score 0 on S5 (Progressive Disclosure) — metadata.gateway is not set by the CLI adapter. MCP earns +10 for query gateway usage automatically.'));
+}
+
+// ── Token Analysis Tab ─────────────────────────────────────────────────────
+function renderTokenTab(ta) {
+  var container = document.getElementById('token-content');
+  container.textContent = '';
+  if (!ta || !Object.keys(ta).length) {
+    container.appendChild(emptyState('\uD83D\uDD22', 'No token data yet',
+      'Generate token analysis:', 'python scripts/token_tracker.py --grades-file .cleo/metrics/GRADES.jsonl --breakdown-by domain'));
+    return;
+  }
+  function barChart(title, entries, maxVal, colorFn) {
+    var card = mk('div', 'chart-card');
+    card.appendChild(mk('div', 'chart-card-title', title));
+    var chart = mk('div', 'bar-chart');
+    entries.forEach(function(row) {
+      var label = row[0], val = row[1], color = colorFn ? colorFn(row) : 'var(--accent)';
+      var pct = maxVal > 0 ? Math.min((Math.abs(val) / maxVal) * 90, 90) : 0;
+      var r = mk('div', 'bar-row');
+      var track = mk('div', 'bar-track');
+      var fill = mk('div', 'bar-fill'); fill.style.cssText = 'width:' + pct + '%;background:' + color + ';';
+      track.appendChild(fill);
+      app(r, mk('span', 'bar-label', label), track, mk('span', 'bar-val', fmtNum(val) + 't'));
+      chart.appendChild(r);
+    });
+    card.appendChild(chart);
+    return card;
+  }
+  if (ta.breakdown_by_domain) {
+    var entries = Object.entries(ta.breakdown_by_domain).map(function(kv) { return [kv[0], kv[1].mean || 0]; });
+    var maxD = Math.max.apply(null, entries.map(function(e) { return e[1]; }).concat([1]));
+    var colors2 = ['var(--dim1)','var(--dim2)','var(--dim3)','var(--dim4)','var(--dim5)','var(--accent)','var(--mcp)','var(--cli)','#9b7ec8','#5a9a6a'];
+    container.appendChild(barChart('Estimated Tokens by Domain', entries, maxD, function(row, i) { return colors2[entries.indexOf(row) % colors2.length]; }));
+  }
+  if (ta.breakdown_by_gateway) {
+    var gw = ta.breakdown_by_gateway;
+    var gwEntries = [['query (MCP)', gw.mcp_query && gw.mcp_query.mean || 0], ['CLI', gw.cli && gw.cli.mean || 0]];
+    var maxGw = Math.max.apply(null, gwEntries.map(function(e) { return e[1]; }).concat([1]));
+    var gwColors = ['var(--mcp)', 'var(--cli)'];
+    container.appendChild(barChart('MCP vs CLI Token Split', gwEntries, maxGw, function(row) { return gwColors[gwEntries.indexOf(row)]; }));
+    if (gw.note) {
+      var noteEl = mks('p', 'font-size:.7rem;color:var(--text-muted);margin-top:.5rem;line-height:1.5;', gw.note);
+      container.lastChild.appendChild(noteEl);
+    }
+  }
+  if (ta.ab_aggregation && ta.ab_aggregation.per_operation) {
+    var opEntries = Object.entries(ta.ab_aggregation.per_operation).map(function(kv) { return [kv[0], kv[1].avg_delta || 0]; });
+    opEntries.sort(function(a,b) { return b[1] - a[1]; });
+    var maxOp = Math.max.apply(null, opEntries.map(function(e) { return Math.abs(e[1]); }).concat([1]));
+    container.appendChild(barChart('Token Delta per Op (MCP \u2212 CLI)', opEntries, maxOp, function(row) {
+      return row[1] > 0 ? 'var(--grade-d)' : 'var(--win)';
+    }));
+  }
+}
+
+// ── History Tab ────────────────────────────────────────────────────────────
+function renderHistoryTab(grades) {
+  var container = document.getElementById('history-content');
+  container.textContent = '';
+  if (!grades || !grades.length) {
+    container.appendChild(emptyState('\uD83D\uDCC8', 'No history yet', 'Run graded sessions to build history.', ''));
+    return;
+  }
+  document.getElementById('tb-history').textContent = grades.length;
+  if (grades.length > 1) {
+    var sorted = grades.slice().sort(function(a,b) { return new Date(a.timestamp) - new Date(b.timestamp); });
+    var scores = sorted.map(function(g) { return g.totalScore != null ? g.totalScore : (g.score || 0); });
+    var trendCard = mk('div', 'chart-card');
+    trendCard.appendChild(mk('div', 'chart-card-title', 'Score Trend'));
+    var canvas = document.createElement('canvas');
+    canvas.className = 'trend'; canvas.width = 800; canvas.height = 90;
+    trendCard.appendChild(canvas);
+    container.appendChild(trendCard);
+    requestAnimationFrame(function() { drawSparkline(canvas, scores); });
+  }
+  var desc = grades.slice().sort(function(a,b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+  container.appendChild(mk('div', 'section-title', 'All Sessions'));
+  var list = mk('div', 'history-list');
+  desc.forEach(function(g, idx) {
+    var score = g.totalScore != null ? g.totalScore : (g.score || 0);
+    var letter = scoreLetter(score);
+    var pct = Math.round((score / (g.maxScore || 100)) * 100);
+    var flags = (g.flags || []).length;
+    var item = mk('div', 'history-item');
+    var badge = mk('div', 'history-grade-badge ' + letter, letter);
+    var main = mk('div', 'history-item-main');
+    var sid = mk('div', 'history-session-id', g.sessionId || '(no session id)');
+    var meta = mk('div', 'history-item-meta');
+    app(meta, mks('span', null, fmtDate(g.timestamp)), mks('span', null, score + '/100'));
+    if (flags > 0) app(meta, mks('span', 'color:var(--loss);', flags + ' flag' + (flags !== 1 ? 's' : '')));
+    if (g._scenarioId || g.scenario) app(meta, mks('span', 'color:var(--text-muted);', g._scenarioId || g.scenario));
+    app(main, sid, meta);
+    var barWrap = mk('div', 'history-score-bar');
+    var fill = mk('div', 'history-score-fill');
+    fill.style.cssText = 'width:' + pct + '%;background:' + scoreColor(score) + ';';
+    barWrap.appendChild(fill);
+    app(item, badge, main, barWrap);
+    item.addEventListener('click', (function(g2) {
+      return function() {
+        document.querySelector('[data-tab="grades"]').click();
+        var items = document.querySelectorAll('#grade-sidebar .sidebar-item');
+        var allGrades = EMBEDDED_GRADE_DATA.grades || [];
+        for (var j = 0; j < allGrades.length; j++) {
+          if (allGrades[j].sessionId === g2.sessionId && items[j]) { items[j].click(); break; }
+        }
+      };
+    })(g));
+    list.appendChild(item);
+  });
+  container.appendChild(list);
+}
+
+function drawSparkline(canvas, scores) {
+  var W = canvas.clientWidth || 600, H = canvas.clientHeight || 90;
+  canvas.width = W; canvas.height = H;
+  var ctx = canvas.getContext('2d');
+  var pad = 10, uW = W - pad*2, uH = H - pad*2;
+  var toX = function(i) { return pad + (i / (scores.length - 1)) * uW; };
+  var toY = function(s) { return pad + (1 - s / 100) * uH; };
+  var grad = ctx.createLinearGradient(0, pad, 0, H - pad);
+  grad.addColorStop(0, 'rgba(73,143,165,.3)'); grad.addColorStop(1, 'rgba(73,143,165,.02)');
+  ctx.beginPath();
+  scores.forEach(function(s,i) { i===0 ? ctx.moveTo(toX(i),toY(s)) : ctx.lineTo(toX(i),toY(s)); });
+  ctx.lineTo(toX(scores.length-1), H-pad); ctx.lineTo(toX(0), H-pad); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath();
+  scores.forEach(function(s,i) { i===0 ? ctx.moveTo(toX(i),toY(s)) : ctx.lineTo(toX(i),toY(s)); });
+  ctx.strokeStyle = '#4a8fa5'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  [90,75,60,45].forEach(function(t) {
+    ctx.beginPath(); ctx.moveTo(pad,toY(t)); ctx.lineTo(W-pad,toY(t));
+    ctx.strokeStyle = 'rgba(0,0,0,.07)'; ctx.lineWidth = 1; ctx.setLineDash([3,4]); ctx.stroke(); ctx.setLineDash([]);
+  });
+  scores.forEach(function(s,i) {
+    ctx.beginPath(); ctx.arc(toX(i),toY(s),3.5,0,Math.PI*2); ctx.fillStyle = scoreColor(s); ctx.fill();
+  });
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(function() {
+  var data = typeof EMBEDDED_GRADE_DATA !== 'undefined' ? EMBEDDED_GRADE_DATA : {};
+  document.getElementById('hdr-title').textContent = data.title || 'ct-grade \u2014 Review';
+  if (data.subtitle) document.getElementById('hdr-sub').textContent = data.subtitle;
+  if (data.generated_at) {
+    var m = document.getElementById('hdr-meta');
+    m.appendChild(document.createTextNode('Generated ' + fmtDate(data.generated_at)));
+    m.appendChild(document.createElement('br'));
+    m.appendChild(document.createTextNode((data.grades || []).length + ' grade(s) \u00b7 ' + ((data.ab_results && data.ab_results.total_runs) || 0) + ' A/B run(s)'));
+  }
+  renderGradesTab(data.grades || []);
+  renderABTab(data.ab_results || {});
+  renderTokenTab(data.token_analysis || {});
+  renderHistoryTab(data.grades || []);
+})();
+</script>
+</body>
+</html>

@@ -431,14 +431,16 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
   describe('tasks.list', () => {
     const LIST_DATA = {
       tasks: [
-        { id: 'T001', title: 'Alpha', status: 'pending' },
-        { id: 'T002', title: 'Beta', status: 'active' },
+        { id: 'T001', title: 'Alpha', status: 'pending', priority: 'medium' },
+        { id: 'T002', title: 'Beta', status: 'active', priority: 'high' },
       ],
       total: 2,
+      filtered: 2,
     };
+    const LIST_PAGE = { mode: 'none' as const };
 
     beforeEach(() => {
-      vi.mocked(taskList).mockResolvedValue({ success: true, data: LIST_DATA });
+      vi.mocked(taskList).mockResolvedValue({ success: true, data: LIST_DATA, page: LIST_PAGE });
     });
 
     it('handler.query("list") and dispatchRaw produce identical data (no filters)', async () => {
@@ -448,15 +450,18 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       expect(handlerResult.success).toBe(true);
       expect(cliResult.success).toBe(true);
       expect(handlerResult.data).toEqual(cliResult.data);
+      expect(handlerResult.page).toEqual(cliResult.page);
       expect(cliResult.data).toEqual(LIST_DATA);
+      expect(cliResult.page).toEqual(LIST_PAGE);
     });
 
     it('handler.query("list") and dispatchRaw produce identical data with status filter', async () => {
       const filteredData = {
         tasks: [{ id: 'T001', title: 'Alpha', status: 'pending' }],
         total: 1,
+        filtered: 1,
       };
-      vi.mocked(taskList).mockResolvedValue({ success: true, data: filteredData });
+      vi.mocked(taskList).mockResolvedValue({ success: true, data: filteredData, page: LIST_PAGE });
 
       const handlerResult = await tasksHandler.query('list', { status: 'pending' });
       const cliResult = await dispatchRaw('query', 'tasks', 'list', {
@@ -464,6 +469,7 @@ describe('Section 1: Direct domain handler parity (T4796)', () => {
       });
 
       expect(handlerResult.data).toEqual(cliResult.data);
+      expect(handlerResult.page).toEqual(cliResult.page);
       expect(cliResult.data).toEqual(filteredData);
     });
 
@@ -765,13 +771,17 @@ describe('Section 2: Session domain parity (T4796)', () => {
         { id: 'session_abc', status: 'active', name: 'Sprint 1' },
         { id: 'session_def', status: 'ended', name: 'Sprint 0' },
       ],
+      total: 2,
+      filtered: 2,
       _meta: { truncated: false, total: 2 },
     };
+    const LIST_PAGE = { mode: 'offset', limit: 10, offset: 0, hasMore: false, total: 2 };
 
     beforeEach(() => {
       vi.mocked(sessionList).mockResolvedValue({
         success: true,
         data: LIST_DATA,
+        page: LIST_PAGE,
       });
     });
 
@@ -782,7 +792,9 @@ describe('Section 2: Session domain parity (T4796)', () => {
       expect(handlerResult.success).toBe(true);
       expect(cliResult.success).toBe(true);
       expect(handlerResult.data).toEqual(cliResult.data);
+      expect(handlerResult.page).toEqual(cliResult.page);
       expect(cliResult.data).toEqual(LIST_DATA);
+      expect(cliResult.page).toEqual(LIST_PAGE);
     });
   });
 

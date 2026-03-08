@@ -1,0 +1,782 @@
+{
+  "generated_at": "2026-03-08T01:27:07.143062+00:00",
+  "total_ops_analyzed": 9317,
+  "by_operation": {
+    "admin.config.set": {
+      "cli": {
+        "calls": 3,
+        "success_rate": 1.0,
+        "avg_ms": 19.0,
+        "min_ms": 8,
+        "max_ms": 26,
+        "avg_chars": 514.67
+      },
+      "mcp": {
+        "calls": 2,
+        "success_rate": 1.0,
+        "avg_ms": 26.5,
+        "min_ms": 23,
+        "max_ms": 30,
+        "avg_chars": 43.5
+      }
+    },
+    "admin.config.show": {
+      "mcp": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 1.0,
+        "min_ms": 1,
+        "max_ms": 1,
+        "avg_chars": 2.0
+      }
+    },
+    "admin.context": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 14.0,
+        "min_ms": 14,
+        "max_ms": 14,
+        "avg_chars": 19.0
+      }
+    },
+    "admin.dash": {
+      "cli": {
+        "calls": 4,
+        "success_rate": 1.0,
+        "avg_ms": 17.5,
+        "min_ms": 12,
+        "max_ms": 26,
+        "avg_chars": 2.0
+      },
+      "mcp": {
+        "calls": 5,
+        "success_rate": 1.0,
+        "avg_ms": 7.8,
+        "min_ms": 7,
+        "max_ms": 10,
+        "avg_chars": 2.0
+      }
+    },
+    "admin.fix": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 240.0,
+        "min_ms": 240,
+        "max_ms": 240,
+        "avg_chars": 2.0
+      }
+    },
+    "admin.grade": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 4.0,
+        "min_ms": 4,
+        "max_ms": 4,
+        "avg_chars": 41.0
+      },
+      "mcp": {
+        "calls": 7,
+        "success_rate": 1.0,
+        "avg_ms": 3.29,
+        "min_ms": 3,
+        "max_ms": 4,
+        "avg_chars": 38.57
+      }
+    },
+    "admin.grade.list": {
+      "mcp": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 1.0,
+        "min_ms": 1,
+        "max_ms": 1,
+        "avg_chars": 2.0
+      }
+    },
+    "admin.health": {
+      "mcp": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 1.0,
+        "min_ms": 1,
+        "max_ms": 1,
+        "avg_chars": 2.0
+      }
+    },
+    "admin.help": {
+      "cli": {
+        "calls": 5,
+        "success_rate": 1.0,
+        "avg_ms": 1.2,
+        "min_ms": 1,
+        "max_ms": 2,
+        "avg_chars": 10.0
+      },
+      "mcp": {
+        "calls": 5,
+        "success_rate": 1.0,
+        "avg_ms": 0.0,
+        "min_ms": 0,
+        "max_ms": 0,
+        "avg_chars": 15.0
+      }
+    },
+    "check.compliance.record": {
+      "mcp": {
+        "calls": 1,
+        "success_rate": 0.0,
+        "avg_ms": 0.0,
+        "min_ms": 0,
+        "max_ms": 0,
+        "avg_chars": 187.0
+      }
+    },
+    "check.test.run": {
+      "mcp": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 120034.0,
+        "min_ms": 120034,
+        "max_ms": 120034,
+        "avg_chars": 18.0
+      }
+    },
+    "memory.brain.observe": {
+      "mcp": {
+        "calls": 1,
+        "success_rate": 0.0,
+        "avg_ms": 22.0,
+        "min_ms": 22,
+        "max_ms": 22,
+        "avg_chars": 415.0
+      }
+    },
+    "memory.find": {
+      "mcp": {
+        "calls": 1,
+        "success_rate": 0.0,
+        "avg_ms": 2.0,
+        "min_ms": 2,
+        "max_ms": 2,
+        "avg_chars": 26.0
+      }
+    },
+    "memory.inject": {
+      "mcp": {
+        "calls": 3,
+        "success_rate": 0.0,
+        "avg_ms": 0.33,
+        "min_ms": 0,
+        "max_ms": 1,
+        "avg_chars": 1056.67
+      }
+    },
+    "memory.manifest.append": {
+      "mcp": {
+        "calls": 3,
+        "success_rate": 0.3333,
+        "avg_ms": 7.0,
+        "min_ms": 0,
+        "max_ms": 21,
+        "avg_chars": 664.33
+      }
+    },
+    "memory.observe": {
+      "cli": {
+        "calls": 2,
+        "success_rate": 1.0,
+        "avg_ms": 19.5,
+        "min_ms": 14,
+        "max_ms": 25,
+        "avg_chars": 189.5
+      }
+    },
+    "nexus.reconcile": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 0.0,
+        "avg_ms": 11.0,
+        "min_ms": 11,
+        "max_ms": 11,
+        "avg_chars": 2.0
+      }
+    },
+    "nexus.register": {
+      "cli": {
+        "calls": 2,
+        "success_rate": 0.0,
+        "avg_ms": 27.5,
+        "min_ms": 27,
+        "max_ms": 28,
+        "avg_chars": 76.5
+      }
+    },
+    "orchestrate.spawn": {
+      "cli": {
+        "calls": 268,
+        "success_rate": 1.0,
+        "avg_ms": 0.45,
+        "min_ms": 0,
+        "max_ms": 34,
+        "avg_chars": 44.6
+      }
+    },
+    "orchestrate.start": {
+      "cli": {
+        "calls": 793,
+        "success_rate": 0.6671,
+        "avg_ms": 1.05,
+        "min_ms": 0,
+        "max_ms": 32,
+        "avg_chars": 12.67
+      }
+    },
+    "pipeline.release.cancel": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 20.0,
+        "min_ms": 20,
+        "max_ms": 20,
+        "avg_chars": 30.0
+      }
+    },
+    "pipeline.release.changelog": {
+      "cli": {
+        "calls": 11,
+        "success_rate": 1.0,
+        "avg_ms": 38.27,
+        "min_ms": 34,
+        "max_ms": 47,
+        "avg_chars": 24.27
+      },
+      "mcp": {
+        "calls": 3,
+        "success_rate": 1.0,
+        "avg_ms": 39.33,
+        "min_ms": 36,
+        "max_ms": 42,
+        "avg_chars": 23.0
+      }
+    },
+    "pipeline.release.gates.run": {
+      "mcp": {
+        "calls": 2,
+        "success_rate": 1.0,
+        "avg_ms": 284.0,
+        "min_ms": 8,
+        "max_ms": 560,
+        "avg_chars": 23.0
+      }
+    },
+    "pipeline.release.prepare": {
+      "cli": {
+        "calls": 527,
+        "success_rate": 0.5085,
+        "avg_ms": 2.31,
+        "min_ms": 0,
+        "max_ms": 139,
+        "avg_chars": 49.8
+      },
+      "mcp": {
+        "calls": 3,
+        "success_rate": 1.0,
+        "avg_ms": 66.33,
+        "min_ms": 31,
+        "max_ms": 134,
+        "avg_chars": 80.0
+      }
+    },
+    "pipeline.release.push": {
+      "cli": {
+        "calls": 259,
+        "success_rate": 1.0,
+        "avg_ms": 0.15,
+        "min_ms": 0,
+        "max_ms": 2,
+        "avg_chars": 58.0
+      }
+    },
+    "pipeline.release.rollback": {
+      "cli": {
+        "calls": 259,
+        "success_rate": 1.0,
+        "avg_ms": 0.07,
+        "min_ms": 0,
+        "max_ms": 1,
+        "avg_chars": 57.0
+      }
+    },
+    "pipeline.release.ship": {
+      "cli": {
+        "calls": 15,
+        "success_rate": 1.0,
+        "avg_ms": 1241.8,
+        "min_ms": 164,
+        "max_ms": 6824,
+        "avg_chars": 66.13
+      },
+      "mcp": {
+        "calls": 16,
+        "success_rate": 0.1875,
+        "avg_ms": 250.25,
+        "min_ms": 2,
+        "max_ms": 1241,
+        "avg_chars": 122.12
+      }
+    },
+    "pipeline.release.tag": {
+      "cli": {
+        "calls": 259,
+        "success_rate": 1.0,
+        "avg_ms": 0.15,
+        "min_ms": 0,
+        "max_ms": 1,
+        "avg_chars": 20.0
+      }
+    },
+    "pipeline.stage.gate.fail": {
+      "cli": {
+        "calls": 273,
+        "success_rate": 1.0,
+        "avg_ms": 0.07,
+        "min_ms": 0,
+        "max_ms": 1,
+        "avg_chars": 82.0
+      }
+    },
+    "pipeline.stage.gate.pass": {
+      "mcp": {
+        "calls": 6,
+        "success_rate": 0.0,
+        "avg_ms": 7.0,
+        "min_ms": 0,
+        "max_ms": 42,
+        "avg_chars": 52.67
+      }
+    },
+    "pipeline.stage.record": {
+      "cli": {
+        "calls": 1646,
+        "success_rate": 1.0,
+        "avg_ms": 0.62,
+        "min_ms": 0,
+        "max_ms": 37,
+        "avg_chars": 104.83
+      },
+      "mcp": {
+        "calls": 2,
+        "success_rate": 0.5,
+        "avg_ms": 13.5,
+        "min_ms": 0,
+        "max_ms": 27,
+        "avg_chars": 174.0
+      }
+    },
+    "pipeline.stage.skip": {
+      "cli": {
+        "calls": 2,
+        "success_rate": 1.0,
+        "avg_ms": 27.5,
+        "min_ms": 27,
+        "max_ms": 28,
+        "avg_chars": 127.0
+      }
+    },
+    "session.end": {
+      "cli": {
+        "calls": 298,
+        "success_rate": 1.0,
+        "avg_ms": 429.37,
+        "min_ms": 0,
+        "max_ms": 9740,
+        "avg_chars": 30.59
+      },
+      "mcp": {
+        "calls": 19,
+        "success_rate": 1.0,
+        "avg_ms": 6379.0,
+        "min_ms": 1358,
+        "max_ms": 40603,
+        "avg_chars": 125.74
+      }
+    },
+    "session.list": {
+      "cli": {
+        "calls": 13,
+        "success_rate": 1.0,
+        "avg_ms": 7.31,
+        "min_ms": 4,
+        "max_ms": 16,
+        "avg_chars": 2.69
+      },
+      "mcp": {
+        "calls": 6,
+        "success_rate": 1.0,
+        "avg_ms": 2.67,
+        "min_ms": 2,
+        "max_ms": 4,
+        "avg_chars": 2.0
+      }
+    },
+    "session.record.assumption": {
+      "mcp": {
+        "calls": 3,
+        "success_rate": 0.3333,
+        "avg_ms": 5.67,
+        "min_ms": 1,
+        "max_ms": 14,
+        "avg_chars": 366.0
+      }
+    },
+    "session.record.decision": {
+      "mcp": {
+        "calls": 3,
+        "success_rate": 0.3333,
+        "avg_ms": 1.0,
+        "min_ms": 1,
+        "max_ms": 1,
+        "avg_chars": 489.33
+      }
+    },
+    "session.resume": {
+      "cli": {
+        "calls": 277,
+        "success_rate": 0.0,
+        "avg_ms": 0.11,
+        "min_ms": 0,
+        "max_ms": 1,
+        "avg_chars": 27.0
+      }
+    },
+    "session.start": {
+      "cli": {
+        "calls": 581,
+        "success_rate": 0.5164,
+        "avg_ms": 176.89,
+        "min_ms": 0,
+        "max_ms": 9913,
+        "avg_chars": 38.79
+      },
+      "mcp": {
+        "calls": 16,
+        "success_rate": 0.8125,
+        "avg_ms": 3200.31,
+        "min_ms": 0,
+        "max_ms": 7745,
+        "avg_chars": 61.88
+      }
+    },
+    "session.status": {
+      "mcp": {
+        "calls": 2,
+        "success_rate": 1.0,
+        "avg_ms": 9.5,
+        "min_ms": 9,
+        "max_ms": 10,
+        "avg_chars": 2.0
+      }
+    },
+    "session.suspend": {
+      "mcp": {
+        "calls": 5,
+        "success_rate": 0.8,
+        "avg_ms": 1491.6,
+        "min_ms": 1,
+        "max_ms": 2118,
+        "avg_chars": 158.6
+      }
+    },
+    "sticky.add": {
+      "cli": {
+        "calls": 8,
+        "success_rate": 0.75,
+        "avg_ms": 50.12,
+        "min_ms": 7,
+        "max_ms": 137,
+        "avg_chars": 484.12
+      },
+      "mcp": {
+        "calls": 4,
+        "success_rate": 1.0,
+        "avg_ms": 25.5,
+        "min_ms": 23,
+        "max_ms": 33,
+        "avg_chars": 847.25
+      }
+    },
+    "sticky.archive": {
+      "cli": {
+        "calls": 2,
+        "success_rate": 1.0,
+        "avg_ms": 34.5,
+        "min_ms": 33,
+        "max_ms": 36,
+        "avg_chars": 21.0
+      }
+    },
+    "sticky.convert": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 0.0,
+        "avg_ms": 37.0,
+        "min_ms": 37,
+        "max_ms": 37,
+        "avg_chars": 73.0
+      },
+      "mcp": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 170.0,
+        "min_ms": 170,
+        "max_ms": 170,
+        "avg_chars": 41.0
+      }
+    },
+    "sticky.purge": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 27.0,
+        "min_ms": 27,
+        "max_ms": 27,
+        "avg_chars": 21.0
+      }
+    },
+    "tasks.add": {
+      "cli": {
+        "calls": 281,
+        "success_rate": 0.9893,
+        "avg_ms": 429.65,
+        "min_ms": 11,
+        "max_ms": 3733,
+        "avg_chars": 477.21
+      },
+      "mcp": {
+        "calls": 349,
+        "success_rate": 0.9685,
+        "avg_ms": 286.7,
+        "min_ms": 0,
+        "max_ms": 2361,
+        "avg_chars": 605.03
+      }
+    },
+    "tasks.archive": {
+      "cli": {
+        "calls": 2,
+        "success_rate": 1.0,
+        "avg_ms": 32928.5,
+        "min_ms": 5136,
+        "max_ms": 60721,
+        "avg_chars": 34.5
+      }
+    },
+    "tasks.complete": {
+      "cli": {
+        "calls": 779,
+        "success_rate": 0.9551,
+        "avg_ms": 103.15,
+        "min_ms": 0,
+        "max_ms": 3616,
+        "avg_chars": 48.75
+      },
+      "mcp": {
+        "calls": 108,
+        "success_rate": 0.6019,
+        "avg_ms": 340.43,
+        "min_ms": 6,
+        "max_ms": 3352,
+        "avg_chars": 164.82
+      }
+    },
+    "tasks.delete": {
+      "cli": {
+        "calls": 175,
+        "success_rate": 1.0,
+        "avg_ms": 721.4,
+        "min_ms": 180,
+        "max_ms": 5836,
+        "avg_chars": 26.1
+      },
+      "mcp": {
+        "calls": 36,
+        "success_rate": 0.9722,
+        "avg_ms": 364.61,
+        "min_ms": 15,
+        "max_ms": 746,
+        "avg_chars": 18.36
+      }
+    },
+    "tasks.exists": {
+      "cli": {
+        "calls": 4,
+        "success_rate": 1.0,
+        "avg_ms": 11.0,
+        "min_ms": 10,
+        "max_ms": 12,
+        "avg_chars": 18.0
+      }
+    },
+    "tasks.find": {
+      "cli": {
+        "calls": 9,
+        "success_rate": 0.3333,
+        "avg_ms": 5.78,
+        "min_ms": 1,
+        "max_ms": 15,
+        "avg_chars": 20.22
+      },
+      "mcp": {
+        "calls": 12,
+        "success_rate": 0.6667,
+        "avg_ms": 6.33,
+        "min_ms": 0,
+        "max_ms": 14,
+        "avg_chars": 23.08
+      }
+    },
+    "tasks.list": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 13.0,
+        "min_ms": 13,
+        "max_ms": 13,
+        "avg_chars": 18.0
+      }
+    },
+    "tasks.relates.add": {
+      "cli": {
+        "calls": 46,
+        "success_rate": 0.8043,
+        "avg_ms": 349.07,
+        "min_ms": 8,
+        "max_ms": 1361,
+        "avg_chars": 116.93
+      },
+      "mcp": {
+        "calls": 28,
+        "success_rate": 0.4286,
+        "avg_ms": 101.79,
+        "min_ms": 0,
+        "max_ms": 323,
+        "avg_chars": 102.64
+      }
+    },
+    "tasks.reopen": {
+      "mcp": {
+        "calls": 388,
+        "success_rate": 0.0,
+        "avg_ms": 88.79,
+        "min_ms": 7,
+        "max_ms": 739,
+        "avg_chars": 17.0
+      }
+    },
+    "tasks.reparent": {
+      "cli": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 196.0,
+        "min_ms": 196,
+        "max_ms": 196,
+        "avg_chars": 37.0
+      }
+    },
+    "tasks.restore": {
+      "mcp": {
+        "calls": 388,
+        "success_rate": 0.0,
+        "avg_ms": 26.1,
+        "min_ms": 8,
+        "max_ms": 1086,
+        "avg_chars": 17.0
+      }
+    },
+    "tasks.show": {
+      "cli": {
+        "calls": 8,
+        "success_rate": 0.75,
+        "avg_ms": 30.88,
+        "min_ms": 11,
+        "max_ms": 103,
+        "avg_chars": 18.25
+      },
+      "mcp": {
+        "calls": 3,
+        "success_rate": 0.6667,
+        "avg_ms": 18.67,
+        "min_ms": 6,
+        "max_ms": 41,
+        "avg_chars": 18.33
+      }
+    },
+    "tasks.start": {
+      "cli": {
+        "calls": 294,
+        "success_rate": 1.0,
+        "avg_ms": 134.85,
+        "min_ms": 0,
+        "max_ms": 3421,
+        "avg_chars": 18.0
+      },
+      "mcp": {
+        "calls": 9,
+        "success_rate": 0.8889,
+        "avg_ms": 2171.11,
+        "min_ms": 8,
+        "max_ms": 6901,
+        "avg_chars": 18.0
+      }
+    },
+    "tasks.stop": {
+      "cli": {
+        "calls": 278,
+        "success_rate": 1.0,
+        "avg_ms": 10.77,
+        "min_ms": 0,
+        "max_ms": 2969,
+        "avg_chars": 2.0
+      },
+      "mcp": {
+        "calls": 1,
+        "success_rate": 1.0,
+        "avg_ms": 3460.0,
+        "min_ms": 3460,
+        "max_ms": 3460,
+        "avg_chars": 18.0
+      }
+    },
+    "tasks.update": {
+      "cli": {
+        "calls": 362,
+        "success_rate": 0.9862,
+        "avg_ms": 494.93,
+        "min_ms": 13,
+        "max_ms": 3588,
+        "avg_chars": 216.98
+      },
+      "mcp": {
+        "calls": 118,
+        "success_rate": 0.6949,
+        "avg_ms": 408.87,
+        "min_ms": 5,
+        "max_ms": 7091,
+        "avg_chars": 251.54
+      }
+    }
+  },
+  "session_ratio": {
+    "cli": {
+      "session_count": 31,
+      "total_ops": 7754
+    },
+    "mcp": {
+      "session_count": 14,
+      "total_ops": 1563
+    }
+  }
+}

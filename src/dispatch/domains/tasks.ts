@@ -88,7 +88,13 @@ export class TasksHandler implements DomainHandler {
           const result = await taskList(this.projectRoot, {
             parent: params?.parent as string | undefined,
             status: params?.status as string | undefined,
+            priority: params?.priority as string | undefined,
+            type: params?.type as string | undefined,
+            phase: params?.phase as string | undefined,
+            label: params?.label as string | undefined,
+            children: params?.children as boolean | undefined,
             limit: params?.limit as number | undefined,
+            offset: params?.offset as number | undefined,
             compact: params?.compact as boolean | undefined,
           });
           return this.wrapEngineResult(result, 'query', 'tasks', operation, startTime);
@@ -483,7 +489,19 @@ export class TasksHandler implements DomainHandler {
   // -----------------------------------------------------------------------
 
   private wrapEngineResult(
-    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown; exitCode?: number; fix?: string; alternatives?: Array<{ action: string; command: string }> } },
+    result: {
+      success: boolean;
+      data?: unknown;
+      page?: import('@cleocode/lafs-protocol').LAFSPage;
+      error?: {
+        code: string;
+        message: string;
+        details?: unknown;
+        exitCode?: number;
+        fix?: string;
+        alternatives?: Array<{ action: string; command: string }>;
+      };
+    },
     gateway: string,
     domain: string,
     operation: string,
@@ -493,6 +511,7 @@ export class TasksHandler implements DomainHandler {
       _meta: dispatchMeta(gateway, domain, operation, startTime),
       success: result.success,
       ...(result.success ? { data: result.data } : {}),
+      ...(result.page ? { page: result.page } : {}),
       ...(result.error ? {
         error: {
           code: result.error.code,

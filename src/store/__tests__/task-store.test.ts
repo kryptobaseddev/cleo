@@ -422,7 +422,7 @@ describe('SQLite task-store', () => {
       // Task still exists but with archived status
       const { getDb } = await import('../sqlite.js');
       const { eq } = await import('drizzle-orm');
-      const { tasks: taskSchema } = await import('../schema.js');
+      const { tasks: taskSchema } = await import('../tasks-schema.js');
       const db = await getDb();
       const rows = await db.select({ status: taskSchema.status, archivedAt: taskSchema.archivedAt })
         .from(taskSchema)
@@ -440,7 +440,7 @@ describe('SQLite task-store', () => {
 
       const { getDb } = await import('../sqlite.js');
       const { eq } = await import('drizzle-orm');
-      const { tasks: taskSchema } = await import('../schema.js');
+      const { tasks: taskSchema } = await import('../tasks-schema.js');
       const db = await getDb();
       const rows = await db.select({ archiveReason: taskSchema.archiveReason })
         .from(taskSchema)
@@ -458,7 +458,7 @@ describe('SQLite task-store', () => {
 
       const { getDb } = await import('../sqlite.js');
       const { eq } = await import('drizzle-orm');
-      const { tasks: taskSchema } = await import('../schema.js');
+      const { tasks: taskSchema } = await import('../tasks-schema.js');
       const db = await getDb();
       const rows = await db.select({ cycleTimeDays: taskSchema.cycleTimeDays })
         .from(taskSchema)

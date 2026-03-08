@@ -194,7 +194,7 @@ function checkFile(target: IntegrityTarget, cleoDir: string): JsonFileIntegrityR
 async function readSqliteVersion(cwd?: string): Promise<string | null> {
   try {
     const { getDb } = await import('../../store/sqlite.js');
-    const schemaTable = await import('../../store/schema.js');
+    const schemaTable = await import('../../store/tasks-schema.js');
     const db = await getDb(cwd);
     const rows = await db
       .select()

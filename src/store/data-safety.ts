@@ -13,7 +13,7 @@
 
 import { eq } from 'drizzle-orm';
 import { getDb } from './sqlite.js';
-import * as schema from './schema.js';
+import * as schema from './tasks-schema.js';
 import { gitCheckpoint } from './git-checkpoint.js';
 import { vacuumIntoBackup } from './sqlite-backup.js';
 import {

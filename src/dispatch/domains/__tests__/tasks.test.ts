@@ -118,31 +118,60 @@ describe('TasksHandler', () => {
     });
 
     it('list - delegates to taskList', async () => {
-      const mockData = [{ id: 'T001' }];
-      vi.mocked(taskList).mockResolvedValue({ success: true, data: mockData });
+      const mockData = {
+        tasks: [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }],
+        total: 1,
+        filtered: 1,
+      };
+      vi.mocked(taskList).mockResolvedValue({ success: true, data: mockData, page: { mode: 'none' } });
 
       const result = await handler.query('list', { status: 'pending' });
 
       expect(result.success).toBe(true);
+      expect(result.data).toEqual(mockData);
+      expect(result.page).toEqual({ mode: 'none' });
       expect(taskList).toHaveBeenCalledWith('/mock/project', {
         parent: undefined,
         status: 'pending',
+        priority: undefined,
+        type: undefined,
+        phase: undefined,
+        label: undefined,
+        children: undefined,
         limit: undefined,
+        offset: undefined,
         compact: undefined,
       });
     });
 
     it('list - passes compact param to taskList', async () => {
       const mockData = [{ id: 'T001', title: 'Test', status: 'pending', priority: 'medium' }];
-      vi.mocked(taskList).mockResolvedValue({ success: true, data: { tasks: mockData, total: 1 } });
+      vi.mocked(taskList).mockResolvedValue({ success: true, data: { tasks: mockData, total: 1, filtered: 1 }, page: { mode: 'none' } });
 
-      const result = await handler.query('list', { parent: 'T100', compact: true });
+      const result = await handler.query('list', {
+        parent: 'T100',
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        phase: 'build',
+        label: 'bug',
+        children: true,
+        limit: 5,
+        offset: 10,
+        compact: true,
+      });
 
       expect(result.success).toBe(true);
       expect(taskList).toHaveBeenCalledWith('/mock/project', {
         parent: 'T100',
-        status: undefined,
-        limit: undefined,
+        status: 'pending',
+        priority: 'high',
+        type: 'task',
+        phase: 'build',
+        label: 'bug',
+        children: true,
+        limit: 5,
+        offset: 10,
         compact: true,
       });
     });

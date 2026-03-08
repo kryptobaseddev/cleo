@@ -36,6 +36,7 @@ vi.mock('../../../core/lifecycle/chain-store.js', () => ({
 
 import { OrchestrateHandler } from '../orchestrate.js';
 import { showChain } from '../../../core/lifecycle/chain-store.js';
+import { listTesseraTemplates } from '../../../core/lifecycle/tessera-engine.js';
 
 describe('OrchestrateHandler chain plan operations', () => {
   let handler: OrchestrateHandler;
@@ -48,6 +49,24 @@ describe('OrchestrateHandler chain plan operations', () => {
   it('includes chain.plan in supported query operations', () => {
     const ops = handler.getSupportedOperations();
     expect(ops.query).toContain('chain.plan');
+  });
+
+  it('returns canonical tessera list envelope', async () => {
+    vi.mocked(listTesseraTemplates).mockReturnValue([
+      { id: 'tessera-1', name: 'One' },
+      { id: 'tessera-2', name: 'Two' },
+    ] as any);
+
+    const result = await handler.query('tessera.list', { limit: 1, offset: 1 });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      templates: [{ id: 'tessera-2', name: 'Two' }],
+      count: 2,
+      total: 2,
+      filtered: 2,
+    });
+    expect(result.page).toEqual({ mode: 'offset', limit: 1, offset: 1, hasMore: false, total: 2 });
   });
 
   it('builds wave plan for chain topology', async () => {

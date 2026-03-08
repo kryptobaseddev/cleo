@@ -7,7 +7,7 @@ import {
   LIFECYCLE_STAGE_STATUSES,
   LIFECYCLE_GATE_RESULTS,
   LIFECYCLE_EVIDENCE_TYPES,
-} from '../schema.js';
+} from '../tasks-schema.js';
 import { PIPELINE_STAGES, CONTRIBUTION_STAGE } from '../../core/lifecycle/stages.js';
 
 function getMigrationSqlFiles(): Array<{ name: string; sql: string }> {

@@ -9,8 +9,8 @@
 
 import { eq, inArray } from 'drizzle-orm';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
-import * as schema from './schema.js';
-import type { NewTaskRow } from './schema.js';
+import * as schema from './tasks-schema.js';
+import type { NewTaskRow } from './tasks-schema.js';
 import type { Task } from '../types/task.js';
 import type { Session } from './validation-schemas.js';
 

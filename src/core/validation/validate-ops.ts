@@ -390,7 +390,7 @@ async function validateSqliteRows(
   projectRoot: string,
 ): Promise<{ type: string; valid: boolean; errors: unknown[]; errorCount: number }> {
   const { getDb } = await import('../../store/sqlite.js');
-  const schemaTable = await import('../../store/schema.js');
+  const schemaTable = await import('../../store/tasks-schema.js');
   const zodSchemas = await import('../../store/validation-schemas.js');
   const { ne, eq } = await import('drizzle-orm');
 
@@ -944,7 +944,7 @@ export async function coreCoherenceCheck(
   //    out by loadDependenciesForTasks (which strips non-existent dependsOn IDs).
   try {
     const { getDb } = await import('../../store/sqlite.js');
-    const schemaTable = await import('../../store/schema.js');
+    const schemaTable = await import('../../store/tasks-schema.js');
     const db = await getDb(projectRoot);
     const allDepRows = await db.select().from(schemaTable.taskDependencies).all();
     for (const dep of allDepRows) {

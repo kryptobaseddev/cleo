@@ -8,18 +8,19 @@
 
 import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { paginate } from '../pagination.js';
 import { parseAdrFile } from './parse.js';
 import type { AdrListResult } from './types.js';
 
 /** List ADRs from .cleo/adrs/ directory with optional status filter */
 export async function listAdrs(
   projectRoot: string,
-  opts?: { status?: string; since?: string },
+  opts?: { status?: string; since?: string; limit?: number; offset?: number },
 ): Promise<AdrListResult> {
   const adrsDir = join(projectRoot, '.cleo', 'adrs');
 
   if (!existsSync(adrsDir)) {
-    return { adrs: [], total: 0 };
+    return { adrs: [], total: 0, filtered: 0 };
   }
 
   const files = readdirSync(adrsDir)
@@ -28,20 +29,23 @@ export async function listAdrs(
 
   const records = files.map(f => parseAdrFile(join(adrsDir, f), projectRoot));
 
+  const total = records.length;
   const filtered = records.filter(r => {
     if (opts?.status && r.frontmatter.Status !== opts.status) return false;
     if (opts?.since && r.frontmatter.Date < opts.since) return false;
     return true;
   });
+  const page = paginate(filtered, opts?.limit, opts?.offset);
 
   return {
-    adrs: filtered.map(r => ({
+    adrs: page.items.map(r => ({
       id: r.id,
       title: r.title,
       status: r.frontmatter.Status,
       date: r.frontmatter.Date,
       filePath: r.file,
     })),
-    total: filtered.length,
+    total,
+    filtered: filtered.length,
   };
 }

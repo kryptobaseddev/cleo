@@ -9,7 +9,7 @@
 
 import { eq, and, desc, isNull } from 'drizzle-orm';
 import { getDb } from './sqlite.js';
-import * as schema from './schema.js';
+import * as schema from './tasks-schema.js';
 import type { Session } from '../types/session.js';
 import { rowToSession } from './converters.js';
 

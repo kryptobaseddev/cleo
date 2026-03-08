@@ -53,9 +53,20 @@ export type TasksGetResult = Task;
 export interface TasksListParams {
   parent?: string;
   status?: TaskStatus;
+  priority?: TaskPriority;
+  type?: string;
+  phase?: string;
+  label?: string;
+  children?: boolean;
   limit?: number;
+  offset?: number;
+  compact?: boolean;
 }
-export type TasksListResult = Task[];
+export interface TasksListResult {
+  tasks: Task[];
+  total: number;
+  filtered: number;
+}
 
 // tasks.find
 export interface TasksFindParams {

@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ct-grade — Grade Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Lora:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:         #faf9f5;
+      --surface:    #ffffff;
+      --surface2:   #f4f2ec;
+      --border:     #e8e6dc;
+      --text:       #141413;
+      --text-muted: #8a8880;
+      --accent:     #d97757;
+      --header-bg:  #141413;
+      --header-text:#faf9f5;
+      --radius:     6px;
+      --mono:       'JetBrains Mono', 'Fira Code', monospace;
+      --grade-a:  #4a8c5c; --grade-a-bg: #eaf4ee;
+      --grade-b:  #3a7fa8; --grade-b-bg: #e8f2f9;
+      --grade-c:  #b07d2a; --grade-c-bg: #fdf4e3;
+      --grade-d:  #c45d30; --grade-d-bg: #fceee8;
+      --grade-f:  #c03030; --grade-f-bg: #fce8e8;
+      --dim1: #7b68c8; --dim2: #4a8fa5; --dim3: #4a8c5c;
+      --dim4: #c4923a; --dim5: #d97757;
+      --mcp:  #4a8fa5; --cli:  #7b68c8; --tie: #8a8880;
+      --win:  #4a8c5c; --loss: #c03030;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Lora', Georgia, serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; font-size: 14px; }
+    .header { background: var(--header-bg); color: var(--header-text); padding: .75rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 1rem; }
+    .header-left { display: flex; align-items: center; gap: .75rem; }
+    .header-logo { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; background: var(--accent); color: #fff; padding: .2em .5em; border-radius: 3px; }
+    .header-title { font-family: 'Poppins', sans-serif; font-size: 1rem; font-weight: 600; color: #fff; }
+    .header-subtitle { font-size: .75rem; color: #888; }
+    .header-meta { font-size: .7rem; color: #666; text-align: right; line-height: 1.6; }
+    .tabs-bar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; padding: 0 1.5rem; gap: .25rem; flex-shrink: 0; }
+    .tab-btn { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 500; padding: .6rem .9rem; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; letter-spacing: .02em; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-badge { display: inline-block; background: var(--surface2); border-radius: 9px; font-size: .65rem; padding: .1em .45em; margin-left: .3em; color: var(--text-muted); }
+    .tab-btn.active .tab-badge { background: #fde8df; color: var(--accent); }
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .tab-panel { display: none; width: 100%; overflow: hidden; }
+    .tab-panel.active { display: flex; }
+    /* Sidebar */
+    .sidebar { width: 240px; min-width: 180px; border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+    .sidebar-header { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: .75rem 1rem .4rem; }
+    .sidebar-item { padding: .55rem 1rem; cursor: pointer; display: flex; align-items: center; gap: .5rem; border-left: 3px solid transparent; transition: background .1s; font-size: .8rem; }
+    .sidebar-item:hover { background: var(--bg); }
+    .sidebar-item.active { background: var(--bg); border-left-color: var(--accent); }
+    .item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-score { font-family: var(--mono); font-size: .7rem; font-weight: 500; }
+    /* Content area */
+    .content { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+    /* Grade card */
+    .grade-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+    .grade-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .grade-score-block { display: flex; align-items: center; gap: 1rem; }
+    .grade-letter-badge { font-family: 'Poppins', sans-serif; font-size: 2.5rem; font-weight: 700; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+    .grade-letter-badge.A { background: var(--grade-a-bg); color: var(--grade-a); }
+    .grade-letter-badge.B { background: var(--grade-b-bg); color: var(--grade-b); }
+    .grade-letter-badge.C { background: var(--grade-c-bg); color: var(--grade-c); }
+    .grade-letter-badge.D { background: var(--grade-d-bg); color: var(--grade-d); }
+    .grade-letter-badge.F { background: var(--grade-f-bg); color: var(--grade-f); }
+    .grade-score-details h2 { font-family: 'Poppins', sans-serif; font-size: 1.5rem; font-weight: 700; line-height: 1; }
+    .grade-score-details .pct { font-size: .85rem; color: var(--text-muted); }
+    .grade-session-id { font-family: var(--mono); font-size: .65rem; color: var(--text-muted); background: var(--surface2); padding: .2em .5em; border-radius: 3px; }
+    /* Dimensions */
+    .dimensions { display: flex; flex-direction: column; gap: .65rem; }
+    .dimension-row { display: flex; align-items: center; gap: .75rem; }
+    .dimension-name { font-family: 'Poppins', sans-serif; font-size: .7rem; font-weight: 500; width: 155px; flex-shrink: 0; }
+    .dimension-bar-wrap { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+    .dimension-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .dimension-score-label { font-family: var(--mono); font-size: .7rem; width: 42px; text-align: right; flex-shrink: 0; }
+    /* Flags */
+    .flags-section h3 { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: .6rem; }
+    .flags-list { display: flex; flex-direction: column; gap: .4rem; }
+    .flag-item { display: flex; align-items: flex-start; gap: .5rem; font-size: .78rem; padding: .4rem .6rem; background: var(--grade-f-bg); border-left: 3px solid var(--grade-f); border-radius: 0 var(--radius) var(--radius) 0; line-height: 1.4; }
+    .no-flags { font-size: .78rem; color: var(--win); background: var(--grade-a-bg); padding: .4rem .6rem; border-left: 3px solid var(--win); border-radius: 0 var(--radius) var(--radius) 0; }
+    /* Token meta */
+    .token-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .6rem; }
+    .token-stat { background: var(--surface2); border-radius: var(--radius); padding: .6rem .75rem; }
+    .token-stat-label { font-family: 'Poppins', sans-serif; font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .2rem; }
+    .token-stat-value { font-family: var(--mono); font-size: .95rem; font-weight: 500; }
+    /* Sparkline canvas */
+    canvas.sparkline { width: 100%; height: 60px; display: block; }
+    /* Full-width panels */
+    .full-panel { width: 100%; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; }
+    /* Section title */
+    .section-title { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-bottom: .75rem; }
+    /* A/B */
+    .ab-summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
+    .ab-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem 1rem; }
+    .ab-stat-label { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .3rem; }
+    .ab-stat-value { font-family: var(--mono); font-size: 1.3rem; font-weight: 500; }
+    .ab-stat-value.win { color: var(--win); }
+    .ab-stat-value.loss { color: var(--loss); }
+    .ab-stat-value.neutral { color: var(--text-muted); }
+    .ab-winner-banner { display: flex; align-items: center; gap: .6rem; padding: .6rem 1rem; border-radius: var(--radius); font-family: 'Poppins', sans-serif; font-size: .8rem; font-weight: 600; }
+    .ab-winner-banner.mcp { background: #e8f2f9; color: var(--mcp); }
+    .ab-winner-banner.cli { background: #ede8f9; color: var(--cli); }
+    .ab-winner-banner.tie { background: var(--surface2); color: var(--text-muted); }
+    .ab-table-wrap { overflow-x: auto; }
+    table.ab-table { width: 100%; border-collapse: collapse; font-size: .76rem; }
+    .ab-table th { font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .4rem .75rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .ab-table td { padding: .45rem .75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .ab-table tr:hover td { background: var(--bg); }
+    .op-name { font-family: var(--mono); font-size: .72rem; }
+    .win-pill { display: inline-block; padding: .15em .5em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 600; text-transform: uppercase; }
+    .win-pill.mcp { background: #d0e8f4; color: var(--mcp); }
+    .win-pill.cli { background: #ddd8f4; color: var(--cli); }
+    .win-pill.tie { background: var(--surface2); color: var(--text-muted); }
+    .delta-pos { color: var(--loss); font-family: var(--mono); font-size: .72rem; }
+    .delta-neg { color: var(--win); font-family: var(--mono); font-size: .72rem; }
+    .delta-zero { color: var(--text-muted); font-family: var(--mono); font-size: .72rem; }
+    /* Token analysis */
+    .bar-chart { display: flex; flex-direction: column; gap: .5rem; }
+    .bar-row { display: flex; align-items: center; gap: .75rem; }
+    .bar-label { font-family: var(--mono); font-size: .72rem; width: 130px; flex-shrink: 0; text-align: right; }
+    .bar-track { flex: 1; height: 16px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
+    .bar-val { font-family: var(--mono); font-size: .7rem; width: 80px; flex-shrink: 0; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
+    .chart-card-title { font-family: 'Poppins', sans-serif; font-size: .8rem; font-weight: 600; margin-bottom: 1rem; }
+    /* Confidence badge */
+    .confidence-badge { display: inline-block; padding: .2em .55em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+    .confidence-badge.REAL { background: #eaf4ee; color: var(--grade-a); }
+    .confidence-badge.ESTIMATED { background: var(--grade-c-bg); color: var(--grade-c); }
+    .confidence-badge.COARSE { background: var(--grade-d-bg); color: var(--grade-d); }
+    /* Operation Matrix */
+    .matrix-controls { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .matrix-controls label { font-family: 'Poppins', sans-serif; font-size: .72rem; font-weight: 600; color: var(--text-muted); }
+    .matrix-controls select { font-family: 'Poppins', sans-serif; font-size: .72rem; padding: .3em .6em; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+    .matrix-count { font-family: var(--mono); font-size: .7rem; color: var(--text-muted); }
+    table.matrix-table { width: 100%; border-collapse: collapse; font-size: .74rem; }
+    .matrix-table th { font-family: 'Poppins', sans-serif; font-size: .63rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .4rem .6rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; }
+    .matrix-table td { padding: .4rem .6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .matrix-table tr:hover td { background: var(--bg); }
+    .tier-badge { display: inline-block; padding: .1em .4em; border-radius: 3px; font-family: var(--mono); font-size: .65rem; background: var(--surface2); color: var(--text-muted); }
+    .gateway-pill { display: inline-block; padding: .1em .4em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .63rem; font-weight: 600; text-transform: uppercase; }
+    .gateway-pill.query { background: #d0e8f4; color: var(--mcp); }
+    .gateway-pill.mutate { background: #fde8df; color: var(--accent); }
+    .tested-yes { color: var(--win); font-size: .85rem; }
+    .tested-no { color: var(--border); font-size: .85rem; }
+    /* Eval report */
+    .eval-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
+    .eval-card-header { display: flex; align-items: center; gap: .75rem; margin-bottom: .85rem; }
+    .eval-name { font-family: 'Poppins', sans-serif; font-size: .85rem; font-weight: 600; flex: 1; }
+    .pass-badge { display: inline-block; padding: .15em .5em; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: .65rem; font-weight: 700; text-transform: uppercase; }
+    .pass-badge.pass { background: #eaf4ee; color: var(--grade-a); }
+    .pass-badge.fail { background: var(--grade-f-bg); color: var(--grade-f); }
+    .expectation-list { display: flex; flex-direction: column; gap: .35rem; }
+    .expectation-item { display: flex; align-items: flex-start; gap: .5rem; font-size: .76rem; padding: .35rem .5rem; border-radius: var(--radius); }
+    .expectation-item.pass { background: #f4fbf6; }
+    .expectation-item.fail { background: #fdf4f4; }
+    .expect-icon { flex-shrink: 0; font-size: .85rem; }
+    .expect-desc { flex: 1; }
+    .expect-evidence { font-family: var(--mono); font-size: .65rem; color: var(--text-muted); margin-top: .15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
+    /* Live session */
+    .live-header { display: flex; align-items: center; gap: .75rem; }
+    .live-badge { display: flex; align-items: center; gap: .35rem; font-family: 'Poppins', sans-serif; font-size: .72rem; font-weight: 600; color: var(--win); }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--win); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .session-id-label { font-family: var(--mono); font-size: .7rem; color: var(--text-muted); background: var(--surface2); padding: .2em .5em; border-radius: 3px; }
+    table.live-table { width: 100%; border-collapse: collapse; font-size: .74rem; }
+    .live-table th { font-family: 'Poppins', sans-serif; font-size: .63rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); padding: .4rem .6rem; text-align: left; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .live-table td { padding: .4rem .6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .live-table tr:hover td { background: var(--bg); }
+    .success-yes { color: var(--win); }
+    .success-no { color: var(--loss); }
+    /* Evidence section */
+    .ev-title { font-family: 'Poppins', sans-serif; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: .75rem; }
+    .ev-row { margin-bottom: .5rem; }
+    .ev-dim { font-family: 'Poppins', sans-serif; font-size: .68rem; font-weight: 600; margin-bottom: .2rem; }
+    .ev-bullet { font-size: .74rem; padding: .15rem 0 .15rem .75rem; color: var(--text-muted); }
+    /* Note */
+    .ab-note { font-size: .72rem; color: var(--text-muted); background: var(--grade-c-bg); border-left: 3px solid var(--grade-c); padding: .5rem .75rem; border-radius: 0 4px 4px 0; }
+    .info-note { font-size: .72rem; color: var(--text-muted); background: var(--grade-b-bg); border-left: 3px solid var(--mcp); padding: .5rem .75rem; border-radius: 0 4px 4px 0; }
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    /* Empty state */
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: 3rem 2rem; color: var(--text-muted); text-align: center; }
+    .empty-state h3 { font-family: 'Poppins', sans-serif; font-size: .9rem; color: var(--text); }
+    .empty-state p { font-size: .78rem; max-width: 380px; line-height: 1.6; }
+    .empty-cmd { font-family: var(--mono); background: var(--surface2); padding: .25em .5em; border-radius: 3px; font-size: .74rem; display: inline-block; margin-top: .25rem; }
+    /* Overflow panel for matrix which needs its own scroll context */
+    .matrix-panel { width: 100%; display: flex; flex-direction: column; overflow: hidden; }
+    .matrix-panel-inner { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+    .matrix-table-wrap { overflow: auto; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <span class="header-logo">CLEO</span>
+    <div>
+      <div class="header-title" id="hdr-title">ct-grade — Grade Review</div>
+      <div class="header-subtitle" id="hdr-sub"></div>
+    </div>
+  </div>
+  <div class="header-meta" id="hdr-meta"></div>
+</div>
+
+<div class="tabs-bar">
+  <button class="tab-btn active" data-tab="grades">Grades <span class="tab-badge" id="tb-grades">0</span></button>
+  <button class="tab-btn"        data-tab="ab">A/B Comparison <span class="tab-badge" id="tb-ab">0</span></button>
+  <button class="tab-btn"        data-tab="tokens">Token Analysis</button>
+  <button class="tab-btn"        data-tab="matrix">Operation Matrix <span class="tab-badge" id="tb-matrix">0</span></button>
+  <button class="tab-btn"        data-tab="evals">Eval Report <span class="tab-badge" id="tb-evals">0</span></button>
+  <button class="tab-btn"        data-tab="live">Live Session</button>
+</div>
+
+<div class="main">
+  <div class="tab-panel active" id="panel-grades">
+    <div class="sidebar" id="grade-sidebar"></div>
+    <div class="content"  id="grade-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-ab">
+    <div class="full-panel" id="ab-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-tokens">
+    <div class="full-panel" id="token-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-matrix">
+    <div class="matrix-panel">
+      <div class="matrix-panel-inner" id="matrix-content"></div>
+    </div>
+  </div>
+  <div class="tab-panel" id="panel-evals">
+    <div class="full-panel" id="evals-content"></div>
+  </div>
+  <div class="tab-panel" id="panel-live">
+    <div class="full-panel" id="live-content"></div>
+  </div>
+</div>
+
+<script>
+/*__EMBEDDED_GRADE_DATA__*/
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function scoreLetter(s) {
+  if (s == null) return '?';
+  if (s >= 90) return 'A';
+  if (s >= 75) return 'B';
+  if (s >= 60) return 'C';
+  if (s >= 45) return 'D';
+  return 'F';
+}
+
+function scoreColor(s) {
+  if (s >= 90) return 'var(--grade-a)';
+  if (s >= 75) return 'var(--grade-b)';
+  if (s >= 60) return 'var(--grade-c)';
+  if (s >= 45) return 'var(--grade-d)';
+  return 'var(--grade-f)';
+}
+
+var DIM_COLORS = ['var(--dim1)', 'var(--dim2)', 'var(--dim3)', 'var(--dim4)', 'var(--dim5)'];
+var DIM_NAMES  = ['Session Discipline', 'Discovery Efficiency', 'Task Hygiene', 'Error Protocol', 'Progressive Disclosure'];
+var DIM_KEYS   = ['sessionDiscipline', 'discoveryEfficiency', 'taskHygiene', 'errorProtocol', 'disclosureUse'];
+
+var DOMAIN_BAR_COLORS = [
+  'var(--dim1)', 'var(--dim2)', 'var(--dim3)', 'var(--dim4)', 'var(--dim5)',
+  'var(--accent)', 'var(--mcp)', 'var(--cli)', '#9b7ec8', '#5a9a6a'
+];
+
+function fmtNum(n, fallback) {
+  if (n == null) return fallback !== undefined ? fallback : '\u2014';
+  return (typeof n === 'number' && !Number.isInteger(n)) ? n.toFixed(1) : String(n);
+}
+
+function fmtDate(s) {
+  if (!s) return '';
+  try {
+    return new Date(s).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  } catch (e) {
+    return s;
+  }
+}
+
+function fmtTime(s) {
+  if (!s) return '';
+  try {
+    return new Date(s).toLocaleTimeString(undefined, { timeStyle: 'medium' });
+  } catch (e) {
+    return s;
+  }
+}
+
+// Safe element builder — no innerHTML used anywhere
+function mk(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = String(text);
+  return e;
+}
+
+function mks(tag, css, text) {
+  var e = document.createElement(tag);
+  if (css) e.style.cssText = css;
+  if (text != null) e.textContent = String(text);
+  return e;
+}
+
+function app(parent) {
+  for (var i = 1; i < arguments.length; i++) {
+    if (arguments[i] != null) parent.appendChild(arguments[i]);
+  }
+  return parent;
+}
+
+function mkTd(child) {
+  var td = document.createElement('td');
+  if (child != null) {
+    if (typeof child === 'string' || typeof child === 'number') {
+      td.textContent = String(child);
+    } else {
+      td.appendChild(child);
+    }
+  }
+  return td;
+}
+
+function mkTh(text) {
+  var th = document.createElement('th');
+  th.textContent = text;
+  return th;
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Empty state ────────────────────────────────────────────────────────────
+function emptyState(icon, title, desc, cmd) {
+  var d = mk('div', 'empty-state');
+  var iconEl = document.createElement('div');
+  iconEl.style.fontSize = '2.5rem';
+  iconEl.textContent = icon;
+  app(d, iconEl, mk('h3', null, title), mk('p', null, desc));
+  if (cmd) app(d, mk('span', 'empty-cmd', cmd));
+  return d;
+}
+
+// ── Canvas Sparkline ───────────────────────────────────────────────────────
+function drawSparkline(canvas, grades) {
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width = canvas.offsetWidth || 300;
+  var h = canvas.height = 60;
+  ctx.clearRect(0, 0, w, h);
+  if (!grades || grades.length < 2) return;
+  var scores = grades.slice(-20).map(function(g) {
+    return g.totalScore != null ? g.totalScore : (g.score || 0);
+  });
+  var minS = Math.min.apply(null, scores);
+  var maxS = Math.max.apply(null, scores) || 100;
+  var pad = 4;
+  var uW = w - pad * 2;
+  var uH = h - pad * 2;
+
+  function toX(i) { return pad + (i / (scores.length - 1)) * uW; }
+  function toY(s) { return (h - pad) - ((s - minS) / (maxS - minS || 1)) * uH; }
+
+  // Fill gradient
+  var grad = ctx.createLinearGradient(0, pad, 0, h - pad);
+  grad.addColorStop(0, 'rgba(73,143,165,.25)');
+  grad.addColorStop(1, 'rgba(73,143,165,.02)');
+  ctx.beginPath();
+  scores.forEach(function(s, i) {
+    if (i === 0) ctx.moveTo(toX(i), toY(s));
+    else ctx.lineTo(toX(i), toY(s));
+  });
+  ctx.lineTo(toX(scores.length - 1), h - pad);
+  ctx.lineTo(toX(0), h - pad);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.strokeStyle = 'var(--accent)';
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  scores.forEach(function(s, i) {
+    if (i === 0) ctx.moveTo(toX(i), toY(s));
+    else ctx.lineTo(toX(i), toY(s));
+  });
+  ctx.stroke();
+
+  // Dots
+  scores.forEach(function(s, i) {
+    ctx.beginPath();
+    ctx.arc(toX(i), toY(s), 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = scoreColor(s);
+    ctx.fill();
+  });
+}
+
+// ── Grade History Tab ──────────────────────────────────────────────────────
+function renderGradesTab(grades) {
+  var sidebar = document.getElementById('grade-sidebar');
+  var content = document.getElementById('grade-content');
+  sidebar.textContent = '';
+  content.textContent = '';
+
+  if (!grades || !grades.length) {
+    content.appendChild(emptyState(
+      '\uD83D\uDCCA', 'No grade results yet',
+      'Run a scenario to generate grades:',
+      'python scripts/run_scenario.py --scenario S1 --cleo cleo-dev'
+    ));
+    return;
+  }
+
+  document.getElementById('tb-grades').textContent = grades.length;
+  app(sidebar, mk('div', 'sidebar-header', 'Sessions'));
+
+  grades.forEach(function(g, i) {
+    var score = g.totalScore != null ? g.totalScore : g.score;
+    var letter = scoreLetter(score);
+    var sid = (g.sessionId || '').slice(0, 22) || ('Run ' + (i + 1));
+
+    var item = mk('div', 'sidebar-item' + (i === 0 ? ' active' : ''));
+
+    var ls = document.createElement('span');
+    ls.style.cssText = 'font-family:Poppins,sans-serif;font-weight:700;font-size:.85rem;flex-shrink:0;width:18px;';
+    ls.style.color = scoreColor(score);
+    ls.textContent = letter;
+
+    var lab = mk('span', 'item-label', sid);
+
+    var sc = mk('span', 'item-score', score != null ? (score + '/100') : '\u2014');
+    sc.style.color = scoreColor(score);
+
+    app(item, ls, lab, sc);
+    item.addEventListener('click', (function(g2, item2) {
+      return function() {
+        sidebar.querySelectorAll('.sidebar-item').forEach(function(x) { x.classList.remove('active'); });
+        item2.classList.add('active');
+        renderGradeDetail(g2, content, grades);
+      };
+    })(g, item));
+    sidebar.appendChild(item);
+  });
+
+  renderGradeDetail(grades[0], content, grades);
+}
+
+function renderGradeDetail(g, container, allGrades) {
+  container.textContent = '';
+  var score  = g.totalScore != null ? g.totalScore : (g.score || 0);
+  var max    = g.maxScore || 100;
+  var letter = scoreLetter(score);
+  var pct    = Math.round((score / max) * 100);
+  var dims   = g.dimensions || {};
+  var flags  = g.flags || [];
+  var tmeta  = g._tokenMeta || null;
+  var scenario = g._scenarioId || g.scenario || '';
+
+  // Score card
+  var card = mk('div', 'grade-card');
+  var hdr  = mk('div', 'grade-card-header');
+  var sb   = mk('div', 'grade-score-block');
+
+  var badge = mk('div', 'grade-letter-badge ' + letter, letter);
+
+  var sd = mk('div', 'grade-score-details');
+  var h2 = mk('h2', null, score + '/' + max);
+  h2.style.color = scoreColor(score);
+  var pctText = pct + '% \u2014 Grade ' + letter + (scenario ? ' \u2014 ' + scenario : '');
+  var pctEl = mk('div', 'pct', pctText);
+  app(sd, h2, pctEl);
+  if (g.timestamp) {
+    app(sd, mks('div', 'font-size:.68rem;color:var(--text-muted);margin-top:.25rem;', fmtDate(g.timestamp)));
+  }
+  app(sb, badge, sd);
+  app(hdr, sb);
+  if (g.sessionId) {
+    app(hdr, mk('code', 'grade-session-id', g.sessionId));
+  }
+  card.appendChild(hdr);
+
+  // Dimension progress bars
+  var dimsWrap = mk('div', 'dimensions');
+  DIM_KEYS.forEach(function(key, i) {
+    var d = dims[key];
+    if (!d) return;
+    var ds = d.score || 0, dm = d.max || 20;
+    var dp = Math.round((ds / dm) * 100);
+    var row = mk('div', 'dimension-row');
+    var bar = mk('div', 'dimension-bar');
+    bar.style.cssText = 'width:' + dp + '%;background:' + DIM_COLORS[i] + ';';
+    var bw = mk('div', 'dimension-bar-wrap');
+    bw.appendChild(bar);
+    var sl = mk('span', 'dimension-score-label', ds + '/' + dm);
+    sl.style.color = DIM_COLORS[i];
+    app(row, mk('span', 'dimension-name', DIM_NAMES[i]), bw, sl);
+    if (d.evidence && d.evidence.length) {
+      row.title = d.evidence.join(' | ');
+    }
+    dimsWrap.appendChild(row);
+  });
+  card.appendChild(dimsWrap);
+
+  // Sparkline trend for all grades
+  if (allGrades && allGrades.length >= 2) {
+    var sparkWrap = mks('div', 'margin-top:1rem;');
+    var sparkLabel = mks('div', 'font-family:Poppins,sans-serif;font-size:.65rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.35rem;', 'Score Trend (last 20)');
+    var canvas = document.createElement('canvas');
+    canvas.className = 'sparkline';
+    app(sparkWrap, sparkLabel, canvas);
+    card.appendChild(sparkWrap);
+    requestAnimationFrame(function() { drawSparkline(canvas, allGrades); });
+  }
+
+  container.appendChild(card);
+
+  // Flags
+  var fs = mk('div', 'grade-card flags-section');
+  var ft = mk('h3', null, 'Flags' + (flags.length ? ' (' + flags.length + ')' : ''));
+  var fl = mk('div', 'flags-list');
+  if (!flags.length) {
+    fl.appendChild(mk('div', 'no-flags', '\u2713 No flags \u2014 all protocol checks passed'));
+  } else {
+    flags.forEach(function(f) {
+      var fi = mk('div', 'flag-item');
+      app(fi, mks('span', 'flex-shrink:0;', '\u26A0'), mk('span', null, f));
+      fl.appendChild(fi);
+    });
+  }
+  app(fs, ft, fl);
+  container.appendChild(fs);
+
+  // Evidence
+  var hasEvidence = DIM_KEYS.some(function(k) {
+    return dims[k] && dims[k].evidence && dims[k].evidence.length;
+  });
+  if (hasEvidence) {
+    var ec = mk('div', 'grade-card');
+    ec.appendChild(mk('div', 'ev-title', 'Evidence'));
+    DIM_KEYS.forEach(function(key, i) {
+      var d = dims[key];
+      if (!d || !d.evidence || !d.evidence.length) return;
+      var row = mk('div', 'ev-row');
+      var dl = mk('div', 'ev-dim', DIM_NAMES[i]);
+      dl.style.color = DIM_COLORS[i];
+      row.appendChild(dl);
+      d.evidence.forEach(function(ev) {
+        row.appendChild(mk('div', 'ev-bullet', '\u2022 ' + ev));
+      });
+      ec.appendChild(row);
+    });
+    container.appendChild(ec);
+  }
+
+  // Token metadata
+  var tokCard = mk('div', 'grade-card');
+  tokCard.appendChild(mk('div', 'ev-title', 'Token Metadata'));
+  var grid = mk('div', 'token-meta-grid');
+
+  function addStat(label, value) {
+    var s = mk('div', 'token-stat');
+    app(s, mk('div', 'token-stat-label', label), mk('div', 'token-stat-value', fmtNum(value, '\u2014')));
+    grid.appendChild(s);
+  }
+
+  if (tmeta) {
+    if (tmeta.confidence) addStat('Confidence', tmeta.confidence);
+    if (tmeta.estimationMethod || tmeta.estimation_method) {
+      addStat('Method', tmeta.estimationMethod || tmeta.estimation_method);
+    }
+    if (tmeta.total_tokens != null) addStat('Total Tokens', tmeta.total_tokens);
+    if (tmeta.totalEstimatedTokens != null) addStat('Est. Tokens', tmeta.totalEstimatedTokens);
+    if (tmeta.inputTokens != null) addStat('Input Tokens', tmeta.inputTokens);
+    if (tmeta.outputTokens != null) addStat('Output Tokens', tmeta.outputTokens);
+    if (tmeta.cacheReadTokens != null) addStat('Cache Read', tmeta.cacheReadTokens);
+  } else if (g.entryCount) {
+    addStat('Audit Entries', g.entryCount);
+    addStat('Est. Tokens', '~' + (g.entryCount * 150));
+    addStat('Method', 'entry_count_proxy');
+  } else {
+    addStat('Note', 'Enable OTEL or use run_scenario.py for token data');
+  }
+  app(tokCard, grid);
+  container.appendChild(tokCard);
+}
+
+// ── A/B Comparison Tab ─────────────────────────────────────────────────────
+function renderABTab(ab) {
+  var container = document.getElementById('ab-content');
+  container.textContent = '';
+
+  if (!ab || !ab.total_runs) {
+    container.appendChild(emptyState(
+      '\u2696\uFE0F', 'No A/B results yet',
+      'Run a blind comparison:',
+      'python scripts/run_ab_test.py --domain tasks --runs 3 --cleo cleo-dev'
+    ));
+    return;
+  }
+
+  document.getElementById('tb-ab').textContent = ab.total_runs || 0;
+  var wins = ab.global_wins || {};
+  var mcpW = wins.mcp || 0;
+  var cliW = wins.cli || 0;
+  var tieW = wins.tie || 0;
+
+  var winnerClass = mcpW > cliW ? 'mcp' : cliW > mcpW ? 'cli' : 'tie';
+  var winnerLabel = winnerClass === 'mcp' ? '\u26A1 MCP Wins Overall'
+    : winnerClass === 'cli' ? '\u26A1 CLI Wins Overall'
+    : '\u2194 Overall Tie';
+
+  var banner = mk('div', 'ab-winner-banner ' + winnerClass, winnerLabel);
+  container.appendChild(banner);
+
+  // Summary grid
+  container.appendChild(mk('div', 'section-title', 'Summary'));
+  var grid = mk('div', 'ab-summary-grid');
+  var summaryRows = [
+    ['Total Runs', ab.total_runs, ''],
+    ['MCP Wins',   mcpW, winnerClass === 'mcp' ? 'win' : ''],
+    ['CLI Wins',   cliW, winnerClass === 'cli' ? 'win' : ''],
+    ['Ties',       tieW, 'neutral'],
+  ];
+  summaryRows.forEach(function(row) {
+    var c = mk('div', 'ab-stat-card');
+    app(c, mk('div', 'ab-stat-label', row[0]), mk('div', 'ab-stat-value ' + row[2], String(row[1])));
+    grid.appendChild(c);
+  });
+  container.appendChild(grid);
+
+  // Per-operation table
+  var rawPerOp = ab.per_operation;
+  var perOp = null;
+  if (Array.isArray(rawPerOp)) {
+    perOp = {};
+    rawPerOp.forEach(function(s) { if (s && s.operation) perOp[s.operation] = s; });
+  } else if (rawPerOp && typeof rawPerOp === 'object') {
+    perOp = rawPerOp;
+  }
+
+  if (perOp && Object.keys(perOp).length) {
+    container.appendChild(mk('div', 'section-title', 'Per-Operation Results'));
+    var wrap = mk('div', 'ab-table-wrap');
+    var tbl = document.createElement('table');
+    tbl.className = 'ab-table';
+
+    var thead = document.createElement('thead');
+    var hrow = document.createElement('tr');
+    ['Operation', 'Winner', 'MCP ms', 'CLI ms', 'Token \u0394', 'MCP Chars', 'CLI Chars'].forEach(function(h) {
+      hrow.appendChild(mkTh(h));
+    });
+    thead.appendChild(hrow);
+    tbl.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    Object.keys(perOp).sort().forEach(function(opKey) {
+      var d = perOp[opKey];
+      var delta = d.avg_token_delta != null ? d.avg_token_delta : 0;
+      var dcls = delta > 10 ? 'delta-pos' : delta < -10 ? 'delta-neg' : 'delta-zero';
+      var opW = d.winner || (d.wins && d.wins.mcp > d.wins.cli ? 'mcp'
+        : d.wins && d.wins.cli > d.wins.mcp ? 'cli' : 'tie');
+
+      var tr = document.createElement('tr');
+      tr.appendChild(mkTd(mk('span', 'op-name', opKey)));
+      tr.appendChild(mkTd(mk('span', 'win-pill ' + opW, opW.toUpperCase())));
+      tr.appendChild(mkTd(d.avg_mcp_ms != null ? fmtNum(d.avg_mcp_ms) + 'ms' : '\u2014'));
+      tr.appendChild(mkTd(d.avg_cli_ms != null ? fmtNum(d.avg_cli_ms) + 'ms' : '\u2014'));
+      tr.appendChild(mkTd(mk('span', dcls, (delta > 0 ? '+' : '') + delta.toFixed(0) + 't')));
+      tr.appendChild(mkTd(fmtNum(d.avg_mcp_chars)));
+      tr.appendChild(mkTd(fmtNum(d.avg_cli_chars)));
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    wrap.appendChild(tbl);
+    container.appendChild(wrap);
+  }
+
+  container.appendChild(mk('div', 'ab-note',
+    '\u26A0 CLI-only sessions always score 0 on S5 (Progressive Disclosure) \u2014 ' +
+    'metadata.gateway is not set by the CLI adapter. MCP earns +10 for query gateway usage automatically.'));
+}
+
+// ── Token Analysis Tab ─────────────────────────────────────────────────────
+function renderTokenTab(ta) {
+  var container = document.getElementById('token-content');
+  container.textContent = '';
+
+  if (!ta || !Object.keys(ta).length) {
+    container.appendChild(emptyState(
+      '\uD83D\uDD22', 'No token data yet',
+      'Generate token analysis by running graded scenarios with OTel enabled.',
+      'source .cleo/setup-otel.sh'
+    ));
+    return;
+  }
+
+  // Confidence badge
+  var conf = ta.confidence || (ta.method === 'task_notifications' ? 'ESTIMATED' : 'COARSE');
+  var confRow = mks('div', 'display:flex;align-items:center;gap:.6rem;');
+  var confLabel = mks('span', 'font-family:Poppins,sans-serif;font-size:.72rem;color:var(--text-muted);', 'Data confidence:');
+  var confBadge = mk('span', 'confidence-badge ' + conf, conf);
+  app(confRow, confLabel, confBadge);
+  container.appendChild(confRow);
+
+  // Domain bar chart
+  var byDomain = ta.by_domain || ta.breakdown_by_domain;
+  if (byDomain && Object.keys(byDomain).length) {
+    var domainEntries = Object.keys(byDomain).sort().map(function(k) {
+      var v = byDomain[k];
+      var tok = typeof v === 'object' ? (v.estimated_tokens || v.mean || 0) : v;
+      return [k, tok];
+    });
+    var maxD = Math.max.apply(null, domainEntries.map(function(e) { return e[1]; }).concat([1]));
+    var dcard = mk('div', 'chart-card');
+    dcard.appendChild(mk('div', 'chart-card-title', 'Estimated Tokens by Domain'));
+    var dchart = mk('div', 'bar-chart');
+    domainEntries.forEach(function(entry, i) {
+      var pct = maxD > 0 ? Math.min((entry[1] / maxD) * 90, 90) : 0;
+      var r = mk('div', 'bar-row');
+      var track = mk('div', 'bar-track');
+      var fill = mk('div', 'bar-fill');
+      fill.style.cssText = 'width:' + pct + '%;background:' + DOMAIN_BAR_COLORS[i % DOMAIN_BAR_COLORS.length] + ';';
+      track.appendChild(fill);
+      var opsCount = byDomain[entry[0]] && byDomain[entry[0]].ops_count
+        ? ' (' + byDomain[entry[0]].ops_count + ' ops)' : '';
+      app(r, mk('span', 'bar-label', entry[0]), track, mk('span', 'bar-val', fmtNum(entry[1]) + 't' + opsCount));
+      dchart.appendChild(r);
+    });
+    dcard.appendChild(dchart);
+    container.appendChild(dcard);
+  }
+
+  // MCP vs CLI split
+  var mcpVsCli = ta.mcp_vs_cli;
+  if (mcpVsCli) {
+    var mcpTok = mcpVsCli.mcp ? (mcpVsCli.mcp.estimated_tokens || 0) : 0;
+    var cliTok = mcpVsCli.cli ? (mcpVsCli.cli.estimated_tokens || 0) : 0;
+    var splitGrid = mks('div', 'display:grid;grid-template-columns:1fr 1fr;gap:.75rem;');
+    var mcpCard = mk('div', 'ab-stat-card');
+    app(mcpCard, mk('div', 'ab-stat-label', 'MCP Tokens'), mk('div', 'ab-stat-value', fmtNum(mcpTok)));
+    var cliCard = mk('div', 'ab-stat-card');
+    app(cliCard, mk('div', 'ab-stat-label', 'CLI Tokens'), mk('div', 'ab-stat-value', fmtNum(cliTok)));
+    app(splitGrid, mcpCard, cliCard);
+    container.appendChild(splitGrid);
+  } else if (ta.by_interface) {
+    var ifaceGrid = mks('div', 'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.75rem;');
+    Object.keys(ta.by_interface).sort().forEach(function(iface) {
+      var v = ta.by_interface[iface];
+      var c = mk('div', 'ab-stat-card');
+      app(c, mk('div', 'ab-stat-label', iface), mk('div', 'ab-stat-value', fmtNum(v.mean) + 't'));
+      ifaceGrid.appendChild(c);
+    });
+    container.appendChild(ifaceGrid);
+  }
+
+  // Score per 1k tokens
+  var spt = ta.score_per_1k_tokens;
+  if (spt && typeof spt === 'object') {
+    var sptCard = mk('div', 'chart-card');
+    sptCard.appendChild(mk('div', 'chart-card-title', 'Score per 1k Tokens (Efficiency)'));
+    var sptTable = document.createElement('table');
+    sptTable.className = 'ab-table';
+    var sHead = document.createElement('thead');
+    var sHrow = document.createElement('tr');
+    ['Interface', 'Score / 1k tokens'].forEach(function(h) { sHrow.appendChild(mkTh(h)); });
+    sHead.appendChild(sHrow);
+    sptTable.appendChild(sHead);
+    var sTbody = document.createElement('tbody');
+    Object.keys(spt).sort().forEach(function(k) {
+      var tr = document.createElement('tr');
+      tr.appendChild(mkTd(k));
+      tr.appendChild(mkTd(spt[k] != null ? fmtNum(spt[k]) : '\u2014'));
+      sTbody.appendChild(tr);
+    });
+    sptTable.appendChild(sTbody);
+    sptCard.appendChild(sptTable);
+    container.appendChild(sptCard);
+  } else if (ta.score_per_1k_tokens != null) {
+    // Scalar value
+    var sptRow = mk('div', 'ab-stat-card');
+    app(sptRow, mk('div', 'ab-stat-label', 'Score / 1k Tokens'), mk('div', 'ab-stat-value', fmtNum(ta.score_per_1k_tokens)));
+    container.appendChild(sptRow);
+  }
+
+  container.appendChild(mk('div', 'info-note',
+    '\u2139 Token figures shown with confidence level. Enable OTel for REAL token tracking: source .cleo/setup-otel.sh'));
+}
+
+// ── Operation Matrix Tab ───────────────────────────────────────────────────
+
+// Canonical 202 operations fallback
+var CANONICAL_OPS = (function() {
+  var ops = [];
+  function add(domain, tier, gateway, names) {
+    names.forEach(function(n) {
+      ops.push({ op: domain + '.' + n, domain: domain, tier: tier, gateway: gateway });
+    });
+  }
+  add('tasks', 0, 'query',  ['find','show','list','tree','plan','exists']);
+  add('tasks', 0, 'mutate', ['add','update','complete','cancel','archive','restore','relates','depends','history']);
+  add('session', 0, 'query',  ['status','list','briefing.show','handoff.show','context.drift']);
+  add('session', 0, 'mutate', ['start','end','decision.log','record.decision','context.inject']);
+  add('admin', 0, 'query',  ['dash','health','help','stats','doctor','grade','grade.list','adr.find']);
+  add('memory', 1, 'query',  ['find','timeline','fetch','pattern.find','learning.find']);
+  add('memory', 1, 'mutate', ['observe']);
+  add('tools', 1, 'query',  ['skill.list','skill.show','provider.list','provider.show']);
+  add('check', 1, 'query',  ['health','schema','compliance']);
+  add('pipeline', 1, 'query',  ['stage.status','manifest.list']);
+  add('pipeline', 1, 'mutate', ['stage.record','stage.gate.pass','stage.validate','manifest.add','manifest.remove']);
+  add('orchestrate', 2, 'query',  ['analyze','ready','next']);
+  add('orchestrate', 2, 'mutate', ['spawn','start']);
+  add('nexus', 2, 'query',  ['status','project.list','project.show']);
+  add('nexus', 2, 'mutate', ['project.add']);
+  add('sticky', 2, 'query',  ['list']);
+  add('sticky', 2, 'mutate', ['add','archive']);
+  return ops;
+})();
+
+var ALL_DOMAINS = ['tasks','session','admin','memory','tools','check','pipeline','orchestrate','nexus','sticky'];
+
+function renderMatrixTab(opMatrix) {
+  var container = document.getElementById('matrix-content');
+  container.textContent = '';
+
+  // Merge canonical ops with audit data
+  var merged = {};
+  CANONICAL_OPS.forEach(function(co) {
+    merged[co.op] = {
+      op: co.op, domain: co.domain, tier: co.tier, gateway: co.gateway,
+      mcp_calls: 0, cli_calls: 0, avg_mcp_ms: null, avg_cli_ms: null, tested: false
+    };
+  });
+  if (opMatrix && typeof opMatrix === 'object') {
+    Object.keys(opMatrix).forEach(function(opKey) {
+      var d = opMatrix[opKey];
+      if (merged[opKey]) {
+        merged[opKey].mcp_calls  = d.mcp_calls || 0;
+        merged[opKey].cli_calls  = d.cli_calls || 0;
+        merged[opKey].avg_mcp_ms = d.avg_mcp_ms || null;
+        merged[opKey].avg_cli_ms = d.avg_cli_ms || null;
+        merged[opKey].tested     = !!(d.tested || d.mcp_calls || d.cli_calls);
+        if (d.tier != null) merged[opKey].tier = d.tier;
+        if (d.gateway)      merged[opKey].gateway = d.gateway;
+      } else {
+        // Unexpected op from audit data — include it
+        merged[opKey] = {
+          op: opKey,
+          domain: opKey.split('.')[0] || 'unknown',
+          tier: d.tier != null ? d.tier : 0,
+          gateway: d.gateway || 'query',
+          mcp_calls: d.mcp_calls || 0,
+          cli_calls: d.cli_calls || 0,
+          avg_mcp_ms: d.avg_mcp_ms || null,
+          avg_cli_ms: d.avg_cli_ms || null,
+          tested: !!(d.tested || d.mcp_calls || d.cli_calls)
+        };
+      }
+    });
+  }
+
+  var allRows = Object.values(merged).sort(function(a, b) {
+    if (a.domain !== b.domain) return a.domain.localeCompare(b.domain);
+    return a.op.localeCompare(b.op);
+  });
+
+  document.getElementById('tb-matrix').textContent = allRows.length;
+
+  // Controls
+  var controls = mk('div', 'matrix-controls');
+  var label = mk('label', null, 'Domain:');
+  var sel = document.createElement('select');
+  var optAll = document.createElement('option');
+  optAll.value = '';
+  optAll.textContent = 'All';
+  sel.appendChild(optAll);
+  ALL_DOMAINS.forEach(function(d) {
+    var opt = document.createElement('option');
+    opt.value = d;
+    opt.textContent = d;
+    sel.appendChild(opt);
+  });
+  var countEl = mk('span', 'matrix-count', allRows.length + ' operations');
+  app(controls, label, sel, countEl);
+  container.appendChild(controls);
+
+  // Table
+  var wrap = mk('div', 'matrix-table-wrap');
+  var tbl = document.createElement('table');
+  tbl.className = 'matrix-table';
+
+  var thead = document.createElement('thead');
+  var hrow = document.createElement('tr');
+  ['Operation', 'Tier', 'Gateway', 'Tested', 'MCP Calls', 'CLI Calls', 'Avg MCP ms', 'Avg CLI ms'].forEach(function(h) {
+    hrow.appendChild(mkTh(h));
+  });
+  thead.appendChild(hrow);
+  tbl.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  tbl.appendChild(tbody);
+  wrap.appendChild(tbl);
+  container.appendChild(wrap);
+
+  function buildRows(domain) {
+    tbody.textContent = '';
+    var filtered = domain ? allRows.filter(function(r) { return r.domain === domain; }) : allRows;
+    countEl.textContent = filtered.length + ' operations';
+    filtered.forEach(function(r) {
+      var tr = document.createElement('tr');
+
+      // Operation name
+      tr.appendChild(mkTd(mk('span', 'op-name', r.op)));
+
+      // Tier
+      tr.appendChild(mkTd(mk('span', 'tier-badge', 'T' + r.tier)));
+
+      // Gateway pill
+      var gw = r.gateway || 'query';
+      tr.appendChild(mkTd(mk('span', 'gateway-pill ' + gw, gw)));
+
+      // Tested
+      var testedTd = document.createElement('td');
+      if (r.tested) {
+        testedTd.appendChild(mk('span', 'tested-yes', '\u2713'));
+      } else {
+        testedTd.appendChild(mk('span', 'tested-no', '\u2014'));
+      }
+      tr.appendChild(testedTd);
+
+      // Calls
+      tr.appendChild(mkTd(r.mcp_calls || 0));
+      tr.appendChild(mkTd(r.cli_calls || 0));
+
+      // Avg ms
+      tr.appendChild(mkTd(r.avg_mcp_ms != null ? fmtNum(r.avg_mcp_ms) + 'ms' : '\u2014'));
+      tr.appendChild(mkTd(r.avg_cli_ms != null ? fmtNum(r.avg_cli_ms) + 'ms' : '\u2014'));
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  buildRows('');
+  sel.addEventListener('change', function() { buildRows(sel.value); });
+}
+
+// ── Eval Report Tab ────────────────────────────────────────────────────────
+function renderEvalsTab(evalReport) {
+  var container = document.getElementById('evals-content');
+  container.textContent = '';
+
+  if (!evalReport || !evalReport.length) {
+    container.appendChild(emptyState(
+      '\uD83D\uDCCB', 'No eval results yet',
+      'Eval results appear after running graded scenarios with expectation checks.',
+      'python scripts/run_scenario.py --scenario S1 --eval'
+    ));
+    return;
+  }
+
+  document.getElementById('tb-evals').textContent = evalReport.length;
+
+  evalReport.forEach(function(ev) {
+    var card = mk('div', 'eval-card');
+    var hdr = mk('div', 'eval-card-header');
+    var nameEl = mk('div', 'eval-name', ev.name || ev.eval_id || 'Unnamed Eval');
+    var overallPassed = ev.passed !== false;
+    var badge = mk('span', 'pass-badge ' + (overallPassed ? 'pass' : 'fail'), overallPassed ? 'PASS' : 'FAIL');
+    app(hdr, nameEl, badge);
+    card.appendChild(hdr);
+
+    var expectations = ev.expectations || [];
+    if (expectations.length) {
+      var list = mk('div', 'expectation-list');
+      expectations.forEach(function(exp) {
+        var passed = exp.passed !== false;
+        var item = mk('div', 'expectation-item ' + (passed ? 'pass' : 'fail'));
+        var icon = mk('span', 'expect-icon', passed ? '\u2713' : '\u2717');
+        var right = mk('div', null);
+        right.appendChild(mk('div', 'expect-desc', exp.description || ''));
+        if (exp.evidence) {
+          var evText = String(exp.evidence);
+          if (evText.length > 100) evText = evText.slice(0, 97) + '...';
+          right.appendChild(mk('div', 'expect-evidence', evText));
+        }
+        app(item, icon, right);
+        list.appendChild(item);
+      });
+      card.appendChild(list);
+    } else {
+      card.appendChild(mks('p', 'font-size:.75rem;color:var(--text-muted);margin-top:.5rem;', 'No individual expectations recorded.'));
+    }
+
+    container.appendChild(card);
+  });
+}
+
+// ── Live Session Tab ───────────────────────────────────────────────────────
+function renderLiveTab(liveData) {
+  var container = document.getElementById('live-content');
+  container.textContent = '';
+
+  var topRow = mk('div', 'live-header');
+  var liveBadge = mk('div', 'live-badge');
+  var dot = mk('span', 'live-dot');
+  liveBadge.appendChild(dot);
+  liveBadge.appendChild(document.createTextNode(' Live'));
+  var sidEl = mk('span', 'session-id-label');
+  sidEl.id = 'live-session-id';
+  sidEl.textContent = (liveData && liveData.session_id) ? liveData.session_id : 'No active session';
+  app(topRow, liveBadge, sidEl);
+  container.appendChild(topRow);
+
+  var tableWrap = mk('div', 'ab-table-wrap');
+  var tbl = document.createElement('table');
+  tbl.className = 'live-table';
+
+  var thead = document.createElement('thead');
+  var hrow = document.createElement('tr');
+  ['Time', 'Domain', 'Operation', 'Source', 'Gateway', 'Duration ms', 'Success'].forEach(function(h) {
+    hrow.appendChild(mkTh(h));
+  });
+  thead.appendChild(hrow);
+  tbl.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  tbody.id = 'live-table-body';
+  tbl.appendChild(tbody);
+  tableWrap.appendChild(tbl);
+  container.appendChild(tableWrap);
+
+  var emptyRow = document.createElement('tr');
+  var emptyCell = document.createElement('td');
+  emptyCell.setAttribute('colspan', '7');
+  emptyCell.style.textAlign = 'center';
+  emptyCell.style.padding = '2rem';
+  emptyCell.style.color = 'var(--text-muted)';
+  emptyCell.style.fontStyle = 'italic';
+  emptyCell.textContent = 'No active session. Start a graded session to see live data.';
+  emptyRow.appendChild(emptyCell);
+  tbody.appendChild(emptyRow);
+  tbody.dataset.empty = '1';
+
+  if (liveData && liveData.entries && liveData.entries.length) {
+    updateLiveTable(tbody, liveData.entries);
+  }
+
+  container.appendChild(mk('div', 'info-note',
+    '\u2139 Live data updates every 5 seconds while the Live tab is open. Data is read from the active session audit log.'));
+}
+
+function updateLiveTable(tbody, entries) {
+  tbody.textContent = '';
+  if (!entries || !entries.length) {
+    var emptyRow = document.createElement('tr');
+    var emptyCell = document.createElement('td');
+    emptyCell.setAttribute('colspan', '7');
+    emptyCell.style.textAlign = 'center';
+    emptyCell.style.padding = '2rem';
+    emptyCell.style.color = 'var(--text-muted)';
+    emptyCell.style.fontStyle = 'italic';
+    emptyCell.textContent = 'No active session. Start a graded session to see live data.';
+    emptyRow.appendChild(emptyCell);
+    tbody.appendChild(emptyRow);
+    return;
+  }
+  entries.forEach(function(e) {
+    var tr = document.createElement('tr');
+    tr.appendChild(mkTd(fmtTime(e.timestamp)));
+    tr.appendChild(mkTd(e.domain || ''));
+    tr.appendChild(mkTd(mk('span', 'op-name', e.operation || '')));
+    tr.appendChild(mkTd(e.source || ''));
+    var gwPill = e.gateway ? mk('span', 'gateway-pill ' + e.gateway, e.gateway) : null;
+    tr.appendChild(mkTd(gwPill || (e.gateway || '\u2014')));
+    tr.appendChild(mkTd(e.duration_ms != null ? String(e.duration_ms) : '\u2014'));
+    var successEl;
+    if (e.success === true) {
+      successEl = mk('span', 'success-yes', '\u2713');
+    } else if (e.success === false) {
+      successEl = mk('span', 'success-no', '\u2717');
+    } else {
+      successEl = document.createTextNode('\u2014');
+    }
+    tr.appendChild(mkTd(successEl));
+    tbody.appendChild(tr);
+  });
+}
+
+// Live polling
+var _livePollingStarted = false;
+
+function startLivePolling() {
+  if (_livePollingStarted) return;
+  _livePollingStarted = true;
+  var liveTableBody = document.getElementById('live-table-body');
+  var sessionIdEl = document.getElementById('live-session-id');
+
+  function poll() {
+    fetch('/live-data')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        updateLiveTable(liveTableBody, data.entries || []);
+        if (sessionIdEl) {
+          sessionIdEl.textContent = data.session_id || 'No active session';
+        }
+      })
+      .catch(function() { /* silently ignore poll errors in static mode */ });
+  }
+
+  poll();
+  setInterval(poll, 5000);
+}
+
+document.querySelector('[data-tab="live"]').addEventListener('click', startLivePolling);
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(function() {
+  var data = typeof EMBEDDED_GRADE_DATA !== 'undefined' ? EMBEDDED_GRADE_DATA : {};
+
+  // Header
+  var title = data.title || 'ct-grade \u2014 Grade Review';
+  document.getElementById('hdr-title').textContent = title;
+  document.title = title;
+  if (data.subtitle) {
+    document.getElementById('hdr-sub').textContent = data.subtitle;
+  }
+  if (data.generated_at) {
+    var m = document.getElementById('hdr-meta');
+    m.appendChild(document.createTextNode('Generated ' + fmtDate(data.generated_at)));
+    m.appendChild(document.createElement('br'));
+    var gradeCount = (data.grades || []).length;
+    var abCount = (data.ab_results && data.ab_results.total_runs) || 0;
+    m.appendChild(document.createTextNode(gradeCount + ' grade(s) \u00b7 ' + abCount + ' A/B run(s)'));
+  }
+
+  renderGradesTab(data.grades || []);
+  renderABTab(data.ab_results || {});
+  renderTokenTab(data.token_analysis || {});
+  renderMatrixTab(data.operation_matrix || {});
+  renderEvalsTab(data.eval_report || []);
+  renderLiveTab(data.live_session || {});
+})();
+</script>
+</body>
+</html>

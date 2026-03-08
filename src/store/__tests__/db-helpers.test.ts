@@ -33,7 +33,7 @@ describe('upsertTask — orphan parent handling', () => {
   it('nulls out parentId when parent task does not exist', async () => {
     const { getDb } = await import('../sqlite.js');
     const { upsertTask } = await import('../db-helpers.js');
-    const schema = await import('../schema.js');
+    const schema = await import('../tasks-schema.js');
     const db = await getDb();
 
     // Insert a child task with a non-existent parent
@@ -59,7 +59,7 @@ describe('upsertTask — orphan parent handling', () => {
   it('preserves parentId when parent task exists', async () => {
     const { getDb } = await import('../sqlite.js');
     const { upsertTask } = await import('../db-helpers.js');
-    const schema = await import('../schema.js');
+    const schema = await import('../tasks-schema.js');
     const db = await getDb();
 
     // First create the parent task
@@ -95,7 +95,7 @@ describe('upsertTask — orphan parent handling', () => {
   it('handles archived task with orphan parent (T5034 regression)', async () => {
     const { getDb } = await import('../sqlite.js');
     const { upsertTask } = await import('../db-helpers.js');
-    const schema = await import('../schema.js');
+    const schema = await import('../tasks-schema.js');
     const db = await getDb();
 
     // Simulate re-upserting an archived task whose parent was deleted

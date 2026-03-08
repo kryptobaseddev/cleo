@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import * as schema from '../../../store/schema.js';
+import * as schema from '../../../store/tasks-schema.js';
 
 // Helper: extract column names from a Drizzle table
 function getColumnNames(table: Record<string, unknown>): string[] {

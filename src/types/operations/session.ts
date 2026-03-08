@@ -38,9 +38,15 @@ export interface SessionStatusResult {
 // session.list
 export interface SessionListParams {
   active?: boolean;
+  status?: string;
   limit?: number;
+  offset?: number;
 }
-export type SessionListResult = Session[];
+export interface SessionListResult {
+  sessions: Session[];
+  total: number;
+  filtered: number;
+}
 
 // session.show
 export interface SessionShowParams {

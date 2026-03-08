@@ -18,7 +18,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
-import { architectureDecisions, adrTaskLinks, adrRelations } from '../../store/schema.js';
+import { architectureDecisions, adrTaskLinks, adrRelations } from '../../store/tasks-schema.js';
 import { parseAdrFile } from './parse.js';
 
 export interface PipelineAdrLinkResult {

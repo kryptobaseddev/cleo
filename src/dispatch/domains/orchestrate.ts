@@ -12,6 +12,7 @@ import type { DomainHandler, DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 import { getProjectRoot } from '../../core/paths.js';
 import { getLogger } from '../../core/logger.js';
+import { paginate } from '../../core/pagination.js';
 
 import {
   orchestrateStatus,
@@ -152,10 +153,18 @@ export class OrchestrateHandler implements DomainHandler {
 
         case 'tessera.list': {
           const templates = listTesseraTemplates();
+          const { limit, offset } = this.getListParams(params);
+          const page = paginate(templates, limit, offset);
           return {
             _meta: dispatchMeta('query', 'orchestrate', operation, startTime),
             success: true,
-            data: { templates, count: templates.length },
+            data: {
+              templates: page.items,
+              count: templates.length,
+              total: templates.length,
+              filtered: templates.length,
+            },
+            page: page.page,
           };
         }
 
@@ -410,6 +419,13 @@ export class OrchestrateHandler implements DomainHandler {
       message,
       startTime,
     );
+  }
+
+  private getListParams(params?: Record<string, unknown>): { limit?: number; offset?: number } {
+    return {
+      limit: typeof params?.limit === 'number' ? params.limit : undefined,
+      offset: typeof params?.offset === 'number' ? params.offset : undefined,
+    };
   }
 
   private buildChainPlan(chain: WarpChain): {

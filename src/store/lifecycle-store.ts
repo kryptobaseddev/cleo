@@ -13,7 +13,7 @@
 
 import { eq, and, inArray, desc, asc, sql } from 'drizzle-orm';
 import { getDb } from './sqlite.js';
-import * as schema from './schema.js';
+import * as schema from './tasks-schema.js';
 
 // =============================================================================
 // QUERY TYPES (matching drizzle select shapes)
