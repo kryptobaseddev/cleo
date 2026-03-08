@@ -2,6 +2,6 @@ import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
   schema: './src/store/brain-schema.ts',
-  out: './drizzle-brain',
+  out: './dev/migrations/drizzle-brain',
   dialect: 'sqlite',
 });
