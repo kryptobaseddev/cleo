@@ -26,8 +26,9 @@ export function registerSpecificationCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.specification',
+        'protocol',
         {
+          protocolType: 'specification',
           mode: 'task',
           taskId,
           strict: opts['strict'] as boolean | undefined,
@@ -46,8 +47,9 @@ export function registerSpecificationCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.specification',
+        'protocol',
         {
+          protocolType: 'specification',
           mode: 'manifest',
           manifestFile,
           strict: opts['strict'] as boolean | undefined,

@@ -26,8 +26,9 @@ export function registerConsensusCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.consensus',
+        'protocol',
         {
+          protocolType: 'consensus',
           mode: 'task',
           taskId,
           strict: opts['strict'] as boolean | undefined,
@@ -46,8 +47,9 @@ export function registerConsensusCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.consensus',
+        'protocol',
         {
+          protocolType: 'consensus',
           mode: 'manifest',
           manifestFile,
           strict: opts['strict'] as boolean | undefined,

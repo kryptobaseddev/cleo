@@ -18,6 +18,7 @@ export function registerDoctorCommand(program: Command): void {
     .option('--detailed', 'Show detailed health check results')
     .option('--comprehensive', 'Run comprehensive doctor report')
     .option('--fix', 'Auto-fix failed checks')
+    .option('--coherence', 'Run coherence check across task data')
     .action(async (_opts: Record<string, unknown>, command: Command) => {
       const opts = command.optsWithGlobals ? command.optsWithGlobals() : command.opts();
       const isHuman = opts['human'] === true || (!!process.stdout.isTTY && opts['json'] !== true);
@@ -26,7 +27,17 @@ export function registerDoctorCommand(program: Command): void {
       progress.start();
 
       try {
-        if (opts['fix']) {
+        if (opts['coherence']) {
+          progress.step(0, 'Running coherence check');
+          await dispatchFromCli(
+            'query',
+            'check',
+            'coherence',
+            {},
+            { command: 'doctor', operation: 'check.coherence' },
+          );
+          progress.complete('Coherence check complete');
+        } else if (opts['fix']) {
           progress.step(4, 'Applying fixes');
           await dispatchFromCli(
             'mutate',

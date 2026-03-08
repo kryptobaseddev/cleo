@@ -25,8 +25,9 @@ export function registerContributionCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.contribution',
+        'protocol',
         {
+          protocolType: 'contribution',
           mode: 'task',
           taskId,
           strict: opts['strict'] as boolean | undefined,
@@ -43,8 +44,9 @@ export function registerContributionCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.contribution',
+        'protocol',
         {
+          protocolType: 'contribution',
           mode: 'manifest',
           manifestFile,
           strict: opts['strict'] as boolean | undefined,

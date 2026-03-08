@@ -55,12 +55,12 @@ export function registerAdrCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'admin',
-        'adr.list',
+        'adr.find',
         {
           status: opts['status'] as string | undefined,
           since: opts['since'] as string | undefined,
         },
-        { command: 'adr list', operation: 'admin.adr.list' },
+        { command: 'adr list', operation: 'admin.adr.find' },
       );
     });
 

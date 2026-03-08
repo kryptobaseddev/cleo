@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.kryptobaseddev/cleo-mcp-server",
   "title": "CLEO MCP Server",
-  "description": "Task management for solo developers and AI coding agents — CQRS pattern, 177 operations",
-  "version": "2026.3.7",
+  "description": "Task management for solo developers and AI coding agents — CQRS pattern, 200 operations across 10 domains",
+  "version": "2026.3.23",
   "websiteUrl": "https://github.com/kryptobaseddev/cleo",
   "repository": {
     "url": "https://github.com/kryptobaseddev/cleo.git",
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "@cleocode/cleo",
-      "version": "2026.3.7",
+      "version": "2026.3.23",
       "transport": {
         "type": "stdio"
       },
@@ -47,7 +47,7 @@
       ],
       "features": [
         "CQRS 2-gateway pattern (94% token reduction vs traditional MCP tool approach)",
-        "177 operations across 11 domains",
+        "200 operations across 10 canonical domains",
         "Anti-hallucination validation on all task operations",
         "Atomic file operations with backup and rollback"
       ],

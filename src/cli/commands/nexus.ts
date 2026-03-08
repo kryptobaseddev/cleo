@@ -93,7 +93,7 @@ export function registerNexusCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'nexus',
-        'query',
+        'resolve',
         {
           query: taskId,
         },
@@ -168,7 +168,7 @@ export function registerNexusCommand(program: Command): void {
     .command('critical-path')
     .description('Show global critical path across all registered projects')
     .action(async () => {
-      await dispatchFromCli('query', 'nexus', 'critical-path', {}, { command: 'nexus' });
+      await dispatchFromCli('query', 'nexus', 'path.show', {}, { command: 'nexus' });
     });
 
   // ── nexus blocking ────────────────────────────────────────────────
@@ -180,7 +180,7 @@ export function registerNexusCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'nexus',
-        'blocking',
+        'blockers.show',
         {
           query: taskQuery,
         },
@@ -194,7 +194,7 @@ export function registerNexusCommand(program: Command): void {
     .command('orphans')
     .description('Detect broken cross-project dependency references')
     .action(async () => {
-      await dispatchFromCli('query', 'nexus', 'orphans', {}, { command: 'nexus' });
+      await dispatchFromCli('query', 'nexus', 'orphans.list', {}, { command: 'nexus' });
     });
 
   // ── nexus sync ──────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ export function registerNexusCommand(program: Command): void {
           { command: 'nexus' },
         );
       } else {
-        await dispatchFromCli('mutate', 'nexus', 'sync.all', {}, { command: 'nexus' });
+        await dispatchFromCli('mutate', 'nexus', 'sync', {}, { command: 'nexus' });
       }
     });
 

@@ -22,7 +22,7 @@ export function registerValidateCommand(program: Command): void {
         'check',
         'schema',
         {
-          type: 'tasks',
+          type: 'todo',
           strict: opts['strict'],
         },
         { command: 'validate', operation: 'check.schema' },

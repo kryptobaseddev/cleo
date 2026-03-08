@@ -1,161 +1,41 @@
 /**
  * CLI commands command - list and query available CLEO commands.
- * Ported from scripts/commands.sh
- * @task T4551
+ * Delegates to admin.help via dispatch layer.
+ * @task T4551, T5671
  * @epic T4545
  */
 
-import { join } from 'node:path';
 import type { Command } from 'commander';
-import { CleoError } from '../../core/errors.js';
-import { formatError } from '../../core/output.js';
-import { getCleoHome } from '../../core/paths.js';
-import { readJson } from '../../store/json.js';
-import { ExitCode } from '../../types/exit-codes.js';
-import { cliOutput } from '../renderers/index.js';
-
-/** Command index entry from COMMANDS-INDEX.json. */
-interface CommandEntry {
-  name: string;
-  script: string;
-  category: string;
-  agentRelevance: string;
-  synopsis: string;
-  flags: string[];
-  exitCodes: number[];
-  doc?: string;
-  subcommands?: string[];
-  aliases?: string[];
-  note?: string;
-}
-
-/** Full command index structure. */
-interface CommandIndex {
-  commands: CommandEntry[];
-  agentWorkflows?: Record<string, string[]>;
-  quickLookup?: Record<string, string>;
-}
-
-/** Valid category values. */
-const VALID_CATEGORIES = ['write', 'read', 'sync', 'maintenance'];
-
-/** Valid relevance levels. */
-const VALID_RELEVANCE = ['critical', 'high', 'medium', 'low'];
-
-/**
- * Locate COMMANDS-INDEX.json from known locations.
- * @task T4551
- */
-async function locateCommandsIndex(): Promise<CommandIndex> {
-  const cleoHome = getCleoHome();
-  const paths = [
-    join(cleoHome, 'docs', 'commands', 'COMMANDS-INDEX.json'),
-    join(process.cwd(), 'docs', 'commands', 'COMMANDS-INDEX.json'),
-  ];
-
-  for (const p of paths) {
-    const data = await readJson<CommandIndex>(p);
-    if (data) return data;
-  }
-
-  throw new CleoError(ExitCode.FILE_ERROR, 'COMMANDS-INDEX.json not found', {
-    fix: 'Reinstall cleo or check CLEO_HOME',
-  });
-}
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
 /**
  * Register the commands command.
- * @task T4551
+ * @task T4551, T5671
  */
 export function registerCommandsCommand(program: Command): void {
   program
     .command('commands [command]')
-    .description('List and query available CLEO commands')
-    .option('-c, --category <category>', 'Filter by category (write|read|sync|maintenance)')
-    .option('-r, --relevance <level>', 'Filter by agent relevance (critical|high|medium|low)')
-    .option('--workflows', 'Show agent workflow sequences')
-    .option('--lookup', 'Show intent-to-command quick lookup')
+    .description('List and query available CLEO commands (delegates to admin help)')
+    .option('-c, --category <category>', 'Filter by category')
+    .option('-r, --relevance <level>', 'Filter by agent relevance')
+    .option('--tier <n>', 'Help tier level (0=basic, 1=extended, 2=full)', parseInt)
     .action(async (commandName: string | undefined, opts: Record<string, unknown>) => {
-      try {
-        const category = opts['category'] as string | undefined;
-        const relevance = opts['relevance'] as string | undefined;
+      console.error(
+        '[DEPRECATED] cleo commands now delegates to admin.help.\n' +
+          'Use: query admin help (MCP) or cleo help (CLI)\n',
+      );
 
-        // Validate category
-        if (category && !VALID_CATEGORIES.includes(category)) {
-          throw new CleoError(
-            ExitCode.INVALID_INPUT,
-            `Invalid category: ${category}. Valid: ${VALID_CATEGORIES.join(', ')}`,
-          );
-        }
-
-        // Validate relevance
-        if (relevance && !VALID_RELEVANCE.includes(relevance)) {
-          throw new CleoError(
-            ExitCode.INVALID_INPUT,
-            `Invalid relevance: ${relevance}. Valid: ${VALID_RELEVANCE.join(', ')}`,
-          );
-        }
-
-        const index = await locateCommandsIndex();
-
-        // Deprecation notice: COMMANDS-INDEX.json is a Bash-era artifact
-        console.error(
-          '[DEPRECATED] cleo commands reads from COMMANDS-INDEX.json which is deprecated.\n' +
-            'The canonical operations reference is: docs/specs/CLEO-OPERATIONS-REFERENCE.md\n' +
-            'Use query/mutate MCP tools for programmatic access.\n',
-        );
-
-        // Handle workflows
-        if (opts['workflows']) {
-          cliOutput({ workflows: index.agentWorkflows ?? {} }, { command: 'commands' });
-          return;
-        }
-
-        // Handle lookup
-        if (opts['lookup']) {
-          cliOutput({ quickLookup: index.quickLookup ?? {} }, { command: 'commands' });
-          return;
-        }
-
-        // Filter commands
-        let commands = index.commands;
-
-        if (category) {
-          commands = commands.filter((c) => c.category === category);
-        }
-        if (relevance) {
-          commands = commands.filter((c) => c.agentRelevance === relevance);
-        }
-        if (commandName) {
-          commands = commands.filter((c) => c.name === commandName);
-          if (commands.length === 0) {
-            throw new CleoError(ExitCode.NOT_FOUND, `Command not found: ${commandName}`, {
-              fix: "Run 'cleo commands' to see available commands",
-            });
-          }
-          // Single command detail
-          cliOutput({ command: commands[0] }, { command: 'commands' });
-          return;
-        }
-
-        // List commands
-        cliOutput(
-          {
-            summary: {
-              totalCommands: commands.length,
-              categoryFilter: category ?? 'all',
-              relevanceFilter: relevance ?? 'all',
-            },
-            commands,
-          },
-          { command: 'commands' },
-        );
-      } catch (err) {
-        if (err instanceof CleoError) {
-          console.error(formatError(err));
-          process.exit(err.code);
-        }
-        throw err;
-      }
+      await dispatchFromCli(
+        'query',
+        'admin',
+        'help',
+        {
+          tier: (opts['tier'] as number) ?? 0,
+          domain: commandName,
+          category: opts['category'],
+          relevance: opts['relevance'],
+        },
+        { command: 'commands', operation: 'admin.help' },
+      );
     });
 }

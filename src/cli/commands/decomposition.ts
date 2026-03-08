@@ -26,8 +26,9 @@ export function registerDecompositionCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.decomposition',
+        'protocol',
         {
+          protocolType: 'decomposition',
           mode: 'task',
           taskId,
           strict: opts['strict'] as boolean | undefined,
@@ -46,8 +47,9 @@ export function registerDecompositionCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.decomposition',
+        'protocol',
         {
+          protocolType: 'decomposition',
           mode: 'manifest',
           manifestFile,
           strict: opts['strict'] as boolean | undefined,

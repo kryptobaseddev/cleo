@@ -3,18 +3,17 @@ import { dispatchRaw, resetCliDispatcher } from '../../../src/dispatch/adapters/
 
 // Mock engine imports (all domain handlers need these)
 vi.mock('../../../src/dispatch/lib/engine.js', () => ({
-  releasePrepare: vi.fn(),
-  releaseTag: vi.fn(),
-  releasePush: vi.fn(),
+  releaseShip: vi.fn(),
   releaseRollback: vi.fn(),
+  releaseCancel: vi.fn(),
+  releaseList: vi.fn(),
+  releaseShow: vi.fn(),
 }));
 
 // Import mocked functions
 import {
-  releasePrepare,
-  releasePush,
   releaseRollback,
-  releaseTag,
+  releaseShip,
 } from '../../../src/dispatch/lib/engine.js';
 
 // Mock paths
@@ -44,87 +43,39 @@ describe('Release Workflow E2E Tests', () => {
   });
 
   describe('11.3 Release Workflow', () => {
-    it('should execute full release workflow: verify -> bump -> tag -> publish', async () => {
-      // Step 1: Prepare release (pipeline.release.prepare)
-      vi.mocked(releasePrepare).mockResolvedValueOnce({
+    it('should execute full release workflow via release.ship', async () => {
+      // T5615: prepare/changelog/commit/tag/push consolidated into release.ship
+      vi.mocked(releaseShip).mockResolvedValueOnce({
         success: true,
         data: {
           version: '0.80.4',
-          tasks: ['T001', 'T002'],
-          notes: 'Release v0.80.4',
-          created: '2026-02-06T12:00:00Z',
+          epicId: 'T001',
+          shipped: true,
+          tagName: 'v0.80.4',
+          pushed: true,
         },
       });
 
-      const bumpResult = await dispatchRaw('mutate', 'pipeline', 'release.prepare', {
+      const shipResult = await dispatchRaw('mutate', 'pipeline', 'release.ship', {
         version: '0.80.4',
-        tasks: ['T001', 'T002'],
-        notes: 'Release v0.80.4',
+        epicId: 'T001',
+        remote: 'origin',
       });
 
-      expect(bumpResult.success).toBe(true);
-      expect(bumpResult.data).toMatchObject({
+      expect(shipResult.success).toBe(true);
+      expect(shipResult.data).toMatchObject({
         version: '0.80.4',
-        tasks: ['T001', 'T002'],
-        notes: 'Release v0.80.4',
+        shipped: true,
       });
-      expect(releasePrepare).toHaveBeenCalledWith(
-        '0.80.4',
-        ['T001', 'T002'],
-        'Release v0.80.4',
+      expect(releaseShip).toHaveBeenCalledWith(
+        { version: '0.80.4', epicId: 'T001', remote: 'origin', dryRun: undefined, bump: undefined },
         expect.any(String),
       );
-
-      // Step 2: Create tag (pipeline.release.tag)
-      vi.mocked(releaseTag).mockResolvedValueOnce({
-        success: true,
-        data: {
-          version: '0.80.4',
-          tagName: 'v0.80.4',
-          tagged: '2026-02-06T12:00:00Z',
-        },
-      });
-
-      const tagResult = await dispatchRaw('mutate', 'pipeline', 'release.tag', {
-        version: '0.80.4',
-      });
-
-      expect(tagResult.success).toBe(true);
-      expect(tagResult.data).toMatchObject({
-        version: '0.80.4',
-        tagName: 'v0.80.4',
-      });
-      expect(releaseTag).toHaveBeenCalledWith('0.80.4', expect.any(String));
-
-      // Step 3: Publish release (pipeline.release.push)
-      vi.mocked(releasePush).mockResolvedValueOnce({
-        success: true,
-        data: {
-          version: '0.80.4',
-          pushed: true,
-          remote: 'origin',
-        },
-      });
-
-      const publishResult = await dispatchRaw('mutate', 'pipeline', 'release.push', {
-        version: '0.80.4',
-        remote: 'origin',
-        explicitPush: true,
-      });
-
-      expect(publishResult.success).toBe(true);
-      expect(publishResult.data).toMatchObject({
-        version: '0.80.4',
-        pushed: true,
-      });
-      expect(releasePush).toHaveBeenCalledWith('0.80.4', 'origin', expect.any(String), {
-        explicitPush: true,
-      });
     });
 
     it('should handle version validation failure during release', async () => {
       // Mock the engine to return an error (simulating validation failure)
-      vi.mocked(releasePrepare).mockResolvedValueOnce({
+      vi.mocked(releaseShip).mockResolvedValueOnce({
         success: false,
         error: {
           code: 'E_INVALID_VERSION',
@@ -132,8 +83,9 @@ describe('Release Workflow E2E Tests', () => {
         },
       });
 
-      const result = await dispatchRaw('mutate', 'pipeline', 'release.prepare', {
+      const result = await dispatchRaw('mutate', 'pipeline', 'release.ship', {
         version: 'invalid-version',
+        epicId: 'T001',
       });
 
       expect(result.success).toBe(false);

@@ -58,11 +58,11 @@ export function registerTestingCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'test.status',
-        {},
+        'test',
+        { format: 'status' },
         {
           command: 'testing',
-          operation: 'check.test.status',
+          operation: 'check.test',
         },
       );
     });
@@ -74,11 +74,11 @@ export function registerTestingCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'test.coverage',
-        {},
+        'test',
+        { format: 'coverage' },
         {
           command: 'testing',
-          operation: 'check.test.coverage',
+          operation: 'check.test',
         },
       );
     });

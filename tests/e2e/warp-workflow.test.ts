@@ -66,7 +66,6 @@ describe('Warp workflow E2E', () => {
     const { listTesseraTemplates, instantiateTessera } = await import(
       '../../src/core/lifecycle/tessera-engine.js'
     );
-    const { OrchestrateHandler } = await import('../../src/dispatch/domains/orchestrate.js');
     const { validateChain } = await import('../../src/core/validation/chain-validation.js');
     const { advanceInstance, showInstance, listInstanceGateResults } = await import(
       '../../src/core/lifecycle/chain-store.js'
@@ -105,21 +104,18 @@ describe('Warp workflow E2E', () => {
     expect(chainValidation.gateSatisfiable).toBe(true);
     expect(chainValidation.errors).toHaveLength(0);
 
-    // 4. Assert explicit wave plan generated from the instantiated chain
-    const orchestrate = new OrchestrateHandler();
-    const planResponse = await orchestrate.query('chain.plan', { chainId: rcasd!.id });
-    expect(planResponse.success).toBe(true);
-    expect(planResponse.data).toMatchObject({
-      chainId: rcasd!.id,
+    // 4. Assert chain shape has expected structure (chain.plan removed in T5615)
+    expect(rcasd!.shape).toMatchObject({
       entryPoint: rcasd!.shape.entryPoint,
       exitPoints: rcasd!.shape.exitPoints,
-      totalStages: rcasd!.shape.stages.length,
     });
+    expect(rcasd!.shape.stages.length).toBeGreaterThanOrEqual(4);
 
-    const waveStageIds = (
-      planResponse.data as { waves: Array<{ stageIds: string[] }> }
-    ).waves.flatMap((wave) => wave.stageIds);
-    expect(waveStageIds).toEqual(rcasd!.shape.stages.map((stage) => stage.id));
+    const shapeStageIds = rcasd!.shape.stages.map((stage) => stage.id);
+    expect(shapeStageIds).toContain(rcasd!.shape.entryPoint);
+    for (const exitPoint of rcasd!.shape.exitPoints) {
+      expect(shapeStageIds).toContain(exitPoint);
+    }
 
     // 5. Advance through first 3 stages with passing gate results
     const stages = rcasd!.shape.stages;

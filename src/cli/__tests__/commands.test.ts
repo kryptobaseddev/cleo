@@ -17,15 +17,14 @@ describe('registerCommandsCommand', () => {
     expect(cmd!.description()).toContain('List and query');
   });
 
-  it('has --category, --relevance, --workflows, --lookup options', () => {
+  it('has --category, --relevance, --tier options', () => {
     const program = new Command();
     registerCommandsCommand(program);
     const cmd = program.commands.find((c) => c.name() === 'commands')!;
     const optionNames = cmd.options.map((o) => o.long);
     expect(optionNames).toContain('--category');
     expect(optionNames).toContain('--relevance');
-    expect(optionNames).toContain('--workflows');
-    expect(optionNames).toContain('--lookup');
+    expect(optionNames).toContain('--tier');
   });
 
   it('accepts an optional command name argument', () => {

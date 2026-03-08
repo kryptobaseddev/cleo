@@ -61,8 +61,8 @@ export function registerPhaseCommand(program: Command): void {
       await dispatchFromCli(
         'mutate',
         'pipeline',
-        'phase.start',
-        { phaseId: slug },
+        'phase.set',
+        { phaseId: slug, action: 'start' },
         { command: 'phase' },
       );
     });
@@ -75,8 +75,8 @@ export function registerPhaseCommand(program: Command): void {
       await dispatchFromCli(
         'mutate',
         'pipeline',
-        'phase.complete',
-        { phaseId: slug },
+        'phase.set',
+        { phaseId: slug, action: 'complete' },
         { command: 'phase' },
       );
     });

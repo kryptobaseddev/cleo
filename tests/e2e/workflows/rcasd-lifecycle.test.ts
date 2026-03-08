@@ -425,11 +425,23 @@ describe('RCASD-IVTR+C Lifecycle Stage Transitions', () => {
     });
 
     it('should get gate status for all stages', async () => {
-      const result = await dispatchRaw('query', 'pipeline', 'stage.gates', {
-        taskId: 'T5000',
+      // stage.gates was merged into stage.status via include param (T5615)
+      vi.mocked(lifecycleStatus).mockReturnValue({
+        success: true,
+        data: {
+          epicId: 'T5000',
+          currentStage: 'implementation',
+          stages: {},
+          gates: [],
+        },
+      } as any);
+
+      const result = await dispatchRaw('query', 'pipeline', 'stage.status', {
+        epicId: 'T5000',
+        include: 'gates',
       });
 
-      assertResponseEnvelope(result, 'query', 'stage.gates');
+      assertResponseEnvelope(result, 'query', 'stage.status');
       // Mock returns success, actual gates data structure depends on implementation
       expect(result.success).toBe(true);
     });
@@ -441,11 +453,22 @@ describe('RCASD-IVTR+C Lifecycle Stage Transitions', () => {
 
   describe('Cross-Cutting: Contribution Protocol', () => {
     it('should get stage prerequisites', async () => {
-      const result = await dispatchRaw('query', 'pipeline', 'stage.prerequisites', {
+      // stage.prerequisites was merged into stage.validate response (T5615)
+      vi.mocked(lifecycleCheck).mockReturnValue({
+        success: true,
+        data: {
+          canProgress: true,
+          prerequisitesMet: true,
+          requiredStages: ['research', 'consensus', 'architecture_decision', 'specification', 'decomposition'],
+        },
+      } as any);
+
+      const result = await dispatchRaw('query', 'pipeline', 'stage.validate', {
+        epicId: 'T5000',
         targetStage: 'implementation',
       });
 
-      assertResponseEnvelope(result, 'query', 'stage.prerequisites');
+      assertResponseEnvelope(result, 'query', 'stage.validate');
       assertSuccessResponse(result);
     });
 

@@ -40,8 +40,9 @@ export function registerComplianceCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'compliance.violations',
+        'compliance.summary',
         {
+          detail: true,
           severity: opts['severity'],
           since: opts['since'],
           agent: opts['agent'],

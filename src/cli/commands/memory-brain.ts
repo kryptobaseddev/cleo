@@ -128,15 +128,15 @@ export function registerMemoryBrainCommand(program: Command): void {
       }
     });
 
-  // -- stats --
+  // -- stats (delegates to pattern.find + learning.find with empty query) --
   memory
     .command('stats')
     .description('Show BRAIN memory statistics')
     .option('--json', 'Output as JSON')
     .action(async () => {
-      // Fetch both pattern and learning stats via dispatch
-      const pResponse = await dispatchRaw('query', 'memory', 'pattern.stats', {});
-      const lResponse = await dispatchRaw('query', 'memory', 'learning.stats', {});
+      // Fetch both pattern and learning summaries via find with empty query
+      const pResponse = await dispatchRaw('query', 'memory', 'pattern.find', { query: '', limit: 0 });
+      const lResponse = await dispatchRaw('query', 'memory', 'learning.find', { query: '', limit: 0 });
 
       const result: Record<string, unknown> = {};
       if (pResponse.success) result['patterns'] = pResponse.data;

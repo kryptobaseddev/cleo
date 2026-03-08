@@ -40,6 +40,11 @@
           "path": "package.json",
           "strategy": "json",
           "field": "version"
+        },
+        {
+          "path": "server.json",
+          "strategy": "json",
+          "field": "version"
         }
       ]
     }

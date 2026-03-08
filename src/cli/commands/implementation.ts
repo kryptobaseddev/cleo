@@ -25,8 +25,9 @@ export function registerImplementationCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.implementation',
+        'protocol',
         {
+          protocolType: 'implementation',
           mode: 'task',
           taskId,
           strict: opts['strict'] as boolean | undefined,
@@ -43,8 +44,9 @@ export function registerImplementationCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'protocol.implementation',
+        'protocol',
         {
+          protocolType: 'implementation',
           mode: 'manifest',
           manifestFile,
           strict: opts['strict'] as boolean | undefined,

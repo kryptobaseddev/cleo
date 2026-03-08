@@ -20,7 +20,7 @@ export function registerVerifyCommand(program: Command): void {
       await dispatchFromCli(
         'query',
         'check',
-        'gate.verify',
+        'gate.status',
         {
           taskId,
           gate: opts['gate'] as string | undefined,

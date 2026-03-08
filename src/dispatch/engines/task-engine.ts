@@ -326,6 +326,11 @@ export async function taskCreate(
     priority?: string;
     labels?: string[];
     type?: string;
+    phase?: string;
+    size?: string;
+    acceptance?: string[];
+    notes?: string;
+    files?: string[];
   },
 ): Promise<EngineResult<{ task: TaskRecord; duplicate: boolean }>> {
   try {
@@ -339,6 +344,11 @@ export async function taskCreate(
         priority: (params.priority as import('../../types/task.js').TaskPriority) || 'medium',
         labels: params.labels,
         type: (params.type as import('../../types/task.js').TaskType) || undefined,
+        phase: params.phase,
+        size: params.size as import('../../types/task.js').TaskSize | undefined,
+        acceptance: params.acceptance,
+        notes: params.notes,
+        files: params.files,
       },
       projectRoot,
       accessor,
