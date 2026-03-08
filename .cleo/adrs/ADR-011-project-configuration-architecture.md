@@ -4,7 +4,7 @@
 **Status**: accepted
 **Accepted**: 2026-02-23
 **Amends**: ADR-006 (Section 1)
-**Summary**: Documents the three .cleo/ configuration files (config.json, project-context.json, global-config.json), their purposes, ownership, and how project-context.json reaches LLM agents through AGENT-INJECTION.md.
+**Summary**: Documents the three .cleo/ configuration files (config.json, project-context.json, global-config.json), their purposes, ownership, and how project-context.json reaches LLM agents through AGENTS.md @-references (amended: previously through AGENT-INJECTION.md, removed T5152).
 **Keywords**: config, project-context, global-config, llm, agent-injection, configuration
 **Topics**: admin, tools
 
@@ -163,7 +163,7 @@ The schema supports richer fields that `detectProjectType()` does not currently 
 | `src/store/project-detect.ts` | Read (filesystem)        | `detectProjectType()` -- examines filesystem markers                    |
 | `src/core/init.ts`            | Write                    | `initProjectDetect()` -- creates file during `cleo init --detect`       |
 | `src/core/upgrade.ts`         | Read/Write               | 30-day staleness check and refresh during `cleo upgrade`                |
-| Agent instruction files       | Read (via `@` reference) | `@.cleo/project-context.json` in `~/.cleo/templates/AGENT-INJECTION.md` |
+| Agent instruction files       | Read (via `@` reference) | `@.cleo/project-context.json` in AGENTS.md (references `~/.cleo/templates/CLEO-INJECTION.md`) |
 
 **Detection Logic** (from `src/store/project-detect.ts`):
 
@@ -309,24 +309,25 @@ Source tracking is available via `getConfigValue<T>()`, which returns `ResolvedV
 
 ## 7. Injection Chain for `project-context.json`
 
+**AMENDED 2026-03-07**: This section was updated to reflect the removal of `.cleo/templates/AGENT-INJECTION.md` (T5152).
+
 The injection chain delivers `project-context.json` content into LLM agent context windows:
 
 ```
-CLAUDE.md / AGENTS.md / GEMINI.md
+AGENTS.md (project-level)
 │
 ├── <!-- CLEO:START -->
-│   @.cleo/templates/AGENT-INJECTION.md
+│   @~/.cleo/templates/CLEO-INJECTION.md   (global CLEO protocol)
+│   @.cleo/project-context.json            (project-specific context)
 │   <!-- CLEO:END -->
 │
-└── .cleo/templates/AGENT-INJECTION.md      (project-local pointer)
-    │
-    ├── @~/.cleo/templates/CLEO-INJECTION.md  (global CLEO protocol)
-    │
-    └── ~/.cleo/templates/AGENT-INJECTION.md  (global template, line 98):
-        @.cleo/project-context.json           (actual injection point)
+└── ~/.cleo/templates/CLEO-INJECTION.md    (global template, ~600 lines)
+    └── Contains: Protocol stack, operation reference, MCP/CLI guidance
 ```
 
-When an LLM agent loads its instruction file (e.g., CLAUDE.md), the `@` reference chain resolves transitively. The entire JSON content of `project-context.json` is injected verbatim into the agent's context window.
+When an LLM agent loads its instruction file (e.g., AGENTS.md), the `@` references resolve transitively. The entire JSON content of `project-context.json` is injected verbatim into the agent's context window.
+
+**Historical Note**: Prior to T5152, the injection chain used `.cleo/templates/AGENT-INJECTION.md` as an intermediate project-local pointer. This was removed to simplify the chain and reduce token overhead. Current injection uses direct `@`-references in AGENTS.md to both global templates and project context.
 
 Key behaviors:
 
@@ -426,4 +427,70 @@ The `Amended By` header in ADR-006 is updated to include ADR-011.
 - `.cleo/schemas/config.schema.json` -- Config schema (v2.10.0)
 - `.cleo/schemas/project-info.schema.json` -- Project info schema (v1.0.0)
 - `.cleo/schemas/project-context.schema.json` -- Project context schema (v1.0.0)
-- `~/.cleo/templates/AGENT-INJECTION.md` -- Injection template containing `@.cleo/project-context.json`
+- `~/.cleo/templates/CLEO-INJECTION.md` -- Global CLEO injection template (referenced via `@~/.cleo/templates/CLEO-INJECTION.md` in AGENTS.md)
+- `@.cleo/project-context.json` -- Project context injection point (referenced in AGENTS.md)
+
+---
+
+## 13. Amendment: Migration from AGENT-INJECTION.md to CLEO-INJECTION.md
+
+**Amendment Date**: 2026-03-07  
+**Amended By**: This section  
+**Task**: T5152  
+
+### Amendment Summary
+
+This ADR originally documented an injection chain involving `.cleo/templates/AGENT-INJECTION.md` as a project-local pointer file. This file has been removed as part of T5152. The injection chain has been simplified to use direct `@`-references in the project's AGENTS.md (or CLAUDE.md) file.
+
+### Changes Made
+
+#### Section 7: Injection Chain
+
+**Original** (pre-amendment):
+```
+CLAUDE.md / AGENTS.md / GEMINI.md
+│
+├── <!-- CLEO:START -->
+│   @.cleo/templates/AGENT-INJECTION.md
+│   <!-- CLEO:END -->
+│
+└── .cleo/templates/AGENT-INJECTION.md      (project-local pointer)
+    │
+    ├── @~/.cleo/templates/CLEO-INJECTION.md  (global CLEO protocol)
+    │
+    └── ~/.cleo/templates/AGENT-INJECTION.md  (global template, line 98):
+        @.cleo/project-context.json           (actual injection point)
+```
+
+**Updated** (post-amendment):
+```
+AGENTS.md (project-level)
+│
+├── <!-- CLEO:START -->
+│   @~/.cleo/templates/CLEO-INJECTION.md   (global CLEO protocol)
+│   @.cleo/project-context.json            (project-specific context)
+│   <!-- CLEO:END -->
+│
+└── ~/.cleo/templates/CLEO-INJECTION.md    (global template, ~600 lines)
+    └── Contains: Protocol stack, operation reference, MCP/CLI guidance
+```
+
+### Rationale
+
+1. **Simplified Chain**: Removing the intermediate `.cleo/templates/AGENT-INJECTION.md` reduces complexity
+2. **Token Efficiency**: Fewer files to process means lower token overhead
+3. **Consistency**: All projects now use the same `@`-reference pattern in their AGENTS.md
+4. **Maintainability**: Single source of truth for injection content via CLEO-INJECTION.md
+
+### Migration Impact
+
+- **No breaking changes**: Existing `@`-references continue to work
+- **Automatic cleanup**: The `cleo init` command automatically removes deprecated AGENT-INJECTION.md files
+- **Documentation updated**: All references to AGENT-INJECTION.md in documentation have been updated to reflect CLEO-INJECTION.md
+
+### Affected Documentation
+
+The following documentation files were updated as part of this amendment:
+- `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Updated injection evolution section
+- `docs/mintlify/developer/specifications/PRIME-ARCHITECTURE.mdx` - Fixed broken link
+- `.cleo/adrs/ADR-011-project-configuration-architecture.md` - This amendment
