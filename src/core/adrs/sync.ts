@@ -37,10 +37,22 @@ function parseTaskIds(raw: string): string[] {
 /** Collect all ADR .md files recursively (top-level + archive/) */
 function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> {
   const results: Array<{ file: string; relPath: string }> = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+  for (const entry of entries) {
     if (entry.isDirectory()) {
       const sub = join(dir, entry.name);
-      for (const f of readdirSync(sub)) {
+      let subFiles: string[];
+      try {
+        subFiles = readdirSync(sub);
+      } catch {
+        continue;
+      }
+      for (const f of subFiles) {
         if (f.endsWith('.md') && /^ADR-\d+/.test(f)) {
           results.push({ file: f, relPath: `${entry.name}/${f}` });
         }

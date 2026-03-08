@@ -77,6 +77,7 @@ function matchesAny(filePath: string, patterns: string[]): boolean {
  * @task T4883
  */
 function collectCleoFiles(cleoDir: string): string[] {
+  if (!existsSync(cleoDir)) return [];
   const files: string[] = [];
 
   function walk(dir: string): void {
