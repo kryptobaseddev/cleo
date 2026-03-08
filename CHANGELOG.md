@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.3.23] (2026-03-08)
+
+### Features
+- **Add Biome linter/formatter**: Adopt Biome v2.4 for linting and formatting — single-quote, 2-space indent, 100-char line width. All 806 source files formatted. (T5671)
+- **Vitest project segregation**: Split tests into 3 projects (unit, integration, e2e) with `test:unit`, `test:integration`, `test:e2e` scripts. (T5671)
+- **CI sharding + smart matrix**: Split monolithic CI job into 9 parallel jobs with unit test sharding (2 shards). Smart OS matrix runs 3-OS for PRs to main, ubuntu-only otherwise. Path-based job skipping for docs-only changes. (T5671)
+
+### Bug Fixes
+- **Fix noAssignInExpressions**: Replace `while (match = regex)` patterns with `for...of` using `matchAll()`. (T5671)
+- **Fix useIterableCallbackReturn**: Convert `.forEach()` with implicit returns to `for...of` loops. (T5671)
+- **Fix noImplicitAnyLet**: Add explicit types to untyped `let` declarations. (T5671)
+
+---
 ## [2026.3.22] (2026-03-08)
 
 ### Bug Fixes
