@@ -390,9 +390,9 @@ describe('E2E: Error Handling Workflow', () => {
   });
 
   it('should handle context budget warnings', async () => {
-    // Query context usage via the system context command
+    // Query context usage via the admin context command
     const result = await context.executor.execute({
-      domain: 'system',
+      domain: 'admin',
       operation: 'context',
       flags: { json: true },
     });

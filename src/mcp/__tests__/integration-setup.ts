@@ -180,37 +180,47 @@ class CLIExecutor {
       return { command: 'orchestrate', addOperationAsSubcommand: true };
     }
 
-    // Research domain: 'cleo research <operation>'
-    // Note: manifest ops moved to pipeline domain in MCP (T5241),
+    // Pipeline domain (canonical) and research domain (legacy alias)
+    // Manifest ops moved to pipeline domain in MCP (T5241),
     // but CLI 'research' command still maps to the same underlying functions.
-    const researchOps: Record<string, string> = {
-      stats: 'research manifest',
+    const pipelineOps: Record<string, string> = {
+      'manifest.stats': 'research manifest',
       'manifest.append': 'research add',
       'manifest.show': 'research list',
       'manifest.list': 'research list',
       'manifest.archive': 'research archive',
+      'manifest.link': 'research link',
+      'manifest.pending': 'research pending',
     };
-    if (domain === 'research' && researchOps[operation]) {
-      return { command: researchOps[operation], addOperationAsSubcommand: false };
+    if ((domain === 'pipeline' || domain === 'research') && pipelineOps[operation]) {
+      return { command: pipelineOps[operation], addOperationAsSubcommand: false };
     }
     if (domain === 'research') {
       return { command: 'research', addOperationAsSubcommand: true };
     }
+    if (domain === 'pipeline') {
+      return { command: 'pipeline', addOperationAsSubcommand: true };
+    }
 
-    // System domain
-    const systemOps: Record<string, string> = {
+    // Admin domain (canonical) and system domain (legacy alias)
+    const adminOps: Record<string, string> = {
       version: 'version', config: 'config', 'config.show': 'config',
       'config.set': 'config',
       backup: 'backup', cleanup: 'cleanup', health: 'doctor',
       stats: 'stats', context: 'context',
     };
-    if (domain === 'system' && systemOps[operation]) {
-      return { command: systemOps[operation], addOperationAsSubcommand: false };
+    if ((domain === 'admin' || domain === 'system') && adminOps[operation]) {
+      return { command: adminOps[operation], addOperationAsSubcommand: false };
     }
 
-    // Validate domain
-    if (domain === 'validate' && operation === 'compliance') {
-      return { command: 'compliance', addOperationAsSubcommand: false };
+    // Check domain (canonical) and validate domain (legacy alias)
+    const checkOps: Record<string, string> = {
+      schema: 'validate',
+      'compliance.summary': 'compliance',
+      compliance: 'compliance',
+    };
+    if ((domain === 'check' || domain === 'validate') && checkOps[operation]) {
+      return { command: checkOps[operation], addOperationAsSubcommand: false };
     }
     if (domain === 'validate') {
       return { command: 'validate', addOperationAsSubcommand: false };

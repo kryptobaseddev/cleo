@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.3.22] (2026-03-08)
+
+### Bug Fixes
+- **Fix CI test failures from defunct domain references**: Update integration and E2E tests to use canonical domain names after registry consolidation — `system` → `admin`, `validate` → `check`, `research` → `pipeline`, `tasks.exists` → `tasks.show`. Fix `pipelineManifestList` tests to check `filtered` count instead of unfiltered `total`. (T5671)
+
+### Refactoring
+- **Full registry cleanup and canon alignment**: Consolidate dispatch registry operations, remove defunct domains, and align all operations with canonical verb standards. (T5671)
+
+---
 ## [2026.3.20] (2026-03-08)
 
 ### Bug Fixes
