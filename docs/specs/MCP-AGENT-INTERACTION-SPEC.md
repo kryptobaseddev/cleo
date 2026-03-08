@@ -23,13 +23,13 @@ This specification covers:
 - The MCP-first principle and rationale for agent consumers
 - Progressive disclosure levels for agent context injection
 - Entry point delineation between MCP and CLI
-- Agent injection evolution plan (CLEO-INJECTION.md / AGENT-INJECTION.md)
+- Agent injection evolution plan (CLEO-INJECTION.md / AGENTS.md with @-references)
 - Token efficiency analysis
 
 This specification does NOT cover:
 
 - MCP server internals (see `docs/specs/MCP-SERVER-SPECIFICATION.md`)
-- CLI command semantics (see `CLAUDE.md` and AGENT-INJECTION.md)
+- CLI command semantics (see `CLAUDE.md` and CLEO-INJECTION.md referenced via AGENTS.md)
 - Protocol stack or lifecycle gates (see `docs/specs/PROJECT-LIFECYCLE-SPEC.md`)
 
 ## 3. Definitions
@@ -308,24 +308,25 @@ Every MCP operation MUST have a CLI equivalent. Every CLI command SHOULD be acce
 
 ### 8.1 Current State
 
-Two injection files exist:
+Two injection mechanisms exist:
 
-1. **`templates/CLEO-INJECTION.md`** (~600 lines): Global injection loaded via `~/.cleo/templates/CLEO-INJECTION.md`. CLI-first, covers full protocol stack.
-2. **`.cleo/templates/AGENT-INJECTION.md`** (~167 lines): Project-level injection loaded into CLAUDE.md. CLI-first quick reference.
+1. **`~/.cleo/templates/CLEO-INJECTION.md`** (~600 lines): Global injection loaded via `@~/.cleo/templates/CLEO-INJECTION.md`. MCP-first with CLI fallback, covers full protocol stack.
+2. **`AGENTS.md` + `@.cleo/project-context.json`**: Project-level injection pattern where AGENTS.md references project context via `@.cleo/project-context.json`. Quick reference for project-specific guidance.
 
-Both are CLI-first. Neither mentions MCP tools.
+**Note**: Legacy `.cleo/templates/AGENT-INJECTION.md` was removed in T5152. Current injection uses `@`-references to global templates and project-context.json.
 
 ### 8.2 Target State
 
 Both files evolve to MCP-first with CLI as documented fallback:
 
-**AGENT-INJECTION.md** (project-level, ~200 lines):
+**Project-Level Injection** (via AGENTS.md + project-context.json, ~200 lines):
 
 - Section 1: MCP-first quick reference (Tier 0 + Tier 1 content)
 - Section 2: CLI fallback reference (condensed)
 - Section 3: Session protocol (MCP-first with CLI alternative)
 - Section 4: Subagent architecture summary (unchanged)
 - Section 5: Error handling (MCP error objects first, exit codes second)
+- Section 6: Project context via `@.cleo/project-context.json` reference
 
 **CLEO-INJECTION.md** (global, ~600 lines):
 
@@ -347,13 +348,15 @@ Phase 1-3 are documentation changes. Phase 4 requires MCP server implementation.
 
 ## 9. Token Efficiency Analysis
 
-### 9.1 Current Cost (CLI-First Injection)
+### 9.1 Legacy Cost (CLI-First Injection - Pre-Migration)
 
-| Component                          | Tokens (approx) |
-| ---------------------------------- | --------------- |
-| AGENT-INJECTION.md (always loaded) | ~1,200          |
-| CLEO-INJECTION.md (subagent spawn) | ~4,500          |
-| **Total per subagent**             | **~5,700**      |
+> **Note**: This table reflects the historical injection model using `AGENT-INJECTION.md` (removed T5152). Current injection uses `@`-references to `CLEO-INJECTION.md` and `project-context.json`.
+
+| Component                          | Tokens (approx) | Status         |
+| ---------------------------------- | --------------- | -------------- |
+| AGENT-INJECTION.md (always loaded) | ~1,200          | Removed T5152  |
+| CLEO-INJECTION.md (subagent spawn) | ~4,500          | Current        |
+| **Total per subagent**             | **~5,700**      | Legacy         |
 
 ### 9.2 Target Cost (MCP-First with Progressive Disclosure)
 
@@ -446,8 +449,8 @@ Every MCP error code maps to a CLI exit code for equivalence:
 
 The following tasks implement this specification:
 
-1. **Update AGENT-INJECTION.md for MCP-first guidance** - Add MCP quick reference section, reorder content.
-2. **Update CLEO-INJECTION.md for MCP-first guidance** - Add MCP entry section, condense CLI reference.
+1. **Update CLEO-INJECTION.md for MCP-first guidance** - Add MCP entry section, condense CLI reference.
+2. **Update AGENTS.md injection patterns** - Ensure project-level AGENTS.md references use `@.cleo/project-context.json`.
 3. **Implement progressive disclosure in MCP server** - Add `admin.help` operation with level parameter.
 
 ## 13. References
@@ -457,5 +460,5 @@ The following tasks implement this specification:
 - `docs/specs/MCP-SERVER-SPECIFICATION.md` - MCP server internals
 - `src/mcp/engine/capability-matrix.ts` - Native vs CLI routing
 - `templates/CLEO-INJECTION.md` - Current global agent injection
-- `.cleo/templates/AGENT-INJECTION.md` - Current project agent injection
+- `.cleo/project-context.json` - Project-specific context (referenced via `@.cleo/project-context.json` in AGENTS.md)
 - `docs/specs/PROJECT-LIFECYCLE-SPEC.md` - Lifecycle and protocol stack
